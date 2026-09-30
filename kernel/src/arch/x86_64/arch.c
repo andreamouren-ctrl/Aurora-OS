@@ -185,14 +185,15 @@ struct aurora_arch_hardening arch_enable_hardening(void) {
         return result;
     }
 
-    uint32_t ebx;
-    uint32_t ecx;
+    uint32_t ebx = 0;
+    uint32_t ecx = 0;
 
-    __asm__ volatile (
-        "cpuid"
-        : "=b"(ebx), "=c"(ecx)
-        : "a"(7u), "c"(0u)
-        : "rdx"
+    cpuid(
+        7u,
+        NULL,
+        &ebx,
+        &ecx,
+        NULL
     );
 
     uint64_t cr4;
