@@ -26,6 +26,12 @@ static volatile struct limine_memmap_request memmap_request = {
     .revision = 0
 };
 
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_rsdp_request rsdp_request = {
+    .id = LIMINE_RSDP_REQUEST_ID,
+    .revision = 0
+};
+
 __attribute__((used, section(".limine_requests_start")))
 static volatile uint64_t limine_requests_start_marker[] =
     LIMINE_REQUESTS_START_MARKER;
@@ -44,6 +50,17 @@ bool boot_get_hhdm_offset(uint64_t *out_offset) {
     }
 
     *out_offset = hhdm_request.response->offset;
+    return true;
+}
+
+bool boot_get_rsdp(void **out_address) {
+    if (out_address == NULL ||
+        rsdp_request.response == NULL ||
+        rsdp_request.response->address == NULL) {
+        return false;
+    }
+
+    *out_address = rsdp_request.response->address;
     return true;
 }
 
