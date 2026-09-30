@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Initial planning**
-Version: **0.4**
+Version: **0.5**
 
 The roadmap deliberately freezes architecture before expanding implementation.
 
@@ -28,6 +28,7 @@ The roadmap deliberately freezes architecture before expanding implementation.
 - [ ] Define permission manifest schema
 - [ ] Define permission audit/history model
 - [ ] Define driver model
+- [x] Define user-memory copy boundary and supervisor hardening
 - [ ] Define memory manager contracts
 - [ ] Define scheduler classes
 - [ ] Define boot information contract
@@ -56,8 +57,12 @@ The roadmap deliberately freezes architecture before expanding implementation.
 - [x] tickless timer bootstrap (runtime verification pending)
 - [x] SMP bring-up to parked AP state (runtime verification pending)
 - [x] BSP preemptive kernel-thread scheduler prototype (runtime verification pending)
-- [x] x86_64 SYSCALL/SYSRET entry (runtime verification pending)
+- [x] x86_64 SYSCALL/SYSRET entry + EXIT path (runtime verification pending)
 - [x] isolated Ring 3 process prototype with private CR3 (runtime verification pending)
+- [x] per-thread kernel stack + TSS Ring 3 return path (runtime verification pending)
+- [x] Ring 3 fault containment without kernel panic (runtime verification pending)
+- [x] permission-checked usercopy layer (runtime verification pending)
+- [x] x86_64 WP / SMEP / SMAP / UMIP hardening where supported
 - [x] bounded IPC prototype with capability escrow (runtime verification pending)
 - [x] capability prototype with typed rights, revocation and delegation (runtime verification pending)
 
