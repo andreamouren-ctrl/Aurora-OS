@@ -7,6 +7,11 @@
 
 static bool nx_enabled;
 
+#define CR0_WP   (1ull << 16)
+#define CR4_UMIP (1ull << 11)
+#define CR4_SMEP (1ull << 20)
+#define CR4_SMAP (1ull << 21)
+
 static void cpuid(
     uint32_t leaf,
     uint32_t *eax,
@@ -143,6 +148,83 @@ void arch_early_init(void) {
 
 bool arch_nx_enabled(void) {
     return nx_enabled;
+}
+
+struct aurora_arch_hardening arch_enable_hardening(void) {
+    struct aurora_arch_hardening result = { 0 };
+
+    uint64_t cr0;
+
+    __asm__ volatile (
+        "mov %%cr0, %0"
+        : "=r"(cr0)
+    );
+
+    cr0 |= CR0_WP;
+
+    __asm__ volatile (
+        "mov %0, %%cr0"
+        :
+        : "r"(cr0)
+        : "memory"
+    );
+
+    result.write_protect = true;
+
+    uint32_t max_basic = 0;
+
+    cpuid(
+        0,
+        &max_basic,
+        0,
+        0,
+        0
+    );
+
+    if (max_basic < 7) {
+        return result;
+    }
+
+    uint32_t ebx;
+    uint32_t ecx;
+
+    __asm__ volatile (
+        "cpuid"
+        : "=b"(ebx), "=c"(ecx)
+        : "a"(7u), "c"(0u)
+        : "rdx"
+    );
+
+    uint64_t cr4;
+
+    __asm__ volatile (
+        "mov %%cr4, %0"
+        : "=r"(cr4)
+    );
+
+    if ((ebx & (1u << 7)) != 0) {
+        cr4 |= CR4_SMEP;
+        result.smep = true;
+    }
+
+    if ((ebx & (1u << 20)) != 0) {
+        cr4 |= CR4_SMAP;
+        result.smap = true;
+    }
+
+    if ((ecx & (1u << 2)) != 0) {
+        cr4 |= CR4_UMIP;
+        result.umip = true;
+    }
+
+    __asm__ volatile (
+        "mov %0, %%cr4"
+        :
+        : "r"(cr4)
+        : "memory"
+    );
+
+    return result;
 }
 
 void arch_enable_interrupts(void) {
