@@ -10,6 +10,9 @@ dist/
 *.img
 *.bin
 
+# Downloaded dependencies
+third_party/
+
 # Tooling
 .cache/
 .vscode/
