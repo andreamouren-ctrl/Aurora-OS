@@ -10,6 +10,7 @@ on:
 jobs:
   build-x86_64:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -18,19 +19,74 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang lld make xorriso curl git
+          sudo apt-get install -y \
+            clang \
+            lld \
+            make \
+            xorriso \
+            curl \
+            git \
+            qemu-system-x86
 
       - name: Build kernel and ISO
         run: make iso
 
       - name: Inspect kernel
         run: |
-          file build/x86_64/aurora-kernel.elf
-          readelf -h build/x86_64/aurora-kernel.elf
-          readelf -S build/x86_64/aurora-kernel.elf | grep limine_requests
+          set -eu
 
-      - name: Upload ISO
+          KERNEL=build/x86_64/aurora-kernel.elf
+
+          file "$KERNEL"
+          readelf -h "$KERNEL"
+          readelf -S "$KERNEL" | grep limine_requests
+
+          if nm -u "$KERNEL" | grep -q .; then
+            echo "Aurora kernel has unresolved symbols:" >&2
+            nm -u "$KERNEL" >&2
+            exit 1
+          fi
+
+      - name: BIOS smoke boot
+        run: |
+          set -u
+
+          SERIAL_LOG=build/qemu-serial.log
+          rm -f "$SERIAL_LOG"
+
+          set +e
+          timeout 15s qemu-system-x86_64 \
+            -M q35 \
+            -m 512M \
+            -smp 1 \
+            -vga std \
+            -cdrom build/AuroraOS-x86_64.iso \
+            -serial file:"$SERIAL_LOG" \
+            -display none \
+            -no-reboot \
+            -no-shutdown
+
+          STATUS=$?
+          set -e
+
+          # 124 is expected: Aurora intentionally remains alive after boot
+          # and timeout terminates the smoke-test VM.
+          if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ]; then
+            echo "QEMU exited unexpectedly with status $STATUS" >&2
+            exit "$STATUS"
+          fi
+
+          echo "===== Aurora serial log ====="
+          cat "$SERIAL_LOG"
+
+          grep -F \
+            "[kernel] M1 user-space bootstrap reached successfully" \
+            "$SERIAL_LOG"
+
+      - name: Upload ISO and smoke-test log
         uses: actions/upload-artifact@v4
         with:
           name: AuroraOS-x86_64
-          path: build/AuroraOS-x86_64.iso
+          path: |
+            build/AuroraOS-x86_64.iso
+            build/qemu-serial.log
