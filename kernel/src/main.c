@@ -1,9 +1,14 @@
+#include <stdint.h>
+
 #include <aurora/arch.h>
 #include <aurora/boot.h>
 #include <aurora/framebuffer.h>
+#include <aurora/heap.h>
 #include <aurora/log.h>
 #include <aurora/panic.h>
+#include <aurora/pmm.h>
 #include <aurora/version.h>
+#include <aurora/vmm.h>
 
 void kmain(void) {
     arch_early_init();
@@ -12,13 +17,10 @@ void kmain(void) {
     log_line("");
     log_line("Aurora OS kernel");
     log_line("Stage: " AURORA_STAGE);
-    log_line("[boot] early architecture initialization complete");
 
     if (!boot_protocol_supported()) {
         kernel_panic("Unsupported Limine base revision");
     }
-
-    log_line("[boot] boot protocol accepted");
 
     struct aurora_framebuffer framebuffer;
 
@@ -26,12 +28,46 @@ void kmain(void) {
         kernel_panic("No supported 32-bit RGB framebuffer");
     }
 
-    log_line("[gfx] framebuffer acquired");
-
     framebuffer_draw_boot_splash(&framebuffer);
 
-    log_line("[kernel] M0 bootstrap reached successfully");
-    log_line("[kernel] entering idle halt");
+    if (!pmm_init()) {
+        kernel_panic("Physical memory manager initialization failed");
+    }
+
+    struct pmm_stats memory = pmm_get_stats();
+
+    log_write("[pmm] usable pages: ");
+    log_u64(memory.total_pages);
+    log_line("");
+
+    log_write("[pmm] free pages: ");
+    log_u64(memory.free_pages);
+    log_line("");
+
+    if (!vmm_init()) {
+        kernel_panic("Virtual memory manager initialization failed");
+    }
+
+    log_line("[vmm] current x86_64 page tables attached");
+
+    if (!kheap_init()) {
+        kernel_panic("Kernel heap initialization failed");
+    }
+
+    void *probe = kheap_alloc(128, 16);
+
+    if (probe == 0) {
+        kernel_panic("Kernel heap probe allocation failed");
+    }
+
+    ((volatile uint8_t *)probe)[0] = 0xA5;
+    ((volatile uint8_t *)probe)[127] = 0x5A;
+
+    log_write("[heap] probe allocation at ");
+    log_hex64((uint64_t)(uintptr_t)probe);
+    log_line("");
+
+    log_line("[kernel] M1 memory bootstrap reached successfully");
 
     arch_halt();
 }
