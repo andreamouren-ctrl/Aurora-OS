@@ -4,12 +4,22 @@
 
 uint8_t arch_in8(uint16_t port) {
     uint8_t value;
-    __asm__ volatile ("inb %1, %0" : "=a"(value) : "Nd"(port));
+
+    __asm__ volatile (
+        "inb %1, %0"
+        : "=a"(value)
+        : "Nd"(port)
+    );
+
     return value;
 }
 
 void arch_out8(uint16_t port, uint8_t value) {
-    __asm__ volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
+    __asm__ volatile (
+        "outb %0, %1"
+        :
+        : "a"(value), "Nd"(port)
+    );
 }
 
 void arch_serial_init(void) {
@@ -32,6 +42,26 @@ void arch_serial_putc(char c) {
 
 void arch_early_init(void) {
     __asm__ volatile ("cld");
+}
+
+uint64_t arch_read_cr3(void) {
+    uint64_t value;
+
+    __asm__ volatile (
+        "mov %%cr3, %0"
+        : "=r"(value)
+    );
+
+    return value;
+}
+
+void arch_invalidate_page(uint64_t virtual_address) {
+    __asm__ volatile (
+        "invlpg (%0)"
+        :
+        : "r"((uintptr_t)virtual_address)
+        : "memory"
+    );
 }
 
 void arch_halt(void) {
