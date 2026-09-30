@@ -46,6 +46,14 @@ x86_64_syscall_entry:
     movq %rsp, %rdi
     call syscall_dispatch
 
+    /*
+     * Non-zero means the syscall terminated/faulted the current user thread.
+     * The returned pointer is another thread's interrupt frame; restore it
+     * with IRETQ instead of returning through SYSRET.
+     */
+    testq %rax, %rax
+    jnz .Lswitch_frame
+
     movq 0(%rsp), %rax
     movq %rax, syscall_user_rsp_scratch(%rip)
 
@@ -70,6 +78,28 @@ x86_64_syscall_entry:
 
     movq syscall_user_rsp_scratch(%rip), %rsp
     sysretq
+
+.Lswitch_frame:
+    movq %rax, %rsp
+
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
+    popq %r9
+    popq %r8
+    popq %rbp
+    popq %rdi
+    popq %rsi
+    popq %rdx
+    popq %rcx
+    popq %rbx
+    popq %rax
+
+    addq $16, %rsp
+    iretq
 
 .Lfatal:
     cli
