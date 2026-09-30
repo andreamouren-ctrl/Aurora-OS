@@ -5,6 +5,7 @@
 #include <aurora/arch.h>
 #include <aurora/interrupts.h>
 #include <aurora/madt.h>
+#include <aurora/spinlock.h>
 #include <aurora/vmm.h>
 
 #define IA32_APIC_BASE_MSR      0x1Bu
@@ -25,6 +26,9 @@
 #define X2APIC_MSR_BASE         0x800u
 
 #define LAPIC_MMIO_VIRTUAL      0xFFFFFFFFB0000000ull
+
+static aurora_spinlock lapic_init_lock =
+    AURORA_SPINLOCK_INIT;
 
 static enum lapic_mode current_mode;
 static volatile uint8_t *lapic_mmio;
@@ -124,6 +128,78 @@ static void lapic_write(
     }
 }
 
+static bool lapic_prepare_shared(
+    bool local_x2apic
+) {
+    bool ok = true;
+
+    spinlock_lock(
+        &lapic_init_lock
+    );
+
+    if (current_mode ==
+        LAPIC_MODE_NONE) {
+        if (local_x2apic) {
+            current_mode =
+                LAPIC_MODE_X2APIC;
+        } else {
+            uint64_t physical =
+                madt_lapic_address() &
+                ~0xFFFull;
+
+            if (physical == 0) {
+                ok = false;
+            } else {
+                if (!vmm_map_page(
+                        LAPIC_MMIO_VIRTUAL,
+                        physical,
+                        VMM_FLAG_WRITE |
+                        VMM_FLAG_NO_CACHE)) {
+                    uint64_t existing = 0;
+
+                    if (!vmm_translate(
+                            LAPIC_MMIO_VIRTUAL,
+                            &existing) ||
+                        (existing & ~0xFFFull) !=
+                            physical) {
+                        ok = false;
+                    }
+                }
+
+                if (ok) {
+                    lapic_mmio =
+                        (volatile uint8_t *)
+                        (uintptr_t)
+                            LAPIC_MMIO_VIRTUAL;
+
+                    current_mode =
+                        LAPIC_MODE_XAPIC;
+                }
+            }
+        }
+    } else {
+        /*
+         * All logical CPUs must agree on the APIC access mode. Mixing xAPIC
+         * and x2APIC while using one shared kernel APIC backend would make
+         * register accesses ambiguous and unsafe.
+         */
+        enum lapic_mode local_mode =
+            local_x2apic
+                ? LAPIC_MODE_X2APIC
+                : LAPIC_MODE_XAPIC;
+
+        ok =
+            current_mode ==
+            local_mode;
+    }
+
+    spinlock_unlock(
+        &lapic_init_lock
+    );
+
+    return ok;
+}
+
 bool lapic_init(void) {
     uint32_t feature_ecx = 0;
     uint32_t feature_edx = 0;
@@ -148,58 +224,53 @@ bool lapic_init(void) {
     arch_out8(0x21u, 0xFFu);
     arch_out8(0xA1u, 0xFFu);
 
+    /*
+     * IA32_APIC_BASE is per logical CPU. Every CPU must make sure its own
+     * local APIC is enabled, even though the shared access backend below is
+     * initialized only once.
+     */
     uint64_t apic_base =
         rdmsr(IA32_APIC_BASE_MSR);
 
     if ((apic_base & APIC_BASE_ENABLE) == 0) {
         apic_base |= APIC_BASE_ENABLE;
-        wrmsr(IA32_APIC_BASE_MSR, apic_base);
+        wrmsr(
+            IA32_APIC_BASE_MSR,
+            apic_base
+        );
+
+        apic_base =
+            rdmsr(
+                IA32_APIC_BASE_MSR
+            );
     }
 
     bool x2apic_supported =
         (feature_ecx & (1u << 21)) != 0;
 
-    if (x2apic_supported &&
-        (apic_base & APIC_BASE_X2APIC) != 0) {
-        current_mode = LAPIC_MODE_X2APIC;
-    } else {
-        uint64_t physical =
-            madt_lapic_address() & ~0xFFFull;
+    bool local_x2apic =
+        x2apic_supported &&
+        (apic_base &
+         APIC_BASE_X2APIC) != 0;
 
-        if (physical == 0) {
-            return false;
-        }
-
-        if (!vmm_map_page(
-                LAPIC_MMIO_VIRTUAL,
-                physical,
-                VMM_FLAG_WRITE |
-                VMM_FLAG_NO_CACHE)) {
-            uint64_t existing = 0;
-
-            if (!vmm_translate(
-                    LAPIC_MMIO_VIRTUAL,
-                    &existing) ||
-                (existing & ~0xFFFull) != physical) {
-                return false;
-            }
-        }
-
-        lapic_mmio =
-            (volatile uint8_t *)(uintptr_t)
-                LAPIC_MMIO_VIRTUAL;
-
-        current_mode = LAPIC_MODE_XAPIC;
+    if (!lapic_prepare_shared(
+            local_x2apic)) {
+        return false;
     }
 
     lapic_write(LAPIC_REG_TPR, 0);
 
-    uint32_t svr = lapic_read(LAPIC_REG_SVR);
+    uint32_t svr =
+        lapic_read(LAPIC_REG_SVR);
+
     svr &= ~0xFFu;
     svr |= AURORA_VECTOR_SPURIOUS;
     svr |= (1u << 8);
 
-    lapic_write(LAPIC_REG_SVR, svr);
+    lapic_write(
+        LAPIC_REG_SVR,
+        svr
+    );
 
     return true;
 }
