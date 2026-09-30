@@ -22,6 +22,7 @@
 #include <aurora/syscall.h>
 #include <aurora/timer.h>
 #include <aurora/user_probe.h>
+#include <aurora/usercopy.h>
 #include <aurora/version.h>
 #include <aurora/vmm.h>
 
@@ -342,6 +343,32 @@ void kmain(void) {
     if (user_process == NULL) {
         kernel_panic("Could not create Ring 3 probe process");
     }
+
+    uint64_t usercopy_source =
+        0x5543455250524F42ull;
+
+    uint64_t usercopy_result = 0;
+
+    uint64_t usercopy_address =
+        user_process->user_stack_top - 64ull;
+
+    if (!copy_to_user(
+            user_process,
+            usercopy_address,
+            &usercopy_source,
+            sizeof(usercopy_source)) ||
+        !copy_from_user(
+            user_process,
+            &usercopy_result,
+            usercopy_address,
+            sizeof(usercopy_result)) ||
+        usercopy_result != usercopy_source) {
+        kernel_panic(
+            "Permission-checked usercopy self-test failed"
+        );
+    }
+
+    log_line("[usercopy] checked user memory copy passed");
 
     aurora_thread_id user_thread =
         scheduler_create_user_thread(
