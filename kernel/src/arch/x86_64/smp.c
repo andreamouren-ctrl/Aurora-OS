@@ -99,7 +99,11 @@ static void ap_entry(
      * initialized enough to be identified and interrupted later, but remains
      * parked until Aurora has per-CPU scheduler state.
      */
-    arch_halt();
+    arch_enable_interrupts();
+
+    for (;;) {
+        arch_idle();
+    }
 }
 
 bool smp_init(void) {
