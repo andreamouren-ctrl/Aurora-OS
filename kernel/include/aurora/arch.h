@@ -12,4 +12,7 @@ void arch_serial_putc(char c);
 uint8_t arch_in8(uint16_t port);
 void arch_out8(uint16_t port, uint8_t value);
 
+uint64_t arch_read_cr3(void);
+void arch_invalidate_page(uint64_t virtual_address);
+
 #endif
