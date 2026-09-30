@@ -5,7 +5,6 @@
 #include <aurora/gdt.h>
 #include <aurora/heap.h>
 #include <aurora/interrupts.h>
-#include <aurora/log.h>
 #include <aurora/panic.h>
 #include <aurora/process.h>
 #include <aurora/scheduler.h>
@@ -134,18 +133,28 @@ static void thread_trampoline(
 static struct interrupt_frame *build_kernel_frame(
     struct scheduler_thread *thread
 ) {
-    uintptr_t top =
+    uintptr_t stack_top =
         (uintptr_t)
             thread_kernel_stack_top(
                 thread
             );
 
-    top &= ~(uintptr_t)0xFu;
+    stack_top &=
+        ~(uintptr_t)0xFu;
+
+    /*
+     * A freshly started C function must observe the SysV entry alignment:
+     * RSP % 16 == 8. Long-mode IRETQ restores RSP from the hardware frame,
+     * so place the new thread eight bytes below the aligned stack top.
+     */
+    uint64_t initial_rsp =
+        (uint64_t)(
+            stack_top - 8u
+        );
 
     uintptr_t frame_address =
-        top -
-        sizeof(struct interrupt_frame) -
-        8u;
+        stack_top -
+        sizeof(struct interrupt_frame);
 
     struct interrupt_frame *frame =
         (struct interrupt_frame *)
@@ -169,6 +178,12 @@ static struct interrupt_frame *build_kernel_frame(
     frame->rflags =
         0x202ull;
 
+    frame->rsp =
+        initial_rsp;
+
+    frame->ss =
+        AURORA_KERNEL_DATA_SELECTOR;
+
     return frame;
 }
 
@@ -176,18 +191,18 @@ static struct interrupt_frame *build_user_frame(
     struct scheduler_thread *thread,
     struct aurora_process *process
 ) {
-    uintptr_t top =
+    uintptr_t stack_top =
         (uintptr_t)
             thread_kernel_stack_top(
                 thread
             );
 
-    top &= ~(uintptr_t)0xFu;
+    stack_top &=
+        ~(uintptr_t)0xFu;
 
     uintptr_t frame_address =
-        top -
-        sizeof(struct interrupt_frame) -
-        (2u * sizeof(uint64_t));
+        stack_top -
+        sizeof(struct interrupt_frame);
 
     struct interrupt_frame *frame =
         (struct interrupt_frame *)
@@ -195,8 +210,7 @@ static struct interrupt_frame *build_user_frame(
 
     clear_bytes(
         frame,
-        sizeof(*frame) +
-        2u * sizeof(uint64_t)
+        sizeof(*frame)
     );
 
     frame->rip =
@@ -208,16 +222,10 @@ static struct interrupt_frame *build_user_frame(
     frame->rflags =
         0x202ull;
 
-    uint64_t *privilege_tail =
-        (uint64_t *)(
-            (uint8_t *)frame +
-            sizeof(*frame)
-        );
-
-    privilege_tail[0] =
+    frame->rsp =
         process->user_stack_top;
 
-    privilege_tail[1] =
+    frame->ss =
         gdt_user_data_selector();
 
     return frame;
@@ -384,8 +392,6 @@ static void idle_thread(
 static void thread_trampoline(
     struct scheduler_thread *thread
 ) {
-    log_line("[sched-debug] entered thread trampoline");
-
     if (thread != NULL &&
         thread->entry != NULL) {
         thread->entry(
@@ -400,7 +406,6 @@ static void thread_trampoline(
             THREAD_TERMINATED;
     }
 
-    log_line("[sched-debug] kernel thread terminated; waiting for switch");
 
     arch_enable_interrupts();
 
@@ -511,10 +516,6 @@ static struct interrupt_frame *select_after_current_stops(void) {
     struct scheduler_thread *next =
         &threads[next_index];
 
-    log_write("[sched-debug] selecting thread id ");
-    log_u64(next->id);
-    log_line("");
-
     if (next->saved_frame == NULL) {
         kernel_panic(
             "Runnable thread has no saved frame"
@@ -546,8 +547,6 @@ static struct interrupt_frame *select_after_current_stops(void) {
 static struct interrupt_frame *scheduler_on_timer(
     struct interrupt_frame *frame
 ) {
-    log_line("[sched-debug] timer callback entered");
-
     if (!started ||
         current_index >=
             SCHEDULER_MAX_THREADS) {
@@ -685,8 +684,6 @@ bool scheduler_start(void) {
             return false;
         }
     }
-
-    log_line("[sched-debug] scheduler armed; enabling interrupts");
 
     arch_enable_interrupts();
     return true;
