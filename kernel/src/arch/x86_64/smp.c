@@ -6,6 +6,7 @@
 #include <aurora/boot.h>
 #include <aurora/clock.h>
 #include <aurora/interrupts.h>
+#include <aurora/gdt.h>
 #include <aurora/smp.h>
 
 static struct aurora_cpu_runtime cpus[
@@ -26,6 +27,31 @@ static void ap_entry(
         context;
 
     arch_early_init();
+
+    if (cpu == NULL ||
+        !gdt_init_ap(cpu->logical_id)) {
+        if (cpu != NULL) {
+            __atomic_store_n(
+                &cpu->state,
+                AURORA_CPU_FAILED,
+                __ATOMIC_RELEASE
+            );
+        }
+
+        __atomic_fetch_add(
+            &failed_count,
+            1u,
+            __ATOMIC_ACQ_REL
+        );
+
+        __atomic_fetch_add(
+            &response_count,
+            1u,
+            __ATOMIC_ACQ_REL
+        );
+
+        arch_halt();
+    }
 
     interrupts_load_current_cpu();
 
