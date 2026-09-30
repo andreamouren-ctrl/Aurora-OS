@@ -1,4 +1,5 @@
 #include <aurora/arch.h>
+#include <aurora/boot_ui.h>
 #include <aurora/log.h>
 #include <aurora/panic.h>
 
@@ -14,6 +15,10 @@ void kernel_panic(const char *reason) {
 
     log_line("System halted.");
     log_line("========================================");
+
+    if (boot_ui_is_initialized()) {
+        boot_ui_panic(reason);
+    }
 
     arch_halt();
 }
