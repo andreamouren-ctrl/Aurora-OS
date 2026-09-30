@@ -179,6 +179,15 @@ uint64_t arch_read_cr3(void) {
     return value;
 }
 
+void arch_write_cr3(uint64_t physical_address) {
+    __asm__ volatile (
+        "mov %0, %%cr3"
+        :
+        : "r"(physical_address)
+        : "memory"
+    );
+}
+
 uint16_t arch_read_cs(void) {
     uint16_t value;
 
