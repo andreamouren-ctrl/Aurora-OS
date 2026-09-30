@@ -59,7 +59,7 @@ The roadmap deliberately freezes architecture before expanding implementation.
 - [ ] syscall entry
 - [ ] userspace process prototype
 - [ ] IPC prototype
-- [ ] capability prototype
+- [x] capability prototype with typed rights, revocation and delegation (runtime verification pending)
 
 ## M2 — Aurora Memory Fabric prototype
 
