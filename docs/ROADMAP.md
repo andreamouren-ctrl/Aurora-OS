@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Initial planning**
-Version: **0.1**
+Version: **0.2**
 
 The roadmap deliberately freezes architecture before expanding implementation.
 
@@ -23,6 +23,10 @@ The roadmap deliberately freezes architecture before expanding implementation.
 - [ ] Define syscall philosophy
 - [ ] Define IPC model
 - [ ] Define capability model
+- [x] Define Android-style runtime permission philosophy
+- [ ] Define permission broker contract
+- [ ] Define permission manifest schema
+- [ ] Define permission audit/history model
 - [ ] Define driver model
 - [ ] Define memory manager contracts
 - [ ] Define scheduler classes
@@ -102,6 +106,12 @@ The roadmap deliberately freezes architecture before expanding implementation.
 - [ ] application package format
 - [ ] sandbox
 - [ ] capability broker
+- [ ] runtime permission prompts
+- [ ] one-time / while-in-use / persistent grants
+- [ ] scoped file and device grants
+- [ ] central Privacy & Permissions UI
+- [ ] sensitive-resource usage indicators
+- [ ] permission history and revocation
 - [ ] native UI toolkit
 - [ ] application lifecycle
 - [ ] freeze/resume integration
