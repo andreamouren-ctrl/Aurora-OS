@@ -1,6 +1,6 @@
 ARCH ?= x86_64
 
-LIMINE_VERSION := 12.9.1
+LIMINE_VERSION := 12.9.0
 LIMINE_DIR := .cache/limine-$(LIMINE_VERSION)
 BUILD_ROOT := build/$(ARCH)
 KERNEL := $(BUILD_ROOT)/aurora-kernel.elf
