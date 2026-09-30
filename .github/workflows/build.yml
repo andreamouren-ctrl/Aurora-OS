@@ -1,0 +1,35 @@
+name: Aurora OS Bootstrap Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-x86_64:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld make xorriso curl git
+
+      - name: Build kernel and ISO
+        run: make iso
+
+      - name: Inspect kernel
+        run: |
+          file build/x86_64/aurora-kernel.elf
+          readelf -h build/x86_64/aurora-kernel.elf
+          readelf -S build/x86_64/aurora-kernel.elf | grep limine_requests
+
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: AuroraOS-x86_64
+          path: build/AuroraOS-x86_64.iso
