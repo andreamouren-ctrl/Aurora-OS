@@ -14,6 +14,7 @@
 #include <aurora/panic.h>
 #include <aurora/pmm.h>
 #include <aurora/scheduler.h>
+#include <aurora/smp.h>
 #include <aurora/timer.h>
 #include <aurora/version.h>
 #include <aurora/vmm.h>
@@ -140,6 +141,18 @@ void kmain(void) {
         log_u64(clock_tsc_frequency_hz());
         log_line("");
     }
+
+    if (!smp_init()) {
+        kernel_panic("SMP bootstrap initialization failed");
+    }
+
+    log_write("[smp] CPUs reported: ");
+    log_u64(smp_cpu_count());
+    log_line("");
+
+    log_write("[smp] CPUs online: ");
+    log_u64(smp_online_cpu_count());
+    log_line("");
 
     if (!timer_init()) {
         kernel_panic("Tickless timer initialization failed");
