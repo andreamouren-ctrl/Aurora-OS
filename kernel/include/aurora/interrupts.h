@@ -33,7 +33,9 @@ struct interrupt_frame {
     uint64_t rflags;
 };
 
-typedef void (*interrupt_handler_fn)(
+typedef struct interrupt_frame *(
+    *interrupt_handler_fn
+)(
     struct interrupt_frame *frame
 );
 
@@ -44,7 +46,7 @@ bool interrupt_register_handler(
     interrupt_handler_fn handler
 );
 
-void interrupt_dispatch(
+struct interrupt_frame *interrupt_dispatch(
     struct interrupt_frame *frame
 );
 
