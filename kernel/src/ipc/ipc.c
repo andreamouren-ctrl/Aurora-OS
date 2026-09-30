@@ -325,11 +325,16 @@ bool ipc_receive(
 }
 
 bool ipc_self_test(void) {
-    struct aurora_ipc_channel channel;
-    struct aurora_cap_table sender;
-    struct aurora_cap_table receiver;
+    /*
+     * The channel contains two bounded queues plus an escrow capability
+     * table. Keep this bootstrap fixture out of the early boot stack.
+     */
+    static struct aurora_ipc_channel channel;
+    static struct aurora_cap_table sender;
+    static struct aurora_cap_table receiver;
+    static uint64_t dummy_object;
 
-    uint64_t dummy_object = 0x1C0FFEEu;
+    dummy_object = 0x1C0FFEEu;
 
     cap_table_init(&sender);
     cap_table_init(&receiver);
