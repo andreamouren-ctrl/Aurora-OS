@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Initial planning**
-Version: **0.3**
+Version: **0.4**
 
 The roadmap deliberately freezes architecture before expanding implementation.
 
@@ -45,13 +45,17 @@ The roadmap deliberately freezes architecture before expanding implementation.
 
 ## M1 — Kernel foundations
 
+- [x] ACPI / MADT platform discovery (runtime verification pending)
+- [x] Local APIC + I/O APIC bootstrap (runtime verification pending)
+- [x] HPET / invariant-TSC monotonic clock bootstrap (runtime verification pending)
+
 - [x] bootstrap physical memory manager
 - [x] bootstrap virtual memory manager
 - [x] bootstrap kernel heap
 - [x] x86_64 IDT and CPU exception handlers
-- [ ] timer
-- [ ] SMP bring-up
-- [ ] scheduler prototype
+- [x] tickless timer bootstrap (runtime verification pending)
+- [x] SMP bring-up to parked AP state (runtime verification pending)
+- [x] BSP preemptive kernel-thread scheduler prototype (runtime verification pending)
 - [ ] syscall entry
 - [ ] userspace process prototype
 - [ ] IPC prototype
