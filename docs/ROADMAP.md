@@ -58,7 +58,7 @@ The roadmap deliberately freezes architecture before expanding implementation.
 - [x] BSP preemptive kernel-thread scheduler prototype (runtime verification pending)
 - [ ] syscall entry
 - [ ] userspace process prototype
-- [ ] IPC prototype
+- [x] bounded IPC prototype with capability escrow (runtime verification pending)
 - [x] capability prototype with typed rights, revocation and delegation (runtime verification pending)
 
 ## M2 — Aurora Memory Fabric prototype
