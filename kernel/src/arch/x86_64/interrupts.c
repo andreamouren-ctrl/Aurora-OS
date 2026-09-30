@@ -135,7 +135,7 @@ bool interrupt_register_handler(
     return true;
 }
 
-void interrupt_dispatch(
+struct interrupt_frame *interrupt_dispatch(
     struct interrupt_frame *frame
 ) {
     if (frame == NULL) {
@@ -145,7 +145,7 @@ void interrupt_dispatch(
     uint64_t vector = frame->vector;
 
     if (vector == AURORA_VECTOR_SPURIOUS) {
-        return;
+        return frame;
     }
 
     if (vector >= 32 && vector < 256) {
@@ -153,8 +153,16 @@ void interrupt_dispatch(
             handlers[vector];
 
         if (handler != NULL) {
-            handler(frame);
-            return;
+            struct interrupt_frame *next =
+                handler(frame);
+
+            if (next == NULL) {
+                kernel_panic(
+                    "Interrupt handler returned null CPU frame"
+                );
+            }
+
+            return next;
         }
     }
 
