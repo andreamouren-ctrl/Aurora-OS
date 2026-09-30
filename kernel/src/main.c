@@ -13,9 +13,12 @@
 #include <aurora/madt.h>
 #include <aurora/panic.h>
 #include <aurora/pmm.h>
+#include <aurora/scheduler.h>
 #include <aurora/timer.h>
 #include <aurora/version.h>
 #include <aurora/vmm.h>
+
+static volatile uint64_t scheduler_probe_value;
 
 static const char *lapic_mode_name(void) {
     switch (lapic_current_mode()) {
@@ -27,6 +30,18 @@ static const char *lapic_mode_name(void) {
 
         default:
             return "none";
+    }
+}
+
+static void scheduler_probe_thread(
+    void *argument
+) {
+    volatile uint64_t *value =
+        argument;
+
+    if (value != 0) {
+        *value =
+            0x4155524F52414F53ull;
     }
 }
 
@@ -175,16 +190,76 @@ void kmain(void) {
     log_hex64((uint64_t)(uintptr_t)probe);
     log_line("");
 
-    uint64_t clock_probe_start = clock_now_ns();
+    uint64_t clock_probe_start =
+        clock_now_ns();
+
     clock_busy_wait_ns(1000000ull);
-    uint64_t clock_probe_end = clock_now_ns();
+
+    uint64_t clock_probe_end =
+        clock_now_ns();
 
     if (clock_probe_end <= clock_probe_start) {
         kernel_panic("Monotonic clock probe failed");
     }
 
     log_line("[clock] 1 ms monotonic probe passed");
-    log_line("[kernel] M1 platform bootstrap reached successfully");
 
-    arch_halt();
+    if (!scheduler_init()) {
+        kernel_panic("Scheduler initialization failed");
+    }
+
+    scheduler_probe_value = 0;
+
+    aurora_thread_id probe_thread =
+        scheduler_create_kernel_thread(
+            "scheduler-probe",
+            scheduler_probe_thread,
+            (void *)&scheduler_probe_value
+        );
+
+    if (probe_thread == 0) {
+        kernel_panic(
+            "Could not create scheduler probe thread"
+        );
+    }
+
+    if (!scheduler_start()) {
+        kernel_panic("Could not start scheduler");
+    }
+
+    uint64_t scheduler_deadline =
+        clock_now_ns() + 250000000ull;
+
+    while (!scheduler_thread_finished(
+                probe_thread) &&
+           clock_now_ns() <
+                scheduler_deadline) {
+        arch_idle();
+    }
+
+    if (!scheduler_thread_finished(
+            probe_thread) ||
+        scheduler_probe_value !=
+            0x4155524F52414F53ull) {
+        kernel_panic(
+            "Preemptive scheduler probe failed"
+        );
+    }
+
+    log_write("[sched] context switches: ");
+    log_u64(
+        scheduler_context_switch_count()
+    );
+    log_line("");
+
+    log_line("[sched] preemptive kernel thread probe passed");
+    log_line("[kernel] M1 scheduler bootstrap reached successfully");
+
+    /*
+     * Aurora is now interrupt-driven. Keep the bootstrap thread quiescent
+     * instead of burning CPU in a spin loop.
+     */
+    for (;;) {
+        arch_idle();
+    }
 }
