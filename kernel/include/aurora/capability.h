@@ -104,4 +104,6 @@ aurora_cap_handle cap_delegate(
     uint64_t delegated_rights
 );
 
+bool capability_self_test(void);
+
 #endif
