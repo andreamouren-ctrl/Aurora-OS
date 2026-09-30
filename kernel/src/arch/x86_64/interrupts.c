@@ -22,9 +22,11 @@ struct idt_descriptor {
 } __attribute__((packed));
 
 extern void *isr_stub_table[32];
+extern void isr_stub_timer(void);
 extern void isr_stub_spurious(void);
 
 static struct idt_entry idt[256];
+static interrupt_handler_fn handlers[256];
 
 static const char *const exception_names[32] = {
     "Divide Error",
@@ -69,28 +71,19 @@ static void idt_set_gate(
 ) {
     uint64_t address = (uint64_t)(uintptr_t)handler;
 
-    idt[vector].offset_low =
-        (uint16_t)address;
-
+    idt[vector].offset_low = (uint16_t)address;
     idt[vector].selector = selector;
     idt[vector].ist = 0;
     idt[vector].attributes = attributes;
-
-    idt[vector].offset_middle =
-        (uint16_t)(address >> 16);
-
-    idt[vector].offset_high =
-        (uint32_t)(address >> 32);
-
+    idt[vector].offset_middle = (uint16_t)(address >> 16);
+    idt[vector].offset_high = (uint32_t)(address >> 32);
     idt[vector].reserved = 0;
 }
 
 bool interrupts_init(void) {
     uint16_t code_selector = arch_read_cs();
 
-    for (uint16_t vector = 0;
-         vector < 32;
-         ++vector) {
+    for (uint16_t vector = 0; vector < 32; ++vector) {
         idt_set_gate(
             (uint8_t)vector,
             isr_stub_table[vector],
@@ -98,6 +91,13 @@ bool interrupts_init(void) {
             0x8E
         );
     }
+
+    idt_set_gate(
+        AURORA_VECTOR_TIMER,
+        isr_stub_timer,
+        code_selector,
+        0x8E
+    );
 
     idt_set_gate(
         AURORA_VECTOR_SPURIOUS,
@@ -121,11 +121,25 @@ bool interrupts_init(void) {
     return true;
 }
 
+bool interrupt_register_handler(
+    uint8_t vector,
+    interrupt_handler_fn handler
+) {
+    if (vector < 32 ||
+        vector == AURORA_VECTOR_SPURIOUS ||
+        handler == NULL) {
+        return false;
+    }
+
+    handlers[vector] = handler;
+    return true;
+}
+
 void interrupt_dispatch(
     struct interrupt_frame *frame
 ) {
     if (frame == NULL) {
-        kernel_panic("Null CPU exception frame");
+        kernel_panic("Null interrupt frame");
     }
 
     uint64_t vector = frame->vector;
@@ -134,8 +148,18 @@ void interrupt_dispatch(
         return;
     }
 
+    if (vector >= 32 && vector < 256) {
+        interrupt_handler_fn handler =
+            handlers[vector];
+
+        if (handler != NULL) {
+            handler(frame);
+            return;
+        }
+    }
+
     log_line("");
-    log_line("--- Aurora CPU exception ---");
+    log_line("--- Aurora interrupt/exception ---");
 
     log_write("Vector: ");
     log_u64(vector);
