@@ -16,6 +16,15 @@ struct vmm_address_space {
     uint64_t root_physical;
 };
 
+struct vmm_mapping_info {
+    uint64_t physical_address;
+    uint64_t flags;
+    uint64_t page_size;
+
+    bool accessed;
+    bool dirty;
+};
+
 bool vmm_init(void);
 
 struct vmm_address_space *vmm_kernel_space(void);
@@ -45,6 +54,12 @@ bool vmm_translate_in(
     const struct vmm_address_space *space,
     uint64_t virtual_address,
     uint64_t *out_physical_address
+);
+
+bool vmm_query_in(
+    const struct vmm_address_space *space,
+    uint64_t virtual_address,
+    struct vmm_mapping_info *out
 );
 
 bool vmm_map_page(
