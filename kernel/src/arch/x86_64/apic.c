@@ -2,22 +2,29 @@
 #include <stdint.h>
 
 #include <aurora/apic.h>
+#include <aurora/arch.h>
 #include <aurora/interrupts.h>
 #include <aurora/madt.h>
 #include <aurora/vmm.h>
 
-#define IA32_APIC_BASE_MSR 0x1Bu
-#define APIC_BASE_ENABLE   (1ull << 11)
-#define APIC_BASE_X2APIC   (1ull << 10)
+#define IA32_APIC_BASE_MSR      0x1Bu
+#define IA32_TSC_DEADLINE_MSR   0x6E0u
 
-#define LAPIC_REG_ID       0x020u
-#define LAPIC_REG_TPR      0x080u
-#define LAPIC_REG_EOI      0x0B0u
-#define LAPIC_REG_SVR      0x0F0u
+#define APIC_BASE_ENABLE        (1ull << 11)
+#define APIC_BASE_X2APIC        (1ull << 10)
 
-#define X2APIC_MSR_BASE    0x800u
+#define LAPIC_REG_ID            0x020u
+#define LAPIC_REG_TPR           0x080u
+#define LAPIC_REG_EOI           0x0B0u
+#define LAPIC_REG_SVR           0x0F0u
+#define LAPIC_REG_LVT_TIMER     0x320u
+#define LAPIC_REG_INITIAL_COUNT 0x380u
+#define LAPIC_REG_CURRENT_COUNT 0x390u
+#define LAPIC_REG_DIVIDE        0x3E0u
 
-#define LAPIC_MMIO_VIRTUAL 0xFFFFFFFFB0000000ull
+#define X2APIC_MSR_BASE         0x800u
+
+#define LAPIC_MMIO_VIRTUAL      0xFFFFFFFFB0000000ull
 
 static enum lapic_mode current_mode;
 static volatile uint8_t *lapic_mmio;
@@ -134,6 +141,13 @@ bool lapic_init(void) {
         return false;
     }
 
+    /*
+     * Aurora does not use the legacy 8259 PIC as its primary controller.
+     * Mask both chips before IF is ever enabled.
+     */
+    arch_out8(0x21u, 0xFFu);
+    arch_out8(0xA1u, 0xFFu);
+
     uint64_t apic_base =
         rdmsr(IA32_APIC_BASE_MSR);
 
@@ -206,4 +220,79 @@ uint32_t lapic_id(void) {
 
 void lapic_eoi(void) {
     lapic_write(LAPIC_REG_EOI, 0);
+}
+
+bool lapic_timer_tsc_deadline_supported(void) {
+    uint32_t ecx = 0;
+
+    cpuid(
+        1,
+        0,
+        NULL,
+        NULL,
+        &ecx,
+        NULL
+    );
+
+    return (ecx & (1u << 24)) != 0;
+}
+
+void lapic_timer_configure_tsc_deadline(
+    uint8_t vector
+) {
+    uint32_t value =
+        (uint32_t)vector |
+        (2u << 17);
+
+    lapic_write(
+        LAPIC_REG_LVT_TIMER,
+        value
+    );
+}
+
+void lapic_timer_set_tsc_deadline(
+    uint64_t deadline
+) {
+    wrmsr(
+        IA32_TSC_DEADLINE_MSR,
+        deadline
+    );
+}
+
+void lapic_timer_configure_oneshot(
+    uint8_t vector,
+    bool masked,
+    uint32_t divide_configuration
+) {
+    lapic_write(
+        LAPIC_REG_DIVIDE,
+        divide_configuration & 0x0Bu
+    );
+
+    uint32_t value =
+        (uint32_t)vector;
+
+    if (masked) {
+        value |= (1u << 16);
+    }
+
+    lapic_write(
+        LAPIC_REG_LVT_TIMER,
+        value
+    );
+}
+
+void lapic_timer_set_initial_count(
+    uint32_t count
+) {
+    lapic_write(
+        LAPIC_REG_INITIAL_COUNT,
+        count
+    );
+}
+
+uint32_t lapic_timer_current_count(void) {
+    return lapic_read(
+        LAPIC_REG_CURRENT_COUNT
+    );
 }
