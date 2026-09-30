@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define AURORA_VECTOR_TIMER    0x40u
 #define AURORA_VECTOR_SPURIOUS 0xFFu
 
 struct interrupt_frame {
@@ -32,7 +33,16 @@ struct interrupt_frame {
     uint64_t rflags;
 };
 
+typedef void (*interrupt_handler_fn)(
+    struct interrupt_frame *frame
+);
+
 bool interrupts_init(void);
+
+bool interrupt_register_handler(
+    uint8_t vector,
+    interrupt_handler_fn handler
+);
 
 void interrupt_dispatch(
     struct interrupt_frame *frame
