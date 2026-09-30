@@ -5,6 +5,8 @@
 #include <aurora/interrupts.h>
 #include <aurora/log.h>
 #include <aurora/panic.h>
+#include <aurora/process.h>
+#include <aurora/scheduler.h>
 
 struct idt_entry {
     uint16_t offset_low;
@@ -127,6 +129,19 @@ struct interrupt_frame *interrupt_dispatch(
 
     if (vector == AURORA_VECTOR_SPURIOUS) {
         return frame;
+    }
+
+    if (vector < 32 &&
+        (frame->cs & 0x3u) == 0x3u) {
+        struct aurora_process *process =
+            scheduler_current_process();
+
+        process_mark_faulted(
+            process,
+            vector
+        );
+
+        return scheduler_terminate_current();
     }
 
     if (vector >= 32 && vector < 256) {
