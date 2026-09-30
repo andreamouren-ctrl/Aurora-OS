@@ -196,19 +196,24 @@ static uint64_t dispatch_cap_check(
     ) ? 1ull : 0ull;
 }
 
-void syscall_dispatch(
+struct interrupt_frame *syscall_dispatch(
     struct syscall_frame *frame
 ) {
-    if (!user_return_state_valid(frame)) {
-        for (;;) {
-            __asm__ volatile (
-                "cli; hlt"
-            );
-        }
-    }
-
     struct aurora_process *process =
         scheduler_current_process();
+
+    if (process == NULL) {
+        return scheduler_terminate_current();
+    }
+
+    if (!user_return_state_valid(frame)) {
+        process_mark_faulted(
+            process,
+            UINT64_MAX
+        );
+
+        return scheduler_terminate_current();
+    }
 
     uint64_t number =
         frame->rax;
@@ -238,6 +243,14 @@ void syscall_dispatch(
                 );
             break;
 
+        case AURORA_SYS_EXIT:
+            process_mark_exited(
+                process,
+                (int64_t)frame->rdi
+            );
+
+            return scheduler_terminate_current();
+
         default:
             frame->rax =
                 (uint64_t)-1;
@@ -256,4 +269,6 @@ void syscall_dispatch(
 
     frame->user_rflags |=
         0x202ull;
+
+    return NULL;
 }
