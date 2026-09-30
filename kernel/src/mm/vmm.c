@@ -9,6 +9,8 @@
 #define PTE_WRITE     (1ull << 1)
 #define PTE_USER      (1ull << 2)
 #define PTE_PCD       (1ull << 4)
+#define PTE_ACCESSED  (1ull << 5)
+#define PTE_DIRTY     (1ull << 6)
 #define PTE_HUGE      (1ull << 7)
 #define PTE_GLOBAL    (1ull << 8)
 #define PTE_NX        (1ull << 63)
@@ -414,4 +416,143 @@ bool vmm_translate(
         virtual_address,
         out_physical_address
     );
+}
+
+
+static uint64_t decode_mapping_flags(
+    uint64_t entry
+) {
+    uint64_t flags = 0;
+
+    if ((entry & PTE_WRITE) != 0) {
+        flags |= VMM_FLAG_WRITE;
+    }
+
+    if ((entry & PTE_USER) != 0) {
+        flags |= VMM_FLAG_USER;
+    }
+
+    if ((entry & PTE_GLOBAL) != 0) {
+        flags |= VMM_FLAG_GLOBAL;
+    }
+
+    if ((entry & PTE_PCD) != 0) {
+        flags |= VMM_FLAG_NO_CACHE;
+    }
+
+    if (!arch_nx_enabled() ||
+        (entry & PTE_NX) == 0) {
+        flags |= VMM_FLAG_EXECUTE;
+    }
+
+    return flags;
+}
+
+bool vmm_query_in(
+    const struct vmm_address_space *space,
+    uint64_t virtual_address,
+    struct vmm_mapping_info *out
+) {
+    if (!valid_space(space) ||
+        out == NULL) {
+        return false;
+    }
+
+    unsigned indices[4] = {
+        (unsigned)((virtual_address >> 39) & 0x1FFu),
+        (unsigned)((virtual_address >> 30) & 0x1FFu),
+        (unsigned)((virtual_address >> 21) & 0x1FFu),
+        (unsigned)((virtual_address >> 12) & 0x1FFu)
+    };
+
+    uint64_t table_physical =
+        space->root_physical;
+
+    for (unsigned level = 0;
+         level < 4;
+         ++level) {
+        uint64_t *table =
+            table_pointer(
+                table_physical
+            );
+
+        uint64_t entry =
+            table[indices[level]];
+
+        if ((entry & PTE_PRESENT) == 0) {
+            return false;
+        }
+
+        if (level == 1 &&
+            (entry & PTE_HUGE) != 0) {
+            out->physical_address =
+                (entry &
+                 0x000FFFFFC0000000ull) |
+                (virtual_address &
+                 0x3FFFFFFFull);
+
+            out->page_size =
+                0x40000000ull;
+
+            out->flags =
+                decode_mapping_flags(entry);
+
+            out->accessed =
+                (entry & PTE_ACCESSED) != 0;
+
+            out->dirty =
+                (entry & PTE_DIRTY) != 0;
+
+            return true;
+        }
+
+        if (level == 2 &&
+            (entry & PTE_HUGE) != 0) {
+            out->physical_address =
+                (entry &
+                 0x000FFFFFFFE00000ull) |
+                (virtual_address &
+                 0x1FFFFFull);
+
+            out->page_size =
+                0x200000ull;
+
+            out->flags =
+                decode_mapping_flags(entry);
+
+            out->accessed =
+                (entry & PTE_ACCESSED) != 0;
+
+            out->dirty =
+                (entry & PTE_DIRTY) != 0;
+
+            return true;
+        }
+
+        if (level == 3) {
+            out->physical_address =
+                (entry & PTE_ADDR_MASK) |
+                (virtual_address &
+                 0xFFFull);
+
+            out->page_size =
+                AURORA_PAGE_SIZE;
+
+            out->flags =
+                decode_mapping_flags(entry);
+
+            out->accessed =
+                (entry & PTE_ACCESSED) != 0;
+
+            out->dirty =
+                (entry & PTE_DIRTY) != 0;
+
+            return true;
+        }
+
+        table_physical =
+            entry & PTE_ADDR_MASK;
+    }
+
+    return false;
 }
