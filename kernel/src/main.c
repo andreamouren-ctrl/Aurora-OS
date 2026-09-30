@@ -10,6 +10,7 @@
 #include <aurora/heap.h>
 #include <aurora/interrupts.h>
 #include <aurora/ioapic.h>
+#include <aurora/ipc.h>
 #include <aurora/log.h>
 #include <aurora/madt.h>
 #include <aurora/panic.h>
@@ -223,6 +224,12 @@ void kmain(void) {
     }
 
     log_line("[cap] typed capability self-test passed");
+
+    if (!ipc_self_test()) {
+        kernel_panic("IPC capability-transfer self-test failed");
+    }
+
+    log_line("[ipc] bounded capability-transfer self-test passed");
 
     if (!scheduler_init()) {
         kernel_panic("Scheduler initialization failed");
