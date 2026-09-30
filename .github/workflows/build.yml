@@ -53,7 +53,8 @@ jobs:
           set -u
 
           SERIAL_LOG=build/qemu-serial.log
-          rm -f "$SERIAL_LOG"
+          DEBUG_LOG=build/qemu-debug.log
+          rm -f "$SERIAL_LOG" "$DEBUG_LOG"
 
           set +e
           timeout 15s qemu-system-x86_64 \
@@ -63,6 +64,8 @@ jobs:
             -vga std \
             -cdrom build/AuroraOS-x86_64.iso \
             -serial file:"$SERIAL_LOG" \
+            -d int,cpu_reset \
+            -D "$DEBUG_LOG" \
             -display none \
             -no-reboot \
             -no-shutdown
@@ -80,14 +83,20 @@ jobs:
           echo "===== Aurora serial log ====="
           cat "$SERIAL_LOG"
 
-          grep -F \
+          if ! grep -F \
             "[kernel] M1 user-space bootstrap reached successfully" \
-            "$SERIAL_LOG"
+            "$SERIAL_LOG"; then
+            echo "===== QEMU interrupt/reset trace (tail) =====" >&2
+            tail -n 200 "$DEBUG_LOG" >&2 || true
+            exit 1
+          fi
 
-      - name: Upload ISO and smoke-test log
+      - name: Upload ISO and smoke-test logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: AuroraOS-x86_64
           path: |
             build/AuroraOS-x86_64.iso
             build/qemu-serial.log
+            build/qemu-debug.log
