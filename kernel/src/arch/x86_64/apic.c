@@ -1,0 +1,209 @@
+#include <stddef.h>
+#include <stdint.h>
+
+#include <aurora/apic.h>
+#include <aurora/interrupts.h>
+#include <aurora/madt.h>
+#include <aurora/vmm.h>
+
+#define IA32_APIC_BASE_MSR 0x1Bu
+#define APIC_BASE_ENABLE   (1ull << 11)
+#define APIC_BASE_X2APIC   (1ull << 10)
+
+#define LAPIC_REG_ID       0x020u
+#define LAPIC_REG_TPR      0x080u
+#define LAPIC_REG_EOI      0x0B0u
+#define LAPIC_REG_SVR      0x0F0u
+
+#define X2APIC_MSR_BASE    0x800u
+
+#define LAPIC_MMIO_VIRTUAL 0xFFFFFFFFB0000000ull
+
+static enum lapic_mode current_mode;
+static volatile uint8_t *lapic_mmio;
+
+static void cpuid(
+    uint32_t leaf,
+    uint32_t subleaf,
+    uint32_t *eax,
+    uint32_t *ebx,
+    uint32_t *ecx,
+    uint32_t *edx
+) {
+    uint32_t a;
+    uint32_t b;
+    uint32_t c;
+    uint32_t d;
+
+    __asm__ volatile (
+        "cpuid"
+        : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
+        : "a"(leaf), "c"(subleaf)
+    );
+
+    if (eax != NULL) *eax = a;
+    if (ebx != NULL) *ebx = b;
+    if (ecx != NULL) *ecx = c;
+    if (edx != NULL) *edx = d;
+}
+
+static uint64_t rdmsr(uint32_t msr) {
+    uint32_t low;
+    uint32_t high;
+
+    __asm__ volatile (
+        "rdmsr"
+        : "=a"(low), "=d"(high)
+        : "c"(msr)
+    );
+
+    return ((uint64_t)high << 32) | low;
+}
+
+static void wrmsr(
+    uint32_t msr,
+    uint64_t value
+) {
+    __asm__ volatile (
+        "wrmsr"
+        :
+        : "c"(msr),
+          "a"((uint32_t)value),
+          "d"((uint32_t)(value >> 32))
+    );
+}
+
+static uint32_t x2apic_msr_for_offset(uint32_t offset) {
+    return X2APIC_MSR_BASE + (offset >> 4);
+}
+
+static uint32_t lapic_read(uint32_t offset) {
+    if (current_mode == LAPIC_MODE_X2APIC) {
+        return (uint32_t)rdmsr(
+            x2apic_msr_for_offset(offset)
+        );
+    }
+
+    if (current_mode == LAPIC_MODE_XAPIC &&
+        lapic_mmio != NULL) {
+        volatile uint32_t *reg =
+            (volatile uint32_t *)(lapic_mmio + offset);
+
+        return *reg;
+    }
+
+    return 0;
+}
+
+static void lapic_write(
+    uint32_t offset,
+    uint32_t value
+) {
+    if (current_mode == LAPIC_MODE_X2APIC) {
+        wrmsr(
+            x2apic_msr_for_offset(offset),
+            value
+        );
+        return;
+    }
+
+    if (current_mode == LAPIC_MODE_XAPIC &&
+        lapic_mmio != NULL) {
+        volatile uint32_t *reg =
+            (volatile uint32_t *)(lapic_mmio + offset);
+
+        *reg = value;
+        (void)lapic_read(LAPIC_REG_ID);
+    }
+}
+
+bool lapic_init(void) {
+    uint32_t feature_ecx = 0;
+    uint32_t feature_edx = 0;
+
+    cpuid(
+        1,
+        0,
+        NULL,
+        NULL,
+        &feature_ecx,
+        &feature_edx
+    );
+
+    if ((feature_edx & (1u << 9)) == 0) {
+        return false;
+    }
+
+    uint64_t apic_base =
+        rdmsr(IA32_APIC_BASE_MSR);
+
+    if ((apic_base & APIC_BASE_ENABLE) == 0) {
+        apic_base |= APIC_BASE_ENABLE;
+        wrmsr(IA32_APIC_BASE_MSR, apic_base);
+    }
+
+    bool x2apic_supported =
+        (feature_ecx & (1u << 21)) != 0;
+
+    if (x2apic_supported &&
+        (apic_base & APIC_BASE_X2APIC) != 0) {
+        current_mode = LAPIC_MODE_X2APIC;
+    } else {
+        uint64_t physical =
+            madt_lapic_address() & ~0xFFFull;
+
+        if (physical == 0) {
+            return false;
+        }
+
+        if (!vmm_map_page(
+                LAPIC_MMIO_VIRTUAL,
+                physical,
+                VMM_FLAG_WRITE |
+                VMM_FLAG_NO_CACHE)) {
+            uint64_t existing = 0;
+
+            if (!vmm_translate(
+                    LAPIC_MMIO_VIRTUAL,
+                    &existing) ||
+                (existing & ~0xFFFull) != physical) {
+                return false;
+            }
+        }
+
+        lapic_mmio =
+            (volatile uint8_t *)(uintptr_t)
+                LAPIC_MMIO_VIRTUAL;
+
+        current_mode = LAPIC_MODE_XAPIC;
+    }
+
+    lapic_write(LAPIC_REG_TPR, 0);
+
+    uint32_t svr = lapic_read(LAPIC_REG_SVR);
+    svr &= ~0xFFu;
+    svr |= AURORA_VECTOR_SPURIOUS;
+    svr |= (1u << 8);
+
+    lapic_write(LAPIC_REG_SVR, svr);
+
+    return true;
+}
+
+enum lapic_mode lapic_current_mode(void) {
+    return current_mode;
+}
+
+uint32_t lapic_id(void) {
+    uint32_t value = lapic_read(LAPIC_REG_ID);
+
+    if (current_mode == LAPIC_MODE_X2APIC) {
+        return value;
+    }
+
+    return value >> 24;
+}
+
+void lapic_eoi(void) {
+    lapic_write(LAPIC_REG_EOI, 0);
+}
