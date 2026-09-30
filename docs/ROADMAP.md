@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Initial planning**
-Version: **0.5**
+Version: **0.6**
 
 The roadmap deliberately freezes architecture before expanding implementation.
 
@@ -35,6 +35,10 @@ The roadmap deliberately freezes architecture before expanding implementation.
 - [ ] Define logging and panic contracts
 
 ### M0.2 — First verified boot
+
+- [x] Native framebuffer boot UI with real subsystem progress
+- [x] Poetic staged boot messages
+- [x] Visible framebuffer panic screen
 - [x] Build freestanding x86_64 kernel (compile/link verified)
 - [ ] Boot under UEFI in QEMU
 - [ ] Boot under BIOS where supported
