@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <aurora/interrupts.h>
+
 struct aurora_process;
 
 typedef uint32_t aurora_thread_id;
@@ -34,6 +36,8 @@ bool scheduler_thread_finished(
 aurora_thread_id scheduler_current_thread_id(void);
 
 struct aurora_process *scheduler_current_process(void);
+
+struct interrupt_frame *scheduler_terminate_current(void);
 
 uint64_t scheduler_context_switch_count(void);
 
