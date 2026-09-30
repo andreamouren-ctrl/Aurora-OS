@@ -7,6 +7,15 @@
 void arch_early_init(void);
 bool arch_nx_enabled(void);
 
+struct aurora_arch_hardening {
+    bool write_protect;
+    bool smep;
+    bool smap;
+    bool umip;
+};
+
+struct aurora_arch_hardening arch_enable_hardening(void);
+
 void arch_enable_interrupts(void);
 void arch_disable_interrupts(void);
 void arch_idle(void);
