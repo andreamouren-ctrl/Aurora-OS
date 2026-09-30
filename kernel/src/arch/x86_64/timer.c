@@ -1,0 +1,231 @@
+#include <stddef.h>
+#include <stdint.h>
+
+#include <aurora/apic.h>
+#include <aurora/clock.h>
+#include <aurora/interrupts.h>
+#include <aurora/timer.h>
+
+#define LAPIC_DIVIDE_BY_16 0x3u
+
+static enum aurora_timer_mode active_mode;
+
+static uint64_t lapic_timer_hz;
+static volatile uint64_t interrupt_count;
+static timer_callback_fn callback_fn;
+
+static void timer_interrupt(
+    struct interrupt_frame *frame
+) {
+    (void)frame;
+
+    ++interrupt_count;
+
+    /*
+     * EOI before handing control to a future scheduler callback. This
+     * ensures a context switch cannot strand an in-service Local APIC IRQ.
+     */
+    lapic_eoi();
+
+    if (callback_fn != NULL) {
+        callback_fn();
+    }
+}
+
+static bool calibrate_lapic_oneshot(void) {
+    lapic_timer_configure_oneshot(
+        AURORA_VECTOR_TIMER,
+        true,
+        LAPIC_DIVIDE_BY_16
+    );
+
+    lapic_timer_set_initial_count(
+        0xFFFFFFFFu
+    );
+
+    uint64_t start_ns =
+        clock_now_ns();
+
+    clock_busy_wait_ns(
+        10000000ull
+    );
+
+    uint64_t end_ns =
+        clock_now_ns();
+
+    uint32_t current =
+        lapic_timer_current_count();
+
+    uint64_t elapsed_ns =
+        end_ns - start_ns;
+
+    uint64_t elapsed_ticks =
+        0xFFFFFFFFull -
+        (uint64_t)current;
+
+    if (elapsed_ns == 0 ||
+        elapsed_ticks == 0) {
+        return false;
+    }
+
+    __uint128_t scaled =
+        (__uint128_t)elapsed_ticks *
+        1000000000ull;
+
+    lapic_timer_hz =
+        (uint64_t)(
+            scaled / elapsed_ns
+        );
+
+    if (lapic_timer_hz == 0) {
+        return false;
+    }
+
+    lapic_timer_set_initial_count(0);
+
+    lapic_timer_configure_oneshot(
+        AURORA_VECTOR_TIMER,
+        false,
+        LAPIC_DIVIDE_BY_16
+    );
+
+    return true;
+}
+
+bool timer_init(void) {
+    if (!interrupt_register_handler(
+            AURORA_VECTOR_TIMER,
+            timer_interrupt)) {
+        return false;
+    }
+
+    interrupt_count = 0;
+    callback_fn = NULL;
+
+    if (lapic_timer_tsc_deadline_supported() &&
+        clock_tsc_frequency_hz() != 0) {
+        lapic_timer_configure_tsc_deadline(
+            AURORA_VECTOR_TIMER
+        );
+
+        lapic_timer_set_tsc_deadline(0);
+
+        active_mode =
+            AURORA_TIMER_TSC_DEADLINE;
+
+        return true;
+    }
+
+    if (!calibrate_lapic_oneshot()) {
+        active_mode =
+            AURORA_TIMER_NONE;
+
+        return false;
+    }
+
+    active_mode =
+        AURORA_TIMER_LAPIC_ONESHOT;
+
+    return true;
+}
+
+bool timer_arm_ns(uint64_t delay_ns) {
+    if (delay_ns == 0) {
+        delay_ns = 1;
+    }
+
+    if (active_mode ==
+        AURORA_TIMER_TSC_DEADLINE) {
+        uint64_t tsc_hz =
+            clock_tsc_frequency_hz();
+
+        if (tsc_hz == 0) {
+            return false;
+        }
+
+        __uint128_t scaled =
+            (__uint128_t)delay_ns *
+            tsc_hz;
+
+        uint64_t cycles =
+            (uint64_t)(
+                scaled / 1000000000ull
+            );
+
+        if (cycles == 0) {
+            cycles = 1;
+        }
+
+        lapic_timer_set_tsc_deadline(
+            clock_read_tsc() + cycles
+        );
+
+        return true;
+    }
+
+    if (active_mode ==
+        AURORA_TIMER_LAPIC_ONESHOT) {
+        __uint128_t scaled =
+            (__uint128_t)delay_ns *
+            lapic_timer_hz;
+
+        uint64_t ticks =
+            (uint64_t)(
+                scaled / 1000000000ull
+            );
+
+        if (ticks == 0) {
+            ticks = 1;
+        }
+
+        if (ticks > 0xFFFFFFFFull) {
+            ticks = 0xFFFFFFFFull;
+        }
+
+        lapic_timer_set_initial_count(
+            (uint32_t)ticks
+        );
+
+        return true;
+    }
+
+    return false;
+}
+
+void timer_cancel(void) {
+    if (active_mode ==
+        AURORA_TIMER_TSC_DEADLINE) {
+        lapic_timer_set_tsc_deadline(0);
+    } else if (
+        active_mode ==
+        AURORA_TIMER_LAPIC_ONESHOT) {
+        lapic_timer_set_initial_count(0);
+    }
+}
+
+void timer_set_callback(
+    timer_callback_fn callback
+) {
+    callback_fn = callback;
+}
+
+enum aurora_timer_mode timer_mode(void) {
+    return active_mode;
+}
+
+const char *timer_mode_name(void) {
+    switch (active_mode) {
+        case AURORA_TIMER_TSC_DEADLINE:
+            return "TSC deadline";
+
+        case AURORA_TIMER_LAPIC_ONESHOT:
+            return "Local APIC one-shot";
+
+        default:
+            return "none";
+    }
+}
+
+uint64_t timer_interrupt_count(void) {
+    return interrupt_count;
+}
