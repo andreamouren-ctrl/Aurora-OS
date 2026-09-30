@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define AURORA_VECTOR_SPURIOUS 0xFFu
+
 struct interrupt_frame {
     uint64_t r15;
     uint64_t r14;
