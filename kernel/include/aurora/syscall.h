@@ -4,10 +4,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <aurora/interrupts.h>
+
 enum aurora_syscall_number {
     AURORA_SYS_BOOTSTRAP_SIGNAL = 0,
     AURORA_SYS_CLOCK_NS = 1,
-    AURORA_SYS_CAP_CHECK = 2
+    AURORA_SYS_CAP_CHECK = 2,
+    AURORA_SYS_EXIT = 3
 };
 
 struct syscall_frame {
@@ -39,7 +42,7 @@ void syscall_set_kernel_stack(
     uint64_t stack_top
 );
 
-void syscall_dispatch(
+struct interrupt_frame *syscall_dispatch(
     struct syscall_frame *frame
 );
 
