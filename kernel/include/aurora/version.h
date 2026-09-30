@@ -7,6 +7,6 @@
 #define AURORA_VERSION_MINOR 1
 #define AURORA_VERSION_PATCH 0
 
-#define AURORA_STAGE "M1-scheduler-smp-bootstrap"
+#define AURORA_STAGE "M1-capability-ipc-bootstrap"
 
 #endif
