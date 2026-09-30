@@ -1,7 +1,7 @@
 # Aurora OS Vision
 
 Status: **Canonical draft**
-Version: **0.1**
+Version: **0.2**
 
 ## Mission
 
@@ -173,6 +173,19 @@ Principles:
 
 Applications receive capabilities rather than broad implicit authority.
 
+Installing an application grants **no automatic sensitive authority**. When an app first attempts an operation that requires a protected capability, Aurora OS mediates the request through the system permission broker.
+
+The user can choose, depending on the capability:
+
+- allow once;
+- allow while the app is in use;
+- always allow;
+- allow only a selected resource or scope;
+- deny;
+- deny and do not ask again.
+
+Permissions remain visible and revocable from a central Privacy & Permissions panel.
+
 Examples:
 
 - network access;
@@ -187,6 +200,14 @@ Examples:
 - inter-process communication.
 
 Capabilities should be narrow, revocable, and auditable.
+
+An application manifest may declare the capabilities the application is designed to use, but declaration is not equivalent to authorization. Sensitive capabilities are granted by the user or by explicit system policy at runtime.
+
+Aurora OS should support scoped permissions such as selected files instead of all files, a specific USB device instead of all devices, clipboard access for a single operation, camera access only while visible, or network access limited by policy.
+
+Background execution, autostart, persistent notifications, screen capture, accessibility/control APIs, system settings changes, and inter-application communication are themselves protected capabilities.
+
+The OS must show which application is using sensitive resources such as microphone, camera, screen capture, or location.
 
 Administrative privilege is not a substitute for fine-grained capability design.
 
