@@ -7,6 +7,7 @@
 #include <aurora/clock.h>
 #include <aurora/capability.h>
 #include <aurora/framebuffer.h>
+#include <aurora/gdt.h>
 #include <aurora/heap.h>
 #include <aurora/interrupts.h>
 #include <aurora/ioapic.h>
@@ -87,6 +88,32 @@ void kmain(void) {
     }
 
     log_line("[vmm] current x86_64 page tables attached");
+
+    uint64_t boot_cpu_count =
+        boot_smp_cpu_count();
+
+    uint32_t bsp_slot = 0;
+    bool bsp_found = false;
+
+    for (uint64_t i = 0;
+         i < boot_cpu_count;
+         ++i) {
+        struct aurora_boot_cpu cpu;
+
+        if (boot_smp_cpu_at(i, &cpu) &&
+            cpu.bootstrap) {
+            bsp_slot = (uint32_t)i;
+            bsp_found = true;
+            break;
+        }
+    }
+
+    if (!bsp_found ||
+        !gdt_init_bsp(bsp_slot)) {
+        kernel_panic("Aurora GDT/TSS initialization failed");
+    }
+
+    log_line("[gdt] Aurora Ring 0 / Ring 3 segments installed");
 
     if (!acpi_init()) {
         kernel_panic("ACPI initialization failed");
