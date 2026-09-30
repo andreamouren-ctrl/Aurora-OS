@@ -26,6 +26,7 @@ jobs:
             xorriso \
             curl \
             git \
+            binutils \
             qemu-system-x86
 
       - name: Build kernel and ISO
