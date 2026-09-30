@@ -111,7 +111,11 @@ bool smp_init(void) {
             cpus[i].state =
                 AURORA_CPU_FAILED;
 
-            ++failed_count;
+            __atomic_fetch_add(
+                &failed_count,
+                1u,
+                __ATOMIC_ACQ_REL
+            );
             continue;
         }
 
@@ -133,7 +137,11 @@ bool smp_init(void) {
                 AURORA_CPU_ONLINE;
 
             found_bsp = true;
-            ++online_count;
+            __atomic_fetch_add(
+                &online_count,
+                1u,
+                __ATOMIC_ACQ_REL
+            );
             continue;
         }
 
