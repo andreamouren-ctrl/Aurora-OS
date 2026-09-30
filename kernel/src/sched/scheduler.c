@@ -492,41 +492,24 @@ static void prepare_thread(
     }
 }
 
-static struct interrupt_frame *scheduler_on_timer(
-    struct interrupt_frame *frame
-) {
-    if (!started ||
-        current_index >=
-            SCHEDULER_MAX_THREADS) {
-        return frame;
-    }
-
-    struct scheduler_thread *current =
-        &threads[current_index];
-
-    current->saved_frame = frame;
-
-    if (current->state ==
-        THREAD_RUNNING) {
-        current->state =
-            THREAD_RUNNABLE;
-    }
-
+static struct interrupt_frame *select_after_current_stops(void) {
     uint32_t next_index =
         find_next_thread();
 
     if (next_index ==
         SCHEDULER_MAX_THREADS) {
-        timer_cancel();
-        return frame;
+        kernel_panic(
+            "Scheduler has no runnable thread"
+        );
     }
 
     struct scheduler_thread *next =
         &threads[next_index];
 
     if (next->saved_frame == NULL) {
-        timer_cancel();
-        return frame;
+        kernel_panic(
+            "Runnable thread has no saved frame"
+        );
     }
 
     next->state =
@@ -549,6 +532,29 @@ static struct interrupt_frame *scheduler_on_timer(
     }
 
     return next->saved_frame;
+}
+
+static struct interrupt_frame *scheduler_on_timer(
+    struct interrupt_frame *frame
+) {
+    if (!started ||
+        current_index >=
+            SCHEDULER_MAX_THREADS) {
+        return frame;
+    }
+
+    struct scheduler_thread *current =
+        &threads[current_index];
+
+    current->saved_frame = frame;
+
+    if (current->state ==
+        THREAD_RUNNING) {
+        current->state =
+            THREAD_RUNNABLE;
+    }
+
+    return select_after_current_stops();
 }
 
 bool scheduler_init(void) {
@@ -700,6 +706,30 @@ struct aurora_process *scheduler_current_process(void) {
     }
 
     return threads[current_index].process;
+}
+
+struct interrupt_frame *scheduler_terminate_current(void) {
+    if (!started ||
+        current_index >=
+            SCHEDULER_MAX_THREADS) {
+        kernel_panic(
+            "Invalid scheduler termination request"
+        );
+    }
+
+    struct scheduler_thread *current =
+        &threads[current_index];
+
+    if (!current->user) {
+        kernel_panic(
+            "Kernel thread termination through user path"
+        );
+    }
+
+    current->state =
+        THREAD_TERMINATED;
+
+    return select_after_current_stops();
 }
 
 uint64_t scheduler_context_switch_count(void) {
