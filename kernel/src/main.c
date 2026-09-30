@@ -118,6 +118,21 @@ void kmain(void) {
 
     log_line("[gdt] Aurora Ring 0 / Ring 3 segments installed");
 
+    struct aurora_arch_hardening hardening =
+        arch_enable_hardening();
+
+    log_write("[security] CR0.WP: ");
+    log_line(hardening.write_protect ? "on" : "off");
+
+    log_write("[security] SMEP: ");
+    log_line(hardening.smep ? "on" : "unsupported");
+
+    log_write("[security] SMAP: ");
+    log_line(hardening.smap ? "on" : "unsupported");
+
+    log_write("[security] UMIP: ");
+    log_line(hardening.umip ? "on" : "unsupported");
+
     if (!syscall_init()) {
         kernel_panic("x86_64 SYSCALL initialization failed");
     }
