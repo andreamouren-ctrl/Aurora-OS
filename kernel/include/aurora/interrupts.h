@@ -40,6 +40,7 @@ typedef struct interrupt_frame *(
 );
 
 bool interrupts_init(void);
+void interrupts_load_current_cpu(void);
 
 bool interrupt_register_handler(
     uint8_t vector,
