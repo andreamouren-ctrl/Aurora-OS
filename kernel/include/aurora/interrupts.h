@@ -31,6 +31,13 @@ struct interrupt_frame {
     uint64_t rip;
     uint64_t cs;
     uint64_t rflags;
+
+    /*
+     * In 64-bit long mode the hardware interrupt frame also carries the
+     * interrupted RSP and SS. IRETQ restores both unconditionally.
+     */
+    uint64_t rsp;
+    uint64_t ss;
 };
 
 typedef struct interrupt_frame *(
