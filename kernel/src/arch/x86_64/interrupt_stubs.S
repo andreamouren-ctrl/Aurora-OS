@@ -51,6 +51,13 @@ ISR_ERR   29
 ISR_ERR   30
 ISR_NOERR 31
 
+.global isr_stub_spurious
+.type isr_stub_spurious, @function
+isr_stub_spurious:
+    pushq $0
+    pushq $255
+    jmp isr_common
+
 .type isr_common, @function
 isr_common:
     cld
@@ -71,10 +78,6 @@ isr_common:
     pushq %r14
     pushq %r15
 
-    /*
-     * Preserve the exact interrupt-frame address while giving the C ABI a
-     * 16-byte aligned stack before CALL.
-     */
     movq %rsp, %r12
     andq $-16, %rsp
 
@@ -99,10 +102,6 @@ isr_common:
     popq %rbx
     popq %rax
 
-    /*
-     * Drop the normalized vector + error-code pair. The hardware frame is
-     * left intact for IRETQ.
-     */
     addq $16, %rsp
     iretq
 
