@@ -327,3 +327,118 @@ aurora_cap_handle cap_delegate(
         delegated_rights
     );
 }
+
+
+bool capability_self_test(void) {
+    struct aurora_cap_table source;
+    struct aurora_cap_table target;
+
+    uint64_t dummy_device = 0xA11CEu;
+
+    cap_table_init(&source);
+    cap_table_init(&target);
+
+    aurora_cap_handle source_handle =
+        cap_grant(
+            &source,
+            &dummy_device,
+            AURORA_CAP_DEVICE,
+            AURORA_RIGHT_READ |
+            AURORA_RIGHT_CONTROL |
+            AURORA_RIGHT_TRANSFER
+        );
+
+    if (source_handle == AURORA_CAP_INVALID) {
+        return false;
+    }
+
+    struct aurora_capability_view view;
+
+    if (!cap_lookup(
+            &source,
+            source_handle,
+            AURORA_CAP_DEVICE,
+            AURORA_RIGHT_READ,
+            &view)) {
+        return false;
+    }
+
+    if (cap_lookup(
+            &source,
+            source_handle,
+            AURORA_CAP_DEVICE,
+            AURORA_RIGHT_WRITE,
+            &view)) {
+        return false;
+    }
+
+    aurora_cap_handle delegated =
+        cap_delegate(
+            &source,
+            source_handle,
+            &target,
+            AURORA_RIGHT_READ
+        );
+
+    if (delegated == AURORA_CAP_INVALID) {
+        return false;
+    }
+
+    if (!cap_lookup(
+            &target,
+            delegated,
+            AURORA_CAP_DEVICE,
+            AURORA_RIGHT_READ,
+            &view)) {
+        return false;
+    }
+
+    if (cap_lookup(
+            &target,
+            delegated,
+            AURORA_CAP_DEVICE,
+            AURORA_RIGHT_CONTROL,
+            &view)) {
+        return false;
+    }
+
+    if (cap_delegate(
+            &source,
+            source_handle,
+            &target,
+            AURORA_RIGHT_READ |
+            AURORA_RIGHT_WRITE) !=
+        AURORA_CAP_INVALID) {
+        return false;
+    }
+
+    if (!cap_revoke(
+            &source,
+            source_handle)) {
+        return false;
+    }
+
+    if (cap_lookup(
+            &source,
+            source_handle,
+            AURORA_CAP_DEVICE,
+            0,
+            &view)) {
+        return false;
+    }
+
+    aurora_cap_handle replacement =
+        cap_grant(
+            &source,
+            &dummy_device,
+            AURORA_CAP_DEVICE,
+            AURORA_RIGHT_READ
+        );
+
+    if (replacement == AURORA_CAP_INVALID ||
+        replacement == source_handle) {
+        return false;
+    }
+
+    return true;
+}
