@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+struct aurora_process;
+
 typedef uint32_t aurora_thread_id;
 
 typedef void (*kernel_thread_entry)(
@@ -18,6 +20,11 @@ aurora_thread_id scheduler_create_kernel_thread(
     void *argument
 );
 
+aurora_thread_id scheduler_create_user_thread(
+    const char *name,
+    struct aurora_process *process
+);
+
 bool scheduler_start(void);
 
 bool scheduler_thread_finished(
@@ -25,6 +32,8 @@ bool scheduler_thread_finished(
 );
 
 aurora_thread_id scheduler_current_thread_id(void);
+
+struct aurora_process *scheduler_current_process(void);
 
 uint64_t scheduler_context_switch_count(void);
 
