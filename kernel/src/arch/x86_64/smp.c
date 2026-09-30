@@ -55,6 +55,8 @@ static void ap_entry(
 
     interrupts_load_current_cpu();
 
+    (void)arch_enable_hardening();
+
     bool ok =
         lapic_init();
 
@@ -185,7 +187,11 @@ bool smp_init(void) {
             cpu->state =
                 AURORA_CPU_FAILED;
 
-            ++failed_count;
+            __atomic_fetch_add(
+                &failed_count,
+                1u,
+                __ATOMIC_ACQ_REL
+            );
             continue;
         }
 
