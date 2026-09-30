@@ -298,42 +298,122 @@ aurora_cap_handle cap_delegate(
     struct aurora_cap_table *target_table,
     uint64_t delegated_rights
 ) {
-    struct aurora_capability_view view;
-
     if (source_table == NULL ||
-        target_table == NULL ||
-        !cap_lookup(
-            source_table,
-            source_handle,
-            AURORA_CAP_NONE,
-            AURORA_RIGHT_TRANSFER,
-            &view)) {
+        target_table == NULL) {
         return AURORA_CAP_INVALID;
     }
 
-    if ((delegated_rights &
-         ~view.rights) != 0) {
+    uint32_t source_slot;
+    uint32_t source_generation;
+
+    if (!decode_handle(
+            source_handle,
+            &source_slot,
+            &source_generation)) {
         return AURORA_CAP_INVALID;
     }
 
     /*
-     * TRANSFER itself is not implicitly delegated. The caller must include
-     * it explicitly in delegated_rights if onward delegation is intended.
+     * Delegation must validate the source and create the target capability
+     * atomically. Using cap_lookup() followed by cap_grant() would leave a
+     * TOCTOU window where another CPU could revoke or reduce the source.
+     *
+     * Cap tables are locked in address order so delegation between two
+     * tables cannot deadlock with another cross-table delegation.
      */
-    return cap_grant(
-        target_table,
-        view.object,
-        view.type,
-        delegated_rights
-    );
+    struct aurora_cap_table *first =
+        source_table;
+    struct aurora_cap_table *second =
+        target_table;
+
+    if (source_table != target_table &&
+        (uintptr_t)first >
+            (uintptr_t)second) {
+        first = target_table;
+        second = source_table;
+    }
+
+    spinlock_lock(&first->lock);
+
+    if (second != first) {
+        spinlock_lock(&second->lock);
+    }
+
+    struct aurora_cap_entry *source =
+        &source_table->entries[source_slot];
+
+    if (!source->occupied ||
+        source->generation !=
+            source_generation ||
+        source->object == NULL ||
+        (source->rights &
+         AURORA_RIGHT_TRANSFER) == 0 ||
+        (delegated_rights &
+         ~source->rights) != 0) {
+        if (second != first) {
+            spinlock_unlock(&second->lock);
+        }
+
+        spinlock_unlock(&first->lock);
+        return AURORA_CAP_INVALID;
+    }
+
+    aurora_cap_handle result =
+        AURORA_CAP_INVALID;
+
+    for (uint32_t i = 0;
+         i < AURORA_CAPABILITY_SLOTS;
+         ++i) {
+        struct aurora_cap_entry *target =
+            &target_table->entries[i];
+
+        if (target->occupied) {
+            continue;
+        }
+
+        if (target->generation == 0) {
+            target->generation = 1;
+        }
+
+        target->object =
+            source->object;
+
+        target->rights =
+            delegated_rights;
+
+        target->type =
+            source->type;
+
+        target->occupied = true;
+
+        result =
+            make_handle(
+                i,
+                target->generation
+            );
+
+        break;
+    }
+
+    if (second != first) {
+        spinlock_unlock(&second->lock);
+    }
+
+    spinlock_unlock(&first->lock);
+    return result;
 }
 
 
 bool capability_self_test(void) {
-    struct aurora_cap_table source;
-    struct aurora_cap_table target;
+    /*
+     * Keep the large bootstrap test tables out of the bootloader-provided
+     * stack. They are reset on every invocation, so static storage is safe.
+     */
+    static struct aurora_cap_table source;
+    static struct aurora_cap_table target;
+    static uint64_t dummy_device;
 
-    uint64_t dummy_device = 0xA11CEu;
+    dummy_device = 0xA11CEu;
 
     cap_table_init(&source);
     cap_table_init(&target);
