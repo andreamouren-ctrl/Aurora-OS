@@ -14,22 +14,23 @@ static uint64_t lapic_timer_hz;
 static volatile uint64_t interrupt_count;
 static timer_callback_fn callback_fn;
 
-static void timer_interrupt(
+static struct interrupt_frame *timer_interrupt(
     struct interrupt_frame *frame
 ) {
-    (void)frame;
-
     ++interrupt_count;
 
-    /*
-     * EOI before handing control to a future scheduler callback. This
-     * ensures a context switch cannot strand an in-service Local APIC IRQ.
-     */
     lapic_eoi();
 
     if (callback_fn != NULL) {
-        callback_fn();
+        struct interrupt_frame *next =
+            callback_fn(frame);
+
+        if (next != NULL) {
+            return next;
+        }
     }
+
+    return frame;
 }
 
 static bool calibrate_lapic_oneshot(void) {
