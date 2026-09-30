@@ -63,11 +63,6 @@ unsigned __int128 __udivti3(
     unsigned __int128 denominator
 ) {
     if (denominator == 0) {
-        /*
-         * Division by zero here indicates a kernel arithmetic invariant
-         * violation. Returning the maximum value keeps this low-level ABI
-         * helper self-contained; callers must already reject zero divisors.
-         */
         return ~(unsigned __int128)0;
     }
 
@@ -76,19 +71,37 @@ unsigned __int128 __udivti3(
     }
 
     unsigned __int128 quotient = 0;
-    unsigned __int128 remainder = 0;
+    unsigned __int128 shifted =
+        denominator;
 
-    for (int bit = 127; bit >= 0; --bit) {
-        remainder =
-            (remainder << 1) |
-            ((numerator >> (unsigned)bit) & 1u);
+    unsigned shift = 0;
 
-        if (remainder >= denominator) {
-            remainder -= denominator;
+    /*
+     * Align the divisor without ever overflowing 128 bits. Testing against
+     * numerator >> 1 is equivalent to checking shifted * 2 <= numerator,
+     * but avoids constructing the potentially overflowing product.
+     */
+    while (shifted <=
+           (numerator >> 1)) {
+        shifted <<= 1;
+        ++shift;
+    }
+
+    for (;;) {
+        if (numerator >= shifted) {
+            numerator -= shifted;
+
             quotient |=
-                (unsigned __int128)1 <<
-                (unsigned)bit;
+                (unsigned __int128)1
+                << shift;
         }
+
+        if (shift == 0) {
+            break;
+        }
+
+        shifted >>= 1;
+        --shift;
     }
 
     return quotient;
