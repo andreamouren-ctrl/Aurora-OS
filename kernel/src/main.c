@@ -5,6 +5,7 @@
 #include <aurora/arch.h>
 #include <aurora/boot.h>
 #include <aurora/clock.h>
+#include <aurora/capability.h>
 #include <aurora/framebuffer.h>
 #include <aurora/heap.h>
 #include <aurora/interrupts.h>
@@ -216,6 +217,12 @@ void kmain(void) {
     }
 
     log_line("[clock] 1 ms monotonic probe passed");
+
+    if (!capability_self_test()) {
+        kernel_panic("Capability security self-test failed");
+    }
+
+    log_line("[cap] typed capability self-test passed");
 
     if (!scheduler_init()) {
         kernel_panic("Scheduler initialization failed");
