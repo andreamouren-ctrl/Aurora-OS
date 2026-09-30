@@ -19,8 +19,8 @@ The roadmap deliberately freezes architecture before expanding implementation.
 
 ### M0.1 — Architecture contracts
 - [ ] Choose kernel architecture model
-- [ ] Define kernel/user boundary
-- [ ] Define syscall philosophy
+- [x] Define kernel/user boundary: Ring 0 kernel / Ring 3 isolated processes
+- [x] Define syscall philosophy: x86_64 SYSCALL/SYSRET with capability-aware dispatch
 - [ ] Define IPC model
 - [ ] Define capability model
 - [x] Define Android-style runtime permission philosophy
@@ -56,8 +56,8 @@ The roadmap deliberately freezes architecture before expanding implementation.
 - [x] tickless timer bootstrap (runtime verification pending)
 - [x] SMP bring-up to parked AP state (runtime verification pending)
 - [x] BSP preemptive kernel-thread scheduler prototype (runtime verification pending)
-- [ ] syscall entry
-- [ ] userspace process prototype
+- [x] x86_64 SYSCALL/SYSRET entry (runtime verification pending)
+- [x] isolated Ring 3 process prototype with private CR3 (runtime verification pending)
 - [x] bounded IPC prototype with capability escrow (runtime verification pending)
 - [x] capability prototype with typed rights, revocation and delegation (runtime verification pending)
 
