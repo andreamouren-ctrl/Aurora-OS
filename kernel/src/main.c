@@ -4,6 +4,7 @@
 #include <aurora/apic.h>
 #include <aurora/arch.h>
 #include <aurora/boot.h>
+#include <aurora/boot_ui.h>
 #include <aurora/clock.h>
 #include <aurora/capability.h>
 #include <aurora/framebuffer.h>
@@ -71,7 +72,10 @@ void kmain(void) {
         kernel_panic("No supported 32-bit RGB framebuffer");
     }
 
-    framebuffer_draw_boot_splash(&framebuffer);
+    boot_ui_init(&framebuffer);
+    boot_ui_stage(
+        AURORA_BOOT_STAGE_FRAMEBUFFER
+    );
 
     if (!pmm_init()) {
         kernel_panic("Physical memory manager initialization failed");
@@ -92,6 +96,10 @@ void kmain(void) {
     }
 
     log_line("[vmm] current x86_64 page tables attached");
+
+    boot_ui_stage(
+        AURORA_BOOT_STAGE_MEMORY
+    );
 
     uint64_t boot_cpu_count =
         boot_smp_cpu_count();
@@ -140,6 +148,10 @@ void kmain(void) {
 
     log_line("[syscall] SYSCALL/SYSRET ABI installed");
 
+    boot_ui_stage(
+        AURORA_BOOT_STAGE_SECURITY
+    );
+
     if (!acpi_init()) {
         kernel_panic("ACPI initialization failed");
     }
@@ -183,6 +195,10 @@ void kmain(void) {
 
     log_line("[ioapic] external interrupts masked by default");
 
+    boot_ui_stage(
+        AURORA_BOOT_STAGE_PLATFORM
+    );
+
     if (!clock_init()) {
         kernel_panic("No reliable monotonic clock source");
     }
@@ -196,6 +212,10 @@ void kmain(void) {
         log_line("");
     }
 
+    boot_ui_stage(
+        AURORA_BOOT_STAGE_CLOCK
+    );
+
     if (!smp_init()) {
         kernel_panic("SMP bootstrap initialization failed");
     }
@@ -207,6 +227,10 @@ void kmain(void) {
     log_write("[smp] CPUs online: ");
     log_u64(smp_online_cpu_count());
     log_line("");
+
+    boot_ui_stage(
+        AURORA_BOOT_STAGE_SMP
+    );
 
     if (!timer_init()) {
         kernel_panic("Tickless timer initialization failed");
@@ -240,6 +264,10 @@ void kmain(void) {
 
     log_line("[timer] one-shot interrupt probe passed");
 
+    boot_ui_stage(
+        AURORA_BOOT_STAGE_TIMER
+    );
+
     if (!kheap_init()) {
         kernel_panic("Kernel heap initialization failed");
     }
@@ -271,17 +299,29 @@ void kmain(void) {
 
     log_line("[clock] 1 ms monotonic probe passed");
 
+    boot_ui_stage(
+        AURORA_BOOT_STAGE_HEAP
+    );
+
     if (!capability_self_test()) {
         kernel_panic("Capability security self-test failed");
     }
 
     log_line("[cap] typed capability self-test passed");
 
+    boot_ui_stage(
+        AURORA_BOOT_STAGE_CAPABILITIES
+    );
+
     if (!ipc_self_test()) {
         kernel_panic("IPC capability-transfer self-test failed");
     }
 
     log_line("[ipc] bounded capability-transfer self-test passed");
+
+    boot_ui_stage(
+        AURORA_BOOT_STAGE_IPC
+    );
 
     if (!scheduler_init()) {
         kernel_panic("Scheduler initialization failed");
@@ -332,6 +372,10 @@ void kmain(void) {
     log_line("");
 
     log_line("[sched] preemptive kernel thread probe passed");
+
+    boot_ui_stage(
+        AURORA_BOOT_STAGE_SCHEDULER
+    );
 
     struct aurora_process *user_process =
         process_create_image(
@@ -408,6 +452,13 @@ void kmain(void) {
     log_line("[ring3] isolated user process reached SYSCALL");
     log_line("[ring3] SYSRET returned to Ring 3 and EXIT switched back safely");
     log_line("[ring3] private CR3 + user stack + kernel stack path passed");
+
+    boot_ui_stage(
+        AURORA_BOOT_STAGE_USERSPACE
+    );
+
+    boot_ui_complete();
+
     log_line("[kernel] M1 user-space bootstrap reached successfully");
 
     /*
