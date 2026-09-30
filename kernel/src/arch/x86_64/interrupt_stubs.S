@@ -91,7 +91,11 @@ isr_common:
     movq %r12, %rdi
     call interrupt_dispatch
 
-    movq %r12, %rsp
+    /*
+     * RAX is the interrupt frame Aurora wants to resume. It may be the
+     * original frame or a different thread's saved frame.
+     */
+    movq %rax, %rsp
 
     popq %r15
     popq %r14
