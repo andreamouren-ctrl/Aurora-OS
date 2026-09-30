@@ -172,6 +172,10 @@ struct aurora_process *process_create_image(
         AURORA_USER_IMAGE_BASE;
 
     process->user_stack_top = 0;
+    process->state =
+        AURORA_PROCESS_RUNNING;
+    process->exit_code = 0;
+    process->fault_vector = 0;
     process->bootstrap_signal = 0;
 
     cap_table_init(
@@ -221,6 +225,62 @@ uint64_t process_bootstrap_signal(
 
     return __atomic_load_n(
         &process->bootstrap_signal,
+        __ATOMIC_ACQUIRE
+    );
+}
+
+
+void process_mark_exited(
+    struct aurora_process *process,
+    int64_t exit_code
+) {
+    if (process == NULL) {
+        return;
+    }
+
+    __atomic_store_n(
+        &process->exit_code,
+        exit_code,
+        __ATOMIC_RELEASE
+    );
+
+    __atomic_store_n(
+        &process->state,
+        AURORA_PROCESS_EXITED,
+        __ATOMIC_RELEASE
+    );
+}
+
+void process_mark_faulted(
+    struct aurora_process *process,
+    uint64_t vector
+) {
+    if (process == NULL) {
+        return;
+    }
+
+    __atomic_store_n(
+        &process->fault_vector,
+        vector,
+        __ATOMIC_RELEASE
+    );
+
+    __atomic_store_n(
+        &process->state,
+        AURORA_PROCESS_FAULTED,
+        __ATOMIC_RELEASE
+    );
+}
+
+enum aurora_process_state process_state(
+    const struct aurora_process *process
+) {
+    if (process == NULL) {
+        return AURORA_PROCESS_FAULTED;
+    }
+
+    return __atomic_load_n(
+        &process->state,
         __ATOMIC_ACQUIRE
     );
 }
