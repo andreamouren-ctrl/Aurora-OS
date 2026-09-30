@@ -2,10 +2,15 @@
 #include <stdint.h>
 
 #include <aurora/arch.h>
+#include <aurora/gdt.h>
 #include <aurora/heap.h>
 #include <aurora/interrupts.h>
+#include <aurora/panic.h>
+#include <aurora/process.h>
 #include <aurora/scheduler.h>
+#include <aurora/syscall.h>
 #include <aurora/timer.h>
+#include <aurora/vmm.h>
 
 #define SCHEDULER_MAX_THREADS 64u
 #define SCHEDULER_STACK_SIZE  (64u * 1024u)
@@ -23,11 +28,15 @@ struct scheduler_thread {
     enum thread_state state;
 
     bool idle;
+    bool user;
 
     char name[32];
 
     kernel_thread_entry entry;
     void *argument;
+
+    struct aurora_process *process;
+    struct vmm_address_space *address_space;
 
     void *stack_base;
     size_t stack_size;
@@ -57,7 +66,8 @@ static void copy_name(
     if (source != NULL) {
         while (i < 31 &&
                source[i] != '\0') {
-            destination[i] = source[i];
+            destination[i] =
+                source[i];
             ++i;
         }
     }
@@ -75,7 +85,9 @@ static void clear_bytes(
 ) {
     uint8_t *bytes = address;
 
-    for (size_t i = 0; i < length; ++i) {
+    for (size_t i = 0;
+         i < length;
+         ++i) {
         bytes[i] = 0;
     }
 }
@@ -99,33 +111,44 @@ static struct scheduler_thread *find_thread(
     return NULL;
 }
 
+static uint64_t thread_kernel_stack_top(
+    const struct scheduler_thread *thread
+) {
+    if (thread == NULL ||
+        thread->stack_base == NULL ||
+        thread->stack_size == 0) {
+        return 0;
+    }
+
+    return
+        (uint64_t)(uintptr_t)
+            thread->stack_base +
+        thread->stack_size;
+}
+
 static void thread_trampoline(
     struct scheduler_thread *thread
 ) __attribute__((noreturn));
 
-static struct interrupt_frame *build_initial_frame(
+static struct interrupt_frame *build_kernel_frame(
     struct scheduler_thread *thread
 ) {
-    uint8_t *base = thread->stack_base;
-
     uintptr_t top =
-        (uintptr_t)base +
-        thread->stack_size;
+        (uintptr_t)
+            thread_kernel_stack_top(
+                thread
+            );
 
     top &= ~(uintptr_t)0xFu;
 
-    /*
-     * SysV x86-64 expects RSP % 16 == 8 at C function entry. IRETQ will
-     * leave RSP immediately above the saved frame, so keep eight bytes of
-     * alignment padding above it.
-     */
     uintptr_t frame_address =
         top -
         sizeof(struct interrupt_frame) -
         8u;
 
     struct interrupt_frame *frame =
-        (struct interrupt_frame *)frame_address;
+        (struct interrupt_frame *)
+            frame_address;
 
     clear_bytes(
         frame,
@@ -140,18 +163,98 @@ static struct interrupt_frame *build_initial_frame(
             thread_trampoline;
 
     frame->cs =
-        arch_read_cs();
+        AURORA_KERNEL_CODE_SELECTOR;
 
-    /*
-     * Reserved bit 1 plus IF. New kernel threads become preemptible as
-     * soon as IRETQ enters them.
-     */
-    frame->rflags = 0x202ull;
+    frame->rflags =
+        0x202ull;
 
     return frame;
 }
 
-static aurora_thread_id create_thread(
+static struct interrupt_frame *build_user_frame(
+    struct scheduler_thread *thread,
+    struct aurora_process *process
+) {
+    uintptr_t top =
+        (uintptr_t)
+            thread_kernel_stack_top(
+                thread
+            );
+
+    top &= ~(uintptr_t)0xFu;
+
+    uintptr_t frame_address =
+        top -
+        sizeof(struct interrupt_frame) -
+        (2u * sizeof(uint64_t));
+
+    struct interrupt_frame *frame =
+        (struct interrupt_frame *)
+            frame_address;
+
+    clear_bytes(
+        frame,
+        sizeof(*frame) +
+        2u * sizeof(uint64_t)
+    );
+
+    frame->rip =
+        process->entry_point;
+
+    frame->cs =
+        gdt_user_code_selector();
+
+    frame->rflags =
+        0x202ull;
+
+    uint64_t *privilege_tail =
+        (uint64_t *)(
+            (uint8_t *)frame +
+            sizeof(*frame)
+        );
+
+    privilege_tail[0] =
+        process->user_stack_top;
+
+    privilege_tail[1] =
+        gdt_user_data_selector();
+
+    return frame;
+}
+
+static uint32_t find_free_slot(void) {
+    for (uint32_t i = 0;
+         i < SCHEDULER_MAX_THREADS;
+         ++i) {
+        if (threads[i].state ==
+            THREAD_UNUSED) {
+            return i;
+        }
+    }
+
+    return SCHEDULER_MAX_THREADS;
+}
+
+static bool allocate_thread_stack(
+    struct scheduler_thread *thread
+) {
+    thread->stack_base =
+        kheap_alloc(
+            SCHEDULER_STACK_SIZE,
+            16
+        );
+
+    if (thread->stack_base == NULL) {
+        return false;
+    }
+
+    thread->stack_size =
+        SCHEDULER_STACK_SIZE;
+
+    return true;
+}
+
+static aurora_thread_id create_kernel_thread_internal(
     const char *name,
     kernel_thread_entry entry,
     void *argument,
@@ -162,30 +265,10 @@ static aurora_thread_id create_thread(
     }
 
     uint32_t slot =
-        SCHEDULER_MAX_THREADS;
-
-    for (uint32_t i = 0;
-         i < SCHEDULER_MAX_THREADS;
-         ++i) {
-        if (threads[i].state ==
-            THREAD_UNUSED) {
-            slot = i;
-            break;
-        }
-    }
+        find_free_slot();
 
     if (slot ==
         SCHEDULER_MAX_THREADS) {
-        return 0;
-    }
-
-    void *stack =
-        kheap_alloc(
-            SCHEDULER_STACK_SIZE,
-            16
-        );
-
-    if (stack == NULL) {
         return 0;
     }
 
@@ -197,9 +280,15 @@ static aurora_thread_id create_thread(
         sizeof(*thread)
     );
 
+    if (!allocate_thread_stack(
+            thread)) {
+        return 0;
+    }
+
     thread->id = next_id++;
     thread->state = THREAD_RUNNABLE;
     thread->idle = idle;
+    thread->user = false;
 
     copy_name(
         thread->name,
@@ -208,18 +297,73 @@ static aurora_thread_id create_thread(
 
     thread->entry = entry;
     thread->argument = argument;
-    thread->stack_base = stack;
-    thread->stack_size =
-        SCHEDULER_STACK_SIZE;
+
+    thread->process = NULL;
+    thread->address_space =
+        vmm_kernel_space();
 
     thread->saved_frame =
-        build_initial_frame(thread);
+        build_kernel_frame(thread);
 
     if (started && !idle) {
-        /*
-         * A newly-created runnable thread must not wait indefinitely if the
-         * scheduler had gone fully tickless with only one active thread.
-         */
+        (void)timer_arm_ns(1);
+    }
+
+    return thread->id;
+}
+
+static aurora_thread_id create_user_thread_internal(
+    const char *name,
+    struct aurora_process *process
+) {
+    if (process == NULL) {
+        return 0;
+    }
+
+    uint32_t slot =
+        find_free_slot();
+
+    if (slot ==
+        SCHEDULER_MAX_THREADS) {
+        return 0;
+    }
+
+    struct scheduler_thread *thread =
+        &threads[slot];
+
+    clear_bytes(
+        thread,
+        sizeof(*thread)
+    );
+
+    if (!allocate_thread_stack(
+            thread)) {
+        return 0;
+    }
+
+    thread->id = next_id++;
+    thread->state = THREAD_RUNNABLE;
+    thread->idle = false;
+    thread->user = true;
+
+    copy_name(
+        thread->name,
+        name
+    );
+
+    thread->process =
+        process;
+
+    thread->address_space =
+        &process->address_space;
+
+    thread->saved_frame =
+        build_user_frame(
+            thread,
+            process
+        );
+
+    if (started) {
         (void)timer_arm_ns(1);
     }
 
@@ -255,20 +399,12 @@ static void thread_trampoline(
 
     arch_enable_interrupts();
 
-    /*
-     * The timer already armed for this time slice will move execution away
-     * from the terminated thread. It is never selected again.
-     */
     for (;;) {
         arch_idle();
     }
 }
 
 static uint32_t find_next_thread(void) {
-    /*
-     * Prefer useful runnable work. The idle thread is selected only if no
-     * normal thread can run.
-     */
     for (uint32_t offset = 1;
          offset <= SCHEDULER_MAX_THREADS;
          ++offset) {
@@ -322,6 +458,40 @@ static bool has_other_useful_runnable(
     return false;
 }
 
+static void prepare_thread(
+    struct scheduler_thread *thread
+) {
+    if (thread == NULL ||
+        thread->address_space == NULL ||
+        !vmm_activate(
+            thread->address_space)) {
+        kernel_panic(
+            "Scheduler could not activate address space"
+        );
+    }
+
+    if (thread->user) {
+        uint64_t kernel_stack_top =
+            thread_kernel_stack_top(
+                thread
+            );
+
+        if (kernel_stack_top == 0) {
+            kernel_panic(
+                "User thread has no kernel stack"
+            );
+        }
+
+        gdt_set_bsp_kernel_stack(
+            kernel_stack_top
+        );
+
+        syscall_set_kernel_stack(
+            kernel_stack_top
+        );
+    }
+}
+
 static struct interrupt_frame *scheduler_on_timer(
     struct interrupt_frame *frame
 ) {
@@ -367,6 +537,8 @@ static struct interrupt_frame *scheduler_on_timer(
         ++context_switches;
     }
 
+    prepare_thread(next);
+
     if (has_other_useful_runnable(
             current_index)) {
         (void)timer_arm_ns(
@@ -403,6 +575,11 @@ bool scheduler_init(void) {
     bootstrap->id = next_id++;
     bootstrap->state = THREAD_RUNNING;
     bootstrap->idle = false;
+    bootstrap->user = false;
+
+    bootstrap->process = NULL;
+    bootstrap->address_space =
+        vmm_kernel_space();
 
     copy_name(
         bootstrap->name,
@@ -410,7 +587,7 @@ bool scheduler_init(void) {
     );
 
     aurora_thread_id idle_id =
-        create_thread(
+        create_kernel_thread_internal(
             "idle",
             idle_thread,
             NULL,
@@ -424,7 +601,8 @@ bool scheduler_init(void) {
     for (uint32_t i = 0;
          i < SCHEDULER_MAX_THREADS;
          ++i) {
-        if (threads[i].id == idle_id) {
+        if (threads[i].id ==
+            idle_id) {
             idle_index = i;
             break;
         }
@@ -452,11 +630,25 @@ aurora_thread_id scheduler_create_kernel_thread(
         return 0;
     }
 
-    return create_thread(
+    return create_kernel_thread_internal(
         name,
         entry,
         argument,
         false
+    );
+}
+
+aurora_thread_id scheduler_create_user_thread(
+    const char *name,
+    struct aurora_process *process
+) {
+    if (!initialized) {
+        return 0;
+    }
+
+    return create_user_thread_internal(
+        name,
+        process
     );
 }
 
@@ -499,6 +691,15 @@ aurora_thread_id scheduler_current_thread_id(void) {
     }
 
     return threads[current_index].id;
+}
+
+struct aurora_process *scheduler_current_process(void) {
+    if (current_index >=
+        SCHEDULER_MAX_THREADS) {
+        return NULL;
+    }
+
+    return threads[current_index].process;
 }
 
 uint64_t scheduler_context_switch_count(void) {
