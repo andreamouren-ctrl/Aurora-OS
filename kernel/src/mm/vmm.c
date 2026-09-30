@@ -47,7 +47,8 @@ static uint64_t make_leaf_flags(uint64_t flags) {
         result |= PTE_PCD;
     }
 
-    if ((flags & VMM_FLAG_EXECUTE) == 0) {
+    if ((flags & VMM_FLAG_EXECUTE) == 0 &&
+        arch_nx_enabled()) {
         result |= PTE_NX;
     }
 
