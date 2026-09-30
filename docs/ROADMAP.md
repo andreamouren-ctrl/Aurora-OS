@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Initial planning**
-Version: **0.2**
+Version: **0.3**
 
 The roadmap deliberately freezes architecture before expanding implementation.
 
@@ -34,21 +34,21 @@ The roadmap deliberately freezes architecture before expanding implementation.
 - [ ] Define logging and panic contracts
 
 ### M0.2 — First verified boot
-- [ ] Build freestanding x86_64 kernel
+- [x] Build freestanding x86_64 kernel (compile/link verified)
 - [ ] Boot under UEFI in QEMU
 - [ ] Boot under BIOS where supported
-- [ ] Serial logging
-- [ ] Framebuffer initialization
-- [ ] Panic screen
+- [x] Serial logging implementation (runtime verification pending)
+- [x] Framebuffer initialization implementation (runtime verification pending)
+- [x] Panic/exception diagnostics implementation (runtime verification pending)
 - [ ] Produce bootable ISO
 - [ ] Produce raw USB image
 
 ## M1 — Kernel foundations
 
-- [ ] physical memory manager
-- [ ] virtual memory manager
-- [ ] kernel heap
-- [ ] interrupts/exceptions
+- [x] bootstrap physical memory manager
+- [x] bootstrap virtual memory manager
+- [x] bootstrap kernel heap
+- [x] x86_64 IDT and CPU exception handlers
 - [ ] timer
 - [ ] SMP bring-up
 - [ ] scheduler prototype
