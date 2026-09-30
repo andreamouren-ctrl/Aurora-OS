@@ -5,6 +5,7 @@
 #include <aurora/gdt.h>
 #include <aurora/heap.h>
 #include <aurora/interrupts.h>
+#include <aurora/log.h>
 #include <aurora/panic.h>
 #include <aurora/process.h>
 #include <aurora/scheduler.h>
@@ -383,6 +384,8 @@ static void idle_thread(
 static void thread_trampoline(
     struct scheduler_thread *thread
 ) {
+    log_line("[sched-debug] entered thread trampoline");
+
     if (thread != NULL &&
         thread->entry != NULL) {
         thread->entry(
@@ -396,6 +399,8 @@ static void thread_trampoline(
         thread->state =
             THREAD_TERMINATED;
     }
+
+    log_line("[sched-debug] kernel thread terminated; waiting for switch");
 
     arch_enable_interrupts();
 
@@ -506,6 +511,10 @@ static struct interrupt_frame *select_after_current_stops(void) {
     struct scheduler_thread *next =
         &threads[next_index];
 
+    log_write("[sched-debug] selecting thread id ");
+    log_u64(next->id);
+    log_line("");
+
     if (next->saved_frame == NULL) {
         kernel_panic(
             "Runnable thread has no saved frame"
@@ -537,6 +546,8 @@ static struct interrupt_frame *select_after_current_stops(void) {
 static struct interrupt_frame *scheduler_on_timer(
     struct interrupt_frame *frame
 ) {
+    log_line("[sched-debug] timer callback entered");
+
     if (!started ||
         current_index >=
             SCHEDULER_MAX_THREADS) {
@@ -674,6 +685,8 @@ bool scheduler_start(void) {
             return false;
         }
     }
+
+    log_line("[sched-debug] scheduler armed; enabling interrupts");
 
     arch_enable_interrupts();
     return true;
