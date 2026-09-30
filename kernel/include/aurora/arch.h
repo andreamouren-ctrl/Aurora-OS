@@ -1,9 +1,12 @@
 #ifndef AURORA_ARCH_H
 #define AURORA_ARCH_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 void arch_early_init(void);
+bool arch_nx_enabled(void);
+
 void arch_halt(void) __attribute__((noreturn));
 
 void arch_serial_init(void);
