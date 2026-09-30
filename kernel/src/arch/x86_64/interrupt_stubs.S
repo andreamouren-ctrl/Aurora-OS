@@ -51,6 +51,13 @@ ISR_ERR   29
 ISR_ERR   30
 ISR_NOERR 31
 
+.global isr_stub_timer
+.type isr_stub_timer, @function
+isr_stub_timer:
+    pushq $0
+    pushq $64
+    jmp isr_common
+
 .global isr_stub_spurious
 .type isr_stub_spurious, @function
 isr_stub_spurious:
