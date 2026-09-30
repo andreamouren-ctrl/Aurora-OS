@@ -22,6 +22,7 @@ struct idt_descriptor {
 } __attribute__((packed));
 
 extern void *isr_stub_table[32];
+extern void isr_stub_spurious(void);
 
 static struct idt_entry idt[256];
 
@@ -98,6 +99,13 @@ bool interrupts_init(void) {
         );
     }
 
+    idt_set_gate(
+        AURORA_VECTOR_SPURIOUS,
+        isr_stub_spurious,
+        code_selector,
+        0x8E
+    );
+
     struct idt_descriptor descriptor = {
         .limit = (uint16_t)(sizeof(idt) - 1),
         .base = (uint64_t)(uintptr_t)&idt[0]
@@ -121,6 +129,10 @@ void interrupt_dispatch(
     }
 
     uint64_t vector = frame->vector;
+
+    if (vector == AURORA_VECTOR_SPURIOUS) {
+        return;
+    }
 
     log_line("");
     log_line("--- Aurora CPU exception ---");
@@ -150,5 +162,5 @@ void interrupt_dispatch(
         log_line("");
     }
 
-    kernel_panic("Unhandled CPU exception");
+    kernel_panic("Unhandled interrupt or CPU exception");
 }
