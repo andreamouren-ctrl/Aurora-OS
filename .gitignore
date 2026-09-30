@@ -1,0 +1,24 @@
+# Build output
+build/
+out/
+dist/
+*.o
+*.a
+*.so
+*.elf
+*.iso
+*.img
+*.bin
+
+# Tooling
+.cache/
+.vscode/
+.idea/
+compile_commands.json
+
+# OS/editor
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
