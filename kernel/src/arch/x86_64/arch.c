@@ -25,21 +25,10 @@ static void cpuid(
         : "a"(leaf), "c"(0)
     );
 
-    if (eax != 0) {
-        *eax = a;
-    }
-
-    if (ebx != 0) {
-        *ebx = b;
-    }
-
-    if (ecx != 0) {
-        *ecx = c;
-    }
-
-    if (edx != 0) {
-        *edx = d;
-    }
+    if (eax != 0) *eax = a;
+    if (ebx != 0) *ebx = b;
+    if (ecx != 0) *ecx = c;
+    if (edx != 0) *edx = d;
 }
 
 static uint64_t rdmsr(uint32_t msr) {
@@ -148,17 +137,24 @@ void arch_serial_putc(char c) {
 }
 
 void arch_early_init(void) {
-    /*
-     * Keep maskable interrupts disabled until Aurora installs its own IDT
-     * and interrupt-controller policy.
-     */
     __asm__ volatile ("cli; cld");
-
     enable_nx_if_supported();
 }
 
 bool arch_nx_enabled(void) {
     return nx_enabled;
+}
+
+void arch_enable_interrupts(void) {
+    __asm__ volatile ("sti" : : : "memory");
+}
+
+void arch_disable_interrupts(void) {
+    __asm__ volatile ("cli" : : : "memory");
+}
+
+void arch_idle(void) {
+    __asm__ volatile ("hlt");
 }
 
 uint64_t arch_read_cr2(void) {
@@ -204,9 +200,9 @@ void arch_invalidate_page(uint64_t virtual_address) {
 }
 
 void arch_halt(void) {
-    __asm__ volatile ("cli");
+    arch_disable_interrupts();
 
     for (;;) {
-        __asm__ volatile ("hlt");
+        arch_idle();
     }
 }
