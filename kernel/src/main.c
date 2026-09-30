@@ -16,9 +16,12 @@
 #include <aurora/madt.h>
 #include <aurora/panic.h>
 #include <aurora/pmm.h>
+#include <aurora/process.h>
 #include <aurora/scheduler.h>
 #include <aurora/smp.h>
+#include <aurora/syscall.h>
 #include <aurora/timer.h>
+#include <aurora/user_probe.h>
 #include <aurora/version.h>
 #include <aurora/vmm.h>
 
@@ -114,6 +117,12 @@ void kmain(void) {
     }
 
     log_line("[gdt] Aurora Ring 0 / Ring 3 segments installed");
+
+    if (!syscall_init()) {
+        kernel_panic("x86_64 SYSCALL initialization failed");
+    }
+
+    log_line("[syscall] SYSCALL/SYSRET ABI installed");
 
     if (!acpi_init()) {
         kernel_panic("ACPI initialization failed");
@@ -307,11 +316,54 @@ void kmain(void) {
     log_line("");
 
     log_line("[sched] preemptive kernel thread probe passed");
-    log_line("[kernel] M1 scheduler bootstrap reached successfully");
+
+    struct aurora_process *user_process =
+        process_create_image(
+            "ring3-probe",
+            user_probe_image(),
+            user_probe_image_size()
+        );
+
+    if (user_process == NULL) {
+        kernel_panic("Could not create Ring 3 probe process");
+    }
+
+    aurora_thread_id user_thread =
+        scheduler_create_user_thread(
+            "ring3-probe-main",
+            user_process
+        );
+
+    if (user_thread == 0) {
+        kernel_panic("Could not create Ring 3 probe thread");
+    }
+
+    uint64_t ring3_deadline =
+        clock_now_ns() + 500000000ull;
+
+    while (process_bootstrap_signal(
+                user_process) !=
+                AURORA_USER_PROBE_MAGIC &&
+           clock_now_ns() <
+                ring3_deadline) {
+        arch_idle();
+    }
+
+    if (process_bootstrap_signal(
+            user_process) !=
+        AURORA_USER_PROBE_MAGIC) {
+        kernel_panic(
+            "Ring 3 SYSCALL probe timed out"
+        );
+    }
+
+    log_line("[ring3] isolated user process reached SYSCALL");
+    log_line("[ring3] private CR3 + user stack + kernel stack path passed");
+    log_line("[kernel] M1 user-space bootstrap reached successfully");
 
     /*
      * Aurora is now interrupt-driven. Keep the bootstrap thread quiescent
-     * instead of burning CPU in a spin loop.
+     * while the scheduler continues to own execution.
      */
     for (;;) {
         arch_idle();
