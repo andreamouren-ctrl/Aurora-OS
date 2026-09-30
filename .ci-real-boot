@@ -1,1 +1,2 @@
 Trigger real Aurora OS build and boot validation.
+Retry synchronize trigger after local test restart.
