@@ -4,6 +4,7 @@
 #include <aurora/boot.h>
 #include <aurora/framebuffer.h>
 #include <aurora/heap.h>
+#include <aurora/interrupts.h>
 #include <aurora/log.h>
 #include <aurora/panic.h>
 #include <aurora/pmm.h>
@@ -49,6 +50,14 @@ void kmain(void) {
     }
 
     log_line("[vmm] current x86_64 page tables attached");
+
+    if (!interrupts_init()) {
+        kernel_panic(
+            "Interrupt descriptor table initialization failed"
+        );
+    }
+
+    log_line("[idt] CPU exception handlers installed");
 
     if (!kheap_init()) {
         kernel_panic("Kernel heap initialization failed");
