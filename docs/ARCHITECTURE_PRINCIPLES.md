@@ -1,7 +1,7 @@
 # Aurora OS Architecture Principles
 
 Status: **Canonical draft**
-Version: **0.1**
+Version: **0.2**
 
 These principles constrain future implementation decisions.
 
@@ -98,3 +98,24 @@ Major optimization policy must be guided by measurements rather than intuition a
 Aurora OS may use established standards, specifications, boot protocols, algorithms, and carefully selected third-party components when doing so improves correctness or development speed.
 
 The proprietary value lies in the integrated architecture and system behavior.
+
+
+## P. Permission is requested at the point of use
+
+Installing an application does not silently authorize sensitive operations.
+
+Protected actions must go through the Aurora Permission Broker. The user can grant a capability once, while in use, persistently, or for a narrowly selected scope where the capability supports it.
+
+Applications should request access only when the requested action is understandable in context.
+
+## Q. Permission declarations are not permission grants
+
+Application packages may declare required or optional capabilities in their manifest so Aurora OS can inspect, display, and validate them.
+
+A manifest declaration never bypasses runtime authorization for user-sensitive resources.
+
+## R. Sensitive resource use is observable
+
+Aurora OS must make active access to microphone, camera, screen capture, location, and equivalent sensitive resources visible to the user.
+
+Permission history and current grants should be inspectable from a central system interface.
