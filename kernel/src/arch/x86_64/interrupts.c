@@ -29,38 +29,16 @@ static struct idt_entry idt[256];
 static interrupt_handler_fn handlers[256];
 
 static const char *const exception_names[32] = {
-    "Divide Error",
-    "Debug",
-    "Non-Maskable Interrupt",
-    "Breakpoint",
-    "Overflow",
-    "BOUND Range Exceeded",
-    "Invalid Opcode",
-    "Device Not Available",
-    "Double Fault",
-    "Coprocessor Segment Overrun",
-    "Invalid TSS",
-    "Segment Not Present",
-    "Stack-Segment Fault",
-    "General Protection Fault",
-    "Page Fault",
-    "Reserved",
-    "x87 Floating-Point Exception",
-    "Alignment Check",
-    "Machine Check",
-    "SIMD Floating-Point Exception",
-    "Virtualization Exception",
-    "Control Protection Exception",
-    "Reserved",
-    "Reserved",
-    "Reserved",
-    "Reserved",
-    "Reserved",
-    "Reserved",
-    "Hypervisor Injection Exception",
-    "VMM Communication Exception",
-    "Security Exception",
-    "Reserved"
+    "Divide Error","Debug","Non-Maskable Interrupt","Breakpoint",
+    "Overflow","BOUND Range Exceeded","Invalid Opcode",
+    "Device Not Available","Double Fault","Coprocessor Segment Overrun",
+    "Invalid TSS","Segment Not Present","Stack-Segment Fault",
+    "General Protection Fault","Page Fault","Reserved",
+    "x87 Floating-Point Exception","Alignment Check","Machine Check",
+    "SIMD Floating-Point Exception","Virtualization Exception",
+    "Control Protection Exception","Reserved","Reserved","Reserved",
+    "Reserved","Reserved","Reserved","Hypervisor Injection Exception",
+    "VMM Communication Exception","Security Exception","Reserved"
 };
 
 static void idt_set_gate(
@@ -78,6 +56,20 @@ static void idt_set_gate(
     idt[vector].offset_middle = (uint16_t)(address >> 16);
     idt[vector].offset_high = (uint32_t)(address >> 32);
     idt[vector].reserved = 0;
+}
+
+void interrupts_load_current_cpu(void) {
+    struct idt_descriptor descriptor = {
+        .limit = (uint16_t)(sizeof(idt) - 1),
+        .base = (uint64_t)(uintptr_t)&idt[0]
+    };
+
+    __asm__ volatile (
+        "lidt %0"
+        :
+        : "m"(descriptor)
+        : "memory"
+    );
 }
 
 bool interrupts_init(void) {
@@ -106,18 +98,7 @@ bool interrupts_init(void) {
         0x8E
     );
 
-    struct idt_descriptor descriptor = {
-        .limit = (uint16_t)(sizeof(idt) - 1),
-        .base = (uint64_t)(uintptr_t)&idt[0]
-    };
-
-    __asm__ volatile (
-        "lidt %0"
-        :
-        : "m"(descriptor)
-        : "memory"
-    );
-
+    interrupts_load_current_cpu();
     return true;
 }
 
