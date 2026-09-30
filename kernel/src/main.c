@@ -8,10 +8,12 @@
 #include <aurora/framebuffer.h>
 #include <aurora/heap.h>
 #include <aurora/interrupts.h>
+#include <aurora/ioapic.h>
 #include <aurora/log.h>
 #include <aurora/madt.h>
 #include <aurora/panic.h>
 #include <aurora/pmm.h>
+#include <aurora/timer.h>
 #include <aurora/version.h>
 #include <aurora/vmm.h>
 
@@ -105,6 +107,12 @@ void kmain(void) {
     log_u64(lapic_id());
     log_line("");
 
+    if (!ioapic_init()) {
+        kernel_panic("I/O APIC initialization failed");
+    }
+
+    log_line("[ioapic] external interrupts masked by default");
+
     if (!clock_init()) {
         kernel_panic("No reliable monotonic clock source");
     }
@@ -117,6 +125,38 @@ void kmain(void) {
         log_u64(clock_tsc_frequency_hz());
         log_line("");
     }
+
+    if (!timer_init()) {
+        kernel_panic("Tickless timer initialization failed");
+    }
+
+    log_write("[timer] mode: ");
+    log_line(timer_mode_name());
+
+    uint64_t timer_before =
+        timer_interrupt_count();
+
+    if (!timer_arm_ns(1000000ull)) {
+        kernel_panic("Could not arm timer probe");
+    }
+
+    uint64_t timer_probe_deadline =
+        clock_now_ns() + 100000000ull;
+
+    arch_enable_interrupts();
+
+    while (timer_interrupt_count() == timer_before &&
+           clock_now_ns() < timer_probe_deadline) {
+        arch_idle();
+    }
+
+    arch_disable_interrupts();
+
+    if (timer_interrupt_count() == timer_before) {
+        kernel_panic("Local APIC timer probe timed out");
+    }
+
+    log_line("[timer] one-shot interrupt probe passed");
 
     if (!kheap_init()) {
         kernel_panic("Kernel heap initialization failed");
