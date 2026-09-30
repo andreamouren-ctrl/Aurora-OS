@@ -9,11 +9,15 @@
  *   movabs $0, %rax
  *   movabs $AURORA_USER_PROBE_MAGIC, %rdi
  *   syscall
- * loop:
- *   pause
- *   jmp loop
  *
- * Syscall 0 is the bootstrap signal used only while bringing up Ring 3.
+ *   mov $3, %eax
+ *   xor %edi, %edi
+ *   syscall
+ *
+ *   ud2
+ *
+ * Syscall 0 publishes the bootstrap signature. Syscall 3 exits. Reaching
+ * UD2 therefore means the kernel incorrectly returned from process exit.
  */
 static const uint8_t probe_image[] = {
     0x48, 0xB8,
@@ -26,8 +30,11 @@ static const uint8_t probe_image[] = {
 
     0x0F, 0x05,
 
-    0xF3, 0x90,
-    0xEB, 0xFC
+    0xB8, 0x03, 0x00, 0x00, 0x00,
+    0x31, 0xFF,
+    0x0F, 0x05,
+
+    0x0F, 0x0B
 };
 
 const uint8_t *user_probe_image(void) {
