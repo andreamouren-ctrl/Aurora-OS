@@ -14,6 +14,12 @@
 
 typedef uint32_t aurora_process_id;
 
+enum aurora_process_state {
+    AURORA_PROCESS_RUNNING = 0,
+    AURORA_PROCESS_EXITED,
+    AURORA_PROCESS_FAULTED
+};
+
 struct aurora_process {
     aurora_process_id id;
     char name[32];
@@ -23,6 +29,10 @@ struct aurora_process {
 
     uint64_t entry_point;
     uint64_t user_stack_top;
+
+    volatile enum aurora_process_state state;
+    volatile int64_t exit_code;
+    volatile uint64_t fault_vector;
 
     volatile uint64_t bootstrap_signal;
 };
@@ -39,6 +49,20 @@ void process_set_bootstrap_signal(
 );
 
 uint64_t process_bootstrap_signal(
+    const struct aurora_process *process
+);
+
+void process_mark_exited(
+    struct aurora_process *process,
+    int64_t exit_code
+);
+
+void process_mark_faulted(
+    struct aurora_process *process,
+    uint64_t vector
+);
+
+enum aurora_process_state process_state(
     const struct aurora_process *process
 );
 
