@@ -41,7 +41,22 @@ void arch_serial_putc(char c) {
 }
 
 void arch_early_init(void) {
-    __asm__ volatile ("cld");
+    /*
+     * Keep maskable interrupts disabled until Aurora installs its own IDT
+     * and interrupt-controller policy.
+     */
+    __asm__ volatile ("cli; cld");
+}
+
+uint64_t arch_read_cr2(void) {
+    uint64_t value;
+
+    __asm__ volatile (
+        "mov %%cr2, %0"
+        : "=r"(value)
+    );
+
+    return value;
 }
 
 uint64_t arch_read_cr3(void) {
@@ -49,6 +64,17 @@ uint64_t arch_read_cr3(void) {
 
     __asm__ volatile (
         "mov %%cr3, %0"
+        : "=r"(value)
+    );
+
+    return value;
+}
+
+uint16_t arch_read_cs(void) {
+    uint16_t value;
+
+    __asm__ volatile (
+        "mov %%cs, %0"
         : "=r"(value)
     );
 
