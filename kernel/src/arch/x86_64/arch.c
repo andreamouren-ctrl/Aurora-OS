@@ -1,3 +1,5 @@
+#include <stddef.h>
+
 #include <aurora/arch.h>
 
 #define COM1_PORT 0x3F8u
