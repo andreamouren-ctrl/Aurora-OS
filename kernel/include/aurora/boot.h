@@ -41,8 +41,8 @@ struct aurora_framebuffer {
 bool boot_protocol_supported(void);
 
 bool boot_get_framebuffer(struct aurora_framebuffer *out);
-
 bool boot_get_hhdm_offset(uint64_t *out_offset);
+bool boot_get_rsdp(void **out_address);
 
 uint64_t boot_memory_region_count(void);
 bool boot_memory_region_at(
