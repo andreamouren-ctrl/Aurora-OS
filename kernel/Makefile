@@ -6,9 +6,13 @@ BUILD_DIR := $(ROOT)/build/$(ARCH)/kernel
 OUTPUT := $(ROOT)/build/$(ARCH)/aurora-kernel.elf
 LIMINE_PROTOCOL := $(ROOT)/third_party/limine-protocol
 
-SRC := $(shell find src -type f -name '*.c' | LC_ALL=C sort)
-OBJ := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRC))
-DEP := $(OBJ:.o=.d)
+C_SRC := $(shell find src -type f -name '*.c' | LC_ALL=C sort)
+ASM_SRC := $(shell find src -type f -name '*.S' | LC_ALL=C sort)
+
+OBJ := $(patsubst %.c,$(BUILD_DIR)/%.o,$(C_SRC)) \
+       $(patsubst %.S,$(BUILD_DIR)/%.o,$(ASM_SRC))
+
+DEP := $(patsubst %.c,$(BUILD_DIR)/%.d,$(C_SRC))
 
 CFLAGS := \
     -target x86_64-unknown-none-elf \
@@ -58,6 +62,10 @@ $(OUTPUT): $(OBJ) $(ROOT)/linker/x86_64.ld
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJ) -o "$@"
 
 $(BUILD_DIR)/%.o: %.c
+	@mkdir -p "$(dir $@)"
+	$(CC) $(CFLAGS) -c "$<" -o "$@"
+
+$(BUILD_DIR)/%.o: %.S
 	@mkdir -p "$(dir $@)"
 	$(CC) $(CFLAGS) -c "$<" -o "$@"
 
