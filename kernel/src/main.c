@@ -341,9 +341,11 @@ void kmain(void) {
     uint64_t ring3_deadline =
         clock_now_ns() + 500000000ull;
 
-    while (process_bootstrap_signal(
+    while ((process_bootstrap_signal(
                 user_process) !=
-                AURORA_USER_PROBE_MAGIC &&
+                AURORA_USER_PROBE_MAGIC ||
+            !scheduler_thread_finished(
+                user_thread)) &&
            clock_now_ns() <
                 ring3_deadline) {
         arch_idle();
@@ -351,13 +353,18 @@ void kmain(void) {
 
     if (process_bootstrap_signal(
             user_process) !=
-        AURORA_USER_PROBE_MAGIC) {
+            AURORA_USER_PROBE_MAGIC ||
+        !scheduler_thread_finished(
+            user_thread) ||
+        process_state(user_process) !=
+            AURORA_PROCESS_EXITED) {
         kernel_panic(
-            "Ring 3 SYSCALL probe timed out"
+            "Ring 3 SYSCALL/EXIT probe timed out"
         );
     }
 
     log_line("[ring3] isolated user process reached SYSCALL");
+    log_line("[ring3] SYSRET returned to Ring 3 and EXIT switched back safely");
     log_line("[ring3] private CR3 + user stack + kernel stack path passed");
     log_line("[kernel] M1 user-space bootstrap reached successfully");
 
