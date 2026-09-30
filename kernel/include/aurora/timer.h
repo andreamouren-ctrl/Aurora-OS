@@ -4,13 +4,19 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <aurora/interrupts.h>
+
 enum aurora_timer_mode {
     AURORA_TIMER_NONE = 0,
     AURORA_TIMER_TSC_DEADLINE,
     AURORA_TIMER_LAPIC_ONESHOT
 };
 
-typedef void (*timer_callback_fn)(void);
+typedef struct interrupt_frame *(
+    *timer_callback_fn
+)(
+    struct interrupt_frame *frame
+);
 
 bool timer_init(void);
 
