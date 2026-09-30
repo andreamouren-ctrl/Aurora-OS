@@ -9,6 +9,7 @@ void log_putc(char c) {
     if (c == '\n') {
         arch_serial_putc('\r');
     }
+
     arch_serial_putc(c);
 }
 
@@ -25,4 +26,33 @@ void log_write(const char *text) {
 void log_line(const char *text) {
     log_write(text);
     log_putc('\n');
+}
+
+void log_hex64(uint64_t value) {
+    static const char digits[] = "0123456789abcdef";
+
+    log_write("0x");
+
+    for (int shift = 60; shift >= 0; shift -= 4) {
+        log_putc(digits[(value >> (unsigned)shift) & 0x0Fu]);
+    }
+}
+
+void log_u64(uint64_t value) {
+    char buffer[21];
+    unsigned index = 0;
+
+    if (value == 0) {
+        log_putc('0');
+        return;
+    }
+
+    while (value != 0) {
+        buffer[index++] = (char)('0' + (value % 10u));
+        value /= 10u;
+    }
+
+    while (index != 0) {
+        log_putc(buffer[--index]);
+    }
 }
