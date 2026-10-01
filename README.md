@@ -1,75 +1,123 @@
 # Aurora OS
 
-Aurora OS is a proprietary operating system project focused on speed, efficiency, privacy, resilience, and a deeply customizable desktop experience.
+Aurora OS is a proprietary operating-system project focused on speed, efficiency, privacy, resilience, and a deeply customizable desktop experience.
 
 ## Core direction
 
-Aurora OS is **not** intended to be a Linux distribution or a visual clone of Windows, macOS, or existing desktop environments.
+Aurora OS is **not** intended to be a Linux distribution or a visual clone of Windows, macOS, or an existing desktop environment.
 
-Its identity is based on:
+Its direction is based on:
 
 - an efficiency-first kernel and system architecture;
-- a modern memory subsystem designed around active, warm, cold, compressed, frozen, and disposable memory states;
+- a future Aurora Memory Fabric with active, warm, cold, compressed, frozen, and disposable memory states;
 - a highly customizable desktop as the user's primary environment;
-- web access integrated directly into the desktop through isolated Web Surfaces;
+- isolated Web Surfaces integrated into the desktop;
 - local-first operation with no mandatory online account;
-- privacy by default and explicit capability-based permissions;
-- aggressive suspension of inactive work to reduce CPU, RAM, I/O, and energy consumption;
-- immutable/recoverable system components and transactional updates;
+- explicit capability-based security;
+- aggressive suspension of inactive work;
+- recoverable system components and transactional-update goals;
 - native Activity Spaces for persistent work contexts;
 - asynchronous system services designed to preserve UI responsiveness.
 
 ## Current implementation
 
-Aurora OS has moved beyond the architecture-only bootstrap stage. The current x86_64 kernel reaches the **M1 user-space bootstrap** in the automated QEMU smoke test and already includes:
+The x86_64 kernel reaches the **M1 user-space bootstrap** in automated QEMU runtime tests.
+
+Implemented foundations currently include:
 
 - Limine-based BIOS/UEFI-capable boot media generation;
-- native framebuffer boot UI with integrated 1280x720 Aurora artwork;
-- physical and virtual memory management plus a kernel heap;
-- x86_64 GDT/TSS, IDT, exception handling, APIC/I/O APIC, ACPI/MADT and clock/timer support;
-- CPU hardening with CR0.WP and SMEP/SMAP/UMIP where supported;
-- SMP bootstrap infrastructure;
-- a preemptive kernel-thread scheduler prototype;
-- isolated Ring 3 processes with private address spaces and per-thread kernel stacks;
+- native framebuffer boot UI with integrated Aurora artwork;
+- physical memory manager, virtual memory manager, kernel heap, and checked user-copy primitives;
+- x86_64 GDT/TSS, IDT, exception handling, ACPI/MADT, Local APIC, I/O APIC, HPET/clock, and one-shot timer support;
+- CR0.WP plus SMEP/SMAP/UMIP activation where the CPU exposes them;
+- SMP bootstrap infrastructure (current CI runtime path remains single-vCPU);
+- preemptive kernel-thread scheduler prototype;
+- isolated Ring 3 process prototype with private address space and per-thread kernel stack;
 - x86_64 SYSCALL/SYSRET and EXIT path;
-- permission-checked user-memory copy primitives;
-- typed capability, delegation/revocation and bounded IPC prototypes;
-- a generic input-event queue and IRQ-driven PS/2 keyboard path;
-- the first native Aurora Identity login surface with interactive Aurora Key entry.
+- typed capability primitives and bounded IPC capability-transfer tests;
+- generic input-event queue and IRQ-driven PS/2 keyboard support;
+- native Aurora Identity framebuffer login prototype with Aurora Key entry;
+- generic block-device abstraction;
+- PCI storage discovery and AHCI controller/ABAR discovery;
+- ATA PIO compatibility read/write path used by CI storage tests;
+- MBR/GPT partition-manager foundations;
+- filesystem driver registry and mount manager;
+- AuroraFS bootstrap v1 persistence across reboot;
+- FAT32/VFAT read-only support including Long File Names and UTF-16 to UTF-8 decoding;
+- exFAT read-only support including 64-bit file-length handling.
 
-The current login UI accepts and masks an Aurora Key, but **persistent authentication is intentionally not implemented yet**. The future Aurora Identity Service will live in user space and will own identity storage, verifier derivation/checking, throttling and session bootstrap.
+### Storage verification
+
+The storage CI creates externally formatted FAT32 and exFAT volumes, embeds them in an MBR disk image, boots Aurora in QEMU, mounts both formats through Aurora's filesystem-driver layer, reads known files, validates a Unicode VFAT Long File Name, and reboots the same disk to verify AuroraFS persistence.
+
+The combined storage smoke test is runtime-verified green as of workflow run **#271** (`36888671373`) at commit `483ab55e803b7d22c061d938ffdd6b23e5e86bb7`.
+
+Important scope limits:
+
+- AHCI currently performs controller discovery/probing only; modern AHCI data I/O is not implemented yet.
+- NVMe and USB mass-storage transports are not implemented yet.
+- AuroraFS v1 is a deliberately small bootstrap persistence format, not the final production filesystem.
+- FAT32/VFAT and exFAT are currently read-only.
+- the legacy volatile VFS prototype has not yet been fully replaced by the new mount/filesystem-driver path.
+
+## Aurora Identity
+
+The current login UI accepts and masks an Aurora Key, but **persistent authentication is intentionally not implemented yet**. The planned Aurora Identity Service will live in user space and own identity storage, credential verification, throttling, recovery policy, and authenticated session bootstrap.
+
+The canonical Identity documentation is indexed in [`docs/identity/README.md`](docs/identity/README.md).
 
 ## Build and verification
 
-The repository CI builds the freestanding x86_64 kernel and bootable ISO, checks the kernel ELF for unresolved symbols, boots the ISO in QEMU and requires the serial log to reach:
+CI currently:
+
+1. builds the freestanding x86_64 kernel and bootable ISO;
+2. verifies the kernel ELF and unresolved-symbol state;
+3. performs a BIOS QEMU smoke boot;
+4. exercises ATA PIO and AuroraFS persistence;
+5. scans an MBR containing FAT32 and exFAT partitions;
+6. mounts and reads externally generated FAT32/VFAT and exFAT filesystems;
+7. performs a second boot against the same disk image to verify persistence.
+
+The generic boot path must reach:
 
 ```text
 [kernel] M1 user-space bootstrap reached successfully
 ```
 
-The resulting ISO and smoke-test logs are uploaded as workflow artifacts.
-
 ## Languages and toolchain
 
 Aurora OS will **not** introduce a proprietary programming language.
 
-Existing systems languages and toolchains are selected pragmatically according to the needs of the kernel, drivers, services, and user-space components. The current kernel is built as a freestanding x86_64 target with Clang/LLD.
+Existing systems languages and toolchains are selected pragmatically. The current kernel is built as a freestanding x86_64 target with Clang/LLD.
 
 ## Current phase
 
-The project is currently in **M1 — Kernel foundations**, with most bootstrap prototypes implemented and runtime-smoke-tested on the current single-vCPU QEMU CI path.
+The project remains in **M1 — Kernel foundations**, while selected M3 storage foundations are being implemented early because Aurora Identity requires durable local state.
 
-Major next foundations include persistent storage/VFS, user-space system services, Aurora Identity persistence/session bootstrap, broader device input support, and the later Aurora Memory Fabric prototype.
+Primary next storage work includes:
 
-See:
+- production VFS integration over the filesystem mount manager;
+- registering native AuroraFS through the same filesystem-driver interface;
+- sector-size-independent block/partition/filesystem parsing;
+- hardened GPT validation;
+- NTFS and ext-family read-only drivers;
+- modern AHCI data I/O, followed later by NVMe and USB mass storage.
+
+## Documentation
+
+Start with [`docs/README.md`](docs/README.md).
+
+Key specifications:
 
 - [Vision](docs/VISION.md)
 - [Architecture Principles](docs/ARCHITECTURE_PRINCIPLES.md)
 - [Roadmap](docs/ROADMAP.md)
+- [AuroraFS](docs/AURORAFS.md)
+- [Filesystem Compatibility](docs/FILESYSTEM_COMPATIBILITY.md)
 - [Aurora Identity](docs/AURORA_IDENTITY.md)
 - [Kernel Model](docs/KERNEL_MODEL.md)
 - [Syscall ABI](docs/SYSCALL_ABI.md)
 
 ## Status
 
-Active research and development. Kernel interfaces and architecture are still evolving and are not yet considered stable production ABI.
+Active research and development. Kernel interfaces, storage formats, and service contracts are still evolving and are not yet stable production ABI.
