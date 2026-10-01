@@ -59,6 +59,14 @@ The CI disk contains:
 
 The test performs two complete QEMU boots against the same disk image.
 
+## Partition-sector handling
+
+The partition parser now accepts logical block sizes of 512, 1024, 2048, and 4096 bytes. MBR metadata is still interpreted from the standard first 512 bytes of LBA 0, while GPT header and entry-table addressing use the block device's actual logical block size.
+
+GPT entries that cross a logical-block boundary are assembled from two adjacent blocks. This removes the previous hard requirement that every GPT entry fit wholly inside a 512-byte sector.
+
+This support is **implemented but not yet runtime-verified on non-512 logical-block media**. FAT32, exFAT, AuroraFS bootstrap v1, ATA PIO, and parts of the detector stack still contain format- or transport-specific 512-byte assumptions, so this does not yet constitute end-to-end 4Kn support.
+
 ## AuroraFS bootstrap v1
 
 Runtime-verified common-driver capabilities:
@@ -116,11 +124,11 @@ Filesystem support and hardware transport support are separate concerns.
 
 Currently:
 
-- ATA PIO provides the runtime-tested disk read/write transport used in CI;
+- ATA PIO provides the runtime-tested disk read/write transport used in CI and still exposes 512-byte sectors;
 - AHCI controller discovery and ABAR probing exist, but AHCI data I/O is not implemented yet;
 - NVMe is not implemented yet;
 - USB/xHCI and USB mass-storage are not implemented yet;
-- current partition/filesystem parsing still contains 512-byte-sector assumptions that must be removed for full 512e/4Kn support.
+- partition parsing is now logical-sector aware for 512/1024/2048/4096-byte blocks, but filesystem and transport layers still contain remaining 512-byte assumptions.
 
 Therefore FAT32/exFAT/AuroraFS driver support being verified does **not** yet mean Aurora can access every modern physical SATA/NVMe/USB device.
 
