@@ -27,6 +27,7 @@ jobs:
             curl \
             git \
             binutils \
+            python3 \
             qemu-system-x86
 
       - name: Build kernel and ISO
