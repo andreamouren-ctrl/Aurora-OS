@@ -31,7 +31,7 @@ static bool verify_file(
     const uint8_t *expected,
     size_t expected_length
 ) {
-    uint8_t buffer[96];
+    uint8_t buffer[128];
     size_t read = 0u;
 
     if (mount == NULL || mount->driver == NULL || mount->driver->read == NULL ||
@@ -52,7 +52,56 @@ static bool verify_file(
     return read == expected_length && bytes_equal(buffer, expected, expected_length);
 }
 
-static void bootstrap_fat32_probe(struct aurora_block_device *device) {
+static void verify_fat32_partition(const struct aurora_partition *partition) {
+    struct aurora_fs_mount *mount = NULL;
+    if (!fs_mount_partition("/media/fat32-test", partition, &mount) || mount == NULL) {
+        kernel_panic("FAT32 test partition mount failed");
+    }
+
+    static const uint8_t expected_short[] = "AURORA-FAT32-EXTERNAL-IMAGE";
+    if (!verify_file(
+            mount,
+            "/AURORA.TXT",
+            expected_short,
+            sizeof(expected_short) - 1u)) {
+        kernel_panic("FAT32 external image file verification failed");
+    }
+
+    static const uint8_t expected_lfn[] = "AURORA-FAT32-LFN-UNICODE";
+    if (!verify_file(
+            mount,
+            "/Documento Aurora \xC3\xA8.txt",
+            expected_lfn,
+            sizeof(expected_lfn) - 1u)) {
+        kernel_panic("FAT32 VFAT long filename verification failed");
+    }
+
+    log_line("[fat32] external image mounted read-only");
+    log_line("[fat32] external file read verified");
+    log_line("[fat32] VFAT long Unicode filename verified");
+}
+
+static void verify_exfat_partition(const struct aurora_partition *partition) {
+    struct aurora_fs_mount *mount = NULL;
+    if (!fs_mount_partition("/media/exfat-test", partition, &mount) || mount == NULL) {
+        kernel_panic("exFAT test partition mount failed");
+    }
+
+    static const uint8_t expected[] = "AURORA-EXFAT-EXTERNAL-IMAGE";
+    if (!verify_file(
+            mount,
+            "/Grande Aurora.txt",
+            expected,
+            sizeof(expected) - 1u)) {
+        kernel_panic("exFAT external image file verification failed");
+    }
+
+    log_line("[exfat] external image mounted read-only");
+    log_line("[exfat] external file read verified");
+    log_line("[exfat] 64-bit file length path active");
+}
+
+static void bootstrap_foreign_fs_probe(struct aurora_block_device *device) {
     struct aurora_partition partitions[BOOTSTRAP_PARTITION_MAX];
     size_t partition_count = partition_scan(
         device,
@@ -76,38 +125,11 @@ static void bootstrap_fat32_probe(struct aurora_block_device *device) {
         log_u64(partitions[i].index);
         log_line("");
 
-        if (match.driver != fat32_driver()) {
-            continue;
+        if (match.driver == fat32_driver()) {
+            verify_fat32_partition(&partitions[i]);
+        } else if (match.driver == exfat_driver()) {
+            verify_exfat_partition(&partitions[i]);
         }
-
-        struct aurora_fs_mount *mount = NULL;
-        if (!fs_mount_partition("/media/fat32-test", &partitions[i], &mount) ||
-            mount == NULL) {
-            kernel_panic("FAT32 test partition mount failed");
-        }
-
-        static const uint8_t expected_short[] = "AURORA-FAT32-EXTERNAL-IMAGE";
-        if (!verify_file(
-                mount,
-                "/AURORA.TXT",
-                expected_short,
-                sizeof(expected_short) - 1u)) {
-            kernel_panic("FAT32 external image file verification failed");
-        }
-
-        static const uint8_t expected_lfn[] = "AURORA-FAT32-LFN-UNICODE";
-        if (!verify_file(
-                mount,
-                "/Documento Aurora \xC3\xA8.txt",
-                expected_lfn,
-                sizeof(expected_lfn) - 1u)) {
-            kernel_panic("FAT32 VFAT long filename verification failed");
-        }
-
-        log_line("[fat32] external image mounted read-only");
-        log_line("[fat32] external file read verified");
-        log_line("[fat32] VFAT long Unicode filename verified");
-        return;
     }
 }
 
@@ -155,8 +177,7 @@ void bootstrap_storage_probe(void) {
     /*
      * ATA PIO is currently a bounded compatibility/test path. Writes remain
      * gated by the explicit AURORA-STORAGE-TEST-V1 signature in the MBR boot
-     * area. The CI disk may also contain a real partition table and FAT32
-     * volume beginning well after the low bootstrap sectors.
+     * area. CI additionally places real foreign filesystems in MBR partitions.
      */
     if (ata_pio_primary_master_init()) {
         struct aurora_block_device *ata = ata_pio_primary_master_device();
@@ -187,7 +208,7 @@ void bootstrap_storage_probe(void) {
                 log_line("[aurorafs] persistent file created");
             }
 
-            bootstrap_fat32_probe(ata);
+            bootstrap_foreign_fs_probe(ata);
         } else {
             log_line("[ata] primary master detected; signed write probe skipped");
         }
