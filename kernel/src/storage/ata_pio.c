@@ -172,14 +172,17 @@ static bool ata_block_read(
     return true;
 }
 
+static bool ata_block_flush(struct aurora_block_device *device) {
+    (void)device;
+    return primary_ready && ata_cache_flush();
+}
+
 static bool ata_block_write(
     struct aurora_block_device *device,
     uint64_t lba,
     uint32_t block_count,
     const void *buffer
 ) {
-    (void)device;
-
     const uint8_t *in = (const uint8_t *)buffer;
 
     for (uint32_t i = 0u; i < block_count; ++i) {
@@ -190,13 +193,8 @@ static bool ata_block_write(
         }
     }
 
-    /* Commit the complete write batch once instead of flushing each sector. */
-    return ata_cache_flush();
-}
-
-static bool ata_block_flush(struct aurora_block_device *device) {
-    (void)device;
-    return primary_ready && ata_cache_flush();
+    /* One public durability barrier commits the complete batch. */
+    return block_device_flush(device);
 }
 
 bool ata_pio_primary_master_init(void) {
@@ -303,6 +301,5 @@ bool ata_pio_ci_probe(void) {
         }
     }
 
-    /* Verify the public durability barrier separately from implicit write commit. */
-    return block_device_flush(&primary_master);
+    return true;
 }
