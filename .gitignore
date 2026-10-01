@@ -10,6 +10,9 @@ dist/
 *.img
 *.bin
 
+# Generated boot assets
+kernel/assets/boot/aurora_boot.idx8
+
 # Downloaded dependencies
 third_party/
 

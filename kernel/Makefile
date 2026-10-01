@@ -1,10 +1,16 @@
 ARCH ?= x86_64
 CC := clang
+PYTHON ?= python3
 
 ROOT := ..
 BUILD_DIR := $(ROOT)/build/$(ARCH)/kernel
 OUTPUT := $(ROOT)/build/$(ARCH)/aurora-kernel.elf
 LIMINE_PROTOCOL := $(ROOT)/third_party/limine-protocol
+
+BOOT_ASSET_SOURCES := assets/boot/aurora_boot.compact.zlib.b64
+BOOT_ASSET := assets/boot/aurora_boot.idx8
+BOOT_ASSET_TOOL := $(ROOT)/scripts/prepare-boot-asset.py
+BOOT_ASSET_OBJ := $(BUILD_DIR)/src/ui/boot_asset.o
 
 C_SRC := $(shell find src -type f -name '*.c' | LC_ALL=C sort)
 ASM_SRC := $(shell find src -type f -name '*.S' | LC_ALL=C sort)
@@ -57,6 +63,13 @@ LDFLAGS := \
 
 all: $(OUTPUT)
 
+$(BOOT_ASSET): $(BOOT_ASSET_SOURCES) $(BOOT_ASSET_TOOL)
+	$(PYTHON) "$(BOOT_ASSET_TOOL)" \
+		--input $(BOOT_ASSET_SOURCES) \
+		--output "$@"
+
+$(BOOT_ASSET_OBJ): $(BOOT_ASSET)
+
 $(OUTPUT): $(OBJ) $(ROOT)/linker/x86_64.ld
 	@mkdir -p "$(dir $@)"
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJ) -o "$@"
@@ -72,4 +85,4 @@ $(BUILD_DIR)/%.o: %.S
 -include $(DEP)
 
 clean:
-	rm -rf "$(ROOT)/build/$(ARCH)/kernel" "$(OUTPUT)"
+	rm -rf "$(ROOT)/build/$(ARCH)/kernel" "$(OUTPUT)" "$(BOOT_ASSET)"
