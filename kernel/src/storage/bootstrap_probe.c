@@ -24,6 +24,33 @@ static bool bytes_equal(const uint8_t *a, const uint8_t *b, size_t length) {
     return true;
 }
 
+static bool verify_file(
+    const struct aurora_fs_mount *mount,
+    const char *path,
+    const uint8_t *expected,
+    size_t expected_length
+) {
+    uint8_t buffer[96];
+    size_t read = 0u;
+
+    if (mount == NULL || mount->driver == NULL || mount->driver->read == NULL ||
+        expected_length > sizeof(buffer)) {
+        return false;
+    }
+
+    if (!mount->driver->read(
+            mount->context,
+            path,
+            0u,
+            buffer,
+            sizeof(buffer),
+            &read)) {
+        return false;
+    }
+
+    return read == expected_length && bytes_equal(buffer, expected, expected_length);
+}
+
 static void bootstrap_fat32_probe(struct aurora_block_device *device) {
     struct aurora_partition partitions[BOOTSTRAP_PARTITION_MAX];
     size_t partition_count = partition_scan(
@@ -38,8 +65,7 @@ static void bootstrap_fat32_probe(struct aurora_block_device *device) {
 
     for (size_t i = 0u; i < partition_count; ++i) {
         struct aurora_fs_match match;
-        if (!fs_driver_detect(&partitions[i], &match) ||
-            match.driver == NULL) {
+        if (!fs_driver_detect(&partitions[i], &match) || match.driver == NULL) {
             continue;
         }
 
@@ -55,28 +81,31 @@ static void bootstrap_fat32_probe(struct aurora_block_device *device) {
 
         struct aurora_fs_mount *mount = NULL;
         if (!fs_mount_partition("/media/fat32-test", &partitions[i], &mount) ||
-            mount == NULL || mount->driver == NULL || mount->driver->read == NULL) {
+            mount == NULL) {
             kernel_panic("FAT32 test partition mount failed");
         }
 
-        static const uint8_t expected[] = "AURORA-FAT32-EXTERNAL-IMAGE";
-        uint8_t buffer[64];
-        size_t read = 0u;
-
-        if (!mount->driver->read(
-                mount->context,
+        static const uint8_t expected_short[] = "AURORA-FAT32-EXTERNAL-IMAGE";
+        if (!verify_file(
+                mount,
                 "/AURORA.TXT",
-                0u,
-                buffer,
-                sizeof(buffer),
-                &read) ||
-            read != sizeof(expected) - 1u ||
-            !bytes_equal(buffer, expected, sizeof(expected) - 1u)) {
+                expected_short,
+                sizeof(expected_short) - 1u)) {
             kernel_panic("FAT32 external image file verification failed");
+        }
+
+        static const uint8_t expected_lfn[] = "AURORA-FAT32-LFN-UNICODE";
+        if (!verify_file(
+                mount,
+                "/Documento Aurora \xC3\xA8.txt",
+                expected_lfn,
+                sizeof(expected_lfn) - 1u)) {
+            kernel_panic("FAT32 VFAT long filename verification failed");
         }
 
         log_line("[fat32] external image mounted read-only");
         log_line("[fat32] external file read verified");
+        log_line("[fat32] VFAT long Unicode filename verified");
         return;
     }
 }
