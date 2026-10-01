@@ -3,6 +3,9 @@
 #include <aurora/aurora_fs.h>
 #include <aurora/block_device.h>
 #include <aurora/bootstrap_probe.h>
+#include <aurora/fat32.h>
+#include <aurora/fs_driver.h>
+#include <aurora/fs_mount.h>
 #include <aurora/log.h>
 #include <aurora/panic.h>
 #include <aurora/vfs.h>
@@ -13,6 +16,16 @@ void bootstrap_storage_probe(void) {
     }
 
     log_line("[storage] block-device abstraction self-test passed");
+
+    fs_driver_registry_init();
+    fs_mount_manager_init();
+
+    if (!fs_driver_register(fat32_driver())) {
+        kernel_panic("FAT32 filesystem driver registration failed");
+    }
+
+    log_line("[fs] filesystem driver registry initialized");
+    log_line("[fs] FAT32 read-only driver registered");
 
     struct aurora_ahci_probe_result ahci;
 
