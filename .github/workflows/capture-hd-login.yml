@@ -1,0 +1,58 @@
+name: Aurora HD Login Capture
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  capture-x86_64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld make xorriso curl git binutils python3 qemu-system-x86 ffmpeg
+
+      - name: Build ISO
+        run: make iso
+
+      - name: Capture QEMU framebuffer
+        run: |
+          rm -rf build/capture
+          mkdir -p build/capture
+          rm -f /tmp/aurora-monitor.sock
+          qemu-system-x86_64 \
+            -m 512M \
+            -smp 1 \
+            -cdrom build/AuroraOS-x86_64.iso \
+            -boot d \
+            -no-reboot \
+            -no-shutdown \
+            -serial file:build/capture/serial.log \
+            -monitor unix:/tmp/aurora-monitor.sock,server=on,wait=off \
+            -display none \
+            -daemonize
+          python3 scripts/capture-qemu-frames.py
+
+      - name: Encode capture
+        run: |
+          ffmpeg -y -loglevel error -framerate 6.25 -i build/capture/frame_%03d.ppm -c:v libx264 -crf 18 -pix_fmt yuv420p build/capture/AuroraOS-HD-boot-login.mp4
+          ffmpeg -y -loglevel error -i build/capture/login.ppm build/capture/AuroraOS-login.png
+          ffmpeg -y -loglevel error -i build/capture/final.ppm build/capture/AuroraOS-login-final.png
+          rm -f build/capture/frame_*.ppm build/capture/*.ppm
+
+      - name: Upload capture
+        uses: actions/upload-artifact@v4
+        with:
+          name: AuroraOS-HD-login-capture
+          path: |
+            build/capture/AuroraOS-HD-boot-login.mp4
+            build/capture/AuroraOS-login.png
+            build/capture/AuroraOS-login-final.png
+            build/capture/serial.log
+            build/capture/capture-meta.txt
+          if-no-files-found: error
