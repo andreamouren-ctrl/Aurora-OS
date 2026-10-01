@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Active implementation**
-Version: **0.9**
+Version: **0.10**
 
 The roadmap distinguishes architecture decisions, repository implementation, and runtime verification. A feature is not considered complete merely because a detector or interface exists.
 
@@ -121,12 +121,12 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] filesystem detector
 - [x] mount manager
 - [x] 64-bit common file offset/size contract
+- [x] common VFS routing through mount manager for mounted filesystems
 - [x] FAT32/VFAT read-only driver
 - [x] VFAT Long File Names + Unicode conversion
-- [x] FAT32/VFAT external-image runtime verification
+- [x] FAT32/VFAT external-image runtime verification through VFS
 - [x] exFAT read-only driver
-- [x] exFAT external-image runtime verification
-- [ ] production VFS routing through mount manager
+- [x] exFAT external-image runtime verification through VFS
 - [ ] remove bootstrap static mount/driver limits
 - [ ] FAT12/FAT16 drivers
 - [ ] NTFS read-only driver
@@ -139,7 +139,9 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] AuroraFS bootstrap v1 on-disk format
 - [x] checksummed superblock and data probe
 - [x] two-boot persistence verification in QEMU
-- [ ] register AuroraFS through the common filesystem-driver interface
+- [x] register AuroraFS through the common filesystem-driver interface
+- [x] mount AuroraFS through the common mount manager and VFS at `/system`
+- [x] common-driver stat/readdir/read and existing-file write path
 - [ ] scalable production allocation structures
 - [ ] directories, multi-block files, sparse files, and extents
 - [ ] crash-consistent metadata strategy
@@ -155,7 +157,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [ ] transactional deployment prototype
 - [ ] rollback
 
-Runtime reference: combined ATA + AuroraFS + FAT32/VFAT + exFAT storage smoke test is green in workflow **#271** (`36888671373`) at commit `483ab55e803b7d22c061d938ffdd6b23e5e86bb7`.
+Runtime reference: combined ATA + AuroraFS + FAT32/VFAT + exFAT common-VFS storage smoke test is green in workflow **#285** (`36892511779`) at commit `445abb2246951b13bb5aae291713b1eeb5aa0420`.
 
 ## M4 — Graphics and Desktop foundation
 
@@ -232,18 +234,19 @@ Aurora can boot through the M1 kernel foundation and enter the native login prot
 
 Near-term dependency order:
 
-1. complete production VFS routing over the new mount framework;
-2. register AuroraFS as a normal filesystem driver;
-3. generalize sector-size handling and harden GPT;
+1. generalize block/partition/filesystem sector-size handling;
+2. harden GPT with CRC validation, variable entry-size handling, and backup-header fallback;
+3. add a block-device flush contract and registry;
 4. add NTFS and ext-family read-only support;
 5. implement modern AHCI data I/O;
-6. establish protected durable system state;
-7. implement secure randomness and credential verification;
-8. implement Aurora Identity Service, persistent identity records, and Session Manager;
-9. add USB storage and Aurora Identity Drive support.
+6. evolve AuroraFS from bootstrap v1 to scalable production allocation and directory structures;
+7. establish protected durable system state;
+8. implement secure randomness and credential verification;
+9. implement Aurora Identity Service, persistent identity records, and Session Manager;
+10. add USB storage and Aurora Identity Drive support.
 
 Detailed Identity sequencing remains in `docs/identity/IMPLEMENTATION_ROADMAP.md`.
 
 ## Cross-cutting requirement
 
-Every milestone is evaluated against performance, memory efficiency, latency, privacy, security, recoverability, and measurable resource cost.
+Every milestone is evaluated against performance, memory efficiency, latency, privacy, security, recoverability, and measurable resource cost. Documentation must distinguish designed, implemented, and runtime-verified states and must be updated together with material architecture or behavior changes.
