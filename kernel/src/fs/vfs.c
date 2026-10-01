@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <aurora/fs_mount.h>
 #include <aurora/vfs.h>
 
 struct bootstrap_vfs_file {
@@ -102,6 +103,30 @@ static struct bootstrap_vfs_file *vfs_find_free_slot(void) {
     return NULL;
 }
 
+static enum aurora_vfs_node_type vfs_node_type_from_fs(
+    enum aurora_fs_entry_type type
+) {
+    switch (type) {
+        case AURORA_FS_ENTRY_FILE:
+            return AURORA_VFS_NODE_FILE;
+        case AURORA_FS_ENTRY_DIRECTORY:
+            return AURORA_VFS_NODE_DIRECTORY;
+        default:
+            return AURORA_VFS_NODE_NONE;
+    }
+}
+
+static const struct aurora_fs_mount *vfs_resolve_mount(
+    const char *path,
+    const char **out_relative_path
+) {
+    if (path == NULL || path[0] != '/') {
+        return NULL;
+    }
+
+    return fs_mount_resolve(path, out_relative_path);
+}
+
 bool vfs_init(void) {
     for (size_t i = 0u; i < AURORA_VFS_BOOTSTRAP_FILE_MAX; ++i) {
         bootstrap_files[i].used = false;
@@ -115,6 +140,10 @@ bool vfs_init(void) {
 
 bool vfs_create_file(const char *path) {
     if (!vfs_initialized || !vfs_path_valid(path)) {
+        return false;
+    }
+
+    if (vfs_resolve_mount(path, NULL) != NULL) {
         return false;
     }
 
@@ -144,6 +173,10 @@ bool vfs_remove(const char *path) {
         return false;
     }
 
+    if (vfs_resolve_mount(path, NULL) != NULL) {
+        return false;
+    }
+
     struct bootstrap_vfs_file *file = vfs_find_file(path);
 
     if (file == NULL) {
@@ -166,6 +199,38 @@ bool vfs_remove(const char *path) {
 bool vfs_stat(const char *path, struct aurora_vfs_stat *out_stat) {
     if (!vfs_initialized || path == NULL || out_stat == NULL) {
         return false;
+    }
+
+    const char *relative_path = NULL;
+    const struct aurora_fs_mount *mount = vfs_resolve_mount(
+        path,
+        &relative_path
+    );
+
+    if (mount != NULL) {
+        if (mount->driver == NULL || mount->driver->stat == NULL) {
+            return false;
+        }
+
+        struct aurora_fs_stat mounted_stat;
+        if (!mount->driver->stat(
+                mount->context,
+                relative_path,
+                &mounted_stat)) {
+            return false;
+        }
+
+        enum aurora_vfs_node_type node_type = vfs_node_type_from_fs(
+            mounted_stat.type
+        );
+
+        if (node_type == AURORA_VFS_NODE_NONE) {
+            return false;
+        }
+
+        out_stat->type = node_type;
+        out_stat->size = mounted_stat.size;
+        return true;
     }
 
     if (vfs_paths_equal(path, "/")) {
@@ -192,6 +257,29 @@ bool vfs_write_file(
 ) {
     if (!vfs_initialized || path == NULL || data == NULL) {
         return false;
+    }
+
+    const char *relative_path = NULL;
+    const struct aurora_fs_mount *mount = vfs_resolve_mount(
+        path,
+        &relative_path
+    );
+
+    if (mount != NULL) {
+        if (mount->driver == NULL || mount->driver->write == NULL ||
+            mount->access != AURORA_FS_PROBE_MATCH_READ_WRITE) {
+            return false;
+        }
+
+        size_t written = 0u;
+        return mount->driver->write(
+                   mount->context,
+                   relative_path,
+                   0u,
+                   data,
+                   length,
+                   &written) &&
+               written == length;
     }
 
     if (length > AURORA_VFS_BOOTSTRAP_DATA_MAX) {
@@ -226,6 +314,27 @@ bool vfs_read_file(
 ) {
     if (!vfs_initialized || path == NULL || buffer == NULL) {
         return false;
+    }
+
+    const char *relative_path = NULL;
+    const struct aurora_fs_mount *mount = vfs_resolve_mount(
+        path,
+        &relative_path
+    );
+
+    if (mount != NULL) {
+        if (mount->driver == NULL || mount->driver->read == NULL) {
+            return false;
+        }
+
+        return mount->driver->read(
+            mount->context,
+            relative_path,
+            0u,
+            buffer,
+            capacity,
+            out_length
+        );
     }
 
     struct bootstrap_vfs_file *file = vfs_find_file(path);
