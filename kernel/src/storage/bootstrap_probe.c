@@ -56,6 +56,36 @@ static bool verify_vfs_file(
     return read == expected_length && bytes_equal(buffer, expected, expected_length);
 }
 
+static void verify_aurora_fs_device(struct aurora_block_device *device) {
+    if (device == NULL) {
+        kernel_panic("AuroraFS device unavailable for common mount");
+    }
+
+    struct aurora_partition whole = { 0 };
+    whole.device = device;
+    whole.scheme = AURORA_PARTITION_SCHEME_WHOLE_DEVICE;
+    whole.index = 0u;
+    whole.first_lba = 0u;
+    whole.block_count = device->block_count;
+
+    struct aurora_fs_mount *mount = NULL;
+    if (!fs_mount_partition("/system", &whole, &mount) || mount == NULL ||
+        mount->driver != aurora_fs_driver()) {
+        kernel_panic("AuroraFS common filesystem mount failed");
+    }
+
+    static const uint8_t expected[] = "AURORA-FS-PERSIST";
+    if (!verify_vfs_file(
+            "/system/aurora.boot-probe",
+            expected,
+            sizeof(expected) - 1u)) {
+        kernel_panic("AuroraFS VFS persistent file verification failed");
+    }
+
+    log_line("[aurorafs] mounted at /system via common filesystem framework");
+    log_line("[vfs] AuroraFS mounted-path routing verified");
+}
+
 static void verify_fat32_partition(const struct aurora_partition *partition) {
     struct aurora_fs_mount *mount = NULL;
     if (!fs_mount_partition("/media/fat32-test", partition, &mount) || mount == NULL) {
@@ -150,6 +180,9 @@ void bootstrap_storage_probe(void) {
         kernel_panic("VFS bootstrap initialization failed");
     }
 
+    if (!fs_driver_register(aurora_fs_driver())) {
+        kernel_panic("AuroraFS filesystem driver registration failed");
+    }
     if (!fs_driver_register(fat32_driver())) {
         kernel_panic("FAT32 filesystem driver registration failed");
     }
@@ -158,6 +191,7 @@ void bootstrap_storage_probe(void) {
     }
 
     log_line("[fs] filesystem driver registry initialized");
+    log_line("[fs] AuroraFS read-write driver registered");
     log_line("[fs] FAT32 read-only driver registered");
     log_line("[fs] exFAT read-only driver registered");
 
@@ -215,6 +249,7 @@ void bootstrap_storage_probe(void) {
                 log_line("[aurorafs] persistent file created");
             }
 
+            verify_aurora_fs_device(ata);
             bootstrap_foreign_fs_probe(ata);
         } else {
             log_line("[ata] primary master detected; signed write probe skipped");
