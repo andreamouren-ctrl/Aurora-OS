@@ -23,10 +23,10 @@
 #define ATA_STATUS_DF  0x20u
 #define ATA_STATUS_BSY 0x80u
 
-#define ATA_CMD_IDENTIFY     0xECu
-#define ATA_CMD_READ_SECTORS 0x20u
+#define ATA_CMD_IDENTIFY      0xECu
+#define ATA_CMD_READ_SECTORS  0x20u
 #define ATA_CMD_WRITE_SECTORS 0x30u
-#define ATA_CMD_CACHE_FLUSH  0xE7u
+#define ATA_CMD_CACHE_FLUSH   0xE7u
 
 #define ATA_SECTOR_SIZE 512u
 #define ATA_POLL_LIMIT  1000000u
@@ -68,6 +68,20 @@ static bool ata_wait_drq(void) {
     }
 
     return false;
+}
+
+static bool ata_cache_flush(void) {
+    if (!ata_wait_not_busy()) {
+        return false;
+    }
+
+    arch_out8(ATA_PRIMARY_IO + ATA_REG_COMMAND, ATA_CMD_CACHE_FLUSH);
+    if (!ata_wait_not_busy()) {
+        return false;
+    }
+
+    uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
+    return (status & (ATA_STATUS_ERR | ATA_STATUS_DF)) == 0u;
 }
 
 static bool ata_select_lba28(uint32_t lba) {
@@ -133,13 +147,7 @@ static bool ata_write_one(uint32_t lba, const uint8_t *buffer) {
         arch_out16(ATA_PRIMARY_IO + ATA_REG_DATA, word);
     }
 
-    arch_out8(ATA_PRIMARY_IO + ATA_REG_COMMAND, ATA_CMD_CACHE_FLUSH);
-    if (!ata_wait_not_busy()) {
-        return false;
-    }
-
-    uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
-    return (status & (ATA_STATUS_ERR | ATA_STATUS_DF)) == 0u;
+    return ata_cache_flush();
 }
 
 static bool ata_block_read(
@@ -182,6 +190,11 @@ static bool ata_block_write(
     }
 
     return true;
+}
+
+static bool ata_block_flush(struct aurora_block_device *device) {
+    (void)device;
+    return primary_ready && ata_cache_flush();
 }
 
 bool ata_pio_primary_master_init(void) {
@@ -233,6 +246,7 @@ bool ata_pio_primary_master_init(void) {
     primary_master.context = NULL;
     primary_master.read_blocks = ata_block_read;
     primary_master.write_blocks = ata_block_write;
+    primary_master.flush = ata_block_flush;
 
     primary_ready = true;
     return true;
@@ -277,6 +291,7 @@ bool ata_pio_ci_probe(void) {
     }
 
     if (!block_device_write(&primary_master, 1u, 1u, write_buffer) ||
+        !block_device_flush(&primary_master) ||
         !block_device_read(&primary_master, 1u, 1u, read_buffer)) {
         return false;
     }
