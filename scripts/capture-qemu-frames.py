@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 MONITOR = "/tmp/aurora-monitor.sock"
-CAPTURE = Path("build/capture")
+CAPTURE = Path("build/capture").resolve()
 SERIAL = CAPTURE / "serial.log"
 SUCCESS = "[kernel] M1 user-space bootstrap reached successfully"
 
@@ -23,18 +23,33 @@ sock.settimeout(0.15)
 
 
 def drain():
+    data = b""
     while True:
         try:
-            if not sock.recv(65536):
-                return
+            chunk = sock.recv(65536)
+            if not chunk:
+                return data
+            data += chunk
         except (socket.timeout, BlockingIOError):
-            return
+            return data
 
 
 def hmp(command, settle=0.04):
     sock.sendall((command + "\n").encode("ascii"))
     time.sleep(settle)
-    drain()
+    return drain()
+
+
+def dump(path):
+    path = Path(path).resolve()
+    response = hmp(f"screendump {path}", 0.05)
+    deadline = time.time() + 1.0
+    while not path.exists() and time.time() < deadline:
+        time.sleep(0.02)
+    if not path.exists():
+        raise SystemExit(
+            f"QEMU did not create screendump {path}: {response.decode(errors='replace')}"
+        )
 
 
 time.sleep(0.05)
@@ -43,12 +58,12 @@ marker_frame = None
 post_marker = 0
 
 for i in range(140):
-    hmp(f"screendump {CAPTURE / f'frame_{i:03d}.ppm'}", 0.025)
+    dump(CAPTURE / f"frame_{i:03d}.ppm")
 
     serial = SERIAL.read_text(errors="replace") if SERIAL.exists() else ""
     if SUCCESS in serial and marker_frame is None:
         marker_frame = i
-        hmp(f"screendump {CAPTURE / 'login.ppm'}", 0.05)
+        dump(CAPTURE / "login.ppm")
 
     if marker_frame is not None:
         post_marker += 1
@@ -61,7 +76,7 @@ if marker_frame is None:
     hmp("quit")
     raise SystemExit("Aurora success marker was not reached")
 
-hmp(f"screendump {CAPTURE / 'final.ppm'}", 0.05)
+dump(CAPTURE / "final.ppm")
 hmp("quit")
 sock.close()
 
