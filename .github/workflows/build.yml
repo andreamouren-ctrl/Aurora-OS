@@ -103,6 +103,61 @@ jobs:
             exit 1
           fi
 
+      - name: ATA PIO signed-disk smoke boot
+        run: |
+          set -u
+
+          ATA_SERIAL_LOG=build/qemu-ata-serial.log
+          ATA_DEBUG_LOG=build/qemu-ata-debug.log
+          ATA_IMAGE=build/aurora-ata-test.img
+          rm -f "$ATA_SERIAL_LOG" "$ATA_DEBUG_LOG" "$ATA_IMAGE"
+          truncate -s 8M "$ATA_IMAGE"
+          printf 'AURORA-STORAGE-TEST-V1' | \
+            dd of="$ATA_IMAGE" bs=1 conv=notrunc status=none
+
+          set +e
+          timeout 15s qemu-system-x86_64 \
+            -M pc \
+            -m 512M \
+            -smp 1 \
+            -vga std \
+            -drive file="$ATA_IMAGE",format=raw,if=ide,index=0,media=disk \
+            -cdrom build/AuroraOS-x86_64.iso \
+            -boot d \
+            -serial file:"$ATA_SERIAL_LOG" \
+            -d int,cpu_reset \
+            -D "$ATA_DEBUG_LOG" \
+            -display none \
+            -no-reboot \
+            -no-shutdown
+
+          STATUS=$?
+          set -e
+
+          if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ]; then
+            echo "ATA PIO QEMU exited unexpectedly with status $STATUS" >&2
+            exit "$STATUS"
+          fi
+
+          echo "===== Aurora ATA serial log ====="
+          cat "$ATA_SERIAL_LOG"
+
+          if ! grep -F \
+            "[ata] signed test disk read/write probe passed" \
+            "$ATA_SERIAL_LOG"; then
+            echo "Aurora did not complete the signed ATA PIO read/write probe" >&2
+            tail -n 200 "$ATA_DEBUG_LOG" >&2 || true
+            exit 1
+          fi
+
+          if ! grep -F \
+            "[kernel] M1 user-space bootstrap reached successfully" \
+            "$ATA_SERIAL_LOG"; then
+            echo "Aurora did not reach M1 after ATA PIO probe" >&2
+            tail -n 200 "$ATA_DEBUG_LOG" >&2 || true
+            exit 1
+          fi
+
       - name: Upload ISO and smoke-test logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -112,3 +167,5 @@ jobs:
             build/AuroraOS-x86_64.iso
             build/qemu-serial.log
             build/qemu-debug.log
+            build/qemu-ata-serial.log
+            build/qemu-ata-debug.log
