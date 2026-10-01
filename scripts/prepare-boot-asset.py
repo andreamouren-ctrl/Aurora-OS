@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Rebuild the early-boot Aurora artwork from its repository text asset."""
+"""Rebuild the early-boot Aurora artwork from repository text chunks."""
 
 import argparse
 import base64
 import hashlib
+import lzma
 from pathlib import Path
-import zlib
 
-EXPECTED_SIZE = 28416
-EXPECTED_SHA256 = "1863a27d7e6e3868dab257e1b14cd1db9384333857621048e630a2edb4ee8d95"
+EXPECTED_SIZE = 921792
+EXPECTED_SHA256 = "bbc97c0b9bffcc0736d92bad2aa14a39b1d2149cfc7db7dc9a57a6a490ff0eb9"
 
 
 def main() -> int:
@@ -23,7 +23,7 @@ def main() -> int:
     )
 
     compressed = base64.b64decode(encoded, validate=True)
-    payload = zlib.decompress(compressed)
+    payload = lzma.decompress(compressed)
 
     if len(payload) != EXPECTED_SIZE:
         raise SystemExit(
@@ -42,7 +42,7 @@ def main() -> int:
     output.write_bytes(payload)
 
     print(
-        f"Prepared Aurora boot artwork: {len(payload)} bytes, sha256={digest}"
+        f"Prepared Aurora HD boot artwork: {len(payload)} bytes, sha256={digest}"
     )
     return 0
 

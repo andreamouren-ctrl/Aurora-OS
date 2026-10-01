@@ -7,7 +7,7 @@ BUILD_DIR := $(ROOT)/build/$(ARCH)/kernel
 OUTPUT := $(ROOT)/build/$(ARCH)/aurora-kernel.elf
 LIMINE_PROTOCOL := $(ROOT)/third_party/limine-protocol
 
-BOOT_ASSET_SOURCES := assets/boot/aurora_boot.compact.zlib.b64
+BOOT_ASSET_SOURCES := $(sort $(wildcard assets/boot/hd/part*.b64))
 BOOT_ASSET := assets/boot/aurora_boot.idx8
 BOOT_ASSET_TOOL := $(ROOT)/scripts/prepare-boot-asset.py
 BOOT_ASSET_OBJ := $(BUILD_DIR)/src/ui/boot_asset.o
@@ -64,6 +64,7 @@ LDFLAGS := \
 all: $(OUTPUT)
 
 $(BOOT_ASSET): $(BOOT_ASSET_SOURCES) $(BOOT_ASSET_TOOL)
+	@test -n "$(BOOT_ASSET_SOURCES)" || (echo "No HD boot asset chunks found" >&2; exit 1)
 	$(PYTHON) "$(BOOT_ASSET_TOOL)" \
 		--input $(BOOT_ASSET_SOURCES) \
 		--output "$@"
