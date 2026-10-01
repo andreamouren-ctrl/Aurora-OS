@@ -64,10 +64,11 @@ static void handle_pressed_key(
         /*
          * The persistent Aurora Identity Service does not exist yet. Do not
          * fabricate an account lookup or verifier result in kernel space.
-         * Wipe the submitted secret immediately and report the real state.
+         * Wipe the submitted secret and return to the existing safe error
+         * state until the real user-space verifier is introduced.
          */
         clear_credential();
-        login_ui_set_state(AURORA_LOGIN_SERVICE_UNAVAILABLE);
+        login_ui_set_state(AURORA_LOGIN_ERROR);
         return;
     }
 
