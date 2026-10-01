@@ -58,6 +58,13 @@ isr_stub_timer:
     pushq $64
     jmp isr_common
 
+.global isr_stub_keyboard
+.type isr_stub_keyboard, @function
+isr_stub_keyboard:
+    pushq $0
+    pushq $65
+    jmp isr_common
+
 .global isr_stub_spurious
 .type isr_stub_spurious, @function
 isr_stub_spurious:

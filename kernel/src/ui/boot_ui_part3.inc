@@ -1,3 +1,5 @@
+#include <aurora/login_ui.h>
+
 static void render_progress(void) {
     if (!initialized) {
         return;
@@ -83,6 +85,14 @@ void boot_ui_complete(void) {
         active_fb.width >= 1200u ? 2u : 1u,
         rgb(169, 244, 255)
     );
+
+    /*
+     * Bootstrap hand-off: until Aurora has its compositor/session service,
+     * transition directly from the native boot framebuffer to the dedicated
+     * Aurora Identity login surface. The authentication backend remains a
+     * future user-space service; this call only changes presentation state.
+     */
+    login_ui_init(&active_fb);
 }
 
 void boot_ui_panic(const char *reason) {
