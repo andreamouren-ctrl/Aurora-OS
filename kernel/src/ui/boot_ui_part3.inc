@@ -20,6 +20,18 @@ static void render_progress(void) {
     draw_phrases(current_phrase);
 }
 
+/*
+ * Capture-only pacing. This branch is never merged to main: the delay exists
+ * solely so CI can record each real boot milestone as a visible frame.
+ */
+static void boot_capture_delay(void) {
+    for (volatile uint64_t spin = 0;
+         spin < 8000000ull;
+         ++spin) {
+        __asm__ volatile("pause");
+    }
+}
+
 void boot_ui_init(
     const struct aurora_framebuffer *framebuffer
 ) {
@@ -41,6 +53,7 @@ void boot_ui_init(
 
     draw_scene();
     render_progress();
+    boot_capture_delay();
 }
 
 bool boot_ui_is_initialized(void) {
@@ -60,6 +73,7 @@ void boot_ui_stage(enum aurora_boot_stage stage) {
         stage_visuals[stage].phrase_index;
 
     render_progress();
+    boot_capture_delay();
 }
 
 void boot_ui_complete(void) {
@@ -83,6 +97,8 @@ void boot_ui_complete(void) {
         active_fb.width >= 1200u ? 2u : 1u,
         rgb(169, 244, 255)
     );
+
+    boot_capture_delay();
 }
 
 void boot_ui_panic(const char *reason) {
