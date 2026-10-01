@@ -1,7 +1,7 @@
 # Aurora Identity
 
 Status: **Canonical subsystem specification**
-Version: **0.2**
+Version: **0.3**
 
 Aurora Identity is the Aurora OS subsystem responsible for identifying a local person, authenticating approved credentials, binding that identity to a profile, starting and locking sessions, managing authenticators, and providing recovery paths.
 
@@ -104,7 +104,32 @@ The standard Identity Drive may support:
 - friendly device labels;
 - security activity history.
 
-## 5. Login behavior
+## 5. Authentication policy
+
+Authentication factor selection belongs to the Aurora Identity Service rather than the UI.
+
+Baseline personal-device policy supports:
+
+```text
+Aurora Key
+OR
+Enrolled Aurora Identity Drive
+```
+
+The architecture can additionally support:
+
+- Drive + PIN;
+- secure hardware authenticator;
+- multi-factor combinations;
+- managed-device restrictions;
+- high-security mode;
+- purpose-bound re-authentication.
+
+Automatic authentication from an inserted drive is a user/policy-controlled convenience feature and must never bypass required additional factors.
+
+An unknown Identity Drive never creates a new user automatically.
+
+## 6. Login behavior
 
 Cold-login experience:
 
@@ -146,7 +171,7 @@ DEVICE_INSERTED
 
 Authentication is asynchronous from the UI perspective.
 
-## 6. Security invariants
+## 7. Security invariants
 
 Aurora Identity must preserve these rules:
 
@@ -162,8 +187,29 @@ Aurora Identity must preserve these rules:
 10. Identity failures fail closed rather than starting unauthenticated sessions.
 11. USB authenticator content is treated as untrusted input.
 12. Conventional USB drive identifiers are not sufficient cryptographic proof.
+13. Ordinary flash drives are not represented as physically non-clonable hardware keys.
+14. Authentication factor decisions are enforced by the Identity Service, not trusted to presentation code.
 
-## 7. Session model
+## 8. IPC and authorization model
+
+Aurora Identity components communicate through bounded, versioned, capability-authorized IPC.
+
+Canonical participants include:
+
+- Aurora Identity System App;
+- Bootstrap / Recovery Login Surface;
+- Aurora Identity Service;
+- Session Manager;
+- removable-media/authenticator broker;
+- explicitly authorized recovery/admin components.
+
+Long operations are asynchronous and cancellable.
+
+Credential bytes are never echoed in replies, logs, or diagnostics.
+
+Successful authentication returns an opaque one-time session grant rather than identity secrets.
+
+## 9. Session model
 
 Successful authentication returns an opaque one-time session grant bound to `user_id`.
 
@@ -177,7 +223,7 @@ Aurora Identity also owns the authentication surface for:
 - purpose-bound re-authentication;
 - logout transition back to pre-session login.
 
-## 8. Recovery model
+## 10. Recovery model
 
 Recovery uses separate credentials/methods such as:
 
@@ -191,7 +237,7 @@ After recovery, Aurora normally creates a new Aurora Key and revokes the old ver
 
 If all credentials and recovery methods are lost, Aurora does not bypass authentication.
 
-## 9. Current implementation state
+## 11. Current implementation state
 
 Already implemented in the repository:
 
@@ -219,7 +265,7 @@ Not yet implemented:
 - recovery credential implementation;
 - secure hardware authenticator support.
 
-## 10. Required implementation order
+## 12. Required implementation order
 
 The canonical dependency order is:
 
@@ -228,16 +274,17 @@ The canonical dependency order is:
 3. isolated user-space system-service lifecycle;
 4. secure RNG and reviewed Argon2id path;
 5. Aurora Identity Service v1;
-6. persistent identity records and rate limiting;
-7. Session Manager and authenticated profile bootstrap;
-8. compositor-backed Aurora Identity System App;
-9. USB mass-storage/removable-device broker;
-10. Aurora Identity Drive v1;
-11. recovery v1;
-12. secure hardware authenticators;
-13. optional multi-device federation.
+6. versioned IPC protocol and capability enforcement;
+7. persistent identity records and rate limiting;
+8. Session Manager and authenticated profile bootstrap;
+9. compositor-backed Aurora Identity System App;
+10. USB mass-storage/removable-device broker;
+11. Aurora Identity Drive v1;
+12. recovery v1;
+13. secure hardware authenticators;
+14. optional multi-device federation.
 
-## 11. Canonical detailed documentation
+## 13. Canonical detailed documentation
 
 Detailed subsystem specifications live under [`docs/identity/`](identity/README.md):
 
@@ -245,16 +292,21 @@ Detailed subsystem specifications live under [`docs/identity/`](identity/README.
 - [`SECURITY_MODEL.md`](identity/SECURITY_MODEL.md)
 - [`AURORA_KEY.md`](identity/AURORA_KEY.md)
 - [`IDENTITY_DRIVE.md`](identity/IDENTITY_DRIVE.md)
+- [`AUTHENTICATION_POLICY.md`](identity/AUTHENTICATION_POLICY.md)
 - [`IDENTITY_SERVICE.md`](identity/IDENTITY_SERVICE.md)
+- [`IPC_PROTOCOL.md`](identity/IPC_PROTOCOL.md)
 - [`SYSTEM_APP_UX.md`](identity/SYSTEM_APP_UX.md)
 - [`STORAGE_AND_DATA_MODEL.md`](identity/STORAGE_AND_DATA_MODEL.md)
 - [`SESSION_RECOVERY.md`](identity/SESSION_RECOVERY.md)
 - [`IMPLEMENTATION_ROADMAP.md`](identity/IMPLEMENTATION_ROADMAP.md)
 - [`TEST_PLAN.md`](identity/TEST_PLAN.md)
 
-Architecture decision: [`ADR-0003 — Aurora Identity Service / System App Split`](adr/ADR-0003-aurora-identity-service-app-split.md).
+Architecture decisions:
 
-## 12. Production readiness gate
+- [`ADR-0003 — Aurora Identity Service / System App Split`](adr/ADR-0003-aurora-identity-service-app-split.md)
+- [`ADR-0004 — Aurora Identity removable authenticators`](adr/ADR-0004-aurora-identity-removable-authenticators.md)
+
+## 14. Production readiness gate
 
 Aurora Identity must not be described as production-ready until at least:
 
@@ -263,6 +315,7 @@ Aurora Identity must not be described as production-ready until at least:
 - persistent identity storage is transactional and corruption-tested;
 - throttle state survives reboot;
 - session grants resist replay;
+- IPC parsing/authorization has been fuzzed and negative-tested;
 - secret leakage has been audited across logs/crash paths;
 - recovery has been abuse-reviewed;
 - removable credential parsing has been fuzz-tested;
