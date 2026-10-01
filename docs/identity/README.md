@@ -1,7 +1,7 @@
 # Aurora Identity Documentation
 
 Status: **Canonical subsystem specification**
-Version: **0.2**
+Version: **0.3**
 
 Aurora Identity is the Aurora OS subsystem responsible for local identity, authentication, profile binding, session bootstrap, lock/re-authentication, recovery, and optional trusted authenticators.
 
@@ -20,12 +20,19 @@ The kernel provides mechanisms only: process isolation, capabilities, IPC, prote
 - [`SECURITY_MODEL.md`](SECURITY_MODEL.md) — threats, security invariants, credential handling, anti-enumeration, throttling, revocation, and audit rules.
 - [`AURORA_KEY.md`](AURORA_KEY.md) — Aurora Key format, normalization, generation, storage, change, and verifier rules.
 - [`IDENTITY_DRIVE.md`](IDENTITY_DRIVE.md) — removable-drive authenticator model, enrollment, scanning, challenge flow, revocation, and secure-hardware evolution.
-- [`IDENTITY_SERVICE.md`](IDENTITY_SERVICE.md) — service responsibilities, IPC contract, state machines, and capabilities.
+- [`AUTHENTICATION_POLICY.md`](AUTHENTICATION_POLICY.md) — factor classes, MFA, Drive + PIN, auto-login, managed devices, high-security mode, and safe defaults.
+- [`IDENTITY_SERVICE.md`](IDENTITY_SERVICE.md) — service responsibilities, authentication state machines, and capability expectations.
+- [`IPC_PROTOCOL.md`](IPC_PROTOCOL.md) — versioned IPC operations, message bounds, cancellation, capability classes, session grants, and re-authentication proofs.
 - [`SYSTEM_APP_UX.md`](SYSTEM_APP_UX.md) — login, creation, lock screen, credential management, device management, and fallback UX.
 - [`STORAGE_AND_DATA_MODEL.md`](STORAGE_AND_DATA_MODEL.md) — stable identity records, credential tables, authenticator records, session metadata, migrations, and protected storage requirements.
 - [`SESSION_RECOVERY.md`](SESSION_RECOVERY.md) — authenticated sessions, lock/logout, recovery credentials, trusted devices, and emergency recovery behavior.
 - [`IMPLEMENTATION_ROADMAP.md`](IMPLEMENTATION_ROADMAP.md) — dependency-ordered implementation plan and acceptance criteria.
 - [`TEST_PLAN.md`](TEST_PLAN.md) — correctness, persistence, security, fuzzing, failure-injection, and performance verification plan.
+
+Architecture decisions:
+
+- [`../adr/ADR-0003-aurora-identity-service-app-split.md`](../adr/ADR-0003-aurora-identity-service-app-split.md) — System App / Service / fallback separation.
+- [`../adr/ADR-0004-aurora-identity-removable-authenticators.md`](../adr/ADR-0004-aurora-identity-removable-authenticators.md) — removable authenticators use independent revocable credentials and never store Aurora Key.
 
 ## Product invariants
 
@@ -79,3 +86,9 @@ Not yet implemented:
 - session manager and authenticated profile bootstrap;
 - compositor-backed Aurora Identity System App;
 - full recovery environment.
+
+## Documentation completion gate
+
+Aurora Identity implementation work may proceed from this specification set when changes preserve the master invariants and the detailed contract relevant to the component being changed.
+
+Security-sensitive implementation changes must update the matching specification or ADR when they alter credential formats, trust boundaries, factor policy, IPC authorization, persistent records, or recovery behavior.
