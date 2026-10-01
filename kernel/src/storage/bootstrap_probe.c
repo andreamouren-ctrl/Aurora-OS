@@ -1,3 +1,5 @@
+#include <stddef.h>
+
 #include <aurora/ahci.h>
 #include <aurora/ata_pio.h>
 #include <aurora/aurora_fs.h>
@@ -8,7 +10,76 @@
 #include <aurora/fs_mount.h>
 #include <aurora/log.h>
 #include <aurora/panic.h>
+#include <aurora/partition.h>
 #include <aurora/vfs.h>
+
+#define BOOTSTRAP_PARTITION_MAX 8u
+
+static bool bytes_equal(const uint8_t *a, const uint8_t *b, size_t length) {
+    for (size_t i = 0u; i < length; ++i) {
+        if (a[i] != b[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void bootstrap_fat32_probe(struct aurora_block_device *device) {
+    struct aurora_partition partitions[BOOTSTRAP_PARTITION_MAX];
+    size_t partition_count = partition_scan(
+        device,
+        partitions,
+        BOOTSTRAP_PARTITION_MAX
+    );
+
+    log_write("[partition] discovered: ");
+    log_u64(partition_count);
+    log_line("");
+
+    for (size_t i = 0u; i < partition_count; ++i) {
+        struct aurora_fs_match match;
+        if (!fs_driver_detect(&partitions[i], &match) ||
+            match.driver == NULL) {
+            continue;
+        }
+
+        log_write("[fs] detected ");
+        log_write(match.driver->name);
+        log_write(" on partition ");
+        log_u64(partitions[i].index);
+        log_line("");
+
+        if (match.driver != fat32_driver()) {
+            continue;
+        }
+
+        struct aurora_fs_mount *mount = NULL;
+        if (!fs_mount_partition("/media/fat32-test", &partitions[i], &mount) ||
+            mount == NULL || mount->driver == NULL || mount->driver->read == NULL) {
+            kernel_panic("FAT32 test partition mount failed");
+        }
+
+        static const uint8_t expected[] = "AURORA-FAT32-EXTERNAL-IMAGE";
+        uint8_t buffer[64];
+        size_t read = 0u;
+
+        if (!mount->driver->read(
+                mount->context,
+                "/AURORA.TXT",
+                0u,
+                buffer,
+                sizeof(buffer),
+                &read) ||
+            read != sizeof(expected) - 1u ||
+            !bytes_equal(buffer, expected, sizeof(expected) - 1u)) {
+            kernel_panic("FAT32 external image file verification failed");
+        }
+
+        log_line("[fat32] external image mounted read-only");
+        log_line("[fat32] external file read verified");
+        return;
+    }
+}
 
 void bootstrap_storage_probe(void) {
     if (!block_device_self_test()) {
@@ -48,10 +119,10 @@ void bootstrap_storage_probe(void) {
     }
 
     /*
-     * ATA PIO is currently a bounded compatibility/test path. The driver may
-     * detect and read a primary-master disk, but writes remain gated by the
-     * explicit AURORA-STORAGE-TEST-V1 signature in LBA 0. Ordinary disks are
-     * never formatted or modified by this bootstrap probe.
+     * ATA PIO is currently a bounded compatibility/test path. Writes remain
+     * gated by the explicit AURORA-STORAGE-TEST-V1 signature in the MBR boot
+     * area. The CI disk may also contain a real partition table and FAT32
+     * volume beginning well after the low bootstrap sectors.
      */
     if (ata_pio_primary_master_init()) {
         struct aurora_block_device *ata = ata_pio_primary_master_device();
@@ -81,6 +152,8 @@ void bootstrap_storage_probe(void) {
             } else {
                 log_line("[aurorafs] persistent file created");
             }
+
+            bootstrap_fat32_probe(ata);
         } else {
             log_line("[ata] primary master detected; signed write probe skipped");
         }
