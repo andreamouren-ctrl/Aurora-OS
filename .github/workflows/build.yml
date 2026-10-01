@@ -28,8 +28,8 @@ jobs:
             git \
             binutils \
             python3 \
-            ffmpeg \
             qemu-system-x86
+          ffmpeg -version | head -n 1
 
       - name: Build kernel and ISO
         run: make iso
