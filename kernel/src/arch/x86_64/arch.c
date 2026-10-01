@@ -117,9 +117,29 @@ uint8_t arch_in8(uint16_t port) {
     return value;
 }
 
+uint16_t arch_in16(uint16_t port) {
+    uint16_t value;
+
+    __asm__ volatile (
+        "inw %1, %0"
+        : "=a"(value)
+        : "Nd"(port)
+    );
+
+    return value;
+}
+
 void arch_out8(uint16_t port, uint8_t value) {
     __asm__ volatile (
         "outb %0, %1"
+        :
+        : "a"(value), "Nd"(port)
+    );
+}
+
+void arch_out16(uint16_t port, uint16_t value) {
+    __asm__ volatile (
+        "outw %0, %1"
         :
         : "a"(value), "Nd"(port)
     );
