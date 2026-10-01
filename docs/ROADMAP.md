@@ -110,10 +110,13 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 ### Partition layer
 - [x] MBR primary partition scan
 - [x] GPT foundation
+- [x] parser accepts 512/1024/2048/4096-byte logical blocks
+- [x] GPT entries may cross a logical-block boundary
+- [ ] runtime-verify non-512-byte logical block parsing
 - [ ] GPT CRC validation
 - [ ] backup GPT fallback
-- [ ] robust variable entry-size handling
-- [ ] 512e/4Kn-safe parsing
+- [ ] fully general variable entry-size handling beyond one logical block per entry
+- [ ] end-to-end 512e/4Kn-safe filesystem path
 - [ ] extended/logical MBR partitions
 
 ### Filesystem framework
@@ -157,7 +160,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [ ] transactional deployment prototype
 - [ ] rollback
 
-Runtime reference: combined ATA + AuroraFS + FAT32/VFAT + exFAT common-VFS storage smoke test is green in workflow **#285** (`36892511779`) at commit `445abb2246951b13bb5aae291713b1eeb5aa0420`.
+Runtime reference: combined ATA + AuroraFS + FAT32/VFAT + exFAT common-VFS storage smoke test is green in workflow **#285** (`36892511779`) at commit `445abb2246951b13bb5aae291713b1eeb5aa0420`. Non-512 logical-sector support is currently implemented in the partition parser but not yet runtime-verified.
 
 ## M4 — Graphics and Desktop foundation
 
@@ -234,7 +237,7 @@ Aurora can boot through the M1 kernel foundation and enter the native login prot
 
 Near-term dependency order:
 
-1. generalize block/partition/filesystem sector-size handling;
+1. runtime-verify non-512 logical-block partition parsing and continue removing filesystem-level 512-byte assumptions;
 2. harden GPT with CRC validation, variable entry-size handling, and backup-header fallback;
 3. add a block-device flush contract and registry;
 4. add NTFS and ext-family read-only support;
