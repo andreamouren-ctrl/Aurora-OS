@@ -1,7 +1,7 @@
 # Aurora Identity Documentation
 
 Status: **Canonical subsystem specification**
-Version: **0.3**
+Version: **0.4**
 
 Aurora Identity is the Aurora OS subsystem responsible for local identity, authentication, profile binding, session bootstrap, lock/re-authentication, recovery, and optional trusted authenticators.
 
@@ -28,6 +28,7 @@ The kernel provides mechanisms only: process isolation, capabilities, IPC, prote
 - [`SESSION_RECOVERY.md`](SESSION_RECOVERY.md) — authenticated sessions, lock/logout, recovery credentials, trusted devices, and emergency recovery behavior.
 - [`IMPLEMENTATION_ROADMAP.md`](IMPLEMENTATION_ROADMAP.md) — dependency-ordered implementation plan and acceptance criteria.
 - [`TEST_PLAN.md`](TEST_PLAN.md) — correctness, persistence, security, fuzzing, failure-injection, and performance verification plan.
+- [`ADVANCED_FEATURES.md`](ADVANCED_FEATURES.md) — Ghost Session, Presence, Handoff, Identity Capsule, Trusted Circle, Vault, Device Trust, Travel Mode, Lock Zones, temporary credentials, and other forward-looking identity capabilities.
 
 Architecture decisions:
 
@@ -65,6 +66,45 @@ Aurora Identity
 ```
 
 The Aurora Key remains the baseline local credential. Other authenticators are alternatives or additional factors; they do not replace the stable identity record.
+
+## Capability horizons
+
+Aurora Identity development is intentionally divided into horizons:
+
+### Horizon 1 — Core local identity
+
+- Aurora Key;
+- Identity Service;
+- persistent local identity records;
+- authenticated session bootstrap;
+- lock/logout/re-authentication;
+- recovery;
+- Aurora Identity System App.
+
+### Horizon 2 — Extended authenticators and privacy
+
+- Aurora Identity Drive;
+- multiple authenticators;
+- secure hardware keys;
+- recovery kit;
+- security activity;
+- Ghost Session;
+- Guest Identity;
+- Identity Vault;
+- stronger MFA policies.
+
+### Horizon 3 — Trusted device ecosystem
+
+- cryptographic device identities;
+- trusted-device approval;
+- QR pairing;
+- Identity Capsule;
+- Handoff;
+- Presence;
+- Trusted Circle / threshold recovery;
+- optional encrypted multi-device synchronization.
+
+Horizon 2/3 features must not delay or weaken the core offline identity path.
 
 ## Current repository state
 
