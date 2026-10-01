@@ -59,6 +59,12 @@ bool fs_detect_kind(
         return true;
     }
 
+    if (sector[32u] == 'N' && sector[33u] == 'X' &&
+        sector[34u] == 'S' && sector[35u] == 'B') {
+        set_detection(out_detection, AURORA_FS_KIND_APFS, "APFS");
+        return true;
+    }
+
     if (sector[510] == 0x55u && sector[511] == 0xAAu) {
         if (bytes_equal(sector + 82u, "FAT32   ", 8u)) {
             set_detection(out_detection, AURORA_FS_KIND_FAT32, "FAT32");
@@ -104,12 +110,6 @@ bool fs_detect_kind(
             set_detection(out_detection, AURORA_FS_KIND_BTRFS, "Btrfs");
             return true;
         }
-    }
-
-    if (sector[32u] == 'N' && sector[33u] == 'X' &&
-        sector[34u] == 'S' && sector[35u] == 'B') {
-        set_detection(out_detection, AURORA_FS_KIND_APFS, "APFS");
-        return true;
     }
 
     return true;
