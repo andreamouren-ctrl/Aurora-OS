@@ -31,7 +31,8 @@ jobs:
             qemu-system-x86 \
             dosfstools \
             mtools \
-            exfatprogs
+            exfatprogs \
+            exfat-fuse
 
       - name: Build kernel and ISO
         run: make iso
