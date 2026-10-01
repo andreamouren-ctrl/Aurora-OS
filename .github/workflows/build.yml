@@ -78,8 +78,6 @@ jobs:
           STATUS=$?
           set -e
 
-          # 124 is expected: Aurora intentionally remains alive after boot
-          # and timeout terminates the smoke-test VM.
           if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ]; then
             echo "QEMU exited unexpectedly with status $STATUS" >&2
             exit "$STATUS"
@@ -103,14 +101,17 @@ jobs:
             exit 1
           fi
 
-      - name: ATA PIO signed-disk smoke boot
+      - name: ATA PIO and AuroraFS persistence smoke boot
         run: |
           set -u
 
           ATA_SERIAL_LOG=build/qemu-ata-serial.log
+          ATA_SERIAL_LOG_2=build/qemu-ata-serial-second.log
           ATA_DEBUG_LOG=build/qemu-ata-debug.log
+          ATA_DEBUG_LOG_2=build/qemu-ata-debug-second.log
           ATA_IMAGE=build/aurora-ata-test.img
-          rm -f "$ATA_SERIAL_LOG" "$ATA_DEBUG_LOG" "$ATA_IMAGE"
+          rm -f "$ATA_SERIAL_LOG" "$ATA_SERIAL_LOG_2" \
+            "$ATA_DEBUG_LOG" "$ATA_DEBUG_LOG_2" "$ATA_IMAGE"
           truncate -s 8M "$ATA_IMAGE"
           printf 'AURORA-STORAGE-TEST-V1' | \
             dd of="$ATA_IMAGE" bs=1 conv=notrunc status=none
@@ -130,7 +131,6 @@ jobs:
             -display none \
             -no-reboot \
             -no-shutdown
-
           STATUS=$?
           set -e
 
@@ -139,24 +139,47 @@ jobs:
             exit "$STATUS"
           fi
 
-          echo "===== Aurora ATA serial log ====="
+          echo "===== Aurora ATA first boot serial log ====="
           cat "$ATA_SERIAL_LOG"
 
-          if ! grep -F \
-            "[ata] signed test disk read/write probe passed" \
-            "$ATA_SERIAL_LOG"; then
-            echo "Aurora did not complete the signed ATA PIO read/write probe" >&2
-            tail -n 200 "$ATA_DEBUG_LOG" >&2 || true
+          grep -F "[ata] signed test disk read/write probe passed" "$ATA_SERIAL_LOG"
+          grep -F "[aurorafs] formatted bootstrap filesystem" "$ATA_SERIAL_LOG"
+          grep -F "[aurorafs] persistent file created" "$ATA_SERIAL_LOG"
+          grep -F "[kernel] M1 user-space bootstrap reached successfully" "$ATA_SERIAL_LOG"
+
+          set +e
+          timeout 15s qemu-system-x86_64 \
+            -M pc \
+            -m 512M \
+            -smp 1 \
+            -vga std \
+            -drive file="$ATA_IMAGE",format=raw,if=ide,index=0,media=disk \
+            -cdrom build/AuroraOS-x86_64.iso \
+            -boot d \
+            -serial file:"$ATA_SERIAL_LOG_2" \
+            -d int,cpu_reset \
+            -D "$ATA_DEBUG_LOG_2" \
+            -display none \
+            -no-reboot \
+            -no-shutdown
+          STATUS=$?
+          set -e
+
+          if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ]; then
+            echo "AuroraFS second QEMU boot exited unexpectedly with status $STATUS" >&2
+            exit "$STATUS"
+          fi
+
+          echo "===== Aurora ATA second boot serial log ====="
+          cat "$ATA_SERIAL_LOG_2"
+
+          if ! grep -F "[aurorafs] persistent file reopened" "$ATA_SERIAL_LOG_2"; then
+            echo "AuroraFS did not recover the persistent file after reboot" >&2
+            tail -n 200 "$ATA_DEBUG_LOG_2" >&2 || true
             exit 1
           fi
 
-          if ! grep -F \
-            "[kernel] M1 user-space bootstrap reached successfully" \
-            "$ATA_SERIAL_LOG"; then
-            echo "Aurora did not reach M1 after ATA PIO probe" >&2
-            tail -n 200 "$ATA_DEBUG_LOG" >&2 || true
-            exit 1
-          fi
+          grep -F "[kernel] M1 user-space bootstrap reached successfully" "$ATA_SERIAL_LOG_2"
 
       - name: Upload ISO and smoke-test logs
         if: always()
@@ -168,4 +191,6 @@ jobs:
             build/qemu-serial.log
             build/qemu-debug.log
             build/qemu-ata-serial.log
+            build/qemu-ata-serial-second.log
             build/qemu-ata-debug.log
+            build/qemu-ata-debug-second.log
