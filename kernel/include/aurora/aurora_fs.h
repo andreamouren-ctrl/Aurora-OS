@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include <aurora/block_device.h>
+#include <aurora/fs_driver.h>
 
 #define AURORA_FS_BOOTSTRAP_BASE_LBA 8u
 #define AURORA_FS_BOOTSTRAP_MAX_FILE_SIZE 512u
@@ -21,5 +22,7 @@ bool aurora_fs_bootstrap_probe(
     struct aurora_block_device *device,
     struct aurora_fs_bootstrap_result *out_result
 );
+
+const struct aurora_fs_driver *aurora_fs_driver(void);
 
 #endif
