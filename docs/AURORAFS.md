@@ -1,16 +1,36 @@
 # AuroraFS
 
-Status: **bootstrap format v1 — runtime persistence verified, experimental, not production-ready**.
+Status: **bootstrap format v1 — runtime persistence and common VFS integration verified, experimental, not production-ready**.
 
-AuroraFS is Aurora OS's native persistent filesystem direction. The current implementation is not the final production filesystem; it is the first durable on-disk contract used to validate the complete path from a real block-device abstraction to persistent filesystem metadata and file contents across reboot.
+AuroraFS is Aurora OS's native persistent filesystem direction. The current implementation is not the final production filesystem; it is the first durable on-disk contract used to validate persistent metadata and file contents across reboot and the first native filesystem implementation wired through Aurora's common filesystem-driver, mount-manager, and VFS path.
 
 ## Verified status
 
 AuroraFS bootstrap v1 has been runtime-verified in QEMU through two complete boots against the same ATA-backed disk image. The first boot formats the signed development volume and creates `aurora.boot-probe`; the second boot validates the existing filesystem and reopens the same persistent file.
 
-The combined storage test is green in GitHub Actions workflow **#271** (`36888671373`) at commit `483ab55e803b7d22c061d938ffdd6b23e5e86bb7`.
+AuroraFS is now registered through the common filesystem-driver registry. After the bootstrap persistence probe, the signed development disk is exposed as a synthetic whole-device volume, mounted at `/system`, and `aurora.boot-probe` is read back through the common VFS path.
+
+The combined storage test is green in GitHub Actions workflow **#285** (`36892511779`) at commit `445abb2246951b13bb5aae291713b1eeb5aa0420`.
 
 This is CI/QEMU verification, not real-hardware certification.
+
+## Common filesystem integration
+
+The currently verified native path is:
+
+`ATA PIO -> block device -> synthetic whole-device partition -> AuroraFS driver -> mount manager -> VFS -> /system/aurora.boot-probe`
+
+The AuroraFS bootstrap driver currently implements:
+
+- format probing;
+- mount;
+- root-directory `stat`;
+- root-directory enumeration;
+- file reads;
+- writes to existing bootstrap files;
+- common VFS routing through `/system`.
+
+Bootstrap formatting and initial creation of the persistence probe remain deliberately separate development-only operations guarded by the signed test disk gate.
 
 ## Design goals
 
@@ -35,10 +55,11 @@ Production allocation must use scalable structures rather than fixed arrays. Fil
 
 ## Relationship with foreign filesystems
 
-AuroraFS is Aurora's preferred native filesystem, but Aurora OS is not restricted to it. External storage is handled through independent filesystem drivers registered with the common filesystem-driver registry and mounted through the common mount manager.
+AuroraFS is Aurora's preferred native filesystem, but Aurora OS is not restricted to it. External storage is handled through independent filesystem drivers registered with the same common filesystem-driver registry and mounted through the same mount manager.
 
-Current runtime-verified foreign filesystem drivers include:
+Current runtime-verified filesystem drivers include:
 
+- AuroraFS bootstrap v1, read/write for existing bootstrap files and mounted at `/system`;
 - FAT32/VFAT read-only, including Long File Names and Unicode decoding;
 - exFAT read-only, including 64-bit `DataLength` handling.
 
@@ -108,9 +129,11 @@ On the first signed development boot the kernel creates `aurora.boot-probe`. On 
 3. locate the probe file;
 4. read its data block;
 5. verify the stored checksum and expected content;
-6. increment and persist the generation counter.
+6. increment and persist the generation counter;
+7. mount the same volume through the common filesystem framework;
+8. resolve and read `/system/aurora.boot-probe` through the VFS.
 
-CI requires the second boot to report that the persistent file was reopened.
+CI requires the second boot to report that the persistent file was reopened, and runtime execution must reach M1 after common VFS verification.
 
 ## Not yet production-ready
 
@@ -126,8 +149,7 @@ AuroraFS v1 still lacks:
 - timestamps;
 - encryption;
 - snapshots;
-- registration through the common filesystem-driver interface;
-- production VFS routing;
+- file creation/removal through the production filesystem-driver contract;
 - corruption recovery beyond checksum rejection;
 - general partition-based production mounting;
 - 512e/4Kn-safe on-disk parsing.
