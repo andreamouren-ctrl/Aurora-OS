@@ -5,6 +5,7 @@
 #include <aurora/aurora_fs.h>
 #include <aurora/block_device.h>
 #include <aurora/bootstrap_probe.h>
+#include <aurora/exfat.h>
 #include <aurora/fat32.h>
 #include <aurora/fs_driver.h>
 #include <aurora/fs_mount.h>
@@ -123,9 +124,13 @@ void bootstrap_storage_probe(void) {
     if (!fs_driver_register(fat32_driver())) {
         kernel_panic("FAT32 filesystem driver registration failed");
     }
+    if (!fs_driver_register(exfat_driver())) {
+        kernel_panic("exFAT filesystem driver registration failed");
+    }
 
     log_line("[fs] filesystem driver registry initialized");
     log_line("[fs] FAT32 read-only driver registered");
+    log_line("[fs] exFAT read-only driver registered");
 
     struct aurora_ahci_probe_result ahci;
 
