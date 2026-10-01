@@ -250,6 +250,7 @@ Detailed subsystem specifications live under [`docs/identity/`](identity/README.
 - [`STORAGE_AND_DATA_MODEL.md`](identity/STORAGE_AND_DATA_MODEL.md)
 - [`SESSION_RECOVERY.md`](identity/SESSION_RECOVERY.md)
 - [`IMPLEMENTATION_ROADMAP.md`](identity/IMPLEMENTATION_ROADMAP.md)
+- [`TEST_PLAN.md`](identity/TEST_PLAN.md)
 
 Architecture decision: [`ADR-0003 — Aurora Identity Service / System App Split`](adr/ADR-0003-aurora-identity-service-app-split.md).
 
