@@ -15,6 +15,57 @@ persistent filesystem metadata and file contents across reboot.
 - Metadata and data integrity checks in the bootstrap implementation.
 - Deterministic, bounded structures suitable for early kernel validation.
 - No automatic formatting of arbitrary disks during bootstrap testing.
+- Production AuroraFS uses 64-bit sizes, block addresses and object identifiers.
+- Production AuroraFS must support very large disks and files without fixed
+  bootstrap-style file-size or volume-size ceilings.
+- Production limits must be architectural 64-bit limits, not small static tables.
+- Sparse files, dynamic allocation, large directories and multi-extent files are
+  first-class production requirements.
+- The filesystem format must remain independent of the physical storage transport
+  so the same filesystem can live on SATA, NVMe, USB mass storage, virtual disks
+  and future block devices.
+
+## Scale contract
+
+"Unlimited" storage is not physically or mathematically possible. Aurora therefore
+defines the production contract as *practically unbounded for contemporary and
+foreseeable systems* by using 64-bit addressing throughout the storage stack.
+No production API may inherit the bootstrap v1 limits of eight files or one 512-byte
+block per file.
+
+The production design must use scalable allocation structures rather than fixed
+arrays. File offsets and file sizes are `uint64_t`; filesystem block addresses and
+volume block counts are `uint64_t`; VFS and block-device APIs must preserve those
+widths end-to-end.
+
+## Relationship with foreign filesystems
+
+AuroraFS is Aurora's preferred native filesystem, but Aurora OS is not restricted
+to AuroraFS. External storage is handled through the VFS filesystem-driver layer.
+A filesystem implementation registers a probe/mount/read/write capability set and
+the VFS chooses the matching driver for a discovered volume.
+
+The target compatibility set includes at minimum:
+
+- FAT12/FAT16/FAT32;
+- exFAT;
+- NTFS;
+- ext2/ext3/ext4;
+- XFS;
+- Btrfs;
+- ISO 9660;
+- UDF;
+- APFS and HFS+ where technically and legally practical;
+- removable-media and optical filesystem variants used in the field.
+
+Support is capability-based per driver. A driver may initially be read-only and
+later gain safe write support. Unknown filesystems must never be formatted or
+modified automatically.
+
+Aurora cannot literally guarantee support for every filesystem ever created,
+including undocumented, encrypted, proprietary or future formats. Instead the
+architecture guarantees that filesystem support is extensible: adding a new
+filesystem must not require redesigning the kernel, block layer or VFS.
 
 ## Safety gate
 
