@@ -74,8 +74,6 @@ jobs:
           STATUS=$?
           set -e
 
-          # 124 is expected: Aurora intentionally remains alive after boot
-          # and timeout terminates the smoke-test VM.
           if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ]; then
             echo "QEMU exited unexpectedly with status $STATUS" >&2
             exit "$STATUS"
@@ -92,12 +90,136 @@ jobs:
             exit 1
           fi
 
-      - name: Upload ISO and smoke-test logs
+      - name: Capture HD boot and Aurora Identity login
+        run: |
+          set -euo pipefail
+
+          CAPTURE_DIR=build/capture
+          SERIAL_LOG=build/capture-serial.log
+          MONITOR_SOCKET=/tmp/aurora-capture-monitor.sock
+
+          rm -rf "$CAPTURE_DIR"
+          mkdir -p "$CAPTURE_DIR"
+          rm -f "$SERIAL_LOG" "$MONITOR_SOCKET"
+
+          qemu-system-x86_64 \
+            -M q35 \
+            -m 512M \
+            -smp 1 \
+            -vga std \
+            -cdrom build/AuroraOS-x86_64.iso \
+            -serial file:"$SERIAL_LOG" \
+            -monitor unix:"$MONITOR_SOCKET",server,nowait \
+            -display none \
+            -no-reboot \
+            -no-shutdown &
+
+          QEMU_PID=$!
+          trap 'kill "$QEMU_PID" 2>/dev/null || true' EXIT
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import socket
+          import time
+
+          socket_path = "/tmp/aurora-capture-monitor.sock"
+          serial_path = Path("build/capture-serial.log")
+          capture_dir = Path("build/capture")
+          marker = "[kernel] M1 user-space bootstrap reached successfully"
+
+          monitor = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+          deadline = time.time() + 5.0
+          while True:
+              try:
+                  monitor.connect(socket_path)
+                  break
+              except OSError:
+                  if time.time() >= deadline:
+                      raise
+                  time.sleep(0.05)
+
+          monitor.settimeout(0.02)
+          try:
+              monitor.recv(65536)
+          except OSError:
+              pass
+
+          def command(text: str) -> None:
+              monitor.sendall((text + "\n").encode("ascii"))
+              time.sleep(0.02)
+              try:
+                  monitor.recv(65536)
+              except OSError:
+                  pass
+
+          def screenshot(name: str) -> None:
+              command(f"screendump build/capture/{name}")
+
+          marker_seen = False
+          frame_count = 0
+
+          # Capture the real framebuffer while Aurora progresses through boot.
+          # Stop as soon as the serial success marker confirms the login surface
+          # has been reached, so this remains a real-time capture without fake
+          # product delays.
+          for frame_count in range(80):
+              screenshot(f"boot-{frame_count:04d}.ppm")
+              if serial_path.exists():
+                  text = serial_path.read_text(encoding="utf-8", errors="ignore")
+                  if marker in text:
+                      marker_seen = True
+                      break
+              time.sleep(0.08)
+
+          if not marker_seen:
+              raise SystemExit("Aurora did not reach the login surface during capture")
+
+          time.sleep(0.20)
+          screenshot("login-idle.ppm")
+
+          # Exercise the real IRQ-driven PS/2 input path. Twelve characters are
+          # used because Aurora Identity currently enforces a 12-character
+          # minimum before submission.
+          for key in ("a", "u", "r", "o", "r", "a", "k", "e", "y", "1", "2", "3"):
+              command(f"sendkey {key}")
+              time.sleep(0.06)
+
+          time.sleep(0.15)
+          screenshot("login-key-entered.ppm")
+
+          command("sendkey ret")
+          time.sleep(0.20)
+          screenshot("login-error.ppm")
+
+          command("quit")
+          monitor.close()
+
+          print(f"Captured {frame_count + 1} boot frames plus three login states")
+          PY
+
+          wait "$QEMU_PID" || true
+          trap - EXIT
+
+          echo "===== Capture serial log ====="
+          cat "$SERIAL_LOG"
+
+          grep -F \
+            "[kernel] M1 user-space bootstrap reached successfully" \
+            "$SERIAL_LOG"
+
+          test -s "$CAPTURE_DIR/login-idle.ppm"
+          test -s "$CAPTURE_DIR/login-key-entered.ppm"
+          test -s "$CAPTURE_DIR/login-error.ppm"
+
+      - name: Upload ISO, logs and visual capture
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: AuroraOS-x86_64
+          name: AuroraOS-HD-login-capture
+          compression-level: 6
           path: |
             build/AuroraOS-x86_64.iso
             build/qemu-serial.log
             build/qemu-debug.log
+            build/capture-serial.log
+            build/capture/*.ppm
