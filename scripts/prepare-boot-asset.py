@@ -7,8 +7,8 @@ import hashlib
 from pathlib import Path
 import zlib
 
-EXPECTED_SIZE = 28416
-EXPECTED_SHA256 = "1863a27d7e6e3868dab257e1b14cd1db9384333857621048e630a2edb4ee8d95"
+EXPECTED_SIZE = 921984
+EXPECTED_SHA256 = "65a93bd4ff9434122e4f3d5b90ff6fdc507194ea29f3fb274f07f6e665e7690f"
 
 
 def main() -> int:
@@ -42,7 +42,7 @@ def main() -> int:
     output.write_bytes(payload)
 
     print(
-        f"Prepared Aurora boot artwork: {len(payload)} bytes, sha256={digest}"
+        f"Prepared Aurora HD boot artwork: {len(payload)} bytes, sha256={digest}"
     )
     return 0
 
