@@ -29,7 +29,6 @@ jobs:
             binutils \
             python3 \
             qemu-system-x86
-          ffmpeg -version | head -n 1
 
       - name: Build kernel and ISO
         run: make iso
@@ -37,69 +36,22 @@ jobs:
       - name: Inspect kernel
         run: |
           set -eu
-
           KERNEL=build/x86_64/aurora-kernel.elf
-
           file "$KERNEL"
           readelf -h "$KERNEL"
           readelf -S "$KERNEL" | grep limine_requests
-
           if nm -u "$KERNEL" | grep -q .; then
             echo "Aurora kernel has unresolved symbols:" >&2
             nm -u "$KERNEL" >&2
             exit 1
           fi
 
-      - name: BIOS smoke boot
-        run: |
-          set -u
-
-          SERIAL_LOG=build/qemu-serial.log
-          DEBUG_LOG=build/qemu-debug.log
-          rm -f "$SERIAL_LOG" "$DEBUG_LOG"
-
-          set +e
-          timeout 30s qemu-system-x86_64 \
-            -M q35 \
-            -m 512M \
-            -smp 1 \
-            -vga std \
-            -cdrom build/AuroraOS-x86_64.iso \
-            -serial file:"$SERIAL_LOG" \
-            -d int,cpu_reset \
-            -D "$DEBUG_LOG" \
-            -display none \
-            -no-reboot \
-            -no-shutdown
-
-          STATUS=$?
-          set -e
-
-          if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ]; then
-            echo "QEMU exited unexpectedly with status $STATUS" >&2
-            exit "$STATUS"
-          fi
-
-          echo "===== Aurora serial log ====="
-          cat "$SERIAL_LOG"
-
-          if ! grep -F \
-            "[kernel] M1 user-space bootstrap reached successfully" \
-            "$SERIAL_LOG"; then
-            echo "===== QEMU interrupt/reset trace (tail) =====" >&2
-            tail -n 200 "$DEBUG_LOG" >&2 || true
-            exit 1
-          fi
-
-      - name: Capture fullscreen boot video
+      - name: Capture real framebuffer frames in QEMU
         run: |
           set -eu
 
           mkdir -p build/visual
           rm -f build/visual/frame_*.ppm \
-                build/AuroraOS-boot-capture.mp4 \
-                build/AuroraOS-boot-final.png \
-                build/AuroraOS-boot-contact-sheet.png \
                 build/qemu-visual-serial.log \
                 /tmp/aurora-monitor.sock
 
@@ -142,7 +94,7 @@ jobs:
                   pass
 
               root = os.environ["GITHUB_WORKSPACE"]
-              for index in range(120):
+              for index in range(80):
                   target = os.path.join(
                       root,
                       "build",
@@ -150,7 +102,7 @@ jobs:
                       f"frame_{index:03d}.ppm",
                   )
                   sock.sendall(f"screendump {target}\n".encode("ascii"))
-                  time.sleep(0.10)
+                  time.sleep(0.20)
                   try:
                       sock.recv(4096)
                   except (socket.timeout, BlockingIOError):
@@ -163,43 +115,22 @@ jobs:
           wait "$QEMU_PID" || true
 
           FRAME_COUNT=$(find build/visual -name 'frame_*.ppm' | wc -l)
-          echo "Captured $FRAME_COUNT frames"
-          test "$FRAME_COUNT" -ge 20
+          echo "Captured $FRAME_COUNT real QEMU framebuffer frames"
+          test "$FRAME_COUNT" -ge 60
 
-          ffmpeg -y \
-            -framerate 10 \
-            -i build/visual/frame_%03d.ppm \
-            -vf 'scale=1280:-2:flags=lanczos' \
-            -c:v libx264 \
-            -preset veryfast \
-            -crf 20 \
-            -pix_fmt yuv420p \
-            build/AuroraOS-boot-capture.mp4
+          echo "===== Aurora visual-capture serial log ====="
+          cat build/qemu-visual-serial.log
 
-          LAST_FRAME=$(find build/visual -name 'frame_*.ppm' | sort | tail -n 1)
-          ffmpeg -y \
-            -i "$LAST_FRAME" \
-            -frames:v 1 \
-            build/AuroraOS-boot-final.png
+          grep -F \
+            "[kernel] M1 user-space bootstrap reached successfully" \
+            build/qemu-visual-serial.log
 
-          ffmpeg -y \
-            -framerate 10 \
-            -i build/visual/frame_%03d.ppm \
-            -vf "select='not(mod(n,10))',scale=400:-2:flags=lanczos,tile=3x4:padding=4:margin=4" \
-            -frames:v 1 \
-            build/AuroraOS-boot-contact-sheet.png
-
-          rm -f build/visual/frame_*.ppm
-
-      - name: Upload visual capture
+      - name: Upload raw visual capture
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: AuroraOS-boot-visual-capture
+          name: AuroraOS-boot-visual-frames
+          compression-level: 6
           path: |
-            build/AuroraOS-boot-capture.mp4
-            build/AuroraOS-boot-final.png
-            build/AuroraOS-boot-contact-sheet.png
+            build/visual/frame_*.ppm
             build/qemu-visual-serial.log
-            build/qemu-serial.log
-            build/qemu-debug.log
