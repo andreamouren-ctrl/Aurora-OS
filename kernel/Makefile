@@ -7,7 +7,7 @@ BUILD_DIR := $(ROOT)/build/$(ARCH)/kernel
 OUTPUT := $(ROOT)/build/$(ARCH)/aurora-kernel.elf
 LIMINE_PROTOCOL := $(ROOT)/third_party/limine-protocol
 
-BOOT_ASSET_SOURCES := $(wildcard assets/boot/aurora_boot.idx8.zlib.b64*)
+BOOT_ASSET_SOURCES := assets/boot/aurora_boot.compact.zlib.b64
 BOOT_ASSET := assets/boot/aurora_boot.idx8
 BOOT_ASSET_TOOL := $(ROOT)/scripts/prepare-boot-asset.py
 BOOT_ASSET_OBJ := $(BUILD_DIR)/src/ui/boot_asset.o
