@@ -4,7 +4,9 @@
 #include <aurora/block_device.h>
 #include <aurora/partition.h>
 
-#define TEST_BLOCK_SIZE 512u
+#define TEST_MIN_BLOCK_SIZE 512u
+#define TEST_4KN_BLOCK_SIZE 4096u
+#define TEST_MAX_BLOCK_SIZE TEST_4KN_BLOCK_SIZE
 #define TEST_BLOCK_COUNT 64u
 #define TEST_PRIMARY_HEADER_LBA 1u
 #define TEST_PRIMARY_ENTRIES_LBA 2u
@@ -12,6 +14,7 @@
 #define TEST_BACKUP_HEADER_LBA 63u
 #define TEST_ENTRY_COUNT 4u
 #define TEST_ENTRY_SIZE 128u
+#define TEST_ENTRY_ARRAY_BYTES (TEST_ENTRY_COUNT * TEST_ENTRY_SIZE)
 #define TEST_FIRST_USABLE_LBA 3u
 #define TEST_LAST_USABLE_LBA 61u
 #define TEST_PARTITION_FIRST_LBA 10u
@@ -98,7 +101,7 @@ static void build_protective_mbr(uint8_t *storage) {
 }
 
 static void build_entry_array(uint8_t *entries) {
-    zero_bytes(entries, TEST_BLOCK_SIZE);
+    zero_bytes(entries, TEST_ENTRY_ARRAY_BYTES);
 
     entries[0u] = 0xA1u;
     entries[16u] = 0xB2u;
@@ -114,12 +117,13 @@ static void build_entry_array(uint8_t *entries) {
 
 static void build_gpt_header(
     uint8_t *header,
+    uint32_t block_size,
     uint64_t current_lba,
     uint64_t backup_lba,
     uint64_t entries_lba,
     uint32_t entries_crc
 ) {
-    zero_bytes(header, TEST_BLOCK_SIZE);
+    zero_bytes(header, block_size);
 
     static const uint8_t signature[8] = {'E','F','I',' ','P','A','R','T'};
     for (size_t i = 0u; i < sizeof(signature); ++i) {
@@ -157,33 +161,36 @@ static bool expect_test_partition(
             TEST_PARTITION_LAST_LBA - TEST_PARTITION_FIRST_LBA + 1u;
 }
 
-bool partition_self_test(void) {
-    static uint8_t storage[TEST_BLOCK_SIZE * TEST_BLOCK_COUNT];
-    zero_bytes(storage, sizeof(storage));
+static bool run_gpt_integrity_test(uint32_t block_size) {
+    static uint8_t storage[TEST_MAX_BLOCK_SIZE * TEST_BLOCK_COUNT];
+    size_t storage_size = (size_t)block_size * TEST_BLOCK_COUNT;
+    zero_bytes(storage, storage_size);
 
     build_protective_mbr(storage);
 
     uint8_t *primary_entries =
-        storage + TEST_PRIMARY_ENTRIES_LBA * TEST_BLOCK_SIZE;
+        storage + (size_t)TEST_PRIMARY_ENTRIES_LBA * block_size;
     uint8_t *backup_entries =
-        storage + TEST_BACKUP_ENTRIES_LBA * TEST_BLOCK_SIZE;
+        storage + (size_t)TEST_BACKUP_ENTRIES_LBA * block_size;
 
     build_entry_array(primary_entries);
-    for (size_t i = 0u; i < TEST_BLOCK_SIZE; ++i) {
+    for (size_t i = 0u; i < TEST_ENTRY_ARRAY_BYTES; ++i) {
         backup_entries[i] = primary_entries[i];
     }
 
-    uint32_t entries_crc = crc32_bytes(primary_entries, TEST_BLOCK_SIZE);
+    uint32_t entries_crc = crc32_bytes(primary_entries, TEST_ENTRY_ARRAY_BYTES);
 
     build_gpt_header(
-        storage + TEST_PRIMARY_HEADER_LBA * TEST_BLOCK_SIZE,
+        storage + (size_t)TEST_PRIMARY_HEADER_LBA * block_size,
+        block_size,
         TEST_PRIMARY_HEADER_LBA,
         TEST_BACKUP_HEADER_LBA,
         TEST_PRIMARY_ENTRIES_LBA,
         entries_crc
     );
     build_gpt_header(
-        storage + TEST_BACKUP_HEADER_LBA * TEST_BLOCK_SIZE,
+        storage + (size_t)TEST_BACKUP_HEADER_LBA * block_size,
+        block_size,
         TEST_BACKUP_HEADER_LBA,
         TEST_PRIMARY_HEADER_LBA,
         TEST_BACKUP_ENTRIES_LBA,
@@ -192,12 +199,14 @@ bool partition_self_test(void) {
 
     struct partition_test_context context = {
         .storage = storage,
-        .size = sizeof(storage)
+        .size = storage_size
     };
 
     struct aurora_block_device device = {
-        .name = "partition-gpt-self-test",
-        .block_size = TEST_BLOCK_SIZE,
+        .name = block_size == TEST_4KN_BLOCK_SIZE
+            ? "partition-gpt-4kn-self-test"
+            : "partition-gpt-512-self-test",
+        .block_size = block_size,
         .block_count = TEST_BLOCK_COUNT,
         .read_only = true,
         .context = &context,
@@ -209,7 +218,7 @@ bool partition_self_test(void) {
         return false;
     }
 
-    storage[TEST_PRIMARY_HEADER_LBA * TEST_BLOCK_SIZE + 16u] ^= 0x01u;
+    storage[(size_t)TEST_PRIMARY_HEADER_LBA * block_size + 16u] ^= 0x01u;
     if (!expect_test_partition(&device)) {
         return false;
     }
@@ -218,10 +227,11 @@ bool partition_self_test(void) {
 
     struct aurora_partition partitions[2];
     size_t count = partition_scan(&device, partitions, 2u);
-    if (count != 1u ||
-        partitions[0].scheme != AURORA_PARTITION_SCHEME_WHOLE_DEVICE) {
-        return false;
-    }
+    return count == 1u &&
+        partitions[0].scheme == AURORA_PARTITION_SCHEME_WHOLE_DEVICE;
+}
 
-    return true;
+bool partition_self_test(void) {
+    return run_gpt_integrity_test(TEST_MIN_BLOCK_SIZE) &&
+        run_gpt_integrity_test(TEST_4KN_BLOCK_SIZE);
 }
