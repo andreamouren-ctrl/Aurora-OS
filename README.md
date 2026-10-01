@@ -42,23 +42,26 @@ Implemented foundations currently include:
 - ATA PIO compatibility read/write path used by CI storage tests;
 - MBR/GPT partition-manager foundations;
 - filesystem driver registry and mount manager;
+- common VFS routing through mounted filesystem drivers;
 - AuroraFS bootstrap v1 persistence across reboot;
+- AuroraFS registration through the common filesystem-driver interface and mount at `/system`;
 - FAT32/VFAT read-only support including Long File Names and UTF-16 to UTF-8 decoding;
 - exFAT read-only support including 64-bit file-length handling.
 
 ### Storage verification
 
-The storage CI creates externally formatted FAT32 and exFAT volumes, embeds them in an MBR disk image, boots Aurora in QEMU, mounts both formats through Aurora's filesystem-driver layer, reads known files, validates a Unicode VFAT Long File Name, and reboots the same disk to verify AuroraFS persistence.
+The storage CI creates externally formatted FAT32 and exFAT volumes, embeds them in an MBR disk image, boots Aurora in QEMU, mounts both formats through Aurora's filesystem-driver layer, reads known files through the VFS, validates a Unicode VFAT Long File Name, mounts native AuroraFS through the same common framework, and reboots the same disk to verify AuroraFS persistence.
 
-The combined storage smoke test is runtime-verified green as of workflow run **#271** (`36888671373`) at commit `483ab55e803b7d22c061d938ffdd6b23e5e86bb7`.
+The combined storage smoke test is runtime-verified green as of workflow run **#285** (`36892511779`) at commit `445abb2246951b13bb5aae291713b1eeb5aa0420`.
 
 Important scope limits:
 
 - AHCI currently performs controller discovery/probing only; modern AHCI data I/O is not implemented yet.
 - NVMe and USB mass-storage transports are not implemented yet.
 - AuroraFS v1 is a deliberately small bootstrap persistence format, not the final production filesystem.
+- AuroraFS common-driver write support currently applies to existing bootstrap files; production create/remove/allocation semantics are not implemented.
 - FAT32/VFAT and exFAT are currently read-only.
-- the legacy volatile VFS prototype has not yet been fully replaced by the new mount/filesystem-driver path.
+- the legacy volatile VFS remains as a bootstrap fallback for paths not owned by a mounted filesystem; mounted filesystem paths now route through the common mount/driver layer.
 
 ## Aurora Identity
 
@@ -74,9 +77,11 @@ CI currently:
 2. verifies the kernel ELF and unresolved-symbol state;
 3. performs a BIOS QEMU smoke boot;
 4. exercises ATA PIO and AuroraFS persistence;
-5. scans an MBR containing FAT32 and exFAT partitions;
-6. mounts and reads externally generated FAT32/VFAT and exFAT filesystems;
-7. performs a second boot against the same disk image to verify persistence.
+5. registers and mounts AuroraFS through the common filesystem framework;
+6. resolves AuroraFS, FAT32/VFAT, and exFAT files through the common VFS;
+7. scans an MBR containing FAT32 and exFAT partitions;
+8. mounts and reads externally generated FAT32/VFAT and exFAT filesystems;
+9. performs a second boot against the same disk image to verify persistence.
 
 The generic boot path must reach:
 
@@ -96,12 +101,12 @@ The project remains in **M1 — Kernel foundations**, while selected M3 storage 
 
 Primary next storage work includes:
 
-- production VFS integration over the filesystem mount manager;
-- registering native AuroraFS through the same filesystem-driver interface;
 - sector-size-independent block/partition/filesystem parsing;
-- hardened GPT validation;
+- hardened GPT validation including CRC and backup-table fallback;
+- block-device flush/registry hardening;
 - NTFS and ext-family read-only drivers;
-- modern AHCI data I/O, followed later by NVMe and USB mass storage.
+- modern AHCI data I/O, followed later by NVMe and USB mass storage;
+- scalable production AuroraFS allocation and directory structures.
 
 ## Documentation
 
