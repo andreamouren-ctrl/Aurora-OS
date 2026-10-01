@@ -8,7 +8,8 @@
 #include <aurora/partition.h>
 
 #define AURORA_FS_DRIVER_MAX 16u
-#define AURORA_FS_NAME_MAX 256u
+/* 255 UTF-16 code units can require up to 1020 UTF-8 bytes plus terminator. */
+#define AURORA_FS_NAME_MAX 1024u
 
 enum aurora_fs_probe_result {
     AURORA_FS_PROBE_NO_MATCH = 0,
