@@ -1,5 +1,6 @@
 #include <aurora/ahci.h>
 #include <aurora/ata_pio.h>
+#include <aurora/aurora_fs.h>
 #include <aurora/block_device.h>
 #include <aurora/bootstrap_probe.h>
 #include <aurora/log.h>
@@ -35,10 +36,9 @@ void bootstrap_storage_probe(void) {
 
     /*
      * ATA PIO is currently a bounded compatibility/test path. The driver may
-     * detect and read a primary-master disk, but its write verification is
-     * gated inside ata_pio_ci_probe() by the explicit
-     * AURORA-STORAGE-TEST-V1 signature in LBA 0. Ordinary disks are never
-     * modified by this bootstrap probe.
+     * detect and read a primary-master disk, but writes remain gated by the
+     * explicit AURORA-STORAGE-TEST-V1 signature in LBA 0. Ordinary disks are
+     * never formatted or modified by this bootstrap probe.
      */
     if (ata_pio_primary_master_init()) {
         struct aurora_block_device *ata = ata_pio_primary_master_device();
@@ -49,6 +49,25 @@ void bootstrap_storage_probe(void) {
 
         if (ata_pio_ci_probe()) {
             log_line("[ata] signed test disk read/write probe passed");
+
+            struct aurora_fs_bootstrap_result fs_result;
+            if (!aurora_fs_bootstrap_probe(ata, &fs_result)) {
+                kernel_panic("AuroraFS persistent bootstrap probe failed");
+            }
+
+            log_write("[aurorafs] generation: ");
+            log_u64(fs_result.generation);
+            log_line("");
+
+            if (fs_result.formatted) {
+                log_line("[aurorafs] formatted bootstrap filesystem");
+            }
+
+            if (fs_result.reopened_existing_file) {
+                log_line("[aurorafs] persistent file reopened");
+            } else {
+                log_line("[aurorafs] persistent file created");
+            }
         } else {
             log_line("[ata] primary master detected; signed write probe skipped");
         }
