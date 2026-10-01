@@ -1,9 +1,9 @@
 # Aurora OS Roadmap
 
-Status: **Initial planning**
+Status: **Active implementation**
 Version: **0.6**
 
-The roadmap deliberately freezes architecture before expanding implementation.
+The roadmap freezes architectural contracts before production hardening, while implementation prototypes are allowed to advance where the contracts are sufficiently clear.
 
 ## M0 — Definition and boot foundation
 
@@ -18,57 +18,80 @@ The roadmap deliberately freezes architecture before expanding implementation.
 - [x] Decide against a proprietary programming language
 
 ### M0.1 — Architecture contracts
-- [ ] Choose kernel architecture model
+- [x] Choose initial modular hybrid capability-kernel direction
 - [x] Define kernel/user boundary: Ring 0 kernel / Ring 3 isolated processes
 - [x] Define syscall philosophy: x86_64 SYSCALL/SYSRET with capability-aware dispatch
-- [ ] Define IPC model
-- [ ] Define capability model
+- [x] Define initial bounded IPC prototype model
+- [x] Define initial typed capability prototype model
 - [x] Define Android-style runtime permission philosophy
-- [ ] Define permission broker contract
-- [ ] Define permission manifest schema
-- [ ] Define permission audit/history model
-- [ ] Define driver model
+- [ ] Freeze permission broker contract
+- [ ] Freeze permission manifest schema
+- [ ] Freeze permission audit/history model
+- [ ] Freeze driver model
 - [x] Define user-memory copy boundary and supervisor hardening
-- [ ] Define memory manager contracts
-- [ ] Define scheduler classes
-- [ ] Define boot information contract
-- [ ] Define logging and panic contracts
+- [ ] Freeze memory manager contracts
+- [ ] Freeze scheduler classes
+- [ ] Freeze boot information contract
+- [ ] Freeze logging and panic contracts
 
 ### M0.2 — First verified boot
 
 - [x] Native framebuffer boot UI with real subsystem progress
+- [x] Integrated fullscreen Aurora boot artwork
 - [x] Poetic staged boot messages
 - [x] Visible framebuffer panic screen
-- [x] Build freestanding x86_64 kernel (compile/link verified)
-- [ ] Boot under UEFI in QEMU
-- [ ] Boot under BIOS where supported
-- [x] Serial logging implementation (runtime verification pending)
-- [x] Framebuffer initialization implementation (runtime verification pending)
-- [x] Panic/exception diagnostics implementation (runtime verification pending)
-- [ ] Produce bootable ISO
+- [x] Build freestanding x86_64 kernel
+- [x] Produce bootable ISO
+- [x] BIOS QEMU smoke boot reaches M1 user-space bootstrap
+- [ ] Runtime-verify UEFI QEMU boot
+- [x] Serial logging implementation and CI runtime verification
+- [x] Framebuffer initialization exercised during CI boot
+- [x] Panic/exception diagnostics implementation
 - [ ] Produce raw USB image
 
 ## M1 — Kernel foundations
 
-- [x] ACPI / MADT platform discovery (runtime verification pending)
-- [x] Local APIC + I/O APIC bootstrap (runtime verification pending)
-- [x] HPET / invariant-TSC monotonic clock bootstrap (runtime verification pending)
+### Platform and execution
+- [x] ACPI / MADT platform discovery
+- [x] Local APIC + I/O APIC bootstrap
+- [x] HPET / invariant-TSC monotonic clock bootstrap
+- [x] x86_64 IDT and CPU exception handlers
+- [x] tickless / one-shot timer bootstrap and runtime probe
+- [x] SMP bring-up infrastructure to parked AP state
+- [ ] Runtime-verify multi-vCPU SMP path in CI
 
+### Memory
 - [x] bootstrap physical memory manager
 - [x] bootstrap virtual memory manager
 - [x] bootstrap kernel heap
-- [x] x86_64 IDT and CPU exception handlers
-- [x] tickless timer bootstrap (runtime verification pending)
-- [x] SMP bring-up to parked AP state (runtime verification pending)
-- [x] BSP preemptive kernel-thread scheduler prototype (runtime verification pending)
-- [x] x86_64 SYSCALL/SYSRET entry + EXIT path (runtime verification pending)
-- [x] isolated Ring 3 process prototype with private CR3 (runtime verification pending)
-- [x] per-thread kernel stack + TSS Ring 3 return path (runtime verification pending)
-- [x] Ring 3 fault containment without kernel panic (runtime verification pending)
-- [x] permission-checked usercopy layer (runtime verification pending)
+- [x] permission-checked usercopy layer
+
+### Isolation and scheduling
+- [x] BSP preemptive kernel-thread scheduler prototype
+- [x] scheduler runtime self-test during boot
+- [x] isolated Ring 3 process prototype with private CR3
+- [x] per-thread kernel stack + TSS Ring 3 return path
+- [x] Ring 3 fault-containment architecture
+- [x] x86_64 SYSCALL/SYSRET entry + EXIT path
+- [x] Ring 3 SYSCALL/EXIT runtime boot probe
+
+### Security and IPC
 - [x] x86_64 WP / SMEP / SMAP / UMIP hardening where supported
-- [x] bounded IPC prototype with capability escrow (runtime verification pending)
-- [x] capability prototype with typed rights, revocation and delegation (runtime verification pending)
+- [x] bounded IPC prototype with capability escrow
+- [x] capability prototype with typed rights, revocation and delegation
+- [x] capability self-test during boot
+- [x] IPC capability-transfer self-test during boot
+
+### Input and native session bootstrap
+- [x] generic kernel input-event queue
+- [x] IRQ-driven PS/2 keyboard prototype
+- [x] boot-to-login framebuffer handoff
+- [x] native Aurora Identity login UI prototype
+- [x] interactive Aurora Key entry, masking, backspace, escape and submit states
+- [ ] persistent Aurora Identity Service in user space
+- [ ] secure credential verifier implementation
+- [ ] persistent local identity database
+- [ ] authenticated session bootstrap
 
 ## M2 — Aurora Memory Fabric prototype
 
@@ -86,6 +109,7 @@ The roadmap deliberately freezes architecture before expanding implementation.
 
 - [ ] VFS
 - [ ] initial filesystem support
+- [ ] persistent system/data storage services
 - [ ] system/data separation
 - [ ] package model
 - [ ] signed package metadata
@@ -95,9 +119,10 @@ The roadmap deliberately freezes architecture before expanding implementation.
 
 ## M4 — Graphics and Desktop foundation
 
-- [ ] display subsystem
+- [ ] display subsystem beyond boot framebuffer
 - [ ] compositor
-- [ ] input stack
+- [ ] full input stack (including modern USB HID path)
+- [ ] pointer/mouse stack
 - [ ] window/surface protocol
 - [ ] Desktop shell
 - [ ] Activity Space prototype
@@ -140,6 +165,19 @@ The roadmap deliberately freezes architecture before expanding implementation.
 - [ ] rollback UI
 - [ ] recovery environment
 - [ ] integrity verification
+
+## Current development gate
+
+Aurora can now boot through the M1 kernel foundation and enter the native Aurora Identity login prototype. The next persistent-login milestone must not place account policy or credential verification inside the kernel.
+
+The preferred dependency order is:
+
+1. establish minimal persistent storage/VFS foundations;
+2. establish the first isolated user-space service execution model;
+3. implement the Aurora Identity Service and its narrow IPC contract;
+4. add secure randomness and an audited memory-hard credential verifier;
+5. persist identity records and rate-limit state;
+6. bootstrap the authenticated user session.
 
 ## Cross-cutting requirement
 
