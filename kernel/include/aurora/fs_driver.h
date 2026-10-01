@@ -8,11 +8,37 @@
 #include <aurora/partition.h>
 
 #define AURORA_FS_DRIVER_MAX 16u
+#define AURORA_FS_NAME_MAX 256u
 
 enum aurora_fs_probe_result {
     AURORA_FS_PROBE_NO_MATCH = 0,
     AURORA_FS_PROBE_MATCH_READ_ONLY,
     AURORA_FS_PROBE_MATCH_READ_WRITE
+};
+
+enum aurora_fs_entry_type {
+    AURORA_FS_ENTRY_UNKNOWN = 0,
+    AURORA_FS_ENTRY_FILE,
+    AURORA_FS_ENTRY_DIRECTORY,
+    AURORA_FS_ENTRY_SYMLINK,
+    AURORA_FS_ENTRY_SPECIAL
+};
+
+struct aurora_fs_stat {
+    enum aurora_fs_entry_type type;
+    uint64_t size;
+    uint64_t allocated_size;
+    uint64_t created_time_ns;
+    uint64_t modified_time_ns;
+    uint64_t accessed_time_ns;
+    uint64_t filesystem_id;
+};
+
+struct aurora_fs_dirent {
+    char name[AURORA_FS_NAME_MAX];
+    enum aurora_fs_entry_type type;
+    uint64_t size;
+    uint64_t filesystem_id;
 };
 
 struct aurora_fs_driver;
@@ -28,11 +54,46 @@ typedef bool (*aurora_fs_mount_fn)(
 
 typedef void (*aurora_fs_unmount_fn)(void *context);
 
+typedef bool (*aurora_fs_stat_fn)(
+    void *context,
+    const char *path,
+    struct aurora_fs_stat *out_stat
+);
+
+typedef bool (*aurora_fs_readdir_fn)(
+    void *context,
+    const char *path,
+    uint64_t index,
+    struct aurora_fs_dirent *out_entry
+);
+
+typedef bool (*aurora_fs_read_fn)(
+    void *context,
+    const char *path,
+    uint64_t offset,
+    void *buffer,
+    size_t length,
+    size_t *out_read
+);
+
+typedef bool (*aurora_fs_write_fn)(
+    void *context,
+    const char *path,
+    uint64_t offset,
+    const void *buffer,
+    size_t length,
+    size_t *out_written
+);
+
 struct aurora_fs_driver {
     const char *name;
     aurora_fs_probe_fn probe;
     aurora_fs_mount_fn mount;
     aurora_fs_unmount_fn unmount;
+    aurora_fs_stat_fn stat;
+    aurora_fs_readdir_fn readdir;
+    aurora_fs_read_fn read;
+    aurora_fs_write_fn write;
 };
 
 struct aurora_fs_match {
