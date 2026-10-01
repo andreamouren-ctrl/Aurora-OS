@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Active implementation**
-Version: **0.7**
+Version: **0.8**
 
 The roadmap freezes architectural contracts before production hardening, while implementation prototypes are allowed to advance where the contracts are sufficiently clear.
 
@@ -25,6 +25,9 @@ The roadmap freezes architectural contracts before production hardening, while i
 - [x] Define initial typed capability prototype model
 - [x] Define Android-style runtime permission philosophy
 - [x] Define Aurora Identity Service / System App / fallback split
+- [x] Define Aurora Identity authentication-factor policy
+- [x] Define Aurora Identity logical IPC/capability contract
+- [x] Define removable authenticator security tiers and revocation model
 - [ ] Freeze permission broker contract
 - [ ] Freeze permission manifest schema
 - [ ] Freeze permission audit/history model
@@ -214,6 +217,7 @@ Canonical Aurora Identity architecture is now:
 
 ```text
 Aurora Identity System App
+        -> versioned capability-authorized IPC
         -> Aurora Identity Service
         -> one-time authenticated session grant
         -> Session Manager
@@ -230,7 +234,7 @@ The preferred dependency order is:
 2. establish protected durable system state;
 3. establish the first isolated user-space service execution model;
 4. add secure randomness and an audited memory-hard credential verifier;
-5. implement Aurora Identity Service and its narrow IPC contract;
+5. implement Aurora Identity Service and its versioned capability-authorized IPC contract;
 6. persist identity records and reboot-resistant rate-limit state;
 7. implement Session Manager and authenticated user profile bootstrap;
 8. replace normal framebuffer login with the compositor-backed Aurora Identity System App while retaining fallback;
@@ -238,6 +242,8 @@ The preferred dependency order is:
 10. add recovery and secure-hardware authenticators.
 
 Detailed Identity implementation sequencing is defined in `docs/identity/IMPLEMENTATION_ROADMAP.md`.
+
+The canonical Aurora Identity specification set is indexed in `docs/identity/README.md` and governed by `docs/AURORA_IDENTITY.md`.
 
 ## Cross-cutting requirement
 
