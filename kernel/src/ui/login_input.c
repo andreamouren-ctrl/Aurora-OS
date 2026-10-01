@@ -1,5 +1,6 @@
 #include <stddef.h>
 
+#include <aurora/bootstrap_probe.h>
 #include <aurora/input.h>
 #include <aurora/login_input.h>
 #include <aurora/login_ui.h>
@@ -87,6 +88,13 @@ static void handle_pressed_key(
 }
 
 void login_input_init(void) {
+    /*
+     * Temporary M1 bootstrap hook: execute storage contracts before the login
+     * surface starts accepting credentials. This probe will move out of the
+     * UI path once Aurora has a dedicated service/bootstrap manager.
+     */
+    bootstrap_storage_probe();
+
     credential_length = 0u;
 
     for (size_t i = 0u; i < sizeof(credential_buffer); ++i) {
