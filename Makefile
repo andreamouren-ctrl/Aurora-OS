@@ -6,8 +6,9 @@ BUILD_ROOT := build/$(ARCH)
 KERNEL := $(BUILD_ROOT)/aurora-kernel.elf
 ISO_ROOT := $(BUILD_ROOT)/iso_root
 ISO := build/AuroraOS-$(ARCH).iso
+STORAGE_IMAGE := build/aurora-storage.img
 
-.PHONY: all deps kernel iso run-bios run-uefi clean distclean
+.PHONY: all deps kernel iso storage-image run-bios run-uefi clean distclean
 
 all: iso
 
@@ -40,20 +41,29 @@ iso: kernel $(LIMINE_DIR)/limine
 	rm -rf "$(ISO_ROOT)"
 	@echo "Built $(ISO)"
 
-run-bios: iso
+storage-image:
+	@mkdir -p build
+	@test -f "$(STORAGE_IMAGE)" || truncate -s 64M "$(STORAGE_IMAGE)"
+	@echo "Storage image: $(STORAGE_IMAGE)"
+
+run-bios: iso storage-image
 	qemu-system-x86_64 \
 		-M q35 \
 		-m 512M \
 		-cdrom "$(ISO)" \
+		-drive file="$(STORAGE_IMAGE)",format=raw,if=none,id=aurora_disk \
+		-device ide-hd,drive=aurora_disk \
 		-serial stdio
 
-run-uefi: iso
+run-uefi: iso storage-image
 	@test -n "$(OVMF_CODE)" || (echo "Set OVMF_CODE=/path/to/OVMF_CODE.fd" && exit 1)
 	qemu-system-x86_64 \
 		-M q35 \
 		-m 512M \
 		-drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" \
 		-cdrom "$(ISO)" \
+		-drive file="$(STORAGE_IMAGE)",format=raw,if=none,id=aurora_disk \
+		-device ide-hd,drive=aurora_disk \
 		-serial stdio
 
 clean:
