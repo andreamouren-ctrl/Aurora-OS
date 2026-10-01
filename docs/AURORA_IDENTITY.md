@@ -1,7 +1,7 @@
 # Aurora Identity
 
 Status: **Canonical subsystem specification**
-Version: **0.3**
+Version: **0.4**
 
 Aurora Identity is the Aurora OS subsystem responsible for identifying a local person, authenticating approved credentials, binding that identity to a profile, starting and locking sessions, managing authenticators, and providing recovery paths.
 
@@ -300,13 +300,37 @@ Detailed subsystem specifications live under [`docs/identity/`](identity/README.
 - [`SESSION_RECOVERY.md`](identity/SESSION_RECOVERY.md)
 - [`IMPLEMENTATION_ROADMAP.md`](identity/IMPLEMENTATION_ROADMAP.md)
 - [`TEST_PLAN.md`](identity/TEST_PLAN.md)
+- [`ADVANCED_FEATURES.md`](identity/ADVANCED_FEATURES.md)
 
 Architecture decisions:
 
 - [`ADR-0003 — Aurora Identity Service / System App Split`](adr/ADR-0003-aurora-identity-service-app-split.md)
 - [`ADR-0004 — Aurora Identity removable authenticators`](adr/ADR-0004-aurora-identity-removable-authenticators.md)
 
-## 14. Production readiness gate
+## 14. Advanced capability horizon
+
+Aurora Identity is designed to grow beyond cold-boot login into the trusted identity boundary of Aurora OS.
+
+The architecture must be able to support, without weakening the local-first core:
+
+- Aurora Ghost Session and controlled Guest Identity;
+- Identity Vault and application-bound secret use;
+- Session Seal, Instant Lock and Lock Zones;
+- Travel Mode and stronger context-dependent policy;
+- one-time/temporary access credentials;
+- cryptographic Aurora device identities;
+- trusted-device approval and QR pairing;
+- Aurora Identity Capsule;
+- Aurora Handoff between trusted devices;
+- Aurora Presence;
+- Trusted Circle / threshold recovery;
+- local security Risk Engine;
+- multiple Profile Layers under one stable human identity;
+- optional encrypted multi-device synchronization.
+
+These capabilities are specified in [`ADVANCED_FEATURES.md`](identity/ADVANCED_FEATURES.md) and are not all V1 requirements. Core Aurora Key authentication, recovery and ordinary local login must remain independent from cloud or multi-device availability.
+
+## 15. Production readiness gate
 
 Aurora Identity must not be described as production-ready until at least:
 
