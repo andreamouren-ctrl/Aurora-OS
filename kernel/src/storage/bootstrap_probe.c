@@ -177,7 +177,7 @@ void bootstrap_storage_probe(void) {
         kernel_panic("GPT integrity/backup partition self-test failed");
     }
 
-    log_line("[partition] GPT integrity and backup fallback self-test passed");
+    log_line("[partition] GPT integrity + backup fallback verified on 512 and 4096-byte logical blocks");
 
     fs_driver_registry_init();
     fs_mount_manager_init();
