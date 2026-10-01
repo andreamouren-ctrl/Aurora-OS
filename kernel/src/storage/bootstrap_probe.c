@@ -171,7 +171,8 @@ void bootstrap_storage_probe(void) {
         kernel_panic("Block-device abstraction self-test failed");
     }
 
-    log_line("[storage] block-device abstraction self-test passed");
+    log_line("[storage] block-device abstraction + registry/flush self-test passed");
+    block_device_registry_init();
 
     if (!partition_self_test()) {
         kernel_panic("GPT integrity/backup partition self-test failed");
@@ -221,20 +222,22 @@ void bootstrap_storage_probe(void) {
         log_line("[storage] AHCI controller unavailable");
     }
 
-    /*
-     * ATA PIO is currently a bounded compatibility/test path. Writes remain
-     * gated by the explicit AURORA-STORAGE-TEST-V1 signature in the MBR boot
-     * area. CI additionally places real foreign filesystems in MBR partitions.
-     */
     if (ata_pio_primary_master_init()) {
         struct aurora_block_device *ata = ata_pio_primary_master_device();
 
+        if (ata == NULL || !block_device_register(ata) ||
+            block_device_find("ata-primary-master") != ata) {
+            kernel_panic("ATA block-device registry integration failed");
+        }
+
+        log_line("[storage] block device registered: ata-primary-master");
+
         log_write("[ata] primary master sectors: ");
-        log_u64(ata != NULL ? ata->block_count : 0u);
+        log_u64(ata->block_count);
         log_line("");
 
         if (ata_pio_ci_probe()) {
-            log_line("[ata] signed test disk read/write probe passed");
+            log_line("[ata] signed test disk read/write/flush probe passed");
 
             struct aurora_fs_bootstrap_result fs_result;
             if (!aurora_fs_bootstrap_probe(ata, &fs_result)) {
