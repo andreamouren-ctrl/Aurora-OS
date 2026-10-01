@@ -7,8 +7,8 @@ import hashlib
 from pathlib import Path
 import zlib
 
-EXPECTED_SIZE = 37248
-EXPECTED_SHA256 = "c75ca5c74067f439b57afdbeb6553906d1fa02f446e88542ff4c8e960af158a9"
+EXPECTED_SIZE = 28416
+EXPECTED_SHA256 = "1863a27d7e6e3868dab257e1b14cd1db9384333857621048e630a2edb4ee8d95"
 
 
 def main() -> int:
