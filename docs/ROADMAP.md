@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Active implementation**
-Version: **0.10**
+Version: **0.11**
 
 The roadmap distinguishes architecture decisions, repository implementation, and runtime verification. A feature is not considered complete merely because a detector or interface exists.
 
@@ -112,10 +112,12 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] GPT foundation
 - [x] parser accepts 512/1024/2048/4096-byte logical blocks
 - [x] GPT entries may cross a logical-block boundary
+- [x] GPT header CRC32 validation
+- [x] GPT partition-entry-array CRC32 validation
+- [x] primary-to-backup GPT fallback
+- [x] bounded variable GPT entry-size parsing up to 4096 bytes
+- [ ] runtime-verify GPT CRC rejection and backup-header fallback
 - [ ] runtime-verify non-512-byte logical block parsing
-- [ ] GPT CRC validation
-- [ ] backup GPT fallback
-- [ ] fully general variable entry-size handling beyond one logical block per entry
 - [ ] end-to-end 512e/4Kn-safe filesystem path
 - [ ] extended/logical MBR partitions
 
@@ -160,7 +162,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [ ] transactional deployment prototype
 - [ ] rollback
 
-Runtime reference: combined ATA + AuroraFS + FAT32/VFAT + exFAT common-VFS storage smoke test is green in workflow **#285** (`36892511779`) at commit `445abb2246951b13bb5aae291713b1eeb5aa0420`. Non-512 logical-sector support is currently implemented in the partition parser but not yet runtime-verified.
+Runtime reference: combined ATA + AuroraFS + FAT32/VFAT + exFAT common-VFS storage smoke test is green in workflow **#290** (`36913468418`) at commit `7ee6073b8165ba9da6e473979e99090f24f27ff1`. Logical-sector-aware partition parsing is runtime-regression-tested on the existing 512-byte CI path. GPT CRC validation, backup-header fallback, and non-512 logical-block behavior are implemented but require dedicated runtime self-tests before being marked runtime-verified.
 
 ## M4 — Graphics and Desktop foundation
 
@@ -237,8 +239,8 @@ Aurora can boot through the M1 kernel foundation and enter the native login prot
 
 Near-term dependency order:
 
-1. runtime-verify non-512 logical-block partition parsing and continue removing filesystem-level 512-byte assumptions;
-2. harden GPT with CRC validation, variable entry-size handling, and backup-header fallback;
+1. add dedicated GPT integrity/fallback and non-512 logical-block runtime tests;
+2. continue removing filesystem-level 512-byte assumptions;
 3. add a block-device flush contract and registry;
 4. add NTFS and ext-family read-only support;
 5. implement modern AHCI data I/O;
