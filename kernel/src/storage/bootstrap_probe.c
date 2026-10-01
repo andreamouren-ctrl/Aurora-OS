@@ -25,24 +25,28 @@ static bool bytes_equal(const uint8_t *a, const uint8_t *b, size_t length) {
     return true;
 }
 
-static bool verify_file(
-    const struct aurora_fs_mount *mount,
-    const char *path,
+static bool verify_vfs_file(
+    const char *absolute_path,
     const uint8_t *expected,
     size_t expected_length
 ) {
     uint8_t buffer[128];
     size_t read = 0u;
+    struct aurora_vfs_stat stat;
 
-    if (mount == NULL || mount->driver == NULL || mount->driver->read == NULL ||
+    if (absolute_path == NULL || expected == NULL ||
         expected_length > sizeof(buffer)) {
         return false;
     }
 
-    if (!mount->driver->read(
-            mount->context,
-            path,
-            0u,
+    if (!vfs_stat(absolute_path, &stat) ||
+        stat.type != AURORA_VFS_NODE_FILE ||
+        stat.size != expected_length) {
+        return false;
+    }
+
+    if (!vfs_read_file(
+            absolute_path,
             buffer,
             sizeof(buffer),
             &read)) {
@@ -59,26 +63,25 @@ static void verify_fat32_partition(const struct aurora_partition *partition) {
     }
 
     static const uint8_t expected_short[] = "AURORA-FAT32-EXTERNAL-IMAGE";
-    if (!verify_file(
-            mount,
-            "/AURORA.TXT",
+    if (!verify_vfs_file(
+            "/media/fat32-test/AURORA.TXT",
             expected_short,
             sizeof(expected_short) - 1u)) {
-        kernel_panic("FAT32 external image file verification failed");
+        kernel_panic("FAT32 VFS external image file verification failed");
     }
 
     static const uint8_t expected_lfn[] = "AURORA-FAT32-LFN-UNICODE";
-    if (!verify_file(
-            mount,
-            "/Documento Aurora \xC3\xA8.txt",
+    if (!verify_vfs_file(
+            "/media/fat32-test/Documento Aurora \xC3\xA8.txt",
             expected_lfn,
             sizeof(expected_lfn) - 1u)) {
-        kernel_panic("FAT32 VFAT long filename verification failed");
+        kernel_panic("FAT32 VFS long filename verification failed");
     }
 
     log_line("[fat32] external image mounted read-only");
     log_line("[fat32] external file read verified");
     log_line("[fat32] VFAT long Unicode filename verified");
+    log_line("[vfs] FAT32 mounted-path routing verified");
 }
 
 static void verify_exfat_partition(const struct aurora_partition *partition) {
@@ -88,17 +91,17 @@ static void verify_exfat_partition(const struct aurora_partition *partition) {
     }
 
     static const uint8_t expected[] = "AURORA-EXFAT-EXTERNAL-IMAGE";
-    if (!verify_file(
-            mount,
-            "/Grande Aurora.txt",
+    if (!verify_vfs_file(
+            "/media/exfat-test/Grande Aurora.txt",
             expected,
             sizeof(expected) - 1u)) {
-        kernel_panic("exFAT external image file verification failed");
+        kernel_panic("exFAT VFS external image file verification failed");
     }
 
     log_line("[exfat] external image mounted read-only");
     log_line("[exfat] external file read verified");
     log_line("[exfat] 64-bit file length path active");
+    log_line("[vfs] exFAT mounted-path routing verified");
 }
 
 static void bootstrap_foreign_fs_probe(struct aurora_block_device *device) {
@@ -142,6 +145,10 @@ void bootstrap_storage_probe(void) {
 
     fs_driver_registry_init();
     fs_mount_manager_init();
+
+    if (!vfs_init()) {
+        kernel_panic("VFS bootstrap initialization failed");
+    }
 
     if (!fs_driver_register(fat32_driver())) {
         kernel_panic("FAT32 filesystem driver registration failed");
@@ -214,10 +221,6 @@ void bootstrap_storage_probe(void) {
         }
     } else {
         log_line("[ata] primary PIO disk unavailable");
-    }
-
-    if (!vfs_init()) {
-        kernel_panic("VFS bootstrap initialization failed");
     }
 
     if (!vfs_self_test()) {
