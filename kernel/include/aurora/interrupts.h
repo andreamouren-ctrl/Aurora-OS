@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #define AURORA_VECTOR_TIMER    0x40u
+#define AURORA_VECTOR_KEYBOARD 0x41u
 #define AURORA_VECTOR_SPURIOUS 0xFFu
 
 struct interrupt_frame {
