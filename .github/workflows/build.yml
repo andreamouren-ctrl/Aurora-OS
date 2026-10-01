@@ -138,7 +138,7 @@ jobs:
           mcopy -o -i "$FAT_IMAGE" \
             'build/Documento Aurora è.txt' '::/Documento Aurora è.txt'
 
-          mkfs.exfat -L AURORA_XFAT "$EXFAT_IMAGE"
+          mkfs.exfat -L AURORAEXFAT "$EXFAT_IMAGE"
           mkdir -p "$EXFAT_MOUNT"
           printf 'AURORA-EXFAT-EXTERNAL-IMAGE' > 'build/Grande Aurora.txt'
           sudo mount -o loop -t exfat "$EXFAT_IMAGE" "$EXFAT_MOUNT"
