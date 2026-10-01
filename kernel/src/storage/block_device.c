@@ -265,14 +265,16 @@ bool block_device_self_test(void) {
         block_device_get(0u) != &device ||
         block_device_find("bootstrap-memory-block") != &device ||
         block_device_register(&device)) {
+        block_device_registry_init();
         return false;
     }
 
     device.read_only = true;
-
     if (block_device_write(&device, 0u, 1u, write_buffer)) {
+        block_device_registry_init();
         return false;
     }
 
+    block_device_registry_init();
     return true;
 }
