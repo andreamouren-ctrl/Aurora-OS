@@ -47,4 +47,6 @@ bool partition_write(
     const void *buffer
 );
 
+bool partition_self_test(void);
+
 #endif
