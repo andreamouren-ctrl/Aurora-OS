@@ -173,6 +173,12 @@ void bootstrap_storage_probe(void) {
 
     log_line("[storage] block-device abstraction self-test passed");
 
+    if (!partition_self_test()) {
+        kernel_panic("GPT integrity/backup partition self-test failed");
+    }
+
+    log_line("[partition] GPT integrity and backup fallback self-test passed");
+
     fs_driver_registry_init();
     fs_mount_manager_init();
 
