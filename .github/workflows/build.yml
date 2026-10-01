@@ -55,7 +55,9 @@ jobs:
 
           SERIAL_LOG=build/qemu-serial.log
           DEBUG_LOG=build/qemu-debug.log
-          rm -f "$SERIAL_LOG" "$DEBUG_LOG"
+          STORAGE_IMAGE=build/aurora-storage.img
+          rm -f "$SERIAL_LOG" "$DEBUG_LOG" "$STORAGE_IMAGE"
+          truncate -s 16M "$STORAGE_IMAGE"
 
           set +e
           timeout 15s qemu-system-x86_64 \
@@ -64,6 +66,8 @@ jobs:
             -smp 1 \
             -vga std \
             -cdrom build/AuroraOS-x86_64.iso \
+            -drive file="$STORAGE_IMAGE",format=raw,if=none,id=aurora_disk \
+            -device ide-hd,drive=aurora_disk \
             -serial file:"$SERIAL_LOG" \
             -d int,cpu_reset \
             -D "$DEBUG_LOG" \
@@ -83,6 +87,13 @@ jobs:
 
           echo "===== Aurora serial log ====="
           cat "$SERIAL_LOG"
+
+          if ! grep -F \
+            "[storage] AHCI controller PCI" \
+            "$SERIAL_LOG"; then
+            echo "Aurora did not discover the q35 AHCI controller" >&2
+            exit 1
+          fi
 
           if ! grep -F \
             "[kernel] M1 user-space bootstrap reached successfully" \
