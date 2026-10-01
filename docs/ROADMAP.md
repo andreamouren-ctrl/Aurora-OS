@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Active implementation**
-Version: **0.11**
+Version: **0.12**
 
 The roadmap distinguishes architecture decisions, repository implementation, and runtime verification. A feature is not considered complete merely because a detector or interface exists.
 
@@ -98,14 +98,18 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 ### Block and transport layer
 - [x] generic block-device abstraction
 - [x] runtime block-device self-test
+- [x] block-device registry API and duplicate-name rejection
+- [x] generic optional flush contract
+- [x] ATA PIO exposes CACHE FLUSH through the block layer
 - [x] PCI storage discovery foundation
 - [x] AHCI controller + ABAR discovery
 - [x] ATA PIO compatibility read/write path
+- [ ] runtime-verify registry + ATA read/write/flush integration in CI
 - [ ] AHCI data I/O
 - [ ] NVMe transport
 - [ ] USB/xHCI + USB mass storage
-- [ ] block-device registry + flush contract
 - [ ] remove remaining fixed 512-byte-sector assumptions
+- [ ] remove bootstrap static block-device registry limit
 
 ### Partition layer
 - [x] MBR primary partition scan
@@ -116,8 +120,8 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] GPT partition-entry-array CRC32 validation
 - [x] primary-to-backup GPT fallback
 - [x] bounded variable GPT entry-size parsing up to 4096 bytes
-- [ ] runtime-verify GPT CRC rejection and backup-header fallback
-- [ ] runtime-verify non-512-byte logical block parsing
+- [x] runtime-verify GPT CRC rejection and backup-header fallback
+- [ ] runtime-verify 4096-byte logical block parsing in current CI run
 - [ ] end-to-end 512e/4Kn-safe filesystem path
 - [ ] extended/logical MBR partitions
 
@@ -162,7 +166,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [ ] transactional deployment prototype
 - [ ] rollback
 
-Runtime reference: combined ATA + AuroraFS + FAT32/VFAT + exFAT common-VFS storage smoke test is green in workflow **#290** (`36913468418`) at commit `7ee6073b8165ba9da6e473979e99090f24f27ff1`. Logical-sector-aware partition parsing is runtime-regression-tested on the existing 512-byte CI path. GPT CRC validation, backup-header fallback, and non-512 logical-block behavior are implemented but require dedicated runtime self-tests before being marked runtime-verified.
+Runtime reference: combined ATA + AuroraFS + FAT32/VFAT + exFAT common-VFS storage smoke test is green in workflow **#297** (`36914326026`). That run also runtime-verifies GPT header CRC rejection, partition-entry-array CRC rejection, and primary-to-backup GPT fallback on the synthetic 512-byte logical-block test device. A dedicated 4096-byte logical-block extension is implemented and running in workflow **#299** (`36914796680`). Block-device registry + explicit flush integration is implemented and running in workflow **#304** (`36915166492`); these items are not marked runtime-verified until that run completes successfully.
 
 ## M4 — Graphics and Desktop foundation
 
@@ -239,16 +243,15 @@ Aurora can boot through the M1 kernel foundation and enter the native login prot
 
 Near-term dependency order:
 
-1. add dedicated GPT integrity/fallback and non-512 logical-block runtime tests;
+1. complete runtime verification of 4Kn partition parsing and block registry/flush integration;
 2. continue removing filesystem-level 512-byte assumptions;
-3. add a block-device flush contract and registry;
-4. add NTFS and ext-family read-only support;
-5. implement modern AHCI data I/O;
-6. evolve AuroraFS from bootstrap v1 to scalable production allocation and directory structures;
-7. establish protected durable system state;
-8. implement secure randomness and credential verification;
-9. implement Aurora Identity Service, persistent identity records, and Session Manager;
-10. add USB storage and Aurora Identity Drive support.
+3. add NTFS and ext-family read-only support;
+4. implement modern AHCI data I/O;
+5. evolve AuroraFS from bootstrap v1 to scalable production allocation and directory structures;
+6. establish protected durable system state;
+7. implement secure randomness and credential verification;
+8. implement Aurora Identity Service, persistent identity records, and Session Manager;
+9. add USB storage and Aurora Identity Drive support.
 
 Detailed Identity sequencing remains in `docs/identity/IMPLEMENTATION_ROADMAP.md`.
 
