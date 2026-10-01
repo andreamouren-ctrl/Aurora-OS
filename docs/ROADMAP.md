@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Active implementation**
-Version: **0.6**
+Version: **0.8**
 
 The roadmap freezes architectural contracts before production hardening, while implementation prototypes are allowed to advance where the contracts are sufficiently clear.
 
@@ -24,6 +24,10 @@ The roadmap freezes architectural contracts before production hardening, while i
 - [x] Define initial bounded IPC prototype model
 - [x] Define initial typed capability prototype model
 - [x] Define Android-style runtime permission philosophy
+- [x] Define Aurora Identity Service / System App / fallback split
+- [x] Define Aurora Identity authentication-factor policy
+- [x] Define Aurora Identity logical IPC/capability contract
+- [x] Define removable authenticator security tiers and revocation model
 - [ ] Freeze permission broker contract
 - [ ] Freeze permission manifest schema
 - [ ] Freeze permission audit/history model
@@ -110,6 +114,9 @@ The roadmap freezes architectural contracts before production hardening, while i
 - [ ] VFS
 - [ ] initial filesystem support
 - [ ] persistent system/data storage services
+- [ ] protected system-state location for Aurora Identity
+- [ ] transactional identity database backend
+- [ ] removable block-device discovery
 - [ ] system/data separation
 - [ ] package model
 - [ ] signed package metadata
@@ -128,6 +135,8 @@ The roadmap freezes architectural contracts before production hardening, while i
 - [ ] Activity Space prototype
 - [ ] persistent activity state
 - [ ] customization framework
+- [ ] compositor-backed Aurora Identity pre-session surface
+- [ ] Aurora Identity lock / re-authentication surface
 
 ## M5 — Network and Web Surfaces
 
@@ -155,6 +164,10 @@ The roadmap freezes architectural contracts before production hardening, while i
 - [ ] freeze/resume integration
 - [ ] notifications
 - [ ] background execution policy
+- [ ] privileged system-service lifecycle
+- [ ] Aurora Identity Service production host
+- [ ] Aurora Identity System App
+- [ ] Session Manager
 
 ## M7 — Recovery, installation and updates
 
@@ -165,19 +178,72 @@ The roadmap freezes architectural contracts before production hardening, while i
 - [ ] rollback UI
 - [ ] recovery environment
 - [ ] integrity verification
+- [ ] Aurora Identity recovery credential
+- [ ] framebuffer/recovery Identity path independent from compositor
+- [ ] identity database integrity/repair flow
+
+## M8 — Aurora Identity authenticators
+
+### Aurora Identity Drive
+- [ ] USB host/controller support required by target hardware
+- [ ] USB mass-storage support
+- [ ] removable-media broker
+- [ ] versioned Identity Drive credential container
+- [ ] machine-bound drive enrollment
+- [ ] drive insertion/removal authentication flow
+- [ ] optional Drive + PIN policy
+- [ ] multiple enrolled drives
+- [ ] independent revocation
+- [ ] malformed-media fuzzing
+
+### Secure authenticators
+- [ ] USB HID/security-key transport or equivalent
+- [ ] challenge-response authenticator API
+- [ ] non-exportable hardware key support
+- [ ] hardware authenticator enrollment/revocation
+
+### Future federation
+- [ ] trusted Aurora device enrollment
+- [ ] encrypted identity metadata synchronization
+- [ ] device revocation
+- [ ] optional trusted-device recovery approval
+- [ ] preserve fully offline local login
 
 ## Current development gate
 
-Aurora can now boot through the M1 kernel foundation and enter the native Aurora Identity login prototype. The next persistent-login milestone must not place account policy or credential verification inside the kernel.
+Aurora can now boot through the M1 kernel foundation and enter the native Aurora Identity login prototype. The keyboard/input prototype is functional, but the current framebuffer path is not the final Identity architecture.
+
+Canonical Aurora Identity architecture is now:
+
+```text
+Aurora Identity System App
+        -> versioned capability-authorized IPC
+        -> Aurora Identity Service
+        -> one-time authenticated session grant
+        -> Session Manager
+
+Framebuffer Login
+        -> retained as bootstrap/recovery fallback
+```
+
+The next persistent-login milestone must not place account policy or credential verification inside the kernel.
 
 The preferred dependency order is:
 
 1. establish minimal persistent storage/VFS foundations;
-2. establish the first isolated user-space service execution model;
-3. implement the Aurora Identity Service and its narrow IPC contract;
+2. establish protected durable system state;
+3. establish the first isolated user-space service execution model;
 4. add secure randomness and an audited memory-hard credential verifier;
-5. persist identity records and rate-limit state;
-6. bootstrap the authenticated user session.
+5. implement Aurora Identity Service and its versioned capability-authorized IPC contract;
+6. persist identity records and reboot-resistant rate-limit state;
+7. implement Session Manager and authenticated user profile bootstrap;
+8. replace normal framebuffer login with the compositor-backed Aurora Identity System App while retaining fallback;
+9. add removable USB storage infrastructure and Aurora Identity Drive;
+10. add recovery and secure-hardware authenticators.
+
+Detailed Identity implementation sequencing is defined in `docs/identity/IMPLEMENTATION_ROADMAP.md`.
+
+The canonical Aurora Identity specification set is indexed in `docs/identity/README.md` and governed by `docs/AURORA_IDENTITY.md`.
 
 ## Cross-cutting requirement
 
