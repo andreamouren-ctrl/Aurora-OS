@@ -142,10 +142,12 @@ jobs:
           mkfs.exfat -L AURORAEXFAT "$EXFAT_IMAGE"
           mkdir -p "$EXFAT_MOUNT"
           printf 'AURORA-EXFAT-EXTERNAL-IMAGE' > 'build/Grande Aurora.txt'
-          sudo mount -o loop -t exfat "$EXFAT_IMAGE" "$EXFAT_MOUNT"
+          EXFAT_LOOP=$(sudo losetup --find --show "$EXFAT_IMAGE")
+          sudo mount.exfat-fuse "$EXFAT_LOOP" "$EXFAT_MOUNT"
           sudo cp 'build/Grande Aurora.txt' "$EXFAT_MOUNT/Grande Aurora.txt"
           sync
           sudo umount "$EXFAT_MOUNT"
+          sudo losetup -d "$EXFAT_LOOP"
 
           python3 - "$ATA_IMAGE" "$FAT_START" "$FAT_SECTORS" \
             "$EXFAT_START" "$EXFAT_SECTORS" <<'PY'
