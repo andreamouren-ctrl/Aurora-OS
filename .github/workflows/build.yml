@@ -28,7 +28,9 @@ jobs:
             git \
             binutils \
             python3 \
-            qemu-system-x86
+            qemu-system-x86 \
+            dosfstools \
+            mtools
 
       - name: Build kernel and ISO
         run: make iso
@@ -101,7 +103,7 @@ jobs:
             exit 1
           fi
 
-      - name: ATA PIO and AuroraFS persistence smoke boot
+      - name: ATA PIO, AuroraFS and external FAT32 smoke boot
         run: |
           set -u
 
@@ -110,11 +112,42 @@ jobs:
           ATA_DEBUG_LOG=build/qemu-ata-debug.log
           ATA_DEBUG_LOG_2=build/qemu-ata-debug-second.log
           ATA_IMAGE=build/aurora-ata-test.img
+          FAT32_OFFSET_SECTORS=2048
+          FAT32_OFFSET_BYTES=$((FAT32_OFFSET_SECTORS * 512))
+
           rm -f "$ATA_SERIAL_LOG" "$ATA_SERIAL_LOG_2" \
             "$ATA_DEBUG_LOG" "$ATA_DEBUG_LOG_2" "$ATA_IMAGE"
-          truncate -s 8M "$ATA_IMAGE"
-          printf 'AURORA-STORAGE-TEST-V1' | \
-            dd of="$ATA_IMAGE" bs=1 conv=notrunc status=none
+          truncate -s 128M "$ATA_IMAGE"
+
+          python3 - "$ATA_IMAGE" <<'PY'
+          import struct
+          import sys
+
+          path = sys.argv[1]
+          total_sectors = (128 * 1024 * 1024) // 512
+          first_lba = 2048
+          sector_count = total_sectors - first_lba
+
+          mbr = bytearray(512)
+          signature = b"AURORA-STORAGE-TEST-V1"
+          mbr[:len(signature)] = signature
+
+          entry = 446
+          mbr[entry + 0] = 0x00
+          mbr[entry + 1:entry + 4] = b"\x00\x02\x00"
+          mbr[entry + 4] = 0x0C
+          mbr[entry + 5:entry + 8] = b"\xFE\xFF\xFF"
+          struct.pack_into("<I", mbr, entry + 8, first_lba)
+          struct.pack_into("<I", mbr, entry + 12, sector_count)
+          mbr[510:512] = b"\x55\xAA"
+
+          with open(path, "r+b") as f:
+              f.write(mbr)
+          PY
+
+          mkfs.fat -F 32 -n AURORA_TEST --offset "$FAT32_OFFSET_SECTORS" "$ATA_IMAGE"
+          printf 'AURORA-FAT32-EXTERNAL-IMAGE' > build/AURORA.TXT
+          mcopy -o -i "$ATA_IMAGE@@$FAT32_OFFSET_BYTES" build/AURORA.TXT ::/AURORA.TXT
 
           set +e
           timeout 15s qemu-system-x86_64 \
@@ -145,6 +178,10 @@ jobs:
           grep -F "[ata] signed test disk read/write probe passed" "$ATA_SERIAL_LOG"
           grep -F "[aurorafs] formatted bootstrap filesystem" "$ATA_SERIAL_LOG"
           grep -F "[aurorafs] persistent file created" "$ATA_SERIAL_LOG"
+          grep -F "[partition] discovered: 1" "$ATA_SERIAL_LOG"
+          grep -F "[fs] detected FAT32 on partition 0" "$ATA_SERIAL_LOG"
+          grep -F "[fat32] external image mounted read-only" "$ATA_SERIAL_LOG"
+          grep -F "[fat32] external file read verified" "$ATA_SERIAL_LOG"
           grep -F "[kernel] M1 user-space bootstrap reached successfully" "$ATA_SERIAL_LOG"
 
           set +e
@@ -179,6 +216,7 @@ jobs:
             exit 1
           fi
 
+          grep -F "[fat32] external file read verified" "$ATA_SERIAL_LOG_2"
           grep -F "[kernel] M1 user-space bootstrap reached successfully" "$ATA_SERIAL_LOG_2"
 
       - name: Upload ISO and smoke-test logs
