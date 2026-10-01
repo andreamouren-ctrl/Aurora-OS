@@ -1,7 +1,7 @@
 # Aurora Identity Implementation Roadmap
 
 Status: **Canonical implementation plan**
-Version: **0.2**
+Version: **0.3**
 
 This roadmap orders Aurora Identity work by hard technical dependencies. It supplements the global Aurora OS roadmap.
 
@@ -206,6 +206,33 @@ Potential scope:
 - optional network account/federation.
 
 Invariant: local login remains functional when offline.
+
+## Phase L — Advanced identity, privacy and continuity capabilities
+
+These features are future capability families, not requirements for Aurora Identity v1. They are documented early so core interfaces do not block them later.
+
+Potential scope:
+
+- Aurora Ghost Session;
+- Guest Identity;
+- Identity Vault;
+- Session Seal and Instant Lock;
+- Lock Zones and purpose-bound re-authentication;
+- one-time/temporary access credentials;
+- Travel Mode;
+- cryptographic Aurora device identity;
+- QR device pairing;
+- trusted-device login approval;
+- Aurora Identity Capsule;
+- Aurora Handoff;
+- Aurora Presence;
+- Trusted Circle / threshold recovery;
+- local Risk Engine;
+- Profile Layers.
+
+Detailed contracts and safety invariants are defined in [`ADVANCED_FEATURES.md`](ADVANCED_FEATURES.md).
+
+Implementation order inside this phase must follow actual subsystem maturity. No advanced feature may weaken the offline local authentication path or bypass Identity Service policy.
 
 ## Test matrix
 
