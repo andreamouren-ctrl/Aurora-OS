@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Active implementation**
-Version: **0.12**
+Version: **0.13**
 
 The roadmap distinguishes architecture decisions, repository implementation, and runtime verification. A feature is not considered complete merely because a detector or interface exists.
 
@@ -121,7 +121,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] primary-to-backup GPT fallback
 - [x] bounded variable GPT entry-size parsing up to 4096 bytes
 - [x] runtime-verify GPT CRC rejection and backup-header fallback
-- [ ] runtime-verify 4096-byte logical block parsing in current CI run
+- [x] runtime-verify 4096-byte logical block parsing
 - [ ] end-to-end 512e/4Kn-safe filesystem path
 - [ ] extended/logical MBR partitions
 
@@ -166,7 +166,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [ ] transactional deployment prototype
 - [ ] rollback
 
-Runtime reference: combined ATA + AuroraFS + FAT32/VFAT + exFAT common-VFS storage smoke test is green in workflow **#297** (`36914326026`). That run also runtime-verifies GPT header CRC rejection, partition-entry-array CRC rejection, and primary-to-backup GPT fallback on the synthetic 512-byte logical-block test device. A dedicated 4096-byte logical-block extension is implemented and running in workflow **#299** (`36914796680`). Block-device registry + explicit flush integration is implemented and running in workflow **#304** (`36915166492`); these items are not marked runtime-verified until that run completes successfully.
+Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC rejection and primary-to-backup fallback on the synthetic 512-byte logical-block test device. Workflow **#299** (`36914796680`) is green and extends the same GPT integrity/fallback self-test to a synthetic 4096-byte logical-block device, so partition-layer 4Kn parsing is now runtime-verified. This does not yet mean FAT32, exFAT, AuroraFS, or every hardware transport is end-to-end 4Kn-safe. Block-device registry + explicit flush integration is implemented and being verified in workflow **#304** (`36915166492`).
 
 ## M4 — Graphics and Desktop foundation
 
@@ -243,7 +243,7 @@ Aurora can boot through the M1 kernel foundation and enter the native login prot
 
 Near-term dependency order:
 
-1. complete runtime verification of 4Kn partition parsing and block registry/flush integration;
+1. complete runtime verification of block registry/flush integration;
 2. continue removing filesystem-level 512-byte assumptions;
 3. add NTFS and ext-family read-only support;
 4. implement modern AHCI data I/O;
