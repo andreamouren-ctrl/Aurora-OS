@@ -30,7 +30,8 @@ jobs:
             python3 \
             qemu-system-x86 \
             dosfstools \
-            mtools
+            mtools \
+            exfatprogs
 
       - name: Build kernel and ISO
         run: make iso
@@ -103,7 +104,7 @@ jobs:
             exit 1
           fi
 
-      - name: ATA PIO, AuroraFS and external FAT32 smoke boot
+      - name: ATA PIO, AuroraFS, FAT32 and exFAT smoke boot
         run: |
           set -u
 
@@ -112,42 +113,75 @@ jobs:
           ATA_DEBUG_LOG=build/qemu-ata-debug.log
           ATA_DEBUG_LOG_2=build/qemu-ata-debug-second.log
           ATA_IMAGE=build/aurora-ata-test.img
-          FAT32_OFFSET_SECTORS=2048
-          FAT32_OFFSET_BYTES=$((FAT32_OFFSET_SECTORS * 512))
+          FAT_IMAGE=build/fat32-partition.img
+          EXFAT_IMAGE=build/exfat-partition.img
+          EXFAT_MOUNT=build/exfat-mount
+
+          FAT_START=2048
+          FAT_SECTORS=196608
+          EXFAT_START=200704
+          EXFAT_SECTORS=131072
 
           rm -f "$ATA_SERIAL_LOG" "$ATA_SERIAL_LOG_2" \
-            "$ATA_DEBUG_LOG" "$ATA_DEBUG_LOG_2" "$ATA_IMAGE"
-          truncate -s 128M "$ATA_IMAGE"
+            "$ATA_DEBUG_LOG" "$ATA_DEBUG_LOG_2" "$ATA_IMAGE" \
+            "$FAT_IMAGE" "$EXFAT_IMAGE"
+          rm -rf "$EXFAT_MOUNT"
 
-          python3 - "$ATA_IMAGE" <<'PY'
+          truncate -s 256M "$ATA_IMAGE"
+          truncate -s $((FAT_SECTORS * 512)) "$FAT_IMAGE"
+          truncate -s $((EXFAT_SECTORS * 512)) "$EXFAT_IMAGE"
+
+          mkfs.fat -F 32 -n AURORA_FAT "$FAT_IMAGE"
+          printf 'AURORA-FAT32-EXTERNAL-IMAGE' > build/AURORA.TXT
+          printf 'AURORA-FAT32-LFN-UNICODE' > 'build/Documento Aurora è.txt'
+          mcopy -o -i "$FAT_IMAGE" build/AURORA.TXT ::/AURORA.TXT
+          mcopy -o -i "$FAT_IMAGE" \
+            'build/Documento Aurora è.txt' '::/Documento Aurora è.txt'
+
+          mkfs.exfat -L AURORA_XFAT "$EXFAT_IMAGE"
+          mkdir -p "$EXFAT_MOUNT"
+          printf 'AURORA-EXFAT-EXTERNAL-IMAGE' > 'build/Grande Aurora.txt'
+          sudo mount -o loop -t exfat "$EXFAT_IMAGE" "$EXFAT_MOUNT"
+          sudo cp 'build/Grande Aurora.txt' "$EXFAT_MOUNT/Grande Aurora.txt"
+          sync
+          sudo umount "$EXFAT_MOUNT"
+
+          python3 - "$ATA_IMAGE" "$FAT_START" "$FAT_SECTORS" \
+            "$EXFAT_START" "$EXFAT_SECTORS" <<'PY'
           import struct
           import sys
 
           path = sys.argv[1]
-          total_sectors = (128 * 1024 * 1024) // 512
-          first_lba = 2048
-          sector_count = total_sectors - first_lba
+          fat_start = int(sys.argv[2])
+          fat_sectors = int(sys.argv[3])
+          exfat_start = int(sys.argv[4])
+          exfat_sectors = int(sys.argv[5])
 
           mbr = bytearray(512)
           signature = b"AURORA-STORAGE-TEST-V1"
           mbr[:len(signature)] = signature
 
-          entry = 446
-          mbr[entry + 0] = 0x00
-          mbr[entry + 1:entry + 4] = b"\x00\x02\x00"
-          mbr[entry + 4] = 0x0C
-          mbr[entry + 5:entry + 8] = b"\xFE\xFF\xFF"
-          struct.pack_into("<I", mbr, entry + 8, first_lba)
-          struct.pack_into("<I", mbr, entry + 12, sector_count)
+          def add_partition(index, ptype, first_lba, sector_count):
+              entry = 446 + index * 16
+              mbr[entry + 0] = 0x00
+              mbr[entry + 1:entry + 4] = b"\x00\x02\x00"
+              mbr[entry + 4] = ptype
+              mbr[entry + 5:entry + 8] = b"\xFE\xFF\xFF"
+              struct.pack_into("<I", mbr, entry + 8, first_lba)
+              struct.pack_into("<I", mbr, entry + 12, sector_count)
+
+          add_partition(0, 0x0C, fat_start, fat_sectors)
+          add_partition(1, 0x07, exfat_start, exfat_sectors)
           mbr[510:512] = b"\x55\xAA"
 
           with open(path, "r+b") as f:
               f.write(mbr)
           PY
 
-          mkfs.fat -F 32 -n AURORA_TEST --offset "$FAT32_OFFSET_SECTORS" "$ATA_IMAGE"
-          printf 'AURORA-FAT32-EXTERNAL-IMAGE' > build/AURORA.TXT
-          mcopy -o -i "$ATA_IMAGE@@$FAT32_OFFSET_BYTES" build/AURORA.TXT ::/AURORA.TXT
+          dd if="$FAT_IMAGE" of="$ATA_IMAGE" bs=512 seek="$FAT_START" \
+            conv=notrunc status=none
+          dd if="$EXFAT_IMAGE" of="$ATA_IMAGE" bs=512 seek="$EXFAT_START" \
+            conv=notrunc status=none
 
           set +e
           timeout 15s qemu-system-x86_64 \
@@ -178,10 +212,15 @@ jobs:
           grep -F "[ata] signed test disk read/write probe passed" "$ATA_SERIAL_LOG"
           grep -F "[aurorafs] formatted bootstrap filesystem" "$ATA_SERIAL_LOG"
           grep -F "[aurorafs] persistent file created" "$ATA_SERIAL_LOG"
-          grep -F "[partition] discovered: 1" "$ATA_SERIAL_LOG"
-          grep -F "[fs] detected FAT32 on partition 0" "$ATA_SERIAL_LOG"
+          grep -F "[partition] discovered: 2" "$ATA_SERIAL_LOG"
+          grep -F "[fs] detected FAT32 on partition 1" "$ATA_SERIAL_LOG"
           grep -F "[fat32] external image mounted read-only" "$ATA_SERIAL_LOG"
           grep -F "[fat32] external file read verified" "$ATA_SERIAL_LOG"
+          grep -F "[fat32] VFAT long Unicode filename verified" "$ATA_SERIAL_LOG"
+          grep -F "[fs] detected exFAT on partition 2" "$ATA_SERIAL_LOG"
+          grep -F "[exfat] external image mounted read-only" "$ATA_SERIAL_LOG"
+          grep -F "[exfat] external file read verified" "$ATA_SERIAL_LOG"
+          grep -F "[exfat] 64-bit file length path active" "$ATA_SERIAL_LOG"
           grep -F "[kernel] M1 user-space bootstrap reached successfully" "$ATA_SERIAL_LOG"
 
           set +e
@@ -217,6 +256,8 @@ jobs:
           fi
 
           grep -F "[fat32] external file read verified" "$ATA_SERIAL_LOG_2"
+          grep -F "[fat32] VFAT long Unicode filename verified" "$ATA_SERIAL_LOG_2"
+          grep -F "[exfat] external file read verified" "$ATA_SERIAL_LOG_2"
           grep -F "[kernel] M1 user-space bootstrap reached successfully" "$ATA_SERIAL_LOG_2"
 
       - name: Upload ISO and smoke-test logs
