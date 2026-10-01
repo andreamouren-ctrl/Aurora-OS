@@ -10,14 +10,18 @@
 #include <aurora/framebuffer.h>
 #include <aurora/gdt.h>
 #include <aurora/heap.h>
+#include <aurora/hpet.h>
+#include <aurora/input.h>
 #include <aurora/interrupts.h>
 #include <aurora/ioapic.h>
 #include <aurora/ipc.h>
 #include <aurora/log.h>
+#include <aurora/login_input.h>
 #include <aurora/madt.h>
 #include <aurora/panic.h>
 #include <aurora/pmm.h>
 #include <aurora/process.h>
+#include <aurora/ps2_keyboard.h>
 #include <aurora/scheduler.h>
 #include <aurora/smp.h>
 #include <aurora/syscall.h>
@@ -457,15 +461,26 @@ void kmain(void) {
         AURORA_BOOT_STAGE_USERSPACE
     );
 
+    input_init();
+
+    if (ps2_keyboard_init(lapic_id())) {
+        log_line("[input] PS/2 keyboard IRQ path online");
+    } else {
+        log_line("[input] PS/2 keyboard unavailable; waiting for another input driver");
+    }
+
     boot_ui_complete();
+    login_input_init();
 
     log_line("[kernel] M1 user-space bootstrap reached successfully");
 
     /*
-     * Aurora is now interrupt-driven. Keep the bootstrap thread quiescent
-     * while the scheduler continues to own execution.
+     * Aurora is now interrupt-driven. The bootstrap thread temporarily pumps
+     * the native login input controller until the compositor/session service
+     * moves this policy into user space.
      */
     for (;;) {
+        login_input_pump();
         arch_idle();
     }
 }
