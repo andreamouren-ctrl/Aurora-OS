@@ -10,7 +10,7 @@ on:
 jobs:
   build-x86_64:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -28,6 +28,7 @@ jobs:
             git \
             binutils \
             python3 \
+            ffmpeg \
             qemu-system-x86
 
       - name: Build kernel and ISO
@@ -58,7 +59,7 @@ jobs:
           rm -f "$SERIAL_LOG" "$DEBUG_LOG"
 
           set +e
-          timeout 15s qemu-system-x86_64 \
+          timeout 30s qemu-system-x86_64 \
             -M q35 \
             -m 512M \
             -smp 1 \
@@ -74,8 +75,6 @@ jobs:
           STATUS=$?
           set -e
 
-          # 124 is expected: Aurora intentionally remains alive after boot
-          # and timeout terminates the smoke-test VM.
           if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ]; then
             echo "QEMU exited unexpectedly with status $STATUS" >&2
             exit "$STATUS"
@@ -92,12 +91,115 @@ jobs:
             exit 1
           fi
 
-      - name: Upload ISO and smoke-test logs
+      - name: Capture fullscreen boot video
+        run: |
+          set -eu
+
+          mkdir -p build/visual
+          rm -f build/visual/frame_*.ppm \
+                build/AuroraOS-boot-capture.mp4 \
+                build/AuroraOS-boot-final.png \
+                build/AuroraOS-boot-contact-sheet.png \
+                build/qemu-visual-serial.log \
+                /tmp/aurora-monitor.sock
+
+          qemu-system-x86_64 \
+            -M q35 \
+            -m 512M \
+            -smp 1 \
+            -vga std \
+            -cdrom build/AuroraOS-x86_64.iso \
+            -serial file:build/qemu-visual-serial.log \
+            -display none \
+            -monitor unix:/tmp/aurora-monitor.sock,server=on,wait=off \
+            -no-reboot \
+            -no-shutdown &
+
+          QEMU_PID=$!
+          export QEMU_PID GITHUB_WORKSPACE
+
+          python3 - <<'PY'
+          import os
+          import socket
+          import time
+
+          monitor = "/tmp/aurora-monitor.sock"
+          deadline = time.monotonic() + 10.0
+
+          while not os.path.exists(monitor):
+              if time.monotonic() > deadline:
+                  raise SystemExit("QEMU monitor socket did not appear")
+              time.sleep(0.05)
+
+          sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+          sock.connect(monitor)
+          sock.settimeout(0.05)
+
+          try:
+              try:
+                  sock.recv(4096)
+              except (socket.timeout, BlockingIOError):
+                  pass
+
+              root = os.environ["GITHUB_WORKSPACE"]
+              for index in range(120):
+                  target = os.path.join(
+                      root,
+                      "build",
+                      "visual",
+                      f"frame_{index:03d}.ppm",
+                  )
+                  sock.sendall(f"screendump {target}\n".encode("ascii"))
+                  time.sleep(0.10)
+                  try:
+                      sock.recv(4096)
+                  except (socket.timeout, BlockingIOError):
+                      pass
+          finally:
+              sock.close()
+          PY
+
+          kill "$QEMU_PID" || true
+          wait "$QEMU_PID" || true
+
+          FRAME_COUNT=$(find build/visual -name 'frame_*.ppm' | wc -l)
+          echo "Captured $FRAME_COUNT frames"
+          test "$FRAME_COUNT" -ge 20
+
+          ffmpeg -y \
+            -framerate 10 \
+            -i build/visual/frame_%03d.ppm \
+            -vf 'scale=1280:-2:flags=lanczos' \
+            -c:v libx264 \
+            -preset veryfast \
+            -crf 20 \
+            -pix_fmt yuv420p \
+            build/AuroraOS-boot-capture.mp4
+
+          LAST_FRAME=$(find build/visual -name 'frame_*.ppm' | sort | tail -n 1)
+          ffmpeg -y \
+            -i "$LAST_FRAME" \
+            -frames:v 1 \
+            build/AuroraOS-boot-final.png
+
+          ffmpeg -y \
+            -framerate 10 \
+            -i build/visual/frame_%03d.ppm \
+            -vf "select='not(mod(n,10))',scale=400:-2:flags=lanczos,tile=3x4:padding=4:margin=4" \
+            -frames:v 1 \
+            build/AuroraOS-boot-contact-sheet.png
+
+          rm -f build/visual/frame_*.ppm
+
+      - name: Upload visual capture
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: AuroraOS-x86_64
+          name: AuroraOS-boot-visual-capture
           path: |
-            build/AuroraOS-x86_64.iso
+            build/AuroraOS-boot-capture.mp4
+            build/AuroraOS-boot-final.png
+            build/AuroraOS-boot-contact-sheet.png
+            build/qemu-visual-serial.log
             build/qemu-serial.log
             build/qemu-debug.log
