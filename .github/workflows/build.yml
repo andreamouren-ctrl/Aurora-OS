@@ -28,7 +28,8 @@ jobs:
             git \
             binutils \
             python3 \
-            qemu-system-x86
+            qemu-system-x86 \
+            ovmf
 
       - name: Build kernel and ISO
         run: make iso
@@ -75,17 +76,74 @@ jobs:
           set -e
 
           if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ]; then
-            echo "QEMU exited unexpectedly with status $STATUS" >&2
+            echo "QEMU BIOS exited unexpectedly with status $STATUS" >&2
             exit "$STATUS"
           fi
 
-          echo "===== Aurora serial log ====="
+          echo "===== Aurora BIOS serial log ====="
           cat "$SERIAL_LOG"
 
           if ! grep -F \
             "[kernel] M1 user-space bootstrap reached successfully" \
             "$SERIAL_LOG"; then
-            echo "===== QEMU interrupt/reset trace (tail) =====" >&2
+            echo "===== BIOS QEMU interrupt/reset trace (tail) =====" >&2
+            tail -n 200 "$DEBUG_LOG" >&2 || true
+            exit 1
+          fi
+
+      - name: UEFI smoke boot
+        run: |
+          set -euo pipefail
+
+          SERIAL_LOG=build/qemu-uefi-serial.log
+          DEBUG_LOG=build/qemu-uefi-debug.log
+          VARS_COPY=build/OVMF_VARS.fd
+
+          if [ -f /usr/share/OVMF/OVMF_CODE_4M.fd ] && \
+             [ -f /usr/share/OVMF/OVMF_VARS_4M.fd ]; then
+            OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
+            OVMF_VARS=/usr/share/OVMF/OVMF_VARS_4M.fd
+          else
+            OVMF_CODE=/usr/share/OVMF/OVMF_CODE.fd
+            OVMF_VARS=/usr/share/OVMF/OVMF_VARS.fd
+          fi
+
+          test -f "$OVMF_CODE"
+          test -f "$OVMF_VARS"
+          cp "$OVMF_VARS" "$VARS_COPY"
+          rm -f "$SERIAL_LOG" "$DEBUG_LOG"
+
+          set +e
+          timeout 15s qemu-system-x86_64 \
+            -M q35 \
+            -m 512M \
+            -smp 1 \
+            -vga std \
+            -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
+            -drive if=pflash,format=raw,file="$VARS_COPY" \
+            -cdrom build/AuroraOS-x86_64.iso \
+            -serial file:"$SERIAL_LOG" \
+            -d int,cpu_reset \
+            -D "$DEBUG_LOG" \
+            -display none \
+            -no-reboot \
+            -no-shutdown
+
+          STATUS=$?
+          set -e
+
+          if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ]; then
+            echo "QEMU UEFI exited unexpectedly with status $STATUS" >&2
+            exit "$STATUS"
+          fi
+
+          echo "===== Aurora UEFI serial log ====="
+          cat "$SERIAL_LOG"
+
+          if ! grep -F \
+            "[kernel] M1 user-space bootstrap reached successfully" \
+            "$SERIAL_LOG"; then
+            echo "===== UEFI QEMU interrupt/reset trace (tail) =====" >&2
             tail -n 200 "$DEBUG_LOG" >&2 || true
             exit 1
           fi
@@ -124,7 +182,6 @@ jobs:
 
           socket_path = "/tmp/aurora-capture-monitor.sock"
           serial_path = Path("build/capture-serial.log")
-          capture_dir = Path("build/capture")
           marker = "[kernel] M1 user-space bootstrap reached successfully"
 
           monitor = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -158,10 +215,6 @@ jobs:
           marker_seen = False
           frame_count = 0
 
-          # Capture the real framebuffer while Aurora progresses through boot.
-          # Stop as soon as the serial success marker confirms the login surface
-          # has been reached, so this remains a real-time capture without fake
-          # product delays.
           for frame_count in range(80):
               screenshot(f"boot-{frame_count:04d}.ppm")
               if serial_path.exists():
@@ -177,9 +230,6 @@ jobs:
           time.sleep(0.20)
           screenshot("login-idle.ppm")
 
-          # Exercise the real IRQ-driven PS/2 input path. Twelve characters are
-          # used because Aurora Identity currently enforces a 12-character
-          # minimum before submission.
           for key in ("a", "u", "r", "o", "r", "a", "k", "e", "y", "1", "2", "3"):
               command(f"sendkey {key}")
               time.sleep(0.06)
@@ -221,5 +271,7 @@ jobs:
             build/AuroraOS-x86_64.iso
             build/qemu-serial.log
             build/qemu-debug.log
+            build/qemu-uefi-serial.log
+            build/qemu-uefi-debug.log
             build/capture-serial.log
             build/capture/*.ppm
