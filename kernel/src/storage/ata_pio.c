@@ -147,7 +147,8 @@ static bool ata_write_one(uint32_t lba, const uint8_t *buffer) {
         arch_out16(ATA_PRIMARY_IO + ATA_REG_DATA, word);
     }
 
-    return ata_cache_flush();
+    ata_delay_400ns();
+    return true;
 }
 
 static bool ata_block_read(
@@ -189,7 +190,8 @@ static bool ata_block_write(
         }
     }
 
-    return true;
+    /* Commit the complete write batch once instead of flushing each sector. */
+    return ata_cache_flush();
 }
 
 static bool ata_block_flush(struct aurora_block_device *device) {
@@ -291,7 +293,6 @@ bool ata_pio_ci_probe(void) {
     }
 
     if (!block_device_write(&primary_master, 1u, 1u, write_buffer) ||
-        !block_device_flush(&primary_master) ||
         !block_device_read(&primary_master, 1u, 1u, read_buffer)) {
         return false;
     }
@@ -302,5 +303,6 @@ bool ata_pio_ci_probe(void) {
         }
     }
 
-    return true;
+    /* Verify the public durability barrier separately from implicit write commit. */
+    return block_device_flush(&primary_master);
 }
