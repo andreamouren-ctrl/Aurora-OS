@@ -28,7 +28,7 @@ struct aurora_fs_superblock_disk {
     uint64_t data_lba;
     uint64_t generation;
     uint32_t metadata_checksum;
-    uint8_t reserved[456];
+    uint8_t reserved[460];
 } __attribute__((packed));
 
 struct aurora_fs_dir_entry_disk {
