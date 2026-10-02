@@ -1,6 +1,6 @@
 # AuroraFS v2 — Unified extent lookup and level-2 mutation
 
-Status: **level-2 growth, unified lookup, continued COW append and durable inode root publication are runtime-verified; composed level-2 append + inode publication and full-last-leaf growth under level-2 are implemented and awaiting runtime verification**.
+Status: **level-2 growth, unified lookup, continued COW append, durable inode root publication and composed level-2 append + inode publication are runtime-verified; full-last-leaf growth under level-2 is implemented and awaiting runtime verification**.
 
 This document is part of the AuroraFS v2 implementation contract. It distinguishes repository implementation from runtime verification.
 
@@ -38,17 +38,13 @@ Aurora OS Bootstrap Build **#462** (`36992375163`, head `fc59ac36163f684c1bdfc01
 
 `aurora_fs_v2_inode_publish_extent_root_cow()` validates the expected old root, verifies that the replacement root is allocated, checks extent and arithmetic bounds, then updates `extent_tree_root`, `extent_count`, `allocated_bytes`, `size` and `generation` and flushes the inode-table update.
 
-## Implemented end-to-end level-2 append + inode publication
+## Runtime-verified end-to-end level-2 append + inode publication
 
-`aurora_fs_v2_inode_append_level2_cow_commit()` composes the two verified primitives: it first builds and flushes the replacement level-2 hierarchy, then publishes the replacement root through the inode.
-
-The self-test constructs a persistent `inode -> level-2 -> level-1 -> leaf -> extent` hierarchy, performs the append, reopens allocator and inode table, then resolves the new mapping through the unified inode lookup.
-
-Expected boot gate:
+Aurora OS Bootstrap Build **#465** (`36994012534`, head `567c5dd27297200a711fcabcd5de64844a932386`) completed successfully. The exact gate appears in q35/AHCI, ATA first boot and ATA persistence boot:
 
 `[aurorafs-v2] end-to-end level-2 COW append + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
 
-Until a green CI run contains that exact line, this composed path remains **implemented but not runtime-verified**.
+`aurora_fs_v2_inode_append_level2_cow_commit()` composes the verified tree replacement and inode publication paths. The self-test constructs a persistent `inode -> level-2 -> level-1 -> leaf -> extent` hierarchy, performs the append, reopens allocator and inode table, then resolves the new mapping through the unified inode lookup.
 
 ## Implemented full-last-leaf COW append under level-2
 
