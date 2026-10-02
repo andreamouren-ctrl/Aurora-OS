@@ -253,7 +253,7 @@ static bool issue_write_sector(uint8_t port,
     uint32_t base;
     struct ahci_command_header *header;
     struct ahci_command_table_one_prdt *table;
-    if (!setup_command(rw_context.port, cl_phys, fis_phys, table_phys,
+    if (!setup_command(port, cl_phys, fis_phys, table_phys,
                        &base, &header, &table)) {
         goto fail;
     }
