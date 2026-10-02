@@ -1,9 +1,9 @@
 # Aurora Identity Documentation
 
 Status: **Canonical subsystem specification**
-Version: **0.4**
+Version: **0.5**
 
-Aurora Identity is the Aurora OS subsystem responsible for local identity, authentication, profile binding, session bootstrap, lock/re-authentication, recovery, and optional trusted authenticators.
+Aurora Identity is the Aurora OS subsystem responsible for local identity, authentication, profile binding, session bootstrap, lock/re-authentication, recovery, trusted authenticators, platform principals, and future device federation.
 
 The subsystem is intentionally split into three layers:
 
@@ -16,6 +16,7 @@ The kernel provides mechanisms only: process isolation, capabilities, IPC, prote
 ## Canonical documents
 
 - [`../AURORA_IDENTITY.md`](../AURORA_IDENTITY.md) — master product specification and current implementation state.
+- [`FUNCTION_CATALOG.md`](FUNCTION_CATALOG.md) — consolidated catalogue of every currently planned Aurora Identity function and its role.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — component model, trust boundaries, boot/login paths, and process separation.
 - [`SECURITY_MODEL.md`](SECURITY_MODEL.md) — threats, security invariants, credential handling, anti-enumeration, throttling, revocation, and audit rules.
 - [`AURORA_KEY.md`](AURORA_KEY.md) — Aurora Key format, normalization, generation, storage, change, and verifier rules.
@@ -29,6 +30,7 @@ The kernel provides mechanisms only: process isolation, capabilities, IPC, prote
 - [`IMPLEMENTATION_ROADMAP.md`](IMPLEMENTATION_ROADMAP.md) — dependency-ordered implementation plan and acceptance criteria.
 - [`TEST_PLAN.md`](TEST_PLAN.md) — correctness, persistence, security, fuzzing, failure-injection, and performance verification plan.
 - [`ADVANCED_FEATURES.md`](ADVANCED_FEATURES.md) — Ghost Session, Presence, Handoff, Identity Capsule, Trusted Circle, Vault, Device Trust, Travel Mode, Lock Zones, temporary credentials, and other forward-looking identity capabilities.
+- [`PLATFORM_IDENTITY_EXTENSIONS.md`](PLATFORM_IDENTITY_EXTENSIONS.md) — Biometric Bridge, Data Seal, Service Identity, platform Application Identity, Identity Migration, and managed Emergency Access / Break Glass.
 
 Architecture decisions:
 
@@ -48,7 +50,9 @@ Aurora Identity must always preserve these rules:
 - removable authenticators are individually revocable;
 - losing one authenticator must not destroy the profile;
 - recovery is a distinct credential path, not reversible Aurora Key storage;
-- the bootstrap/recovery path must remain usable even when normal desktop services fail.
+- the bootstrap/recovery path must remain usable even when normal desktop services fail;
+- biometric data is minimized and isolated from ordinary applications;
+- emergency administrative recovery is explicit, scoped, and never a hidden master credential.
 
 ## Authentication methods
 
@@ -60,7 +64,8 @@ Aurora Identity
     ├── Aurora Key
     ├── Aurora Identity Drive #1
     ├── Aurora Identity Drive #2
-    ├── future secure hardware key
+    ├── secure hardware authenticator
+    ├── optional biometric authenticator
     ├── recovery credential
     └── optional trusted-device credential
 ```
@@ -91,7 +96,8 @@ Aurora Identity development is intentionally divided into horizons:
 - Ghost Session;
 - Guest Identity;
 - Identity Vault;
-- stronger MFA policies.
+- stronger MFA policies;
+- Session Seal / Data Seal.
 
 ### Horizon 3 — Trusted device ecosystem
 
@@ -99,12 +105,20 @@ Aurora Identity development is intentionally divided into horizons:
 - trusted-device approval;
 - QR pairing;
 - Identity Capsule;
+- Identity Migration;
 - Handoff;
 - Presence;
 - Trusted Circle / threshold recovery;
 - optional encrypted multi-device synchronization.
 
-Horizon 2/3 features must not delay or weaken the core offline identity path.
+### Horizon 4 — Platform identity integration
+
+- Application Identity integrated with Permission Broker;
+- Service Identity for privileged system components;
+- Biometric Bridge when secure hardware/drivers exist;
+- managed Emergency Access / Break Glass for professional deployments.
+
+Horizon 2/3/4 features must not delay or weaken the core offline identity path.
 
 ## Current repository state
 
@@ -129,6 +143,6 @@ Not yet implemented:
 
 ## Documentation completion gate
 
-Aurora Identity implementation work may proceed from this specification set when changes preserve the master invariants and the detailed contract relevant to the component being changed.
+With the core specification, advanced capability catalogue, platform extensions, and consolidated function catalogue, the high-level Aurora Identity feature architecture is considered sufficiently complete to focus on implementation.
 
-Security-sensitive implementation changes must update the matching specification or ADR when they alter credential formats, trust boundaries, factor policy, IPC authorization, persistent records, or recovery behavior.
+Security-sensitive implementation changes must update the matching specification or ADR when they alter credential formats, trust boundaries, factor policy, IPC authorization, persistent records, encryption-key lifecycle, platform principal identity, or recovery behavior.
