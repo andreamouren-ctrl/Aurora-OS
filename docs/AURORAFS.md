@@ -1,6 +1,6 @@
 # AuroraFS
 
-Status: **bootstrap v1 runtime-verified; v2 layout and nested directory traversal runtime-verified; multi-block allocation work active**.
+Status: **bootstrap v1 runtime-verified; v2 layout and nested directory traversal runtime-verified; multi-block allocation implemented and awaiting runtime promotion**.
 
 AuroraFS is Aurora OS's native persistent filesystem direction. Bootstrap v1 remains the currently mounted native format and is preserved for compatibility. Production development proceeds as a separately versioned v2 format rather than mutating the v1 on-disk contract in place.
 
@@ -49,9 +49,17 @@ The initial v2 inode is 256 bytes and uses 64-bit object IDs, parent IDs, file s
 
 The first runtime-verified file test persists a **6000-byte file across two 4 KiB filesystem blocks**, reopens it, validates bitmap/inode/extent metadata and verifies the complete byte pattern.
 
-### Allocation bitmap limitation
+## v2 multi-block bitmap allocator milestone
 
-Free/used blocks are represented by an on-disk bitmap whose required length is calculated from volume size. The current formatter/self-test still accepts only layouts whose bitmap occupies one 4 KiB filesystem block. This is a deliberate first-milestone limit; multi-block bitmap traversal and allocation are the active next gate before AuroraFS v2 can claim large-volume scalability.
+The one-bitmap-block limitation has now been removed from the allocator layer. The new `aurora_fs_v2_allocator` traverses bitmap storage in 4 KiB windows and therefore does not need to keep the full free-space map in RAM. It supports 64-bit filesystem-block coordinates, contiguous range allocation, allocated-state queries and range release through the common block-device API.
+
+The allocator validates that bitmap capacity covers the advertised filesystem geometry. Allocation scans can preserve a free run across a bitmap-block boundary, and bitmap updates touch only the affected bitmap blocks before issuing the block-device flush contract.
+
+The dedicated synthetic test models a 70,000-block v2 filesystem, which requires three bitmap blocks. It deliberately marks the first bitmap region full so the first allocation is forced into bitmap block 1, reopens the allocator to verify persistence, frees that range, and separately allocates a six-block run spanning the bitmap 0 -> 1 boundary. The same test runs over devices exposing 512-byte and 4096-byte logical blocks.
+
+This code is implemented and wired into the boot storage self-test. It remains **pending runtime promotion** until the corresponding CI run is green and the explicit allocator-success serial line is observed.
+
+This milestone does not yet make the main v2 formatter itself capable of formatting arbitrarily large volumes; formatter integration of the scalable allocator remains a follow-up after this primitive is runtime-verified.
 
 ## v2 directory-record milestone
 
@@ -69,7 +77,7 @@ This first directory milestone proves persisted nested traversal and directory e
 
 ## v2 runtime verification
 
-Build workflow **#394** (`36976628830`, head `9e5e2c791d7b65a55f2563fdb338651cd8ed4a46`) runtime-verifies the first layout foundation:
+Build workflow **#394** (`36976628830`) runtime-verifies the first layout foundation:
 
 `[aurorafs-v2] 4KiB layout + bitmap + 64-bit inode + multi-block extent self-test passed on 512/4096-byte devices`
 
@@ -77,9 +85,9 @@ Build workflow **#399** (`36977213539`) runtime-verifies the next directory mile
 
 `[aurorafs-v2] dynamic two-block root + nested directory traversal self-test passed on 512/4096-byte devices`
 
-Together these gates currently verify formatter/reopen, CRC32 superblock validation, one-block allocation bitmap behavior, 256-byte 64-bit inode metadata, contiguous multi-block extents, multi-block file persistence, a two-block root directory extent, nested directory lookup and persisted nested file reads on synthetic 512-byte and 4096-byte devices.
+Together these gates currently verify formatter/reopen, CRC32 superblock validation, one-block formatter bitmap behavior, 256-byte 64-bit inode metadata, contiguous multi-block extents, multi-block file persistence, a two-block root directory extent, nested directory lookup and persisted nested file reads on synthetic 512-byte and 4096-byte devices.
 
-They do **not** yet verify multi-block allocation bitmaps, multiple extents, extent-tree overflow, crash consistency, migration, the common filesystem-driver/VFS v2 path, or physical hardware.
+The scalable multi-block allocator is implemented after #399 but is not counted as runtime-verified until its newer CI gate completes successfully.
 
 ## v2 safety gates
 
@@ -109,7 +117,7 @@ It remains suitable for bootstrap persistence validation but is not a production
 
 After the runtime-verified layout and nested-directory milestones, production work proceeds through:
 
-1. multi-block allocation bitmap support and general free-range allocation;
+1. runtime-verify the multi-block bitmap/range allocator and integrate it into the v2 formatter;
 2. multiple extents and extent-tree overflow;
 3. general create/truncate/remove/rename operations;
 4. sparse-file semantics;
