@@ -27,7 +27,7 @@ Recognition alone must never be presented as full filesystem support.
 | --- | --- | --- | --- | --- |
 | AuroraFS bootstrap v1 | **Yes** | **Yes** | **Existing bootstrap files only** | **Yes — reboot persistence + common VFS** |
 | FAT32 / VFAT | Yes | **Yes** | No | **Yes — including Unicode LFN** |
-| exFAT | Yes | **Yes** | No | **Yes** |
+| exFAT | Yes | **Yes** | No | **Yes on 512-byte transport; 4Kn runtime test pending** |
 | FAT12 | Yes | Pending | No | Pending |
 | FAT16 | Yes | Pending | No | Pending |
 | NTFS | Yes | Pending | No | Pending |
@@ -39,7 +39,7 @@ Recognition alone must never be presented as full filesystem support.
 | HFS+ | Yes | Pending | No | Pending |
 | APFS | Yes | Pending | No | Pending |
 
-The combined storage validation is green in workflow run **#285** (`36892511779`) at commit `445abb2246951b13bb5aae291713b1eeb5aa0420`.
+The combined storage validation baseline was green in workflow run **#285** (`36892511779`) at commit `445abb2246951b13bb5aae291713b1eeb5aa0420`. Subsequent storage changes are tracked independently until each new runtime gate is green.
 
 ## Runtime-verified paths
 
@@ -61,11 +61,11 @@ The test performs two complete QEMU boots against the same disk image.
 
 ## Partition-sector handling
 
-The partition parser now accepts logical block sizes of 512, 1024, 2048, and 4096 bytes. MBR metadata is still interpreted from the standard first 512 bytes of LBA 0, while GPT header and entry-table addressing use the block device's actual logical block size.
+The partition parser accepts logical block sizes of 512, 1024, 2048, and 4096 bytes. MBR metadata is interpreted from the standard first 512 bytes of LBA 0, while GPT header and entry-table addressing use the block device's actual logical block size.
 
-GPT entries that cross a logical-block boundary are assembled from two adjacent blocks. This removes the previous hard requirement that every GPT entry fit wholly inside a 512-byte sector.
+GPT entries that cross a logical-block boundary are assembled from adjacent blocks. GPT header CRC32, partition-entry-array CRC32, and primary-to-backup GPT fallback are implemented.
 
-This support is **implemented but not yet runtime-verified on non-512 logical-block media**. FAT32, exFAT, AuroraFS bootstrap v1, ATA PIO, and parts of the detector stack still contain format- or transport-specific 512-byte assumptions, so this does not yet constitute end-to-end 4Kn support.
+The partition layer is **runtime-verified on both 512-byte and 4096-byte logical-block synthetic devices**. This does not yet constitute complete end-to-end 4Kn support: every filesystem and transport must be independently validated on non-512 logical blocks.
 
 ## AuroraFS bootstrap v1
 
@@ -103,9 +103,11 @@ Runtime-verified driver capabilities:
 
 FAT32 stores file length in 32 bits, so its approximately 4 GiB per-file ceiling is a FAT32 format property, not an Aurora VFS limit.
 
+FAT32 logical-block hardening is still pending; existing runtime verification uses the 512-byte ATA compatibility transport.
+
 ## exFAT
 
-Runtime-verified read-only support includes:
+Runtime-verified read-only support on the existing 512-byte transport includes:
 
 - probe and mount;
 - 64-bit `DataLength` and `ValidDataLength` handling;
@@ -118,17 +120,30 @@ Runtime-verified read-only support includes:
 - reading a file from an externally generated exFAT image;
 - file access through the common VFS mount path.
 
+Logical-block hardening is now implemented in the exFAT driver:
+
+- boot-record reads use a buffer sized for device blocks up to 4096 bytes;
+- the previous `device->block_size == 512` requirement has been removed;
+- exFAT filesystem sector size and device logical-block size are tracked independently;
+- mount/probe reject incompatible geometry rather than reading past a 512-byte buffer;
+- the generic byte-reading path continues to translate filesystem byte offsets through the actual device block size.
+
+This change is **implemented but not yet runtime-verified on a 4096-byte logical-block exFAT device**. A dedicated synthetic 4Kn exFAT test is the next validation gate.
+
 ## Current transport limitations
 
 Filesystem support and hardware transport support are separate concerns.
 
 Currently:
 
-- ATA PIO provides the runtime-tested disk read/write transport used in CI and still exposes 512-byte sectors;
+- ATA PIO provides the disk read/write compatibility transport used in the integration CI and exposes 512-byte sectors;
+- the block layer now has a device registry and optional explicit flush contract; ATA PIO integration is awaiting a green post-change runtime run;
 - AHCI controller discovery and ABAR probing exist, but AHCI data I/O is not implemented yet;
 - NVMe is not implemented yet;
 - USB/xHCI and USB mass-storage are not implemented yet;
-- partition parsing is now logical-sector aware for 512/1024/2048/4096-byte blocks, but filesystem and transport layers still contain remaining 512-byte assumptions.
+- partition parsing is runtime-verified for 512-byte and 4096-byte logical blocks;
+- exFAT is logically hardened for device blocks up to 4096 bytes but awaits dedicated 4Kn runtime verification;
+- FAT32 and AuroraFS still contain remaining filesystem-specific 512-byte assumptions.
 
 Therefore FAT32/exFAT/AuroraFS driver support being verified does **not** yet mean Aurora can access every modern physical SATA/NVMe/USB device.
 
