@@ -151,5 +151,11 @@ bool aurora_fs_4kn_self_test(void) {
     }
 
     log_line("[aurorafs-v2] 4KiB layout + bitmap + 64-bit inode + multi-block extent self-test passed on 512/4096-byte devices");
+
+    if (!aurora_fs_v2_directory_self_test()) {
+        return false;
+    }
+
+    log_line("[aurorafs-v2] dynamic two-block root + nested directory traversal self-test passed on 512/4096-byte devices");
     return true;
 }
