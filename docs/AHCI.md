@@ -46,7 +46,7 @@ Workflow **#344** (`36969225148`) is green and runtime-verifies the first real A
 
 Workflow **#347** (`36969765926`) is green and runtime-verifies `READ DMA EXT`, registration of `ahci-sata0` in the generic block-device registry, and an LBA0 read through `block_device_read()`.
 
-`WRITE DMA EXT`, `FLUSH CACHE EXT`, the read-write wrapper and the reversible signed write probe are **implemented but not yet considered runtime-verified** until the post-change q35 CI run closes green.
+Workflow **#354** (`36971048569`) is green and runtime-verifies the signed reversible `WRITE DMA EXT + FLUSH CACHE EXT + readback + restore` probe on the dedicated QEMU q35 test disk. The log confirms the original final-sector contents are restored before success is reported.
 
 ### Not implemented yet
 
@@ -72,17 +72,16 @@ The first complete AHCI runtime path must provide:
 3. `IDENTIFY DEVICE` — **verified**;
 4. sector count/logical sector discovery — **verified**;
 5. sector reads through the generic block layer — **verified**;
-6. write/readback probe on the dedicated CI disk — implemented, verification pending;
-7. explicit cache flush — implemented, verification pending;
-8. read-write generic `block_device` — implemented, verification pending;
+6. write/readback probe on the dedicated CI disk — **verified**;
+7. explicit cache flush — **verified**;
+8. read-write generic `block_device` — **verified**;
 9. partition discovery through the existing partition manager — pending;
 10. filesystem access through the existing mount/VFS stack — pending.
 
-ATA PIO remains the compatibility baseline until AHCI read/write/flush and end-to-end filesystem traversal are independently green in CI.
+ATA PIO remains a compatibility baseline while the AHCI filesystem path is being validated. AHCI read/write/flush no longer depends on ATA PIO for runtime verification.
 
 ## Safety and compatibility rules
 
-- Do not replace ATA PIO as the CI baseline until AHCI read/write/flush is independently verified.
 - Do not assume a fixed logical sector size beyond what `IDENTIFY DEVICE` reports.
 - Do not expose an AHCI disk to the block registry until IDENTIFY succeeds and capacity is known.
 - Failed commands must not silently fall back to success.
@@ -92,4 +91,4 @@ ATA PIO remains the compatibility baseline until AHCI read/write/flush and end-t
 
 ## Next implementation gate
 
-The immediate gate is a green q35 CI run proving `WRITE DMA EXT + FLUSH CACHE EXT + readback + restore`. After that, the AHCI block device will be exercised through partition discovery and the filesystem/VFS stack.
+The immediate gate is end-to-end traversal through the existing storage stack: AHCI read-write block device -> partition manager -> filesystem detector -> mount manager -> VFS. The first target is AuroraFS plus FAT32/exFAT on a q35 AHCI-backed image prepared by CI.
