@@ -85,6 +85,13 @@ bool aurora_fs_v2_extent_tree_lookup(
     uint64_t *out_contiguous_blocks
 );
 
+bool aurora_fs_v2_extent_tree_clone_append_leaf(
+    struct aurora_fs_v2_allocator *allocator,
+    uint64_t old_root_block,
+    const struct aurora_fs_v2_extent *extent,
+    uint64_t *out_new_root_block
+);
+
 bool aurora_fs_v2_inode_extent_init(
     struct aurora_block_device *device,
     const struct aurora_fs_v2_format_geometry *geometry,
