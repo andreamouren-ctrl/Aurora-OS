@@ -246,11 +246,11 @@ void bootstrap_storage_probe(void) {
             log_write("[ahci] model: ");
             log_line(identify.model);
 
-            if (!ahci_primary_block_device_init()) {
-                kernel_panic("AHCI primary block-device initialization failed");
+            if (!ahci_rw_block_device_init()) {
+                kernel_panic("AHCI read-write block-device initialization failed");
             }
 
-            struct aurora_block_device *ahci_disk = ahci_primary_block_device();
+            struct aurora_block_device *ahci_disk = ahci_rw_block_device();
             if (ahci_disk == NULL || !block_device_register(ahci_disk) ||
                 block_device_find("ahci-sata0") != ahci_disk) {
                 kernel_panic("AHCI block-device registry integration failed");
@@ -264,6 +264,12 @@ void bootstrap_storage_probe(void) {
 
             log_line("[storage] block device registered: ahci-sata0");
             log_line("[ahci] READ DMA EXT LBA0 via block layer verified");
+
+            if (ahci_rw_signed_probe()) {
+                log_line("[ahci] signed WRITE DMA EXT + FLUSH CACHE EXT probe passed and restored");
+            } else {
+                log_line("[ahci] signed write/flush probe skipped: CI signature absent or verification failed");
+            }
         }
     } else {
         log_line("[storage] AHCI controller unavailable");
