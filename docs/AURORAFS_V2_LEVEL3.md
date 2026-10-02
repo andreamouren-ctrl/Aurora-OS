@@ -1,6 +1,6 @@
 # AuroraFS v2 — Level-3 extent-tree contract
 
-Status: **level-3 lookup/growth, continued append, full-last-leaf structural growth, persistent full-last-leaf inode publication and full final level-1 sibling growth are runtime-verified**.
+Status: **level-3 lookup/growth, continued append, full-last-leaf structural growth, persistent full-last-leaf inode publication and full final level-1 sibling growth are runtime-verified; persistent full-level1 inode publication is implemented and awaiting runtime verification**.
 
 This document extends the existing AuroraFS v2 `AUREXT2` extent-tree contract. The on-disk behavior remains compatible with the existing 4 KiB node and 256-byte inode layouts.
 
@@ -84,12 +84,30 @@ Aurora OS Bootstrap Build `37006271635`, head `65eb19dc1bb6dd1a303dfdabf2687b49b
 
 The same run keeps the operational bootstrap path healthy: AuroraFS v1 creates its persistent file on the first ATA boot, reopens it on the second boot, and both boots reach M1 successfully.
 
+## Persistent full-level1 inode publication — implemented / CI pending
+
+`aurora_fs_v2_inode_append_level3_full_level1_cow_commit()` composes the verified full-level1 structural builder with the existing child-first `aurora_fs_v2_inode_publish_extent_root_cow()` publication path. The replacement hierarchy is flushed first and the inode publishes the new level-3 root last.
+
+The dedicated sparse self-test uses the same 2,016,252-existing-extent boundary as the structural gate, persists an inode pointing at the old level-3 root, appends one new mapping, reopens allocator/inode state and verifies:
+
+- the inode root changed only after the replacement tree was produced;
+- `extent_count`, file size, allocated bytes and generation advanced consistently;
+- the old level-3 root remains byte-identical;
+- unified inode lookup resolves both the historical final mapping and the newly appended mapping;
+- both synthetic 512-byte and 4096-byte logical-device geometries follow the same path.
+
+Expected boot gate:
+
+`[aurorafs-v2] persistent level-3 full-level1 sibling growth + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
+
+This gate is **implemented but not runtime-verified** while GitHub Actions is not allocating runnable jobs for the repository. No production-format claim is promoted from the CI-pending state.
+
 ## Failure and recovery behavior
 
 The policy remains child-first and publication-last. A failure before inode publication leaves the old root authoritative and may leak newly allocated metadata. A successful inode publication makes the replacement hierarchy authoritative. Durable reclamation, transaction replay and crash recovery remain future work.
 
 ## Next gate
 
-The next level-3 gate is **persistent inode publication/reopen verification for full final level-1 sibling growth**. After that, the next hierarchy boundary is a **full final level-2 child under a level-3 root that still has room for another level-2 sibling**.
+After runtime verification of persistent full-level1 publication, the next hierarchy boundary is a **full final level-2 child under a level-3 root that still has room for another level-2 sibling**.
 
 Synthetic 4096-byte logical-block verification is not physical 4Kn hardware certification.
