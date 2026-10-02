@@ -92,6 +92,13 @@ bool aurora_fs_v2_extent_tree_clone_append_leaf(
     uint64_t *out_new_root_block
 );
 
+bool aurora_fs_v2_extent_tree_expand_full_leaf_cow(
+    struct aurora_fs_v2_allocator *allocator,
+    uint64_t old_root_block,
+    const struct aurora_fs_v2_extent *extent,
+    uint64_t *out_new_root_block
+);
+
 bool aurora_fs_v2_inode_extent_init(
     struct aurora_block_device *device,
     const struct aurora_fs_v2_format_geometry *geometry,
@@ -126,6 +133,7 @@ bool aurora_fs_v2_inode_extent_lookup(
 bool aurora_fs_v2_formatter_self_test(void);
 bool aurora_fs_v2_allocator_self_test(void);
 bool aurora_fs_v2_extent_tree_self_test(void);
+bool aurora_fs_v2_extent_tree_growth_self_test(void);
 bool aurora_fs_v2_inode_extent_self_test(void);
 bool aurora_fs_v2_inode_tree_append_self_test(void);
 
