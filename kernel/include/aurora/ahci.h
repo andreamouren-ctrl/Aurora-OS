@@ -19,6 +19,15 @@ struct aurora_ahci_probe_result {
     uint32_t sata_ports_active;
 };
 
+struct aurora_ahci_identify_result {
+    bool identified;
+    uint8_t port;
+    uint32_t logical_sector_size;
+    uint64_t sector_count;
+    char model[41];
+};
+
 bool ahci_probe(struct aurora_ahci_probe_result *out_result);
+bool ahci_identify_first(struct aurora_ahci_identify_result *out_result);
 
 #endif
