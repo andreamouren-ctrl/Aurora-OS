@@ -94,6 +94,8 @@ bool aurora_fs_4kn_self_test(void) {
     log_line("[aurorafs-v2] persistent inode publication of 15877th extent through level-2 root self-test passed on 512/4096-byte devices");
     if (!aurora_fs_v2_unified_lookup_self_test()) return false;
     log_line("[aurorafs-v2] unified leaf/level-1/level-2 tree and inode lookup self-test passed on 512/4096-byte devices");
+    if (!aurora_fs_v2_level3_lookup_self_test()) return false;
+    log_line("[aurorafs-v2] bounded unified level-3 tree + inode lookup self-test passed on 512/4096-byte devices");
     if (!aurora_fs_v2_extent_tree_level2_append_self_test()) return false;
     log_line("[aurorafs-v2] existing level-2 root COW append through leaf/level-1/root replacement self-test passed on 512/4096-byte devices");
     if (!aurora_fs_v2_inode_publish_extent_root_self_test()) return false;
