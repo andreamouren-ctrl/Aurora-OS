@@ -56,6 +56,7 @@ bool aurora_fs_v2_extent_tree_append_level2_full_level1_cow(struct aurora_fs_v2_
 
 bool aurora_fs_v2_inode_append_level2_cow_commit(struct aurora_fs_v2_allocator *allocator, const struct aurora_fs_v2_format_geometry *geometry, uint64_t inode_index, uint64_t expected_old_root, const struct aurora_fs_v2_extent *extent);
 bool aurora_fs_v2_inode_append_level2_full_leaf_cow_commit(struct aurora_fs_v2_allocator *allocator, const struct aurora_fs_v2_format_geometry *geometry, uint64_t inode_index, uint64_t expected_old_root, const struct aurora_fs_v2_extent *extent);
+bool aurora_fs_v2_inode_append_level2_full_level1_cow_commit(struct aurora_fs_v2_allocator *allocator, const struct aurora_fs_v2_format_geometry *geometry, uint64_t inode_index, uint64_t expected_old_root, const struct aurora_fs_v2_extent *extent);
 bool aurora_fs_v2_inode_extent_init(struct aurora_block_device *device, const struct aurora_fs_v2_format_geometry *geometry, uint64_t inode_index, uint64_t object_id, uint64_t parent_object_id);
 bool aurora_fs_v2_inode_extent_append(struct aurora_fs_v2_allocator *allocator, const struct aurora_fs_v2_format_geometry *geometry, uint64_t inode_index, const struct aurora_fs_v2_extent *extent);
 bool aurora_fs_v2_inode_extent_append_tree_cow(struct aurora_fs_v2_allocator *allocator, const struct aurora_fs_v2_format_geometry *geometry, uint64_t inode_index, const struct aurora_fs_v2_extent *extent);
@@ -79,6 +80,7 @@ bool aurora_fs_v2_extent_tree_level2_full_leaf_self_test(void);
 bool aurora_fs_v2_extent_tree_level2_full_level1_self_test(void);
 bool aurora_fs_v2_level2_commit_self_test(void);
 bool aurora_fs_v2_level2_full_leaf_commit_self_test(void);
+bool aurora_fs_v2_level2_full_level1_commit_self_test(void);
 bool aurora_fs_v2_inode_extent_self_test(void);
 bool aurora_fs_v2_inode_tree_append_self_test(void);
 bool aurora_fs_v2_inode_tree_growth_self_test(void);
