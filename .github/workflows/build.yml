@@ -14,7 +14,8 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        # v6/v7 currently fail before step execution in this repository's Actions environment.
+        uses: actions/checkout@v4
 
       - name: Install build dependencies
         run: |
@@ -289,7 +290,8 @@ jobs:
 
       - name: Upload ISO and smoke-test logs
         if: always()
-        uses: actions/upload-artifact@v6
+        # Keep v4 with checkout v4 until newer action majors are accepted by this Actions environment.
+        uses: actions/upload-artifact@v4
         with:
           name: AuroraOS-x86_64
           path: |
