@@ -45,11 +45,7 @@ static bool verify_vfs_file(
         return false;
     }
 
-    if (!vfs_read_file(
-            absolute_path,
-            buffer,
-            sizeof(buffer),
-            &read)) {
+    if (!vfs_read_file(absolute_path, buffer, sizeof(buffer), &read)) {
         return false;
     }
 
@@ -136,11 +132,7 @@ static void verify_exfat_partition(const struct aurora_partition *partition) {
 
 static void bootstrap_foreign_fs_probe(struct aurora_block_device *device) {
     struct aurora_partition partitions[BOOTSTRAP_PARTITION_MAX];
-    size_t partition_count = partition_scan(
-        device,
-        partitions,
-        BOOTSTRAP_PARTITION_MAX
-    );
+    size_t partition_count = partition_scan(device, partitions, BOOTSTRAP_PARTITION_MAX);
 
     log_write("[partition] discovered: ");
     log_u64(partition_count);
@@ -183,8 +175,12 @@ void bootstrap_storage_probe(void) {
     if (!exfat_4kn_self_test()) {
         kernel_panic("exFAT 4096-byte logical-block self-test failed");
     }
-
     log_line("[exfat] synthetic 4096-byte logical-block probe/mount self-test passed");
+
+    if (!fat32_4kn_self_test()) {
+        kernel_panic("FAT32 4096-byte logical-block self-test failed");
+    }
+    log_line("[fat32] synthetic 4096-byte logical-block probe/mount self-test passed");
 
     fs_driver_registry_init();
     fs_mount_manager_init();
@@ -209,7 +205,6 @@ void bootstrap_storage_probe(void) {
     log_line("[fs] exFAT read-only driver registered");
 
     struct aurora_ahci_probe_result ahci;
-
     if (ahci_probe(&ahci)) {
         log_write("[storage] AHCI controller PCI ");
         log_u64(ahci.bus);
@@ -237,7 +232,6 @@ void bootstrap_storage_probe(void) {
         }
 
         log_line("[storage] block device registered: ata-primary-master");
-
         log_write("[ata] primary master sectors: ");
         log_u64(ata->block_count);
         log_line("");
