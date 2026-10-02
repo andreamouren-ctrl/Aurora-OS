@@ -7,6 +7,7 @@
 #include <aurora/timer.h>
 
 #define LAPIC_DIVIDE_BY_16 0x3u
+#define LAPIC_MIN_ONESHOT_TICKS 32ull
 
 static enum aurora_timer_mode active_mode;
 
@@ -175,8 +176,20 @@ bool timer_arm_ns(uint64_t delay_ns) {
                 scaled / 1000000000ull
             );
 
-        if (ticks == 0) {
-            ticks = 1;
+        /*
+         * Programming an xAPIC one-shot with an initial count of only one
+         * tick is not a reliable scheduler wake-up boundary. On emulated
+         * i440fx/PIIX machines in particular, the count can expire while the
+         * MMIO programming sequence is still being observed, leaving a CPU
+         * that subsequently executes HLT with no timer interrupt pending.
+         *
+         * Keep the public API nanosecond based, but clamp only the hardware
+         * one-shot count to a small safety floor. Normal Aurora deadlines
+         * (1 ms probe, 4 ms scheduler quantum, etc.) are orders of magnitude
+         * above this floor and are therefore unchanged.
+         */
+        if (ticks < LAPIC_MIN_ONESHOT_TICKS) {
+            ticks = LAPIC_MIN_ONESHOT_TICKS;
         }
 
         if (ticks > 0xFFFFFFFFull) {
