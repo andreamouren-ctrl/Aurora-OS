@@ -102,5 +102,7 @@ bool aurora_fs_4kn_self_test(void) {
     log_line("[aurorafs-v2] end-to-end level-2 COW append + inode publication + reopen lookup self-test passed on 512/4096-byte devices");
     if (!aurora_fs_v2_extent_tree_level2_full_leaf_self_test()) return false;
     log_line("[aurorafs-v2] level-2 full-last-leaf COW append with new child leaf self-test passed on 512/4096-byte devices");
+    if (!aurora_fs_v2_level2_full_leaf_commit_self_test()) return false;
+    log_line("[aurorafs-v2] persistent level-2 full-last-leaf COW append + inode publication + reopen lookup self-test passed on 512/4096-byte devices");
     return true;
 }
