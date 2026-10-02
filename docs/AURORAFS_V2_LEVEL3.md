@@ -1,6 +1,6 @@
 # AuroraFS v2 — Level-3 extent-tree contract
 
-Status: **level-3 bounded lookup and full level-2 → level-3 structural COW growth are runtime-verified; persistent inode publication + reopen lookup is implemented and awaiting runtime verification**.
+Status: **level-3 bounded lookup, full level-2 → level-3 structural COW growth, and persistent inode publication + reopen lookup are runtime-verified**.
 
 This document extends the existing AuroraFS v2 `AUREXT2` extent-tree contract. The on-disk behavior is explicit and remains compatible with the existing 4 KiB node and 256-byte inode layouts.
 
@@ -52,11 +52,13 @@ Main workflow **`37000379420`** and AHCI workflow **`37000379412`** completed su
 
 `[aurorafs-v2] full level-2 root COW growth to level-3 at 2000377th extent self-test passed on 512/4096-byte devices`
 
-This promotes the structural 2,000,376→2,000,377 boundary to **runtime-verified in the synthetic QEMU environment**.
+## Runtime-verified persistent level-3 inode publication
 
-## Implemented persistent level-3 inode publication
+`aurora_fs_v2_inode_append_level3_grow_cow_commit()` composes the verified structural builder with the verified `aurora_fs_v2_inode_publish_extent_root_cow()` publication primitive.
 
-`aurora_fs_v2_inode_append_level3_grow_cow_commit()` composes the verified structural builder with the existing verified `aurora_fs_v2_inode_publish_extent_root_cow()` publication primitive.
+Main workflow **`37001092435`** and AHCI workflow **`37001092510`** completed successfully. The exact gate appears on q35/AHCI, ATA first boot and ATA persistence boot:
+
+`[aurorafs-v2] persistent full level-2 to level-3 growth + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
 
 The persistent self-test starts with an inode containing 2,000,376 one-block extent mappings under a full level-2 root, appends mapping 2,000,377, publishes the fresh level-3 root, reinitializes allocator state, rereads the inode and verifies:
 
@@ -69,18 +71,12 @@ The persistent self-test starts with an inode containing 2,000,376 one-block ext
 
 The harness remains bounded: historical metadata is generated deterministically on read and only bitmap, inode and newly written COW blocks are stored.
 
-Expected runtime gate:
-
-`[aurorafs-v2] persistent full level-2 to level-3 growth + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
-
-Until a green CI run contains that exact serial line, this composed path remains **implemented but not runtime-verified**.
-
 ## Failure and recovery behavior
 
 The policy remains child-first and publication-last. A failure before inode publication leaves the old root authoritative and may leak newly allocated metadata. A successful publication makes the level-3 hierarchy authoritative; durable reclamation and transaction replay remain future work.
 
 ## Next gate
 
-After persistent level-3 publication is runtime-verified, continue COW append beneath an already-published level-3 root by replacing only its final path (`leaf → level-1 → level-2 → level-3`) before inode publication.
+Continue COW append beneath an already-published level-3 root by replacing only its final path (`leaf → level-1 → level-2 → level-3`) before inode publication. The first target is mapping **2,000,378** while the new final leaf still has spare capacity.
 
 Synthetic 4096-byte logical-block verification is not physical 4Kn hardware certification.
