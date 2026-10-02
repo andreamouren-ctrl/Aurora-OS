@@ -4,6 +4,7 @@
 #include <aurora/aurora_fs.h>
 #include <aurora/block_device.h>
 #include <aurora/fs_driver.h>
+#include <aurora/log.h>
 #include <aurora/partition.h>
 
 #define AURORA_FS_TEST_BLOCK_SIZE 4096u
@@ -145,5 +146,10 @@ bool aurora_fs_4kn_self_test(void) {
         driver->unmount(context);
     }
 
+    if (!aurora_fs_v2_layout_self_test()) {
+        return false;
+    }
+
+    log_line("[aurorafs-v2] 4KiB layout + bitmap + 64-bit inode + multi-block extent self-test passed on 512/4096-byte devices");
     return true;
 }
