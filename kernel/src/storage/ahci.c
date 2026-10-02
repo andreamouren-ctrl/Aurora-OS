@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include <aurora/ahci.h>
+#include <aurora/block_device.h>
 #include <aurora/pci.h>
 #include <aurora/pmm.h>
 #include <aurora/vmm.h>
@@ -50,7 +51,9 @@
 #define AHCI_IPM_ACTIVE        1u
 #define AHCI_SIG_ATA           0x00000101u
 
+#define ATA_CMD_READ_DMA_EXT   0x25u
 #define ATA_CMD_IDENTIFY       0xECu
+#define ATA_DEVICE_LBA         0x40u
 #define FIS_TYPE_REG_H2D       0x27u
 #define AHCI_WAIT_LIMIT        1000000u
 
@@ -77,8 +80,15 @@ struct ahci_command_table_one_prdt {
     struct ahci_prdt_entry prdt[1];
 } __attribute__((packed));
 
+struct ahci_block_context {
+    uint8_t port;
+};
+
 static volatile uint8_t *ahci_mmio;
 static uint32_t ahci_active_ports;
+static struct ahci_block_context ahci_primary_context;
+static struct aurora_block_device ahci_primary_device;
+static bool ahci_primary_ready;
 
 static uint32_t mmio_read32(uint32_t offset) {
     volatile uint32_t *reg =
@@ -97,6 +107,14 @@ static void zero_bytes(void *buffer, size_t length) {
     uint8_t *bytes = (uint8_t *)buffer;
     for (size_t i = 0u; i < length; ++i) {
         bytes[i] = 0u;
+    }
+}
+
+static void copy_bytes(void *destination, const void *source, size_t length) {
+    uint8_t *out = (uint8_t *)destination;
+    const uint8_t *in = (const uint8_t *)source;
+    for (size_t i = 0u; i < length; ++i) {
+        out[i] = in[i];
     }
 }
 
@@ -179,6 +197,77 @@ static void start_port(uint32_t base) {
     mmio_write32(base + AHCI_PORT_CMD, cmd);
 }
 
+static bool wait_port_ready(uint32_t base) {
+    for (uint32_t i = 0u; i < AHCI_WAIT_LIMIT; ++i) {
+        uint32_t tfd = mmio_read32(base + AHCI_PORT_TFD);
+        if ((tfd & (AHCI_TFD_BSY | AHCI_TFD_DRQ)) == 0u) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool wait_slot_complete(uint32_t base) {
+    for (uint32_t i = 0u; i < AHCI_WAIT_LIMIT; ++i) {
+        uint32_t is = mmio_read32(base + AHCI_PORT_IS);
+        uint32_t tfd = mmio_read32(base + AHCI_PORT_TFD);
+        if ((is & AHCI_PORT_IS_TFES) != 0u || (tfd & AHCI_TFD_ERR) != 0u) {
+            return false;
+        }
+        if ((mmio_read32(base + AHCI_PORT_CI) & 1u) == 0u) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool prepare_command_memory(
+    uint32_t base,
+    uint64_t cl_phys,
+    uint64_t fis_phys,
+    uint64_t table_phys,
+    uint64_t data_phys,
+    uint32_t data_length,
+    struct ahci_command_header **out_header,
+    struct ahci_command_table_one_prdt **out_table
+) {
+    void *cl_virt = pmm_phys_to_virt(cl_phys);
+    void *fis_virt = pmm_phys_to_virt(fis_phys);
+    void *table_virt = pmm_phys_to_virt(table_phys);
+
+    zero_bytes(cl_virt, AURORA_PAGE_SIZE);
+    zero_bytes(fis_virt, AURORA_PAGE_SIZE);
+    zero_bytes(table_virt, AURORA_PAGE_SIZE);
+    zero_bytes(pmm_phys_to_virt(data_phys), AURORA_PAGE_SIZE);
+
+    if (!stop_port(base)) {
+        return false;
+    }
+
+    mmio_write32(base + AHCI_PORT_CLB, (uint32_t)cl_phys);
+    mmio_write32(base + AHCI_PORT_CLBU, (uint32_t)(cl_phys >> 32));
+    mmio_write32(base + AHCI_PORT_FB, (uint32_t)fis_phys);
+    mmio_write32(base + AHCI_PORT_FBU, (uint32_t)(fis_phys >> 32));
+    mmio_write32(base + AHCI_PORT_SERR, 0xFFFFFFFFu);
+    mmio_write32(base + AHCI_PORT_IS, 0xFFFFFFFFu);
+
+    struct ahci_command_header *header = (struct ahci_command_header *)cl_virt;
+    header[0].flags = 5u;
+    header[0].prdt_length = 1u;
+    header[0].ctba = (uint32_t)table_phys;
+    header[0].ctbau = (uint32_t)(table_phys >> 32);
+
+    struct ahci_command_table_one_prdt *table =
+        (struct ahci_command_table_one_prdt *)table_virt;
+    table->prdt[0].dba = (uint32_t)data_phys;
+    table->prdt[0].dbau = (uint32_t)(data_phys >> 32);
+    table->prdt[0].dbc_i = data_length - 1u;
+
+    *out_header = header;
+    *out_table = table;
+    return true;
+}
+
 static bool issue_identify(uint8_t port, uint16_t identify[256]) {
     uint64_t cl_phys = pmm_alloc_page();
     uint64_t fis_phys = pmm_alloc_page();
@@ -193,76 +282,118 @@ static bool issue_identify(uint8_t port, uint16_t identify[256]) {
         return false;
     }
 
-    void *cl_virt = pmm_phys_to_virt(cl_phys);
-    void *fis_virt = pmm_phys_to_virt(fis_phys);
-    void *table_virt = pmm_phys_to_virt(table_phys);
-    uint16_t *data_virt = (uint16_t *)pmm_phys_to_virt(data_phys);
-    zero_bytes(cl_virt, AURORA_PAGE_SIZE);
-    zero_bytes(fis_virt, AURORA_PAGE_SIZE);
-    zero_bytes(table_virt, AURORA_PAGE_SIZE);
-    zero_bytes(data_virt, AURORA_PAGE_SIZE);
-
     uint32_t base = AHCI_PORT_BASE + (uint32_t)port * AHCI_PORT_STRIDE;
-    if (!stop_port(base)) {
+    struct ahci_command_header *header;
+    struct ahci_command_table_one_prdt *table;
+    if (!prepare_command_memory(
+            base, cl_phys, fis_phys, table_phys, data_phys, 512u,
+            &header, &table)) {
         goto fail;
     }
+    (void)header;
 
-    mmio_write32(base + AHCI_PORT_CLB, (uint32_t)cl_phys);
-    mmio_write32(base + AHCI_PORT_CLBU, (uint32_t)(cl_phys >> 32));
-    mmio_write32(base + AHCI_PORT_FB, (uint32_t)fis_phys);
-    mmio_write32(base + AHCI_PORT_FBU, (uint32_t)(fis_phys >> 32));
-    mmio_write32(base + AHCI_PORT_SERR, 0xFFFFFFFFu);
-    mmio_write32(base + AHCI_PORT_IS, 0xFFFFFFFFu);
-
-    struct ahci_command_header *header = (struct ahci_command_header *)cl_virt;
-    header[0].flags = 5u; /* 20-byte Register H2D FIS. */
-    header[0].prdt_length = 1u;
-    header[0].ctba = (uint32_t)table_phys;
-    header[0].ctbau = (uint32_t)(table_phys >> 32);
-
-    struct ahci_command_table_one_prdt *table =
-        (struct ahci_command_table_one_prdt *)table_virt;
     uint8_t *cfis = table->cfis;
     cfis[0] = FIS_TYPE_REG_H2D;
-    cfis[1] = 0x80u; /* Command bit. */
+    cfis[1] = 0x80u;
     cfis[2] = ATA_CMD_IDENTIFY;
 
-    table->prdt[0].dba = (uint32_t)data_phys;
-    table->prdt[0].dbau = (uint32_t)(data_phys >> 32);
-    table->prdt[0].dbc_i = 511u; /* 512 bytes, zero-based byte count. */
-
     start_port(base);
-
-    for (uint32_t i = 0u; i < AHCI_WAIT_LIMIT; ++i) {
-        uint32_t tfd = mmio_read32(base + AHCI_PORT_TFD);
-        if ((tfd & (AHCI_TFD_BSY | AHCI_TFD_DRQ)) == 0u) {
-            break;
-        }
-        if (i + 1u == AHCI_WAIT_LIMIT) {
-            goto fail_running;
-        }
+    if (!wait_port_ready(base)) {
+        goto fail_running;
     }
 
     mmio_write32(base + AHCI_PORT_CI, 1u);
-
-    for (uint32_t i = 0u; i < AHCI_WAIT_LIMIT; ++i) {
-        uint32_t is = mmio_read32(base + AHCI_PORT_IS);
-        uint32_t tfd = mmio_read32(base + AHCI_PORT_TFD);
-        if ((is & AHCI_PORT_IS_TFES) != 0u || (tfd & AHCI_TFD_ERR) != 0u) {
-            goto fail_running;
-        }
-        if ((mmio_read32(base + AHCI_PORT_CI) & 1u) == 0u) {
-            for (size_t word = 0u; word < 256u; ++word) {
-                identify[word] = data_virt[word];
-            }
-            stop_port(base);
-            pmm_free_page(cl_phys);
-            pmm_free_page(fis_phys);
-            pmm_free_page(table_phys);
-            pmm_free_page(data_phys);
-            return true;
-        }
+    if (!wait_slot_complete(base)) {
+        goto fail_running;
     }
+
+    uint16_t *data_virt = (uint16_t *)pmm_phys_to_virt(data_phys);
+    for (size_t word = 0u; word < 256u; ++word) {
+        identify[word] = data_virt[word];
+    }
+
+    (void)stop_port(base);
+    pmm_free_page(cl_phys);
+    pmm_free_page(fis_phys);
+    pmm_free_page(table_phys);
+    pmm_free_page(data_phys);
+    return true;
+
+fail_running:
+    (void)stop_port(base);
+fail:
+    pmm_free_page(cl_phys);
+    pmm_free_page(fis_phys);
+    pmm_free_page(table_phys);
+    pmm_free_page(data_phys);
+    return false;
+}
+
+static bool issue_read_sector(
+    uint8_t port,
+    uint64_t lba,
+    uint32_t sector_size,
+    void *buffer
+) {
+    if (buffer == NULL || sector_size == 0u || sector_size > AURORA_PAGE_SIZE ||
+        lba > 0x0000FFFFFFFFFFFFull) {
+        return false;
+    }
+
+    uint64_t cl_phys = pmm_alloc_page();
+    uint64_t fis_phys = pmm_alloc_page();
+    uint64_t table_phys = pmm_alloc_page();
+    uint64_t data_phys = pmm_alloc_page();
+
+    if (cl_phys == 0u || fis_phys == 0u || table_phys == 0u || data_phys == 0u) {
+        if (cl_phys != 0u) pmm_free_page(cl_phys);
+        if (fis_phys != 0u) pmm_free_page(fis_phys);
+        if (table_phys != 0u) pmm_free_page(table_phys);
+        if (data_phys != 0u) pmm_free_page(data_phys);
+        return false;
+    }
+
+    uint32_t base = AHCI_PORT_BASE + (uint32_t)port * AHCI_PORT_STRIDE;
+    struct ahci_command_header *header;
+    struct ahci_command_table_one_prdt *table;
+    if (!prepare_command_memory(
+            base, cl_phys, fis_phys, table_phys, data_phys, sector_size,
+            &header, &table)) {
+        goto fail;
+    }
+    (void)header;
+
+    uint8_t *cfis = table->cfis;
+    cfis[0] = FIS_TYPE_REG_H2D;
+    cfis[1] = 0x80u;
+    cfis[2] = ATA_CMD_READ_DMA_EXT;
+    cfis[4] = (uint8_t)lba;
+    cfis[5] = (uint8_t)(lba >> 8);
+    cfis[6] = (uint8_t)(lba >> 16);
+    cfis[7] = ATA_DEVICE_LBA;
+    cfis[8] = (uint8_t)(lba >> 24);
+    cfis[9] = (uint8_t)(lba >> 32);
+    cfis[10] = (uint8_t)(lba >> 40);
+    cfis[12] = 1u;
+    cfis[13] = 0u;
+
+    start_port(base);
+    if (!wait_port_ready(base)) {
+        goto fail_running;
+    }
+
+    mmio_write32(base + AHCI_PORT_CI, 1u);
+    if (!wait_slot_complete(base)) {
+        goto fail_running;
+    }
+
+    copy_bytes(buffer, pmm_phys_to_virt(data_phys), sector_size);
+    (void)stop_port(base);
+    pmm_free_page(cl_phys);
+    pmm_free_page(fis_phys);
+    pmm_free_page(table_phys);
+    pmm_free_page(data_phys);
+    return true;
 
 fail_running:
     (void)stop_port(base);
@@ -307,6 +438,34 @@ static void identify_model(const uint16_t words[256], char out[41]) {
     while (pos > 0u && out[pos - 1u] == ' ') {
         out[--pos] = '\0';
     }
+}
+
+static bool ahci_block_read(
+    struct aurora_block_device *device,
+    uint64_t lba,
+    uint32_t block_count,
+    void *buffer
+) {
+    if (device == NULL || device->context == NULL || buffer == NULL ||
+        block_count == 0u || lba >= device->block_count ||
+        (uint64_t)block_count > device->block_count - lba) {
+        return false;
+    }
+
+    struct ahci_block_context *context =
+        (struct ahci_block_context *)device->context;
+    uint8_t *out = (uint8_t *)buffer;
+
+    for (uint32_t block = 0u; block < block_count; ++block) {
+        if (!issue_read_sector(
+                context->port,
+                lba + block,
+                device->block_size,
+                out + (size_t)block * device->block_size)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool ahci_probe(struct aurora_ahci_probe_result *out_result) {
@@ -407,4 +566,30 @@ bool ahci_identify_first(struct aurora_ahci_identify_result *out_result) {
         *out_result = result;
     }
     return result.sector_count != 0u;
+}
+
+bool ahci_primary_block_device_init(void) {
+    struct aurora_ahci_identify_result identify;
+    if (!ahci_identify_first(&identify) ||
+        identify.logical_sector_size == 0u ||
+        identify.logical_sector_size > AURORA_PAGE_SIZE) {
+        ahci_primary_ready = false;
+        return false;
+    }
+
+    ahci_primary_context.port = identify.port;
+    ahci_primary_device.name = "ahci-sata0";
+    ahci_primary_device.block_size = identify.logical_sector_size;
+    ahci_primary_device.block_count = identify.sector_count;
+    ahci_primary_device.read_only = true;
+    ahci_primary_device.context = &ahci_primary_context;
+    ahci_primary_device.read_blocks = ahci_block_read;
+    ahci_primary_device.write_blocks = NULL;
+    ahci_primary_device.flush = NULL;
+    ahci_primary_ready = true;
+    return true;
+}
+
+struct aurora_block_device *ahci_primary_block_device(void) {
+    return ahci_primary_ready ? &ahci_primary_device : NULL;
 }
