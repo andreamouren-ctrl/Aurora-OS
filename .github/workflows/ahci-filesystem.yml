@@ -145,7 +145,7 @@ jobs:
           grep -F "[fs] detected exFAT on partition 2" "$SERIAL_LOG"
           grep -F "[exfat] external file read verified" "$SERIAL_LOG"
           grep -F "[vfs] exFAT mounted-path routing verified" "$SERIAL_LOG"
-          grep -F "[ahci] partition/filesystem/VFS traversal completed" "$SERIAL_LOG"
+          grep -F "[storage] AHCI partition/filesystem/VFS traversal completed" "$SERIAL_LOG"
           grep -F "[kernel] M1 user-space bootstrap reached successfully" "$SERIAL_LOG"
 
       - name: Upload AHCI filesystem logs
