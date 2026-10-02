@@ -26,8 +26,8 @@ Recognition alone must never be presented as full filesystem support.
 | Filesystem | Detected | Read-only | Read-write | CI verification |
 | --- | --- | --- | --- | --- |
 | AuroraFS bootstrap v1 | **Yes** | **Yes** | **Existing bootstrap files only** | **Yes — reboot persistence + common VFS** |
-| FAT32 / VFAT | Yes | **Yes** | No | **Yes — including Unicode LFN** |
-| exFAT | Yes | **Yes** | No | **Yes on 512-byte transport; 4Kn runtime test pending** |
+| FAT32 / VFAT | Yes | **Yes** | No | **Yes — including Unicode LFN; 4Kn hardening pending** |
+| exFAT | Yes | **Yes** | No | **Yes — 512-byte integration + synthetic 4096-byte probe/mount** |
 | FAT12 | Yes | Pending | No | Pending |
 | FAT16 | Yes | Pending | No | Pending |
 | NTFS | Yes | Pending | No | Pending |
@@ -38,8 +38,6 @@ Recognition alone must never be presented as full filesystem support.
 | UDF | Yes | Pending | No | Pending |
 | HFS+ | Yes | Pending | No | Pending |
 | APFS | Yes | Pending | No | Pending |
-
-The combined storage validation baseline was green in workflow run **#285** (`36892511779`) at commit `445abb2246951b13bb5aae291713b1eeb5aa0420`. Subsequent storage changes are tracked independently until each new runtime gate is green.
 
 ## Runtime-verified paths
 
@@ -59,7 +57,7 @@ The CI disk contains:
 
 The test performs two complete QEMU boots against the same disk image.
 
-Workflow **#315** (`36962807514`) demonstrated a complete successful runtime path for ATA signature read, PIO write, CACHE FLUSH, readback, byte-for-byte comparison, AuroraFS mount/persistence, FAT32/VFAT, exFAT, and common VFS routing. Its overall workflow result was red only because the YAML still expected the obsolete pre-flush success message. Commit `8c493274fb81fbc6bc83d4856efcd19218775e27` fixes that assertion and adds explicit checks for AuroraFS mounting at `/system` and mounted-path VFS routing. The transport integration is therefore runtime-demonstrated, while the corrected CI gate remains pending until its run closes green.
+Workflow **#322** (`36963317225`) is green and verifies the block-device registry plus ATA PIO signature read, write, CACHE FLUSH, readback, byte-for-byte comparison, AuroraFS persistence/mounting, FAT32/VFAT, exFAT, and common VFS routing. The same run also verifies a synthetic exFAT volume presented through a 4096-byte logical-block device.
 
 ## Partition-sector handling
 
@@ -105,11 +103,11 @@ Runtime-verified driver capabilities:
 
 FAT32 stores file length in 32 bits, so its approximately 4 GiB per-file ceiling is a FAT32 format property, not an Aurora VFS limit.
 
-FAT32 logical-block hardening is still pending; existing runtime verification uses the 512-byte ATA compatibility transport.
+FAT32 logical-block hardening is the current next gate; existing runtime verification still uses the 512-byte ATA compatibility transport.
 
 ## exFAT
 
-Runtime-verified read-only support on the existing 512-byte transport includes:
+Runtime-verified read-only support includes:
 
 - probe and mount;
 - 64-bit `DataLength` and `ValidDataLength` handling;
@@ -122,15 +120,15 @@ Runtime-verified read-only support on the existing 512-byte transport includes:
 - reading a file from an externally generated exFAT image;
 - file access through the common VFS mount path.
 
-Logical-block hardening is now implemented in the exFAT driver:
+Logical-block hardening is implemented in the exFAT driver:
 
 - boot-record reads use a buffer sized for device blocks up to 4096 bytes;
 - the previous `device->block_size == 512` requirement has been removed;
 - exFAT filesystem sector size and device logical-block size are tracked independently;
 - mount/probe reject incompatible geometry rather than reading past a 512-byte buffer;
-- the generic byte-reading path continues to translate filesystem byte offsets through the actual device block size.
+- the generic byte-reading path translates filesystem byte offsets through the actual device block size.
 
-This change is **implemented but not yet runtime-verified on a 4096-byte logical-block exFAT device**. A dedicated synthetic 4Kn exFAT test is the next validation gate.
+Workflow **#322** runtime-verifies a synthetic 4096-byte logical-block exFAT device through probe, mount, and root `stat`, including rejection of incompatible sector geometry. This is a filesystem-layer 4Kn verification, not proof of support for every real 4Kn hardware transport.
 
 ## Current transport limitations
 
@@ -138,13 +136,13 @@ Filesystem support and hardware transport support are separate concerns.
 
 Currently:
 
-- ATA PIO provides the disk read/write compatibility transport used in the integration CI and exposes 512-byte sectors;
-- the block layer has a device registry and optional explicit flush contract; ATA PIO exposes CACHE FLUSH and the full read/write/flush path has been runtime-demonstrated in workflow #315, with the corrected green CI gate pending;
+- ATA PIO provides the disk read/write compatibility transport used in integration CI and exposes 512-byte sectors;
+- the block layer has a device registry and optional explicit flush contract; ATA PIO exposes CACHE FLUSH and the complete integration is green in workflow #322;
 - AHCI controller discovery and ABAR probing exist, but AHCI data I/O is not implemented yet;
 - NVMe is not implemented yet;
 - USB/xHCI and USB mass-storage are not implemented yet;
 - partition parsing is runtime-verified for 512-byte and 4096-byte logical blocks;
-- exFAT is logically hardened for device blocks up to 4096 bytes but awaits dedicated 4Kn runtime verification;
+- exFAT filesystem-layer handling is runtime-verified on a synthetic 4096-byte logical-block device;
 - FAT32 and AuroraFS still contain remaining filesystem-specific 512-byte assumptions.
 
 Therefore FAT32/exFAT/AuroraFS driver support being verified does **not** yet mean Aurora can access every modern physical SATA/NVMe/USB device.
