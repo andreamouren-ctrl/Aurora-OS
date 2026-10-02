@@ -162,6 +162,37 @@ uint32_t pci_read_bar32(
     );
 }
 
+bool pci_read_bar64(
+    const struct aurora_pci_device *device,
+    uint8_t bar_index,
+    uint64_t *out_address
+) {
+    if (device == NULL || out_address == NULL || bar_index >= 6u) {
+        return false;
+    }
+
+    uint32_t low = pci_read_bar32(device, bar_index);
+    if ((low & 0x1u) != 0u) {
+        return false;
+    }
+
+    uint32_t type = (low >> 1) & 0x3u;
+    uint64_t address = (uint64_t)(low & ~0xFu);
+
+    if (type == 0x2u) {
+        if (bar_index >= 5u) {
+            return false;
+        }
+        uint32_t high = pci_read_bar32(device, (uint8_t)(bar_index + 1u));
+        address |= (uint64_t)high << 32;
+    } else if (type != 0x0u) {
+        return false;
+    }
+
+    *out_address = address;
+    return address != 0u;
+}
+
 bool pci_enable_memory_bus_master(
     const struct aurora_pci_device *device
 ) {
