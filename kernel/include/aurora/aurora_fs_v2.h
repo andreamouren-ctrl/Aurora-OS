@@ -8,6 +8,7 @@
 
 #define AURORA_FS_V2_FS_BLOCK_SIZE 4096u
 #define AURORA_FS_V2_DEFAULT_BASE_BYTES 4096u
+#define AURORA_FS_V2_INLINE_EXTENT_COUNT 4u
 
 struct aurora_fs_v2_allocator {
     struct aurora_block_device *device;
@@ -84,8 +85,33 @@ bool aurora_fs_v2_extent_tree_lookup(
     uint64_t *out_contiguous_blocks
 );
 
+bool aurora_fs_v2_inode_extent_init(
+    struct aurora_block_device *device,
+    const struct aurora_fs_v2_format_geometry *geometry,
+    uint64_t inode_index,
+    uint64_t object_id,
+    uint64_t parent_object_id
+);
+
+bool aurora_fs_v2_inode_extent_append(
+    struct aurora_fs_v2_allocator *allocator,
+    const struct aurora_fs_v2_format_geometry *geometry,
+    uint64_t inode_index,
+    const struct aurora_fs_v2_extent *extent
+);
+
+bool aurora_fs_v2_inode_extent_lookup(
+    struct aurora_fs_v2_allocator *allocator,
+    const struct aurora_fs_v2_format_geometry *geometry,
+    uint64_t inode_index,
+    uint64_t logical_block,
+    uint64_t *out_physical_block,
+    uint64_t *out_contiguous_blocks
+);
+
 bool aurora_fs_v2_formatter_self_test(void);
 bool aurora_fs_v2_allocator_self_test(void);
 bool aurora_fs_v2_extent_tree_self_test(void);
+bool aurora_fs_v2_inode_extent_self_test(void);
 
 #endif
