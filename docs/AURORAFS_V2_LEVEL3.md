@@ -1,6 +1,6 @@
 # AuroraFS v2 — Level-3 extent-tree contract
 
-Status: **level-3 bounded lookup, full level-2 → level-3 structural COW growth, persistent inode publication + reopen lookup, and continued COW append beneath an already-published level-3 root are runtime-verified; persistent publication of the continued level-3 append is the active gate**.
+Status: **level-3 bounded lookup, full level-2 → level-3 structural COW growth, persistent inode publication + reopen lookup, continued COW append beneath an already-published level-3 root, and persistent publication of that continued append are runtime-verified**.
 
 This document extends the existing AuroraFS v2 `AUREXT2` extent-tree contract. The on-disk behavior is explicit and remains compatible with the existing 4 KiB node and 256-byte inode layouts.
 
@@ -67,9 +67,9 @@ Main workflow **`37001773924`** and AHCI workflow **`37001774112`** completed su
 
 The structural self-test verifies old-root byte immutability and lookup of both mappings 2,000,377 and 2,000,378 through the replacement root.
 
-## Active gate — persistent continued level-3 append
+## Runtime-verified persistent continued level-3 append
 
-The next operation composes `aurora_fs_v2_extent_tree_append_level3_cow()` with the already-verified inode publication primitive. The required ordering is:
+`aurora_fs_v2_inode_append_level3_cow_commit()` composes the structural level-3 append with the durable inode-root publication primitive. The required child-first/publication-last ordering is preserved:
 
 1. build and flush the replacement `leaf → level-1 → level-2 → level-3` hierarchy;
 2. verify the inode still references the expected old level-3 root;
@@ -77,14 +77,20 @@ The next operation composes `aurora_fs_v2_extent_tree_append_level3_cow()` with 
 4. flush the inode table;
 5. reopen allocator/inode state and resolve both mappings 2,000,377 and 2,000,378 through the persisted replacement root.
 
-The expected runtime gate is:
+The first boot-gated run exposed excessive stack use in the synthetic self-test, not a defect in the on-disk COW algorithm. The test originally kept four 4 KiB extent nodes plus a 4 KiB root snapshot on the kernel boot stack. Commit `cacdbb7d42bc580e22d1a333e3be079c1cd53584` moved those test buffers to static scratch storage without changing production COW behavior or the on-disk format.
+
+Aurora OS Bootstrap Build **`37004408218`**, head `cacdbb7d42bc580e22d1a333e3be079c1cd53584`, completed successfully. The exact gate appears on q35/AHCI, ATA first boot and ATA persistence boot:
 
 `[aurorafs-v2] persistent existing level-3 COW append + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
 
-Until that exact line appears in a green CI run, this composed path is not runtime-verified.
+The same run also proves the test no longer disturbs subsequent storage state: ATA first boot reaches `[aurorafs] persistent file created`, while ATA second boot reaches `[aurorafs] persistent file reopened` and M1 successfully.
 
 ## Failure and recovery behavior
 
 The policy remains child-first and publication-last. A failure before inode publication leaves the old root authoritative and may leak newly allocated metadata. A successful publication makes the replacement hierarchy authoritative; durable reclamation and transaction replay remain future work.
+
+## Next structural gate
+
+The next level-3 mutation gate is the first append where the final leaf below the published level-3 root is already full. The replacement path must allocate a new leaf, grow/replace its level-1 parent, replace the level-2 parent and finally replace the level-3 root, flushing bottom-up before inode publication. The old published hierarchy must remain byte-identical until publication.
 
 Synthetic 4096-byte logical-block verification is not physical 4Kn hardware certification.
