@@ -164,5 +164,11 @@ bool aurora_fs_4kn_self_test(void) {
     }
 
     log_line("[aurorafs-v2] multi-block bitmap + cross-boundary range allocator self-test passed on 512/4096-byte devices");
+
+    if (!aurora_fs_v2_formatter_self_test()) {
+        return false;
+    }
+
+    log_line("[aurorafs-v2] scalable multi-bitmap formatter + reopen/allocator integration self-test passed on 512/4096-byte devices");
     return true;
 }
