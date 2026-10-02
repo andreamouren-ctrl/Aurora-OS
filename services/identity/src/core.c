@@ -10,8 +10,77 @@ static uint64_t saturating_add_u64(uint64_t left, uint64_t right) {
     return left + right;
 }
 
+static bool bytes_are_zero(const uint8_t *bytes, size_t size) {
+    uint8_t aggregate = 0u;
+    size_t index;
+
+    if (bytes == NULL) {
+        return true;
+    }
+
+    for (index = 0u; index < size; ++index) {
+        aggregate |= bytes[index];
+    }
+
+    return aggregate == 0u;
+}
+
+static bool generate_nonzero_random_id(
+    const struct aurora_identity_random_ops *random,
+    uint8_t *out_bytes,
+    size_t size) {
+    uint32_t attempt;
+
+    if (random == NULL || random->fill_random == NULL || out_bytes == NULL || size == 0u) {
+        return false;
+    }
+
+    for (attempt = 0u; attempt < AURORA_IDENTITY_ID_GENERATION_ATTEMPTS; ++attempt) {
+        if (!random->fill_random(random->context, out_bytes, size)) {
+            return false;
+        }
+        if (!bytes_are_zero(out_bytes, size)) {
+            return true;
+        }
+    }
+
+    aurora_identity_secure_zero(out_bytes, size);
+    return false;
+}
+
+static bool creation_policy_is_valid(const struct aurora_identity_creation_policy *policy) {
+    if (policy == NULL) {
+        return false;
+    }
+
+    if (policy->kdf.algorithm != AURORA_IDENTITY_KDF_ARGON2ID ||
+        policy->kdf.parameters_version == 0u || policy->kdf.memory_kib == 0u ||
+        policy->kdf.time_cost == 0u || policy->kdf.parallelism == 0u) {
+        return false;
+    }
+
+    if (policy->salt_size == 0u || policy->salt_size > AURORA_IDENTITY_SALT_MAX_SIZE ||
+        policy->verifier_size == 0u ||
+        policy->verifier_size > AURORA_IDENTITY_VERIFIER_MAX_SIZE) {
+        return false;
+    }
+
+    if (policy->identity_record_version == 0u || policy->policy_version == 0u) {
+        return false;
+    }
+
+    return true;
+}
+
 static struct aurora_identity_auth_result auth_result(enum aurora_identity_result result) {
     struct aurora_identity_auth_result value;
+    memset(&value, 0, sizeof(value));
+    value.result = result;
+    return value;
+}
+
+static struct aurora_identity_create_result create_result(enum aurora_identity_result result) {
+    struct aurora_identity_create_result value;
     memset(&value, 0, sizeof(value));
     value.result = result;
     return value;
@@ -32,18 +101,20 @@ void aurora_identity_secure_zero(void *buffer, size_t size) {
 }
 
 bool aurora_identity_user_id_is_zero(const struct aurora_identity_user_id *user_id) {
-    uint8_t aggregate = 0u;
-    size_t index;
-
     if (user_id == NULL) {
         return true;
     }
 
-    for (index = 0u; index < AURORA_IDENTITY_USER_ID_SIZE; ++index) {
-        aggregate |= user_id->bytes[index];
+    return bytes_are_zero(user_id->bytes, AURORA_IDENTITY_USER_ID_SIZE);
+}
+
+bool aurora_identity_credential_id_is_zero(
+    const struct aurora_identity_credential_id *credential_id) {
+    if (credential_id == NULL) {
+        return true;
     }
 
-    return aggregate == 0u;
+    return bytes_are_zero(credential_id->bytes, AURORA_IDENTITY_CREDENTIAL_ID_SIZE);
 }
 
 enum aurora_identity_result aurora_identity_normalize_key(
@@ -260,6 +331,140 @@ cleanup:
     aurora_identity_secure_zero(lookup_tag, sizeof(lookup_tag));
     if (have_record) {
         aurora_identity_secure_zero(&record, sizeof(record));
+    }
+    return result;
+}
+
+struct aurora_identity_create_result aurora_identity_create_with_key(
+    const struct aurora_identity_core *core,
+    const char *candidate_key,
+    size_t candidate_key_length) {
+    struct aurora_identity_create_result result =
+        create_result(AURORA_IDENTITY_INVALID_ARGUMENT);
+    struct aurora_identity_normalized_key normalized_key;
+    struct aurora_identity_record identity;
+    struct aurora_identity_key_record key_record;
+    struct aurora_identity_key_record existing_record;
+    uint8_t lookup_tag[AURORA_IDENTITY_LOOKUP_TAG_SIZE];
+    enum aurora_identity_result normalize_result;
+    enum aurora_identity_store_result lookup_result;
+    enum aurora_identity_store_create_result create_store_result;
+    bool have_existing_record = false;
+
+    memset(&normalized_key, 0, sizeof(normalized_key));
+    memset(&identity, 0, sizeof(identity));
+    memset(&key_record, 0, sizeof(key_record));
+    memset(&existing_record, 0, sizeof(existing_record));
+    memset(lookup_tag, 0, sizeof(lookup_tag));
+
+    if (core == NULL || candidate_key == NULL ||
+        core->crypto.derive_lookup_tag == NULL ||
+        core->crypto.derive_key_verifier == NULL ||
+        core->random.fill_random == NULL ||
+        core->store.find_key_record_by_lookup_tag == NULL ||
+        core->store.create_identity_with_key == NULL) {
+        goto cleanup;
+    }
+
+    if (!creation_policy_is_valid(&core->creation_policy)) {
+        result.result = AURORA_IDENTITY_POLICY_ERROR;
+        goto cleanup;
+    }
+
+    normalize_result = aurora_identity_normalize_key(
+        candidate_key, candidate_key_length, &normalized_key);
+    if (normalize_result != AURORA_IDENTITY_OK) {
+        result.result = normalize_result;
+        goto cleanup;
+    }
+
+    if (!core->crypto.derive_lookup_tag(
+            core->crypto.context,
+            normalized_key.bytes,
+            normalized_key.length,
+            lookup_tag)) {
+        result.result = AURORA_IDENTITY_CRYPTO_ERROR;
+        goto cleanup;
+    }
+
+    lookup_result = core->store.find_key_record_by_lookup_tag(
+        core->store.context, lookup_tag, &existing_record);
+    if (lookup_result == AURORA_IDENTITY_STORE_OK) {
+        have_existing_record = true;
+        result.result = AURORA_IDENTITY_ALREADY_EXISTS;
+        goto cleanup;
+    }
+    if (lookup_result != AURORA_IDENTITY_STORE_NOT_FOUND) {
+        result.result = AURORA_IDENTITY_BACKEND_ERROR;
+        goto cleanup;
+    }
+
+    if (!generate_nonzero_random_id(
+            &core->random, identity.user_id.bytes, AURORA_IDENTITY_USER_ID_SIZE)) {
+        result.result = AURORA_IDENTITY_RANDOM_ERROR;
+        goto cleanup;
+    }
+
+    if (!generate_nonzero_random_id(
+            &core->random,
+            key_record.credential_id.bytes,
+            AURORA_IDENTITY_CREDENTIAL_ID_SIZE)) {
+        result.result = AURORA_IDENTITY_RANDOM_ERROR;
+        goto cleanup;
+    }
+
+    identity.status = AURORA_IDENTITY_RECORD_ACTIVE;
+    identity.policy_version = core->creation_policy.policy_version;
+    identity.record_version = core->creation_policy.identity_record_version;
+
+    key_record.user_id = identity.user_id;
+    memcpy(key_record.lookup_tag, lookup_tag, sizeof(key_record.lookup_tag));
+    key_record.kdf = core->creation_policy.kdf;
+    key_record.salt_size = core->creation_policy.salt_size;
+    key_record.verifier_size = core->creation_policy.verifier_size;
+    key_record.status = AURORA_IDENTITY_RECORD_ACTIVE;
+
+    if (!core->random.fill_random(
+            core->random.context, key_record.salt, key_record.salt_size)) {
+        result.result = AURORA_IDENTITY_RANDOM_ERROR;
+        goto cleanup;
+    }
+
+    if (!core->crypto.derive_key_verifier(
+            core->crypto.context,
+            normalized_key.bytes,
+            normalized_key.length,
+            &key_record.kdf,
+            key_record.salt,
+            key_record.salt_size,
+            key_record.verifier,
+            key_record.verifier_size)) {
+        result.result = AURORA_IDENTITY_CRYPTO_ERROR;
+        goto cleanup;
+    }
+
+    create_store_result = core->store.create_identity_with_key(
+        core->store.context, &identity, &key_record);
+    if (create_store_result == AURORA_IDENTITY_STORE_CREATE_CONFLICT) {
+        result.result = AURORA_IDENTITY_ALREADY_EXISTS;
+        goto cleanup;
+    }
+    if (create_store_result != AURORA_IDENTITY_STORE_CREATE_OK) {
+        result.result = AURORA_IDENTITY_BACKEND_ERROR;
+        goto cleanup;
+    }
+
+    result.result = AURORA_IDENTITY_OK;
+    result.user_id = identity.user_id;
+    result.credential_id = key_record.credential_id;
+
+cleanup:
+    aurora_identity_secure_zero(&normalized_key, sizeof(normalized_key));
+    aurora_identity_secure_zero(lookup_tag, sizeof(lookup_tag));
+    aurora_identity_secure_zero(&identity, sizeof(identity));
+    aurora_identity_secure_zero(&key_record, sizeof(key_record));
+    if (have_existing_record) {
+        aurora_identity_secure_zero(&existing_record, sizeof(existing_record));
     }
     return result;
 }
