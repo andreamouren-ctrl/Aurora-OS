@@ -63,6 +63,17 @@ jobs:
           rm -f "$SERIAL_LOG" "$DEBUG_LOG" "$STORAGE_IMAGE"
           truncate -s 16M "$STORAGE_IMAGE"
 
+          python3 - "$STORAGE_IMAGE" <<'PY'
+          import sys
+          path = sys.argv[1]
+          signature = b"AURORA-AHCI-RW-TEST-V1"
+          with open(path, "r+b") as f:
+              f.seek(-512, 2)
+              sector = bytearray(512)
+              sector[:len(signature)] = signature
+              f.write(sector)
+          PY
+
           set +e
           timeout 15s qemu-system-x86_64 \
             -M q35 \
@@ -97,6 +108,8 @@ jobs:
             exit 1
           fi
 
+          grep -F "[ahci] READ DMA EXT LBA0 via block layer verified" "$SERIAL_LOG"
+          grep -F "[ahci] signed WRITE DMA EXT + FLUSH CACHE EXT probe passed and restored" "$SERIAL_LOG"
           grep -F "[exfat] synthetic 4096-byte logical-block probe/mount self-test passed" "$SERIAL_LOG"
 
           if ! grep -F \
