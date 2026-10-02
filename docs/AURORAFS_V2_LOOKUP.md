@@ -95,7 +95,7 @@ The operation therefore:
 5. clones the level-2 root, appends one new child entry for the sibling, updates generation/range, and flushes the replacement root;
 6. leaves the old root, old full level-1 node, and old leaves untouched.
 
-The sparse self-test materializes all 126 leaf metadata nodes with 126 mappings each without allocating backing buffers for data blocks, then appends mapping 15,877. It verifies lookup of both an old and the new mapping, proves the old hierarchy is unchanged, confirms the replacement root gained a second level-1 child, reopens the allocator, and resolves the appended mapping again. It runs on synthetic 512-byte and 4096-byte logical-block devices.
+The self-test represents all 126 full historical leaves deterministically and synthesizes their 4 KiB metadata only when the block device reads them. It keeps only the allocation bitmap and a small bounded cache for newly written COW nodes, avoiding hundreds of KiB of permanent kernel BSS while still exercising the exact 15,876-mapping structural boundary. The test appends mapping 15,877, verifies lookup of an old and the new mapping, proves the old hierarchy is unchanged, confirms the replacement root gained a second level-1 child, reopens the allocator, and resolves the appended mapping again. It runs on synthetic 512-byte and 4096-byte logical-block devices.
 
 Expected boot gate:
 
