@@ -1,0 +1,160 @@
+name: Aurora NVMe Filesystem End-to-End
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  nvme-filesystem-x86_64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang lld make xorriso curl git binutils python3 \
+            qemu-system-x86 dosfstools mtools exfatprogs exfat-fuse
+
+      - name: Build Aurora OS
+        run: make iso
+
+      - name: Prepare NVMe filesystem image
+        run: |
+          set -eu
+
+          IMAGE=build/aurora-nvme-filesystem.img
+          FAT_IMAGE=build/nvme-fat32.img
+          EXFAT_IMAGE=build/nvme-exfat.img
+          EXFAT_MOUNT=build/nvme-exfat-mount
+
+          FAT_START=2048
+          FAT_SECTORS=196608
+          EXFAT_START=200704
+          EXFAT_SECTORS=131072
+
+          rm -f "$IMAGE" "$FAT_IMAGE" "$EXFAT_IMAGE"
+          rm -rf "$EXFAT_MOUNT"
+
+          truncate -s 256M "$IMAGE"
+          truncate -s $((FAT_SECTORS * 512)) "$FAT_IMAGE"
+          truncate -s $((EXFAT_SECTORS * 512)) "$EXFAT_IMAGE"
+
+          mkfs.fat -F 32 -n AURORA_FAT "$FAT_IMAGE"
+          printf 'AURORA-FAT32-EXTERNAL-IMAGE' > build/AURORA.TXT
+          printf 'AURORA-FAT32-LFN-UNICODE' > 'build/Documento Aurora è.txt'
+          mcopy -o -i "$FAT_IMAGE" build/AURORA.TXT ::/AURORA.TXT
+          mcopy -o -i "$FAT_IMAGE" \
+            'build/Documento Aurora è.txt' '::/Documento Aurora è.txt'
+
+          mkfs.exfat -L AURORAEXFAT "$EXFAT_IMAGE"
+          mkdir -p "$EXFAT_MOUNT"
+          printf 'AURORA-EXFAT-EXTERNAL-IMAGE' > 'build/Grande Aurora.txt'
+          EXFAT_LOOP=$(sudo losetup --find --show "$EXFAT_IMAGE")
+          sudo mount.exfat-fuse "$EXFAT_LOOP" "$EXFAT_MOUNT"
+          sudo cp 'build/Grande Aurora.txt' "$EXFAT_MOUNT/Grande Aurora.txt"
+          sync
+          sudo umount "$EXFAT_MOUNT"
+          sudo losetup -d "$EXFAT_LOOP"
+
+          python3 - "$IMAGE" "$FAT_START" "$FAT_SECTORS" \
+            "$EXFAT_START" "$EXFAT_SECTORS" <<'PY'
+          import struct
+          import sys
+
+          path = sys.argv[1]
+          fat_start = int(sys.argv[2])
+          fat_sectors = int(sys.argv[3])
+          exfat_start = int(sys.argv[4])
+          exfat_sectors = int(sys.argv[5])
+
+          mbr = bytearray(512)
+          mbr[:len(b"AURORA-NVME-FS-TEST-V1")] = b"AURORA-NVME-FS-TEST-V1"
+
+          def add_partition(index, ptype, first_lba, sector_count):
+              entry = 446 + index * 16
+              mbr[entry + 4] = ptype
+              mbr[entry + 5:entry + 8] = b"\xFE\xFF\xFF"
+              struct.pack_into("<I", mbr, entry + 8, first_lba)
+              struct.pack_into("<I", mbr, entry + 12, sector_count)
+
+          add_partition(0, 0x0C, fat_start, fat_sectors)
+          add_partition(1, 0x07, exfat_start, exfat_sectors)
+          mbr[510:512] = b"\x55\xAA"
+
+          with open(path, "r+b") as f:
+              f.write(mbr)
+          PY
+
+          dd if="$FAT_IMAGE" of="$IMAGE" bs=512 seek="$FAT_START" \
+            conv=notrunc status=none
+          dd if="$EXFAT_IMAGE" of="$IMAGE" bs=512 seek="$EXFAT_START" \
+            conv=notrunc status=none
+
+      - name: NVMe partition filesystem VFS smoke boot
+        run: |
+          set -u
+
+          SERIAL_LOG=build/qemu-nvme-fs-serial.log
+          DEBUG_LOG=build/qemu-nvme-fs-debug.log
+          IMAGE=build/aurora-nvme-filesystem.img
+          rm -f "$SERIAL_LOG" "$DEBUG_LOG"
+
+          set +e
+          timeout 15s qemu-system-x86_64 \
+            -M q35 \
+            -m 512M \
+            -smp 1 \
+            -vga std \
+            -cdrom build/AuroraOS-x86_64.iso \
+            -boot d \
+            -drive file="$IMAGE",format=raw,if=none,id=nvme_fs \
+            -device nvme,serial=AURORA-NVME-FS-CI,drive=nvme_fs \
+            -serial file:"$SERIAL_LOG" \
+            -d int,cpu_reset \
+            -D "$DEBUG_LOG" \
+            -display none \
+            -no-reboot \
+            -no-shutdown
+          STATUS=$?
+          set -e
+
+          if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ]; then
+            echo "NVMe filesystem QEMU exited unexpectedly with status $STATUS" >&2
+            exit "$STATUS"
+          fi
+
+          echo "===== Aurora NVMe filesystem serial log ====="
+          cat "$SERIAL_LOG"
+
+          grep -F "[ahci] active SATA ports mask: 0x0000000000000000" "$SERIAL_LOG"
+          grep -F "[ata] primary PIO disk unavailable" "$SERIAL_LOG"
+          grep -F "[storage] block device registered: nvme-ns1" "$SERIAL_LOG"
+          grep -F "[nvme] NVM Read LBA0 via block layer verified" "$SERIAL_LOG"
+          grep -F "[aurorafs] transport: NVMe" "$SERIAL_LOG"
+          grep -F "[aurorafs] mounted at /system via common filesystem framework" "$SERIAL_LOG"
+          grep -F "[vfs] AuroraFS mounted-path routing verified" "$SERIAL_LOG"
+          grep -F "[partition] discovered: 2" "$SERIAL_LOG"
+          grep -F "[fs] detected FAT32 on partition 1" "$SERIAL_LOG"
+          grep -F "[fat32] external file read verified" "$SERIAL_LOG"
+          grep -F "[fat32] VFAT long Unicode filename verified" "$SERIAL_LOG"
+          grep -F "[vfs] FAT32 mounted-path routing verified" "$SERIAL_LOG"
+          grep -F "[fs] detected exFAT on partition 2" "$SERIAL_LOG"
+          grep -F "[exfat] external file read verified" "$SERIAL_LOG"
+          grep -F "[vfs] exFAT mounted-path routing verified" "$SERIAL_LOG"
+          grep -F "[storage] NVMe partition/filesystem/VFS traversal completed" "$SERIAL_LOG"
+          grep -F "[kernel] M1 user-space bootstrap reached successfully" "$SERIAL_LOG"
+
+      - name: Upload NVMe filesystem logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aurora-NVMe-Filesystem
+          path: |
+            build/qemu-nvme-fs-serial.log
+            build/qemu-nvme-fs-debug.log
