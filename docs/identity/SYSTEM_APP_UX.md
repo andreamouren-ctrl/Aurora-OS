@@ -1,7 +1,7 @@
 # Aurora Identity System App UX
 
 Status: **Canonical design**
-Version: **0.2**
+Version: **0.3**
 
 ## 1. Product role
 
@@ -12,6 +12,7 @@ Primary modes:
 - **Pre-session Login Mode**
 - **First Profile Setup Mode**
 - **Authenticated Account Management Mode**
+- **Administrator Users & Access Mode**
 - **Lock / Re-authentication Mode**
 - **Recovery Mode**
 
@@ -62,18 +63,53 @@ The UI should avoid showing the associated display name before successful authen
 
 If multiple eligible drives are inserted, the UI may show anonymous device labels or request the user to choose a physical device without exposing account ownership.
 
-## 4. Unknown Aurora Key creation flow
+## 4. First-user bootstrap and unknown Aurora Key creation
 
-On personal systems where machine policy allows creation:
+### Fresh installation
+
+When Aurora has no committed persistent local human identity, the system enters **first-user setup**.
+
+The first successfully committed identity becomes the initial **Administrator**.
+
+The UI may clearly state that the profile being created will own initial administrative control of the installation.
+
+Conceptual flow:
 
 ```text
-User not found.
-Create a new Aurora profile with this key?
-
-[ Create ] [ Cancel ]
+No local identities
+ -> enter/create Aurora Key
+ -> identity creation
+ -> profile setup
+ -> role = Administrator
+ -> recovery/security setup
+ -> session starting
 ```
 
-`Create` transitions into profile setup only after the Identity Service provides a valid creation token.
+If creation fails before the identity transaction commits, Aurora remains in first-user setup and no Administrator is considered established.
+
+### Existing installation
+
+When at least one persistent local identity already exists, an unknown valid Aurora Key follows machine policy.
+
+Possible outcomes include:
+
+```text
+OPEN_LOCAL_CREATION
+ -> offer Standard User creation
+
+ADMIN_APPROVAL_REQUIRED
+ -> request Administrator approval
+
+ADMIN_ONLY
+ -> direct the user to an Administrator-managed creation flow
+
+CREATION_DISABLED
+ -> creation unavailable
+```
+
+Every later persistent account defaults to **Standard User** unless an authenticated Administrator explicitly changes the role.
+
+`Create` transitions into profile setup only after the Identity Service provides a valid creation token/authorization context.
 
 `Cancel` clears the candidate credential and returns to login.
 
@@ -92,6 +128,10 @@ The stable `user_id` is system-generated and never derived from the display name
 
 The setup must distinguish clearly between required security steps and optional personalization.
 
+For the first persistent identity, the UI should state that the resulting account is the initial **Administrator**.
+
+For all later persistent identities, the default role shown by the UI is **Standard User** unless an Administrator-authorized flow explicitly assigns otherwise.
+
 ## 6. Account Management Mode
 
 After login, the System App becomes the user's central identity-management interface.
@@ -106,6 +146,7 @@ Aurora Identity
 ├── Recovery
 ├── Sessions
 ├── Security Activity
+├── Users & Access        (Administrator only)
 └── Advanced / Managed Policy
 ```
 
@@ -113,7 +154,8 @@ Aurora Identity
 
 - display name;
 - avatar/personal identity presentation;
-- profile metadata that is not an authentication secret.
+- profile metadata that is not an authentication secret;
+- current local role where appropriate.
 
 ### Aurora Key
 
@@ -161,9 +203,49 @@ Shows non-secret security events such as:
 - failed attempts/throttling events;
 - credential changes;
 - drive enrollment/revocation;
-- recovery events.
+- recovery events;
+- account-role changes;
+- Administrator file-access grant/revoke events.
 
-## 7. Lock Mode
+## 7. Administrator Users & Access Mode
+
+This mode is available only to an authenticated Administrator with the required capability and may require fresh purpose-bound re-authentication.
+
+It manages local identities without exposing their Aurora Keys.
+
+Suggested functions:
+
+```text
+Users & Access
+├── Local Users
+│   ├── role: Administrator / Standard User / Guest
+│   ├── status: active / disabled / recovery-required
+│   └── promote / demote / disable where policy allows
+├── New User Policy
+│   ├── Open Local Creation
+│   ├── Administrator Approval Required
+│   ├── Administrator Only
+│   └── Creation Disabled
+├── File & Resource Access
+│   ├── READ
+│   ├── WRITE
+│   ├── CREATE
+│   ├── REMOVE
+│   ├── ENUMERATE
+│   ├── EXECUTE
+│   └── CONTROL
+└── Shared Resource Defaults
+```
+
+A newly created Standard User receives the minimum rights required for their own private profile, but no automatic access to another user's profile, existing shared data, or protected system state.
+
+The Administrator can grant or revoke access to selected resources. Grants bind internally to stable `user_id`, not display name or Aurora Key.
+
+The UI must clearly distinguish **administrative control** from **automatic ability to decrypt/read all private data**. Future Data Seal / Vault protection may remain inaccessible without the appropriate user-bound cryptographic material.
+
+The UI must prevent ordinary management operations from accidentally removing the last usable Administrator without another valid administrative/recovery path.
+
+## 8. Lock Mode
 
 The lock screen is an Aurora Identity mode, not a second account picker.
 
@@ -176,7 +258,7 @@ It should preserve the same login methods available under policy:
 
 The lock surface may show the currently locked user's chosen presentation because the identity is already locally known in the active session. This differs from the cold-boot login surface, which avoids account enumeration.
 
-## 8. Re-authentication Mode
+## 9. Re-authentication Mode
 
 Sensitive operations may invoke a compact Aurora Identity sheet/window rather than locking the whole session.
 
@@ -185,11 +267,14 @@ Examples:
 - changing Aurora Key;
 - enrolling/revoking an authenticator;
 - changing recovery configuration;
-- authorizing security-sensitive system changes.
+- authorizing security-sensitive system changes;
+- approving creation of a new persistent user;
+- promoting/demoting a user;
+- granting access to another user's private resource or broad shared storage.
 
 The re-authentication result is purpose-bound and short-lived.
 
-## 9. Recovery Mode
+## 10. Recovery Mode
 
 Recovery UI is deliberately minimal and explicit.
 
@@ -202,7 +287,9 @@ It may support:
 
 After successful recovery, Aurora should normally require creation of a new Aurora Key and may recommend reviewing/revoking enrolled authenticators.
 
-## 10. Bootstrap fallback UI
+Recovery of administrative access must not silently reveal another user's credential or encrypted private data.
+
+## 11. Bootstrap fallback UI
 
 The existing framebuffer login surface remains a minimal fallback for:
 
@@ -213,7 +300,7 @@ The existing framebuffer login surface remains a minimal fallback for:
 
 The final fallback does not need every account-management feature. It needs only the security-critical subset necessary to authenticate/recover and safely start a session or repair path.
 
-## 11. Accessibility
+## 12. Accessibility
 
 The final System App should support:
 
@@ -228,7 +315,7 @@ The final System App should support:
 
 Accessibility services must not receive secret credential text unless a specifically designed protected-input accessibility contract allows it.
 
-## 12. Privacy rules
+## 13. Privacy rules
 
 The UI must not:
 
@@ -237,9 +324,12 @@ The UI must not:
 - show full authenticator credential IDs unnecessarily;
 - expose raw audit secrets;
 - leave entered credentials visible after cancellation/failure;
-- copy Aurora Keys into normal clipboard history.
+- copy Aurora Keys into normal clipboard history;
+- expose another user's private file names merely because the viewer is not authorized to enumerate the containing resource.
 
-## 13. Visual direction
+Authenticated Administrator management screens are a separate post-authentication context and may enumerate local users/resources only as permitted by authorization policy.
+
+## 14. Visual direction
 
 Aurora Identity follows Aurora OS visual language:
 
@@ -252,7 +342,7 @@ Aurora Identity follows Aurora OS visual language:
 
 The framebuffer fallback may use a simplified procedural approximation of this language.
 
-## 14. System controls
+## 15. System controls
 
 Later versions may expose small secondary controls on login/lock surfaces:
 
@@ -264,14 +354,18 @@ Later versions may expose small secondary controls on login/lock surfaces:
 
 These controls must not create a path around authentication.
 
-## 15. UX acceptance criteria
+## 16. UX acceptance criteria
 
-The normal System App login milestone is complete when:
+The normal System App login/account milestone is complete when:
 
 - it can replace the framebuffer prototype for ordinary login;
 - it authenticates entirely through Identity Service IPC;
 - Aurora Key and enrolled removable authenticators are supported;
-- no account enumeration occurs by default;
+- no account enumeration occurs by default on cold login;
+- first-user setup clearly establishes the initial Administrator;
+- later persistent identities default to Standard User;
+- Administrator Users & Access mode can represent role and resource-grant management without exposing credentials;
+- new users receive no automatic access to another user's private or pre-existing shared data;
 - lock and re-authentication modes share the same identity contract;
 - credential-management screens never expose stored secrets;
 - compositor failure still leaves a functional fallback path.

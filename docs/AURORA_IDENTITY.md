@@ -1,9 +1,9 @@
 # Aurora Identity
 
 Status: **Canonical subsystem specification**
-Version: **0.5**
+Version: **0.6**
 
-Aurora Identity is the Aurora OS subsystem responsible for identifying a local person, authenticating approved credentials, binding that identity to a profile, starting and locking sessions, managing authenticators, protecting identity-bound data, representing platform security principals, and providing recovery paths.
+Aurora Identity is the Aurora OS subsystem responsible for identifying a local person, authenticating approved credentials, binding that identity to a profile, assigning the local account role, starting and locking sessions, managing authenticators, protecting identity-bound data, representing platform security principals, enforcing identity-side account/access policy, and providing recovery paths.
 
 The default Aurora experience intentionally avoids a traditional visible username + password pair. A user may authenticate with an **Aurora Key** or with an enrolled authenticator such as an **Aurora Identity Drive**.
 
@@ -21,6 +21,7 @@ The user-facing system application for:
 - first profile setup;
 - Aurora Key management;
 - Aurora Identity Drive / access-device management;
+- local-user and access administration for Administrators;
 - lock and re-authentication;
 - recovery;
 - session/security activity.
@@ -30,6 +31,7 @@ The user-facing system application for:
 An isolated privileged user-space service that owns:
 
 - stable identity records;
+- local role metadata;
 - Aurora Key verifier creation/checking;
 - authenticator enrollment/revocation;
 - rate limiting;
@@ -62,11 +64,56 @@ Aurora Identity
     └── future trusted-device credential
 ```
 
-Changing an Aurora Key or revoking a drive never changes `user_id` or recreates the profile.
+Changing an Aurora Key or revoking a drive never changes `user_id`, the profile, the account role, file ownership, or previously granted resource permissions.
 
 Aurora also distinguishes human identities from application, service, device, session, authenticator, recovery-authority, and managed emergency-authority identities.
 
-## 3. Aurora Key
+## 3. Local account roles and first-user bootstrap
+
+On a fresh installation with no persistent local human identity, the first successfully committed identity becomes the initial **Administrator**.
+
+This is a one-time installation bootstrap rule. Merely typing an unknown Aurora Key does not establish administrative ownership; the identity creation transaction must commit successfully.
+
+Every later persistent local identity defaults to **Standard User** unless an authenticated Administrator explicitly assigns another supported role.
+
+Additional-user creation remains controlled by Identity Service machine policy and may support:
+
+- open local creation;
+- Administrator approval required;
+- Administrator-only creation;
+- creation disabled.
+
+The login UI does not decide these rules.
+
+## 4. File and resource access policy
+
+Authentication proves who the person is; it does not automatically authorize unrestricted file access.
+
+A newly created Standard User automatically receives only the minimum access needed for their own private profile. They receive no automatic read/write access to:
+
+- another user's private profile;
+- pre-existing shared data;
+- protected system state.
+
+Access beyond the user's own baseline profile is granted explicitly through Administrator-controlled policy using stable identity principals and capability/ACL semantics.
+
+The intended rights model includes semantic rights such as:
+
+- READ;
+- WRITE;
+- CREATE;
+- REMOVE;
+- ENUMERATE;
+- EXECUTE;
+- CONTROL.
+
+Grants bind to stable `user_id` or another stable Aurora security principal, never to display name or Aurora Key.
+
+Administrator authority does **not** reveal another user's Aurora Key/recovery secret and is not a universal cryptographic bypass for future Data Seal, Identity Vault, or other user-bound encrypted data.
+
+Detailed rules are defined in [`ACCOUNT_ROLES_AND_FILE_ACCESS.md`](identity/ACCOUNT_ROLES_AND_FILE_ACCESS.md).
+
+## 5. Aurora Key
 
 Aurora Key is the baseline secret credential.
 
@@ -87,7 +134,7 @@ Target production verifier: **Argon2id** with a unique random salt and versioned
 
 The login surface does not enumerate users before authentication.
 
-## 4. Aurora Identity Drive
+## 6. Aurora Identity Drive
 
 Aurora Identity Drive is an optional removable USB authenticator.
 
@@ -107,7 +154,7 @@ The standard Identity Drive may support:
 - friendly device labels;
 - security activity history.
 
-## 5. Authentication policy
+## 7. Authentication policy
 
 Authentication factor selection belongs to the Aurora Identity Service rather than the UI.
 
@@ -133,7 +180,7 @@ Automatic authentication from an inserted drive is a user/policy-controlled conv
 
 An unknown Identity Drive never creates a new user automatically.
 
-## 6. Login behavior
+## 8. Login behavior
 
 Cold-login experience:
 
@@ -154,12 +201,24 @@ KEY_ENTRY
  -> SESSION_ACTIVE
 ```
 
-On personal machines where policy permits unknown-key creation:
+Fresh-installation first-user flow:
+
+```text
+NO_LOCAL_IDENTITIES
+ -> FIRST_USER_SETUP
+ -> IDENTITY_COMMIT
+ -> role = ADMINISTRATOR
+ -> PROFILE_SETUP
+ -> SESSION_STARTING
+```
+
+Existing-installation unknown-key flow, when machine policy permits creation:
 
 ```text
 AUTHENTICATING
- -> CREATION_AVAILABLE
+ -> CREATION_AVAILABLE / APPROVAL_REQUIRED
  -> PROFILE_SETUP
+ -> role = STANDARD_USER by default
  -> SESSION_STARTING
 ```
 
@@ -175,7 +234,7 @@ DEVICE_INSERTED
 
 Authentication is asynchronous from the UI perspective.
 
-## 7. Security invariants
+## 9. Security invariants
 
 Aurora Identity must preserve these rules:
 
@@ -197,8 +256,15 @@ Aurora Identity must preserve these rules:
 16. Aurora Key is never used directly as a durable data-encryption key.
 17. Human, application, service, device, and session identities remain distinct security principals.
 18. Managed Emergency Access is never implemented as a hidden universal backdoor.
+19. The first successfully committed persistent local human identity becomes the initial Administrator.
+20. Every later persistent identity defaults to Standard User unless explicitly promoted.
+21. A new user automatically receives only their own minimum private-profile access.
+22. Access to another user's private data, existing shared data, or protected system state is denied until explicitly granted by authorized policy.
+23. File/resource grants bind to stable security principals, not Aurora Keys or display names.
+24. Administrator status does not reveal credentials or silently bypass identity-bound cryptographic protection.
+25. Ordinary management flows must not accidentally remove the last usable Administrator without another valid administrative/recovery path.
 
-## 8. IPC and authorization model
+## 10. IPC and authorization model
 
 Aurora Identity components communicate through bounded, versioned, capability-authorized IPC.
 
@@ -208,8 +274,9 @@ Canonical participants include:
 - Bootstrap / Recovery Login Surface;
 - Aurora Identity Service;
 - Session Manager;
+- Permission Broker / resource authorization layer;
 - removable-media/authenticator broker;
-- Permission Broker and future platform-identity consumers;
+- future platform-identity consumers;
 - explicitly authorized recovery/admin components.
 
 Long operations are asynchronous and cancellable.
@@ -218,13 +285,17 @@ Credential bytes are never echoed in replies, logs, or diagnostics.
 
 Successful authentication returns an opaque one-time session grant rather than identity secrets.
 
-## 9. Session model
+Administrative role/access changes use authenticated, capability-authorized operations and should require purpose-bound re-authentication where policy marks them sensitive.
+
+## 11. Session model
 
 Successful authentication returns an opaque one-time session grant bound to `user_id`.
 
 The Session Manager consumes that grant and opens the user's profile/capabilities.
 
 The Session Manager never receives the Aurora Key or authenticator private secret.
+
+The active session also carries the identity/role context needed for later authorization decisions. Actual resource operations remain capability/permission checked rather than trusting a broad global administrator flag.
 
 Aurora Identity also owns the authentication surface for:
 
@@ -234,7 +305,7 @@ Aurora Identity also owns the authentication surface for:
 
 Advanced session protection can include Session Seal, Instant Lock, Ghost Session, Guest Identity, one-time access, Profile Layers, and Lock Zones.
 
-## 10. Recovery model
+## 12. Recovery model
 
 Recovery uses separate credentials/methods such as:
 
@@ -251,7 +322,9 @@ If all credentials and recovery methods are lost, Aurora does not bypass authent
 
 Managed Emergency Access / Break Glass is a separate, explicitly provisioned recovery/administration path and is disabled by default on personal installations.
 
-## 11. Current implementation state
+Recovery/admin paths must not silently expose another user's authentication secret or encrypted private data.
+
+## 13. Current implementation state
 
 Already implemented in the repository:
 
@@ -264,14 +337,17 @@ Already implemented in the repository:
 - masking;
 - Backspace / Esc / Enter handling;
 - length policy handling;
+- isolated host-testable Identity core with authentication, identity creation, Key rotation, and one-time Session Grant logic;
 - no fake persistent authentication in the kernel.
 
-Not yet implemented:
+Not yet production-integrated:
 
-- persistent VFS/system storage required by Identity Service;
+- protected persistent Identity storage;
 - secure credential RNG suitable for production identity generation;
 - reviewed Argon2id integration;
-- persistent identity database;
+- production persistent identity database;
+- enforced Administrator/Standard User role lifecycle;
+- enforced file/resource ownership/ACL policy;
 - isolated production Aurora Identity Service;
 - Session Manager authenticated profile bootstrap;
 - compositor-backed Aurora Identity System App;
@@ -279,7 +355,7 @@ Not yet implemented:
 - recovery credential implementation;
 - secure hardware authenticator support.
 
-## 12. Required implementation order
+## 14. Required implementation order
 
 The canonical dependency order is:
 
@@ -289,20 +365,22 @@ The canonical dependency order is:
 4. secure RNG and reviewed Argon2id path;
 5. Aurora Identity Service v1;
 6. versioned IPC protocol and capability enforcement;
-7. persistent identity records and rate limiting;
-8. Session Manager and authenticated profile bootstrap;
-9. compositor-backed Aurora Identity System App;
-10. USB mass-storage/removable-device broker;
-11. Aurora Identity Drive v1;
-12. recovery v1;
-13. secure hardware authenticators;
-14. Application Identity / Service Identity integration with platform security;
-15. Data Seal and advanced session/data protection;
-16. Identity Migration and Identity Capsule workflows;
-17. optional trusted-device / multi-device federation;
-18. optional Biometric Bridge and managed Break Glass when their security foundations exist.
+7. persistent identity records, role metadata, and rate limiting;
+8. first-user Administrator bootstrap and later Standard User assignment;
+9. Permission Broker/resource-authorization contract and ownership/ACL enforcement;
+10. Session Manager and authenticated profile bootstrap;
+11. compositor-backed Aurora Identity System App including Administrator Users & Access mode;
+12. USB mass-storage/removable-device broker;
+13. Aurora Identity Drive v1;
+14. recovery v1;
+15. secure hardware authenticators;
+16. Application Identity / Service Identity integration with platform security;
+17. Data Seal and advanced session/data protection;
+18. Identity Migration and Identity Capsule workflows;
+19. optional trusted-device / multi-device federation;
+20. optional Biometric Bridge and managed Break Glass when their security foundations exist.
 
-## 13. Canonical detailed documentation
+## 15. Canonical detailed documentation
 
 Detailed subsystem specifications live under [`docs/identity/`](identity/README.md):
 
@@ -312,6 +390,7 @@ Detailed subsystem specifications live under [`docs/identity/`](identity/README.
 - [`AURORA_KEY.md`](identity/AURORA_KEY.md)
 - [`IDENTITY_DRIVE.md`](identity/IDENTITY_DRIVE.md)
 - [`AUTHENTICATION_POLICY.md`](identity/AUTHENTICATION_POLICY.md)
+- [`ACCOUNT_ROLES_AND_FILE_ACCESS.md`](identity/ACCOUNT_ROLES_AND_FILE_ACCESS.md)
 - [`IDENTITY_SERVICE.md`](identity/IDENTITY_SERVICE.md)
 - [`IPC_PROTOCOL.md`](identity/IPC_PROTOCOL.md)
 - [`SYSTEM_APP_UX.md`](identity/SYSTEM_APP_UX.md)
@@ -327,7 +406,7 @@ Architecture decisions:
 - [`ADR-0003 — Aurora Identity Service / System App Split`](adr/ADR-0003-aurora-identity-service-app-split.md)
 - [`ADR-0004 — Aurora Identity removable authenticators`](adr/ADR-0004-aurora-identity-removable-authenticators.md)
 
-## 14. Advanced capability horizon
+## 16. Advanced capability horizon
 
 Aurora Identity is designed to grow beyond cold-boot login into the trusted identity boundary of Aurora OS.
 
@@ -354,14 +433,18 @@ The architecture must be able to support, without weakening the local-first core
 
 These capabilities are specified in [`ADVANCED_FEATURES.md`](identity/ADVANCED_FEATURES.md) and [`PLATFORM_IDENTITY_EXTENSIONS.md`](identity/PLATFORM_IDENTITY_EXTENSIONS.md). They are not all V1 requirements. Core Aurora Key authentication, recovery and ordinary local login must remain independent from cloud or multi-device availability.
 
-## 15. Production readiness gate
+## 17. Production readiness gate
 
 Aurora Identity must not be described as production-ready until at least:
 
 - secure RNG has been validated;
 - Argon2id implementation/dependency has been reviewed and benchmarked;
 - persistent identity storage is transactional and corruption-tested;
-- throttle state survives reboot;
+- role metadata and first-user Administrator bootstrap are transactional and corruption-tested;
+- unauthorized role escalation is negative-tested;
+- file/resource authorization prevents cross-user access without grants;
+- last-Administrator safety is tested;
+- throttle state survives reboot safely;
 - session grants resist replay;
 - IPC parsing/authorization has been fuzzed and negative-tested;
 - secret leakage has been audited across logs/crash paths;
@@ -371,8 +454,8 @@ Aurora Identity must not be described as production-ready until at least:
 - offline authentication and recovery paths are verified;
 - biometric, data-seal, migration, and emergency-access paths are independently security-reviewed before being enabled in production.
 
-## 16. Scope freeze
+## 18. Scope freeze
 
-With the core specification, advanced capability catalogue, platform-identity extensions, and consolidated function catalogue, Aurora Identity's high-level functional architecture is considered sufficiently complete for implementation planning.
+With the core specification, account-role/file-access policy, advanced capability catalogue, platform-identity extensions, and consolidated function catalogue, Aurora Identity's high-level functional architecture is considered sufficiently complete for implementation planning.
 
 Future ideas remain possible, but the project should now prioritize implementing and validating the existing dependency chain instead of continually expanding the conceptual scope.

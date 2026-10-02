@@ -1,14 +1,14 @@
 # Aurora Identity Documentation
 
 Status: **Canonical subsystem specification**
-Version: **0.5**
+Version: **0.6**
 
-Aurora Identity is the Aurora OS subsystem responsible for local identity, authentication, profile binding, session bootstrap, lock/re-authentication, recovery, trusted authenticators, platform principals, and future device federation.
+Aurora Identity is the Aurora OS subsystem responsible for local identity, authentication, profile binding, session bootstrap, lock/re-authentication, recovery, trusted authenticators, local account roles/access policy, platform principals, and future device federation.
 
 The subsystem is intentionally split into three layers:
 
-1. **Aurora Identity System App** — user-facing login, profile, credential, device, recovery, and lock-screen surfaces.
-2. **Aurora Identity Service** — isolated privileged user-space service that owns identity records, credential verification, policy, rate limiting, authenticator enrollment, and authenticated-session creation.
+1. **Aurora Identity System App** — user-facing login, profile, credential, device, recovery, local-user/access administration, and lock-screen surfaces.
+2. **Aurora Identity Service** — isolated privileged user-space service that owns identity records, credential verification, policy, roles, rate limiting, authenticator enrollment, and authenticated-session creation.
 3. **Bootstrap / Recovery Login Surface** — minimal framebuffer login path retained outside the normal desktop stack so authentication and recovery remain possible if the compositor or system app cannot start.
 
 The kernel provides mechanisms only: process isolation, capabilities, IPC, protected input/storage access, secure random primitives when available, and session-boundary primitives. Identity policy and credential databases do not belong in the kernel.
@@ -21,10 +21,11 @@ The kernel provides mechanisms only: process isolation, capabilities, IPC, prote
 - [`SECURITY_MODEL.md`](SECURITY_MODEL.md) — threats, security invariants, credential handling, anti-enumeration, throttling, revocation, and audit rules.
 - [`AURORA_KEY.md`](AURORA_KEY.md) — Aurora Key format, normalization, generation, storage, change, and verifier rules.
 - [`IDENTITY_DRIVE.md`](IDENTITY_DRIVE.md) — removable-drive authenticator model, enrollment, scanning, challenge flow, revocation, and secure-hardware evolution.
-- [`AUTHENTICATION_POLICY.md`](AUTHENTICATION_POLICY.md) — factor classes, MFA, Drive + PIN, auto-login, managed devices, high-security mode, and safe defaults.
+- [`AUTHENTICATION_POLICY.md`](AUTHENTICATION_POLICY.md) — factor classes, MFA, Drive + PIN, auto-login, local-account creation policy, managed devices, high-security mode, and safe defaults.
+- [`ACCOUNT_ROLES_AND_FILE_ACCESS.md`](ACCOUNT_ROLES_AND_FILE_ACCESS.md) — first-user Administrator bootstrap, later Standard User defaults, Administrator-managed file/resource grants, profile isolation, and last-Administrator safety.
 - [`IDENTITY_SERVICE.md`](IDENTITY_SERVICE.md) — service responsibilities, authentication state machines, and capability expectations.
 - [`IPC_PROTOCOL.md`](IPC_PROTOCOL.md) — versioned IPC operations, message bounds, cancellation, capability classes, session grants, and re-authentication proofs.
-- [`SYSTEM_APP_UX.md`](SYSTEM_APP_UX.md) — login, creation, lock screen, credential management, device management, and fallback UX.
+- [`SYSTEM_APP_UX.md`](SYSTEM_APP_UX.md) — login, creation, lock screen, credential management, device management, Administrator Users & Access mode, and fallback UX.
 - [`STORAGE_AND_DATA_MODEL.md`](STORAGE_AND_DATA_MODEL.md) — stable identity records, credential tables, authenticator records, session metadata, migrations, and protected storage requirements.
 - [`SESSION_RECOVERY.md`](SESSION_RECOVERY.md) — authenticated sessions, lock/logout, recovery credentials, trusted devices, and emergency recovery behavior.
 - [`IMPLEMENTATION_ROADMAP.md`](IMPLEMENTATION_ROADMAP.md) — dependency-ordered implementation plan and acceptance criteria.
@@ -52,7 +53,12 @@ Aurora Identity must always preserve these rules:
 - recovery is a distinct credential path, not reversible Aurora Key storage;
 - the bootstrap/recovery path must remain usable even when normal desktop services fail;
 - biometric data is minimized and isolated from ordinary applications;
-- emergency administrative recovery is explicit, scoped, and never a hidden master credential.
+- emergency administrative recovery is explicit, scoped, and never a hidden master credential;
+- the first successfully committed persistent local human identity becomes the initial Administrator;
+- every later persistent identity defaults to Standard User unless explicitly promoted;
+- a new user automatically controls only their own private profile baseline and receives no automatic read/write access to another user's private or pre-existing shared data;
+- access grants bind to stable `user_id`/security principals and are explicitly revocable;
+- Administrator status manages policy but does not reveal credentials or create a universal cryptographic bypass for protected user data.
 
 ## Authentication methods
 
@@ -72,6 +78,23 @@ Aurora Identity
 
 The Aurora Key remains the baseline local credential. Other authenticators are alternatives or additional factors; they do not replace the stable identity record.
 
+## Local roles and file access
+
+Canonical local-role bootstrap:
+
+```text
+first committed persistent identity -> Administrator
+later persistent identities          -> Standard User by default
+```
+
+Additional-user creation remains governed by explicit machine policy.
+
+A new Standard User automatically receives only the minimum access needed for their own private profile. Access to another user's data, existing shared areas, or protected system resources is denied until an Administrator-controlled policy explicitly grants the required rights.
+
+Role and resource grants bind internally to stable `user_id`, not Aurora Key or display name.
+
+Detailed rules are in [`ACCOUNT_ROLES_AND_FILE_ACCESS.md`](ACCOUNT_ROLES_AND_FILE_ACCESS.md).
+
 ## Capability horizons
 
 Aurora Identity development is intentionally divided into horizons:
@@ -81,7 +104,9 @@ Aurora Identity development is intentionally divided into horizons:
 - Aurora Key;
 - Identity Service;
 - persistent local identity records;
+- first-user Administrator bootstrap and later Standard User role assignment;
 - authenticated session bootstrap;
+- baseline private-profile isolation and Administrator-controlled resource grants;
 - lock/logout/re-authentication;
 - recovery;
 - Aurora Identity System App.
@@ -136,6 +161,7 @@ Not yet implemented:
 - secure random service suitable for credential generation;
 - audited Argon2id verifier path;
 - persistent identity database;
+- enforced local role/file-access policy;
 - removable-storage stack required for Aurora Identity Drive;
 - session manager and authenticated profile bootstrap;
 - compositor-backed Aurora Identity System App;
@@ -143,6 +169,6 @@ Not yet implemented:
 
 ## Documentation completion gate
 
-With the core specification, advanced capability catalogue, platform extensions, and consolidated function catalogue, the high-level Aurora Identity feature architecture is considered sufficiently complete to focus on implementation.
+With the core specification, account-role/access policy, advanced capability catalogue, platform extensions, and consolidated function catalogue, the high-level Aurora Identity feature architecture is considered sufficiently complete to focus on implementation.
 
-Security-sensitive implementation changes must update the matching specification or ADR when they alter credential formats, trust boundaries, factor policy, IPC authorization, persistent records, encryption-key lifecycle, platform principal identity, or recovery behavior.
+Security-sensitive implementation changes must update the matching specification or ADR when they alter credential formats, trust boundaries, account roles, file/resource authorization, factor policy, IPC authorization, persistent records, encryption-key lifecycle, platform principal identity, or recovery behavior.

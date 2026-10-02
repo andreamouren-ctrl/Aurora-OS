@@ -1,17 +1,17 @@
 # Aurora Identity Account Roles and File Access Policy
 
 Status: **Canonical design**
-Version: **0.1**
+Version: **0.2**
 
 ## 1. Purpose
 
-This document defines Aurora OS local account bootstrap, default user roles, administrative account creation policy, and the relationship between Aurora Identity and file/data access authorization.
+This document defines Aurora OS local-account bootstrap, default user roles, administrative access management, and the relationship between Aurora Identity and file/data authorization.
 
 Aurora Identity answers **who the person is**. File access policy answers **which resources that identity may read, modify, enumerate, execute, share, or administer**. These responsibilities are related but remain separate security layers.
 
 ## 2. First-user bootstrap rule
 
-On a fresh Aurora OS installation with no existing local human identity, the first successfully created persistent local identity becomes the initial **Administrator**.
+On a fresh Aurora OS installation with no existing persistent local human identity, the first successfully committed identity becomes the initial **Administrator**.
 
 The bootstrap promotion is a one-time installation-state transition:
 
@@ -25,13 +25,13 @@ role = ADMINISTRATOR
 installation ownership established
 ```
 
-The rule is based on the first successfully committed persistent identity, not merely the first Aurora Key typed into the login surface.
+The rule is based on the first identity transaction that commits successfully, not merely the first Aurora Key typed into the login surface.
 
-If first-user setup is interrupted before the identity transaction commits, Aurora remains in first-user bootstrap state.
+If setup is interrupted before the identity transaction commits, Aurora remains in first-user bootstrap state.
 
 ## 3. Subsequent-user default
 
-Every later persistent local identity is created as a **Standard User** unless an authenticated administrator explicitly assigns a different supported role.
+Every later persistent local identity is created as a **Standard User** unless an authenticated Administrator explicitly assigns another supported role.
 
 Aurora must never silently promote a later account because of creation order, profile name, credential type, removable authenticator, or recovery method.
 
@@ -39,12 +39,12 @@ Baseline roles:
 
 ### Administrator
 
-An Administrator may, subject to re-authentication and policy:
+An Administrator may, subject to re-authentication and machine policy:
 
-- approve or create additional local users;
+- approve or create additional local users when policy requires it;
 - change another user's system role where permitted;
 - grant, reduce, or revoke file/resource access rights;
-- configure shared storage policy;
+- configure shared-storage policy;
 - manage machine-wide security and account-creation policy;
 - disable or suspend local identities;
 - invoke explicitly supported administrative recovery flows;
@@ -64,29 +64,24 @@ A Standard User:
 
 ### Guest
 
-Guest Identity is a restricted, temporary identity class. It receives only explicitly defined temporary resources and must not inherit Standard User or Administrator access by default.
+Guest Identity is a restricted temporary identity class. It receives only explicitly defined temporary resources and must not inherit Standard User or Administrator access by default.
 
 ## 4. User creation policy
 
-After the initial Administrator exists, creating a new persistent local user is an administrative operation by default.
+The first-user bootstrap path is special because no Administrator exists yet. Once installation ownership has been established, creation of additional persistent users follows machine policy.
 
-Canonical personal-system policy:
+Supported policy classes may include:
 
-```text
-FIRST USER
-    ↓
-Administrator
-    ↓
-Administrator approves new identity creation
-    ↓
-new identity = Standard User
-```
+- `OPEN_LOCAL_CREATION` — an unknown valid Aurora Key may offer creation of a Standard User;
+- `ADMIN_APPROVAL_REQUIRED` — creation may be initiated at login but requires explicit Administrator approval before commit;
+- `ADMIN_ONLY` — only an authenticated Administrator can start persistent-user creation;
+- `CREATION_DISABLED` — no additional persistent local users may be created through normal flows.
 
-An installation may later support alternate managed policies such as delegated account creation, but they must be explicit and capability-protected.
+Regardless of creation mode, every later persistent user defaults to **Standard User**.
 
-An unknown Aurora Key alone is never sufficient proof that the person is authorized to create another persistent account once installation ownership has been established.
+An unknown Aurora Key never grants Administrator status merely because it is new.
 
-The pre-session UI may still detect that the submitted Key does not match an existing identity, but the Identity Service must apply machine policy before exposing a creation path.
+The Identity Service, not the login UI, decides whether a creation path is available.
 
 ## 5. File-access model
 
@@ -106,24 +101,48 @@ Exact kernel capability bits and filesystem ACL representation may evolve, but t
 
 ## 6. Default profile isolation
 
-A new persistent user receives access to their own profile namespace and explicitly shared resources only.
+A newly created persistent Standard User automatically receives the minimum rights required to use **their own private profile**.
+
+They do **not** automatically receive read/write access to pre-existing files, another user's profile, shared workspaces, or protected system data.
 
 Conceptual layout:
 
 ```text
 /system/             system-owned; ordinary users cannot modify
-/users/<user-A>/     user A + explicitly authorized principals
-/users/<user-B>/     user B + explicitly authorized principals
-/shared/             rights defined by sharing/admin policy
+/users/<user-A>/     user A private profile
+/users/<user-B>/     user B private profile
+/shared/             access only through explicit policy/grants
 ```
 
-The physical path layout is illustrative; authorization must not depend solely on obscurity or path naming.
+The physical path layout is illustrative; authorization must not depend solely on path naming.
 
-A Standard User must not gain read/write access to another user's private files simply by knowing a path.
+Knowing another user's file path must never be sufficient to read or modify it.
 
-## 7. Administrator file permissions
+## 7. Administrator-granted file access
 
-The Administrator manages authorization policy, but administrator role and data-reading authority are not identical concepts.
+Access beyond a user's own private profile is granted explicitly by an Administrator or by a policy that the Administrator controls.
+
+A new user therefore starts from a deny-by-default posture for existing/shared resources.
+
+Examples:
+
+```text
+/shared/projects     READ
+/shared/projects     READ + WRITE
+/shared/media        READ
+/users/alice/private NONE
+/system/config       NONE
+```
+
+The grant binds to stable `user_id`, never display name or Aurora Key.
+
+Changing an Aurora Key therefore does not change file ownership or previously granted access.
+
+An Administrator may revoke or reduce a grant later without deleting the identity.
+
+## 8. Administrator authority vs private-data access
+
+The Administrator manages authorization policy, but administrative authority and automatic data-reading authority are not identical concepts.
 
 Aurora therefore distinguishes:
 
@@ -133,34 +152,17 @@ administrative authority
 automatic decryption/read authority over all private user data
 ```
 
-For ordinary unsealed shared/local files, policy may allow an administrator to grant themselves or others access through an explicit, auditable authorization operation.
+For ordinary unsealed files, policy may permit an Administrator to grant themselves or others access through an explicit auditable operation.
 
 For future Aurora Data Seal, Identity Vault, non-exportable keys, and identity-bound encrypted data, administrative control must not silently bypass unavailable user-bound cryptographic keys.
 
-This preserves the ability to administer the machine without introducing a universal hidden master credential.
-
-## 8. Granting access to new users
-
-When a new Standard User is created, the Administrator can assign resource access using explicit grants.
-
-Examples:
-
-```text
-/shared/projects     READ
-/shared/projects     READ + WRITE
-/shared/media        READ
-/users/alice/private NONE
-```
-
-The grant should bind to the stable `user_id`, not display name or Aurora Key.
-
-Changing a user's Aurora Key therefore does not alter file ownership or previously granted permissions.
+This preserves machine administration without introducing a universal hidden master credential.
 
 ## 9. Ownership and sharing
 
 Resources may have an owning identity or system/service principal plus an authorization policy.
 
-Ownership should be associated with stable identity principals such as:
+Ownership should be associated with stable principals such as:
 
 - human `user_id`;
 - Aurora Service Identity;
@@ -175,10 +177,11 @@ A user who owns a shareable resource may grant only rights allowed by machine po
 
 Security-sensitive administrative actions should require purpose-bound re-authentication, including:
 
-- creating a new persistent user after first setup;
+- approving or creating a new persistent user when policy requires Administrator involvement;
 - promoting a Standard User to Administrator;
 - demoting or disabling an Administrator;
 - granting access to another user's private resource;
+- granting broad read/write access to shared data;
 - changing machine-wide sharing defaults;
 - modifying protected system-state access policy.
 
@@ -186,7 +189,7 @@ The re-authentication proof must identify the operation being authorized and exp
 
 ## 11. Last-administrator safety
 
-Aurora must prevent ordinary UI/policy operations from accidentally leaving a normal personal installation with no usable Administrator.
+Aurora must prevent ordinary UI/policy operations from accidentally leaving a normal installation with no usable Administrator.
 
 Before demoting, disabling, deleting, or irrecoverably locking the last active Administrator, Aurora should require one of:
 
@@ -202,7 +205,7 @@ Administrative identity and authorization changes are security events.
 
 Audit metadata should include, without logging secrets:
 
-- acting administrator `user_id` or service identity;
+- acting Administrator `user_id` or authorized service identity;
 - target identity/resource;
 - action class;
 - rights before/after where appropriate;
@@ -234,20 +237,21 @@ No filesystem driver should independently decide that an Aurora Key is valid, an
 
 ## 14. Security invariants
 
-1. First committed local human identity becomes the initial Administrator.
+1. First committed persistent local human identity becomes the initial Administrator.
 2. Later persistent identities default to Standard User.
-3. Later account creation is administrator/policy controlled.
+3. Additional-user creation follows explicit machine policy.
 4. Roles bind to stable `user_id`, never Aurora Key or display name.
-5. A new user has no automatic access to another user's private files.
-6. File rights are explicit and independently revocable.
-7. Administrator role does not reveal Aurora Keys or recovery secrets.
-8. Administrator role is not a universal cryptographic bypass for sealed/private data.
-9. Sensitive role/access changes require auditable authorization and, where configured, fresh re-authentication.
-10. The system prevents accidental loss of the last usable Administrator through ordinary management flows.
+5. A new user automatically controls only the minimum private profile resources required for their own session.
+6. Access to existing/shared/other-user resources is denied until explicitly granted by Administrator-controlled policy.
+7. File rights are explicit and independently revocable.
+8. Administrator role does not reveal Aurora Keys or recovery secrets.
+9. Administrator role is not a universal cryptographic bypass for sealed/private data.
+10. Sensitive role/access changes require auditable authorization and, where configured, fresh re-authentication.
+11. The system prevents accidental loss of the last usable Administrator through ordinary management flows.
 
 ## 15. Implementation dependencies
 
-This policy can be documented and represented before the final filesystem authorization layer exists, but production enforcement depends on:
+This policy can be represented before the final filesystem authorization layer exists, but production enforcement depends on:
 
 - stable persistent `user_id` records;
 - role metadata in protected Identity state;

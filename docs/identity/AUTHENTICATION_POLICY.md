@@ -1,11 +1,11 @@
 # Aurora Identity Authentication Policy
 
 Status: **Canonical policy draft**
-Version: **0.1**
+Version: **0.2**
 
 ## 1. Purpose
 
-This document defines how Aurora Identity combines credentials, authenticators, machine policy, user convenience settings, and high-security modes.
+This document defines how Aurora Identity combines credentials, authenticators, machine policy, user convenience settings, local-account creation, role changes, and high-security modes.
 
 It does not define cryptographic algorithms in detail; those belong to the credential-specific specifications.
 
@@ -103,16 +103,24 @@ Policy enforcement belongs to the Identity Service and privileged policy store.
 
 Ordinary applications cannot modify these controls.
 
-## 8. Unknown credential behavior
+## 8. First-user and unknown-credential behavior
+
+A fresh Aurora OS installation with no persistent local human identity enters **first-user bootstrap**.
+
+The first identity that is successfully created and committed becomes the initial **Administrator**.
+
+After that bootstrap transition, every later persistent local identity defaults to **Standard User** unless an authenticated Administrator explicitly changes the role.
 
 On personal systems, an unknown Aurora Key may produce a profile-creation offer only when machine policy allows it.
 
-Possible creation policies:
+Possible post-bootstrap creation policies include:
 
 - `OPEN_LOCAL_CREATION`;
-- `OWNER_APPROVAL_REQUIRED`;
+- `ADMIN_APPROVAL_REQUIRED`;
 - `ADMIN_ONLY`;
 - `CREATION_DISABLED`.
+
+An unknown Aurora Key never receives Administrator status merely because it is new.
 
 An unknown Identity Drive never creates a new account automatically.
 
@@ -128,6 +136,8 @@ Before successful authentication, Aurora should avoid displaying:
 - detailed disabled/revoked-account state.
 
 Where UX requires a creation offer, the service reveals only that machine policy permits creation from the submitted credential context.
+
+The special first-user bootstrap state may indicate that initial setup is required, but it still must not expose a fabricated/default account name.
 
 ## 10. Auto-login safety
 
@@ -152,11 +162,34 @@ Fresh re-authentication may be required for:
 - changing recovery policy;
 - changing high-security policy;
 - exporting recovery material;
-- disabling a required factor.
+- disabling a required factor;
+- approving creation of a new persistent user when machine policy requires Administrator approval;
+- promoting or demoting a local user;
+- granting broad read/write access to existing/shared/private resources;
+- changing machine-wide file-access defaults.
 
 The resulting proof is purpose-bound and short-lived.
 
-## 12. Credential-loss rules
+## 12. Local roles and file-access authorization
+
+Authentication proves identity; it does not automatically authorize every file operation.
+
+Canonical local role behavior:
+
+```text
+first committed identity -> ADMINISTRATOR
+later identities          -> STANDARD_USER by default
+```
+
+A new Standard User receives only the minimum rights required for their own private profile. Access to another user's files, pre-existing shared resources, or protected system state is not granted automatically.
+
+Additional file/resource rights are granted through Administrator-controlled authorization policy and bind to stable `user_id`, not to Aurora Key or display name.
+
+Administrator role does not reveal another user's Aurora Key, recovery secret, or automatically bypass future Data Seal / Vault cryptographic protection.
+
+Detailed policy is defined in [`ACCOUNT_ROLES_AND_FILE_ACCESS.md`](ACCOUNT_ROLES_AND_FILE_ACCESS.md).
+
+## 13. Credential-loss rules
 
 Loss of one authenticator must not destroy the profile.
 
@@ -166,7 +199,7 @@ If only recovery remains, recovery must establish a fresh normal credential befo
 
 If all normal and recovery credentials are lost, Aurora does not bypass authentication.
 
-## 13. Lock-screen behavior
+## 14. Lock-screen behavior
 
 Unlock may follow a different policy from cold boot while preserving the same service authority.
 
@@ -179,9 +212,9 @@ Examples permitted by policy:
 
 A pre-existing desktop session is not itself proof of identity after the system enters the locked state.
 
-## 14. Policy persistence
+## 15. Policy persistence
 
-Authentication policy is protected system state.
+Authentication, local-role, and account-creation policy are protected system state.
 
 Updates must be:
 
@@ -192,19 +225,22 @@ Updates must be:
 - recoverable after interrupted writes;
 - protected from ordinary application modification.
 
-## 15. Safe defaults
+## 16. Safe defaults
 
 Until the user opts into a different policy, Aurora should prefer:
 
 - offline-capable login;
 - Aurora Key available;
 - account enumeration disabled;
+- first persistent identity becomes Administrator;
+- later persistent identities default to Standard User;
+- new users receive no automatic access to another user's private or pre-existing shared files;
 - automatic drive login disabled by default or explicitly confirmed during enrollment;
 - independent authenticator revocation;
 - recovery enrollment encouraged before destructive credential changes;
 - no cloud dependency.
 
-## 16. Acceptance criteria
+## 17. Acceptance criteria
 
 Authentication policy implementation is complete when:
 
@@ -212,8 +248,11 @@ Authentication policy implementation is complete when:
 - each authenticator has explicit status and policy;
 - MFA can be represented without changing `user_id`;
 - auto-login is user/policy controlled;
+- first-user Administrator bootstrap is represented transactionally;
+- later identities default to Standard User;
 - creation policy is machine-configurable;
+- role changes and sensitive access grants are capability protected and auditable;
 - recovery cannot silently weaken normal authentication;
 - managed/high-security policy is capability protected;
 - policy updates survive crashes transactionally;
-- tests cover conflicting policy, lockout, revocation, and factor-loss cases.
+- tests cover conflicting policy, lockout, revocation, factor-loss, first-user bootstrap, last-Administrator safety, and unauthorized role/access changes.
