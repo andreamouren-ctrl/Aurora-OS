@@ -27,7 +27,11 @@ Filesystem drivers remain transport-agnostic. AuroraFS, FAT32, exFAT and future 
 
 ### Runtime verification
 
-Pending. The dedicated `Aurora NVMe Probe` workflow must pass with a QEMU `-device nvme` controller before PCI/BAR/MMIO discovery is promoted to runtime-verified.
+Workflow **Aurora NVMe Probe #2** (`36973751130`) is green and runtime-verifies PCI discovery, 64-bit BAR0 decoding, non-cacheable MMIO mapping and reads of `CAP`, `VS` and `CSTS` on QEMU q35 with a real emulated NVMe controller.
+
+The verified CI controller reports NVMe version `1.4.0`, 2048 maximum queue entries, doorbell stride 0, supported controller page shifts 12 through 16, and reaches the M1 user-space bootstrap after the probe.
+
+This verifies only controller discovery/MMIO capability access. It does **not** yet verify Admin Queues, Identify commands, namespace access or NVM data I/O.
 
 ### Not implemented yet
 
@@ -60,7 +64,7 @@ Pending. The dedicated `Aurora NVMe Probe` workflow must pass with a QEMU `-devi
 
 ## Next implementation gate
 
-After the PCI/BAR/MMIO smoke test is green, the next gate is:
+The next gate is:
 
 1. allocate page-aligned Admin SQ/CQ DMA memory;
 2. disable the controller if required and wait for `CSTS.RDY=0`;
