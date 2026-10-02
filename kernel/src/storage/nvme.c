@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <aurora/block_device.h>
 #include <aurora/clock.h>
 #include <aurora/log.h>
 #include <aurora/nvme.h>
@@ -29,26 +30,39 @@
 #define NVME_CSTS_RDY          (1u << 0)
 
 #define NVME_ADMIN_QUEUE_DEPTH 16u
-#define NVME_ADMIN_OPCODE_IDENTIFY 0x06u
+#define NVME_IO_QUEUE_DEPTH    16u
+#define NVME_IO_QUEUE_ID       1u
+
+#define NVME_ADMIN_OPCODE_CREATE_IO_SQ 0x01u
+#define NVME_ADMIN_OPCODE_CREATE_IO_CQ 0x05u
+#define NVME_ADMIN_OPCODE_IDENTIFY     0x06u
+#define NVME_NVM_OPCODE_READ           0x02u
+
 #define NVME_IDENTIFY_CNS_NAMESPACE  0x00u
 #define NVME_IDENTIFY_CNS_CONTROLLER 0x01u
 
-struct nvme_admin_state {
+struct nvme_queue_state {
     uint64_t sq_phys;
     uint64_t cq_phys;
     uint32_t *sq;
     uint32_t *cq;
+    uint16_t depth;
     uint16_t sq_tail;
     uint16_t cq_head;
     uint16_t next_cid;
     uint8_t cq_phase;
-    uint32_t doorbell_stride_bytes;
+    uint16_t queue_id;
     bool initialized;
 };
 
 static volatile uint8_t *nvme_mmio;
 static uint64_t nvme_capabilities;
-static struct nvme_admin_state admin_state;
+static uint32_t nvme_doorbell_stride_bytes;
+static struct nvme_queue_state admin_queue;
+static struct nvme_queue_state io_queue;
+static struct aurora_nvme_admin_result namespace_identity;
+static struct aurora_block_device namespace_device;
+static bool namespace_device_ready;
 
 static uint32_t mmio_read32(uint32_t offset) {
     volatile uint32_t *reg =
@@ -158,11 +172,66 @@ static void copy_ascii_trim(char *out, size_t out_size, const uint8_t *in, size_
 
 static uint32_t doorbell_offset(uint16_t queue_id, bool completion) {
     uint32_t index = (uint32_t)queue_id * 2u + (completion ? 1u : 0u);
-    return NVME_REG_DOORBELL_BASE + index * admin_state.doorbell_stride_bytes;
+    return NVME_REG_DOORBELL_BASE + index * nvme_doorbell_stride_bytes;
+}
+
+static bool queue_wait_completion(struct nvme_queue_state *queue, uint16_t cid) {
+    uint64_t deadline = clock_now_ns() + controller_timeout_ns();
+
+    for (;;) {
+        uint32_t *cqe = queue->cq + ((uint32_t)queue->cq_head * 4u);
+        uint16_t status = (uint16_t)(cqe[3] >> 16);
+
+        if ((status & 1u) == queue->cq_phase) {
+            uint16_t completed_cid = (uint16_t)(cqe[3] & 0xFFFFu);
+            bool success = completed_cid == cid && (status & 0xFFFEu) == 0u;
+
+            queue->cq_head++;
+            if (queue->cq_head == queue->depth) {
+                queue->cq_head = 0u;
+                queue->cq_phase ^= 1u;
+            }
+            mmio_write32(
+                doorbell_offset(queue->queue_id, true),
+                queue->cq_head);
+            return success;
+        }
+
+        if (clock_now_ns() >= deadline) {
+            return false;
+        }
+    }
+}
+
+static bool queue_submit(struct nvme_queue_state *queue, const uint32_t command[16]) {
+    if (queue == NULL || !queue->initialized || command == NULL) {
+        return false;
+    }
+
+    uint16_t cid = queue->next_cid++;
+    if (queue->next_cid == 0u) {
+        queue->next_cid = 1u;
+    }
+
+    uint16_t tail = queue->sq_tail;
+    uint32_t *sqe = queue->sq + ((uint32_t)tail * 16u);
+
+    for (uint32_t i = 0u; i < 16u; ++i) {
+        sqe[i] = command[i];
+    }
+    sqe[0] = (sqe[0] & 0x0000FFFFu) | ((uint32_t)cid << 16);
+
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    queue->sq_tail = (uint16_t)((tail + 1u) % queue->depth);
+    mmio_write32(
+        doorbell_offset(queue->queue_id, false),
+        queue->sq_tail);
+
+    return queue_wait_completion(queue, cid);
 }
 
 static bool admin_queue_init(void) {
-    if (admin_state.initialized) {
+    if (admin_queue.initialized) {
         return true;
     }
 
@@ -213,8 +282,8 @@ static bool admin_queue_init(void) {
 
     uint32_t new_cc = 0u;
     new_cc |= NVME_CC_EN;
-    new_cc |= (6u << 16); /* IOSQES: 64-byte submission entries. */
-    new_cc |= (4u << 20); /* IOCQES: 16-byte completion entries. */
+    new_cc |= (6u << 16);
+    new_cc |= (4u << 20);
     mmio_write32(NVME_REG_CC, new_cc);
 
     if (!wait_ready(true)) {
@@ -225,74 +294,167 @@ static bool admin_queue_init(void) {
         return false;
     }
 
-    admin_state.sq_phys = sq_phys;
-    admin_state.cq_phys = cq_phys;
-    admin_state.sq = sq;
-    admin_state.cq = cq;
-    admin_state.sq_tail = 0u;
-    admin_state.cq_head = 0u;
-    admin_state.next_cid = 1u;
-    admin_state.cq_phase = 1u;
-    admin_state.doorbell_stride_bytes =
+    nvme_doorbell_stride_bytes =
         4u << ((uint32_t)((nvme_capabilities >> 32) & 0x0Fu));
-    admin_state.initialized = true;
+
+    admin_queue.sq_phys = sq_phys;
+    admin_queue.cq_phys = cq_phys;
+    admin_queue.sq = sq;
+    admin_queue.cq = cq;
+    admin_queue.depth = NVME_ADMIN_QUEUE_DEPTH;
+    admin_queue.sq_tail = 0u;
+    admin_queue.cq_head = 0u;
+    admin_queue.next_cid = 1u;
+    admin_queue.cq_phase = 1u;
+    admin_queue.queue_id = 0u;
+    admin_queue.initialized = true;
     return true;
 }
 
-static bool admin_identify(uint32_t namespace_id, uint8_t cns, uint8_t *buffer) {
-    if (!admin_state.initialized || buffer == NULL) {
+static bool admin_identify(uint32_t namespace_id, uint8_t cns, uint64_t buffer_phys) {
+    uint32_t command[16] = { 0 };
+    command[0] = NVME_ADMIN_OPCODE_IDENTIFY;
+    command[1] = namespace_id;
+    command[6] = (uint32_t)buffer_phys;
+    command[7] = (uint32_t)(buffer_phys >> 32);
+    command[10] = cns;
+    return queue_submit(&admin_queue, command);
+}
+
+static bool io_queue_init(void) {
+    if (io_queue.initialized) {
+        return true;
+    }
+
+    if (!admin_queue.initialized) {
         return false;
     }
 
-    uint64_t buffer_phys = 0u;
-    uintptr_t buffer_virt = (uintptr_t)buffer;
-    uint64_t hhdm = pmm_hhdm_offset();
-    if ((uint64_t)buffer_virt < hhdm) {
+    uint16_t max_entries = (uint16_t)((nvme_capabilities & 0xFFFFu) + 1u);
+    if (max_entries < NVME_IO_QUEUE_DEPTH) {
         return false;
     }
-    buffer_phys = (uint64_t)buffer_virt - hhdm;
 
-    uint16_t cid = admin_state.next_cid++;
-    uint16_t tail = admin_state.sq_tail;
-    uint32_t *sqe = admin_state.sq + ((uint32_t)tail * 16u);
-
-    for (uint32_t i = 0u; i < 16u; ++i) {
-        sqe[i] = 0u;
-    }
-
-    sqe[0] = NVME_ADMIN_OPCODE_IDENTIFY | ((uint32_t)cid << 16);
-    sqe[1] = namespace_id;
-    sqe[6] = (uint32_t)buffer_phys;
-    sqe[7] = (uint32_t)(buffer_phys >> 32);
-    sqe[10] = cns;
-
-    __atomic_thread_fence(__ATOMIC_SEQ_CST);
-    admin_state.sq_tail =
-        (uint16_t)((tail + 1u) % NVME_ADMIN_QUEUE_DEPTH);
-    mmio_write32(doorbell_offset(0u, false), admin_state.sq_tail);
-
-    uint64_t deadline = clock_now_ns() + controller_timeout_ns();
-    for (;;) {
-        uint32_t *cqe = admin_state.cq + ((uint32_t)admin_state.cq_head * 4u);
-        uint16_t status = (uint16_t)(cqe[3] >> 16);
-
-        if ((status & 1u) == admin_state.cq_phase) {
-            uint16_t completed_cid = (uint16_t)(cqe[3] & 0xFFFFu);
-            bool success = completed_cid == cid && (status & 0xFFFEu) == 0u;
-
-            admin_state.cq_head++;
-            if (admin_state.cq_head == NVME_ADMIN_QUEUE_DEPTH) {
-                admin_state.cq_head = 0u;
-                admin_state.cq_phase ^= 1u;
-            }
-            mmio_write32(doorbell_offset(0u, true), admin_state.cq_head);
-            return success;
+    uint64_t cq_phys = pmm_alloc_page();
+    uint64_t sq_phys = pmm_alloc_page();
+    if (cq_phys == 0u || sq_phys == 0u) {
+        if (cq_phys != 0u) {
+            pmm_free_page(cq_phys);
         }
+        if (sq_phys != 0u) {
+            pmm_free_page(sq_phys);
+        }
+        return false;
+    }
 
-        if (clock_now_ns() >= deadline) {
+    uint32_t *cq = pmm_phys_to_virt(cq_phys);
+    uint32_t *sq = pmm_phys_to_virt(sq_phys);
+    zero_page(cq);
+    zero_page(sq);
+
+    uint32_t create_cq[16] = { 0 };
+    create_cq[0] = NVME_ADMIN_OPCODE_CREATE_IO_CQ;
+    create_cq[6] = (uint32_t)cq_phys;
+    create_cq[7] = (uint32_t)(cq_phys >> 32);
+    create_cq[10] =
+        (uint32_t)NVME_IO_QUEUE_ID |
+        ((uint32_t)(NVME_IO_QUEUE_DEPTH - 1u) << 16);
+    create_cq[11] = 1u; /* Physically contiguous, polling completion queue. */
+
+    if (!queue_submit(&admin_queue, create_cq)) {
+        pmm_free_page(cq_phys);
+        pmm_free_page(sq_phys);
+        return false;
+    }
+
+    uint32_t create_sq[16] = { 0 };
+    create_sq[0] = NVME_ADMIN_OPCODE_CREATE_IO_SQ;
+    create_sq[6] = (uint32_t)sq_phys;
+    create_sq[7] = (uint32_t)(sq_phys >> 32);
+    create_sq[10] =
+        (uint32_t)NVME_IO_QUEUE_ID |
+        ((uint32_t)(NVME_IO_QUEUE_DEPTH - 1u) << 16);
+    create_sq[11] = 1u | ((uint32_t)NVME_IO_QUEUE_ID << 16);
+
+    if (!queue_submit(&admin_queue, create_sq)) {
+        pmm_free_page(cq_phys);
+        pmm_free_page(sq_phys);
+        return false;
+    }
+
+    io_queue.sq_phys = sq_phys;
+    io_queue.cq_phys = cq_phys;
+    io_queue.sq = sq;
+    io_queue.cq = cq;
+    io_queue.depth = NVME_IO_QUEUE_DEPTH;
+    io_queue.sq_tail = 0u;
+    io_queue.cq_head = 0u;
+    io_queue.next_cid = 1u;
+    io_queue.cq_phase = 1u;
+    io_queue.queue_id = NVME_IO_QUEUE_ID;
+    io_queue.initialized = true;
+    return true;
+}
+
+static bool nvme_read_one(uint64_t lba, void *buffer) {
+    if (!io_queue.initialized || !namespace_device_ready || buffer == NULL ||
+        namespace_identity.block_size == 0u ||
+        namespace_identity.block_size > NVME_PAGE_SIZE ||
+        lba >= namespace_identity.block_count) {
+        return false;
+    }
+
+    uint64_t data_phys = pmm_alloc_page();
+    if (data_phys == 0u) {
+        return false;
+    }
+
+    uint8_t *data = pmm_phys_to_virt(data_phys);
+    zero_page(data);
+
+    uint32_t command[16] = { 0 };
+    command[0] = NVME_NVM_OPCODE_READ;
+    command[1] = namespace_identity.namespace_id;
+    command[6] = (uint32_t)data_phys;
+    command[7] = (uint32_t)(data_phys >> 32);
+    command[10] = (uint32_t)lba;
+    command[11] = (uint32_t)(lba >> 32);
+    command[12] = 0u; /* NLB is zero-based: one logical block. */
+
+    bool success = queue_submit(&io_queue, command);
+    if (success) {
+        uint8_t *out = buffer;
+        for (uint32_t i = 0u; i < namespace_identity.block_size; ++i) {
+            out[i] = data[i];
+        }
+    }
+
+    pmm_free_page(data_phys);
+    return success;
+}
+
+static bool nvme_block_read(
+    struct aurora_block_device *device,
+    uint64_t lba,
+    uint32_t block_count,
+    void *buffer
+) {
+    if (device != &namespace_device || buffer == NULL || block_count == 0u ||
+        lba >= namespace_identity.block_count ||
+        (uint64_t)block_count > namespace_identity.block_count - lba) {
+        return false;
+    }
+
+    uint8_t *bytes = buffer;
+    for (uint32_t i = 0u; i < block_count; ++i) {
+        if (!nvme_read_one(
+                lba + i,
+                bytes + (uint64_t)i * namespace_identity.block_size)) {
             return false;
         }
     }
+
+    return true;
 }
 
 bool nvme_probe(struct aurora_nvme_probe_result *out_result) {
@@ -368,7 +530,7 @@ bool nvme_admin_identify(struct aurora_nvme_admin_result *out_result) {
     uint8_t *identify = pmm_phys_to_virt(identify_phys);
     zero_page(identify);
 
-    if (!admin_identify(0u, NVME_IDENTIFY_CNS_CONTROLLER, identify)) {
+    if (!admin_identify(0u, NVME_IDENTIFY_CNS_CONTROLLER, identify_phys)) {
         pmm_free_page(identify_phys);
         return false;
     }
@@ -384,7 +546,7 @@ bool nvme_admin_identify(struct aurora_nvme_admin_result *out_result) {
     }
 
     zero_page(identify);
-    if (!admin_identify(1u, NVME_IDENTIFY_CNS_NAMESPACE, identify)) {
+    if (!admin_identify(1u, NVME_IDENTIFY_CNS_NAMESPACE, identify_phys)) {
         pmm_free_page(identify_phys);
         return false;
     }
@@ -406,6 +568,30 @@ bool nvme_admin_identify(struct aurora_nvme_admin_result *out_result) {
     pmm_free_page(identify_phys);
     *out_result = result;
     return true;
+}
+
+bool nvme_namespace_block_device_init(const struct aurora_nvme_admin_result *identity) {
+    if (identity == NULL || identity->namespace_id == 0u ||
+        identity->block_count == 0u || identity->block_size == 0u ||
+        identity->block_size > NVME_PAGE_SIZE || !io_queue_init()) {
+        return false;
+    }
+
+    namespace_identity = *identity;
+    namespace_device.name = "nvme-ns1";
+    namespace_device.block_size = identity->block_size;
+    namespace_device.block_count = identity->block_count;
+    namespace_device.read_only = true;
+    namespace_device.context = NULL;
+    namespace_device.read_blocks = nvme_block_read;
+    namespace_device.write_blocks = NULL;
+    namespace_device.flush = NULL;
+    namespace_device_ready = true;
+    return true;
+}
+
+struct aurora_block_device *nvme_namespace_block_device(void) {
+    return namespace_device_ready ? &namespace_device : NULL;
 }
 
 void nvme_bootstrap_probe(void) {
@@ -468,4 +654,26 @@ void nvme_bootstrap_probe(void) {
     log_u64(admin.block_size);
     log_line("");
     log_line("[nvme] Identify Controller + Namespace 1 passed");
+
+    if (!nvme_namespace_block_device_init(&admin)) {
+        log_line("[nvme] I/O Queue initialization failed");
+        return;
+    }
+
+    struct aurora_block_device *device = nvme_namespace_block_device();
+    if (device == NULL || !block_device_register(device) ||
+        block_device_find("nvme-ns1") != device) {
+        log_line("[nvme] namespace block-device registration failed");
+        return;
+    }
+
+    uint8_t first_block[NVME_PAGE_SIZE];
+    if (!block_device_read(device, 0u, 1u, first_block)) {
+        log_line("[nvme] NVM Read LBA0 through block layer failed");
+        return;
+    }
+
+    log_line("[nvme] I/O Submission/Completion Queue pair initialized");
+    log_line("[storage] block device registered: nvme-ns1");
+    log_line("[nvme] NVM Read LBA0 via block layer verified");
 }
