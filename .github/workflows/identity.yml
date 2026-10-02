@@ -22,7 +22,8 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        # v6/v7 currently fail before step execution in this repository's Actions environment.
+        uses: actions/checkout@v4
 
       - name: Install compiler
         run: |
