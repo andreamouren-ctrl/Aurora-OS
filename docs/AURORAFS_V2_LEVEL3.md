@@ -1,6 +1,6 @@
 # AuroraFS v2 — Level-3 extent-tree contract
 
-Status: **level-3 bounded lookup, full level-2 → level-3 structural COW growth, and persistent inode publication + reopen lookup are runtime-verified**.
+Status: **level-3 bounded lookup, full level-2 → level-3 structural COW growth, and persistent inode publication + reopen lookup are runtime-verified; continued COW append beneath an already-published level-3 root is implemented and awaiting runtime verification**.
 
 This document extends the existing AuroraFS v2 `AUREXT2` extent-tree contract. The on-disk behavior is explicit and remains compatible with the existing 4 KiB node and 256-byte inode layouts.
 
@@ -39,14 +39,7 @@ The common resolver performs bounded iterative descent across levels 0/1/2/3, va
 
 ## Runtime-verified full level-2 root → level-3 COW promotion
 
-A full level-2 root contains 126 full level-1 children and covers 2,000,376 one-block mappings. `aurora_fs_v2_extent_tree_grow_level2_full_root_cow()` handles mapping 2,000,377 by:
-
-1. validating the old full level-2 root, its final full level-1 child and final full leaf;
-2. allocating, writing and flushing a fresh one-entry leaf;
-3. allocating, writing and flushing a fresh one-child level-1 node;
-4. allocating, writing and flushing a fresh one-child level-2 node;
-5. creating a fresh level-3 root whose first child is the already-published full old level-2 root and whose second child is the new level-2 subtree;
-6. flushing the new root while leaving the old hierarchy untouched.
+A full level-2 root contains 126 full level-1 children and covers 2,000,376 one-block mappings. `aurora_fs_v2_extent_tree_grow_level2_full_root_cow()` handles mapping 2,000,377 by building and flushing a fresh `leaf → level-1 → level-2` branch, then creating a fresh level-3 root whose first child is the already-published full old level-2 tree and whose second child is the new subtree.
 
 Main workflow **`37000379420`** and AHCI workflow **`37000379412`** completed successfully. The exact gate appears in q35/AHCI and both ATA boot paths:
 
@@ -60,23 +53,35 @@ Main workflow **`37001092435`** and AHCI workflow **`37001092510`** completed su
 
 `[aurorafs-v2] persistent full level-2 to level-3 growth + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
 
-The persistent self-test starts with an inode containing 2,000,376 one-block extent mappings under a full level-2 root, appends mapping 2,000,377, publishes the fresh level-3 root, reinitializes allocator state, rereads the inode and verifies:
+The persistent self-test publishes mapping 2,000,377 through a fresh level-3 root, reopens allocator/inode state and verifies both the new mapping and the historical final mapping through the retained old level-2 branch.
 
-- a different persisted root;
-- `extent_count == 2,000,377`;
-- updated `size` and `allocated_bytes`;
-- generation increment;
-- lookup of the newly appended mapping;
-- lookup of the historical final mapping through the old level-2 branch retained beneath the new level-3 root.
+## Implemented continued COW append under level-3
 
-The harness remains bounded: historical metadata is generated deterministically on read and only bitmap, inode and newly written COW blocks are stored.
+`aurora_fs_v2_extent_tree_append_level3_cow()` handles the next mapping while the final leaf still has spare capacity. It validates the published level-3 root and its final level-2 child, delegates the final `leaf → level-1 → level-2` replacement to the already-verified `aurora_fs_v2_extent_tree_append_level2_cow()`, then clones only the level-3 root with the replacement child pointer/span.
+
+For the first post-promotion append, mapping **2,000,378** follows this path:
+
+1. clone and extend the final leaf;
+2. clone its level-1 parent;
+3. clone its level-2 parent;
+4. clone the level-3 root;
+5. flush each replacement child before its parent;
+6. leave the old published level-3 root unchanged.
+
+The structural self-test verifies old-root byte immutability and lookup of both mappings 2,000,377 and 2,000,378 through the replacement root on synthetic 512-byte and 4096-byte devices.
+
+Expected runtime gate:
+
+`[aurorafs-v2] existing level-3 root COW append through final leaf/level-1/level-2/root replacement self-test passed on 512/4096-byte devices`
+
+Until a green CI run contains the exact line, this path remains **implemented but not runtime-verified**.
 
 ## Failure and recovery behavior
 
-The policy remains child-first and publication-last. A failure before inode publication leaves the old root authoritative and may leak newly allocated metadata. A successful publication makes the level-3 hierarchy authoritative; durable reclamation and transaction replay remain future work.
+The policy remains child-first and publication-last. A failure before inode publication leaves the old root authoritative and may leak newly allocated metadata. A successful publication makes the replacement hierarchy authoritative; durable reclamation and transaction replay remain future work.
 
-## Next gate
+## Next gate after structural verification
 
-Continue COW append beneath an already-published level-3 root by replacing only its final path (`leaf → level-1 → level-2 → level-3`) before inode publication. The first target is mapping **2,000,378** while the new final leaf still has spare capacity.
+Compose continued level-3 append with inode root publication, then reopen and resolve both the newly appended mapping and the previous mapping through the persisted replacement root.
 
 Synthetic 4096-byte logical-block verification is not physical 4Kn hardware certification.
