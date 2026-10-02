@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+struct aurora_block_device;
+
 struct aurora_ahci_probe_result {
     bool found;
     bool mmio_ready;
@@ -29,5 +31,7 @@ struct aurora_ahci_identify_result {
 
 bool ahci_probe(struct aurora_ahci_probe_result *out_result);
 bool ahci_identify_first(struct aurora_ahci_identify_result *out_result);
+bool ahci_primary_block_device_init(void);
+struct aurora_block_device *ahci_primary_block_device(void);
 
 #endif
