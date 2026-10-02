@@ -9,8 +9,10 @@
 #define AURORA_IDENTITY_KEY_MAX_LEN 32u
 #define AURORA_IDENTITY_LOOKUP_TAG_SIZE 32u
 #define AURORA_IDENTITY_USER_ID_SIZE 16u
+#define AURORA_IDENTITY_CREDENTIAL_ID_SIZE 16u
 #define AURORA_IDENTITY_SALT_MAX_SIZE 32u
 #define AURORA_IDENTITY_VERIFIER_MAX_SIZE 64u
+#define AURORA_IDENTITY_ID_GENERATION_ATTEMPTS 4u
 
 #define AURORA_IDENTITY_KDF_ARGON2ID 1u
 
@@ -19,12 +21,15 @@ enum aurora_identity_result {
     AURORA_IDENTITY_INVALID_ARGUMENT,
     AURORA_IDENTITY_INVALID_KEY_FORMAT,
     AURORA_IDENTITY_NOT_FOUND,
+    AURORA_IDENTITY_ALREADY_EXISTS,
     AURORA_IDENTITY_AUTH_FAILED,
     AURORA_IDENTITY_THROTTLED,
     AURORA_IDENTITY_DISABLED,
     AURORA_IDENTITY_RECOVERY_REQUIRED,
     AURORA_IDENTITY_BACKEND_ERROR,
-    AURORA_IDENTITY_CRYPTO_ERROR
+    AURORA_IDENTITY_CRYPTO_ERROR,
+    AURORA_IDENTITY_RANDOM_ERROR,
+    AURORA_IDENTITY_POLICY_ERROR
 };
 
 enum aurora_identity_record_status {
@@ -39,8 +44,18 @@ enum aurora_identity_store_result {
     AURORA_IDENTITY_STORE_ERROR
 };
 
+enum aurora_identity_store_create_result {
+    AURORA_IDENTITY_STORE_CREATE_OK = 0,
+    AURORA_IDENTITY_STORE_CREATE_CONFLICT,
+    AURORA_IDENTITY_STORE_CREATE_ERROR
+};
+
 struct aurora_identity_user_id {
     uint8_t bytes[AURORA_IDENTITY_USER_ID_SIZE];
+};
+
+struct aurora_identity_credential_id {
+    uint8_t bytes[AURORA_IDENTITY_CREDENTIAL_ID_SIZE];
 };
 
 struct aurora_identity_normalized_key {
@@ -56,7 +71,15 @@ struct aurora_identity_kdf_params {
     uint32_t parallelism;
 };
 
+struct aurora_identity_record {
+    struct aurora_identity_user_id user_id;
+    enum aurora_identity_record_status status;
+    uint32_t policy_version;
+    uint32_t record_version;
+};
+
 struct aurora_identity_key_record {
+    struct aurora_identity_credential_id credential_id;
     struct aurora_identity_user_id user_id;
     uint8_t lookup_tag[AURORA_IDENTITY_LOOKUP_TAG_SIZE];
     struct aurora_identity_kdf_params kdf;
@@ -75,10 +98,24 @@ struct aurora_identity_throttle_policy {
     uint64_t maximum_delay_ms;
 };
 
+struct aurora_identity_creation_policy {
+    struct aurora_identity_kdf_params kdf;
+    size_t salt_size;
+    size_t verifier_size;
+    uint32_t identity_record_version;
+    uint32_t policy_version;
+};
+
 struct aurora_identity_auth_result {
     enum aurora_identity_result result;
     struct aurora_identity_user_id user_id;
     uint64_t retry_after_ms;
+};
+
+struct aurora_identity_create_result {
+    enum aurora_identity_result result;
+    struct aurora_identity_user_id user_id;
+    struct aurora_identity_credential_id credential_id;
 };
 
 /*
@@ -97,6 +134,21 @@ struct aurora_identity_crypto_ops {
         uint8_t out_tag[AURORA_IDENTITY_LOOKUP_TAG_SIZE]);
 
     /*
+     * Derive the stored verifier for a newly created/rotated Aurora Key.
+     * Production must use the reviewed Argon2id provider for records whose
+     * algorithm is AURORA_IDENTITY_KDF_ARGON2ID.
+     */
+    bool (*derive_key_verifier)(
+        void *context,
+        const char *normalized_key,
+        size_t normalized_key_length,
+        const struct aurora_identity_kdf_params *kdf,
+        const uint8_t *salt,
+        size_t salt_size,
+        uint8_t *out_verifier,
+        size_t verifier_size);
+
+    /*
      * Verify the normalized Key against the record's configured KDF/verifier.
      * The production provider is expected to implement the reviewed Argon2id
      * path and constant-time verifier comparison where applicable.
@@ -107,6 +159,13 @@ struct aurora_identity_crypto_ops {
         size_t normalized_key_length,
         const struct aurora_identity_key_record *record,
         bool *out_matches);
+};
+
+struct aurora_identity_random_ops {
+    void *context;
+
+    /* Production implementation must be backed by Aurora's secure RNG. */
+    bool (*fill_random)(void *context, uint8_t *buffer, size_t size);
 };
 
 struct aurora_identity_store_ops {
@@ -126,6 +185,17 @@ struct aurora_identity_store_ops {
     bool (*clear_failure_state)(
         void *context,
         const struct aurora_identity_user_id *user_id);
+
+    /*
+     * Atomically publish one stable identity and its first Aurora Key record.
+     * On CREATE_ERROR or CREATE_CONFLICT, neither record may become visible.
+     * The backend must enforce lookup-tag and identifier uniqueness so a race
+     * between a preflight lookup and commit cannot create duplicates.
+     */
+    enum aurora_identity_store_create_result (*create_identity_with_key)(
+        void *context,
+        const struct aurora_identity_record *identity,
+        const struct aurora_identity_key_record *key_record);
 };
 
 struct aurora_identity_clock_ops {
@@ -135,9 +205,11 @@ struct aurora_identity_clock_ops {
 
 struct aurora_identity_core {
     struct aurora_identity_crypto_ops crypto;
+    struct aurora_identity_random_ops random;
     struct aurora_identity_store_ops store;
     struct aurora_identity_clock_ops clock;
     struct aurora_identity_throttle_policy throttle_policy;
+    struct aurora_identity_creation_policy creation_policy;
 };
 
 enum aurora_identity_result aurora_identity_normalize_key(
@@ -154,7 +226,14 @@ struct aurora_identity_auth_result aurora_identity_authenticate_key(
     const char *candidate_key,
     size_t candidate_key_length);
 
+struct aurora_identity_create_result aurora_identity_create_with_key(
+    const struct aurora_identity_core *core,
+    const char *candidate_key,
+    size_t candidate_key_length);
+
 bool aurora_identity_user_id_is_zero(const struct aurora_identity_user_id *user_id);
+bool aurora_identity_credential_id_is_zero(
+    const struct aurora_identity_credential_id *credential_id);
 
 void aurora_identity_secure_zero(void *buffer, size_t size);
 

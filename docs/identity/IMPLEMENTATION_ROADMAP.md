@@ -1,7 +1,7 @@
 # Aurora Identity Implementation Roadmap
 
 Status: **Canonical implementation plan**
-Version: **0.3**
+Version: **0.4**
 
 This roadmap orders Aurora Identity work by hard technical dependencies. It supplements the global Aurora OS roadmap.
 
@@ -44,6 +44,8 @@ Remaining before broad hardware support:
 
 Dependency: global storage/VFS milestone.
 
+Substantial generic storage foundations now exist in Aurora OS (block layer, VFS, AuroraFS, AHCI/NVMe paths), but the Identity production gate remains **protected durable system state with transactional semantics and service access control**.
+
 Required:
 
 - block-device layer suitable for persistent system state;
@@ -64,6 +66,7 @@ Required:
 
 - cryptographically secure RNG service/primitive;
 - reviewed Argon2id implementation or dependency;
+- keyed PRF/provider for opaque Aurora Key lookup tags;
 - secure comparison helpers;
 - cryptographic integrity/MAC/signature primitives needed by authenticators;
 - secret-buffer handling conventions;
@@ -75,17 +78,39 @@ No placeholder/test cryptography remains in any path described as production aut
 
 ## Phase E — Aurora Identity Service v1
 
-Required:
+### Isolated core progress — implemented, not OS-connected
+
+The repository now contains a host-testable C11 Identity core under `services/identity/` with no dependency on the live login path.
+
+Implemented and CI-tested:
+
+- canonical Aurora Key normalization;
+- opaque lookup-tag provider boundary;
+- stable `user_id` and independent `credential_id` contracts;
+- KDF/verifier metadata contracts;
+- authentication control flow with persisted-throttle adapter hooks;
+- fail-closed crypto/storage/time error handling;
+- secure temporary-buffer clearing;
+- secure-RNG provider boundary;
+- first identity + first Aurora Key creation flow;
+- atomic `create_identity_with_key()` storage publication contract;
+- duplicate preflight plus commit-time conflict handling;
+- bounded rejection/retry of reserved all-zero generated identifiers;
+- deterministic host tests using explicitly non-production crypto/RNG/store providers.
+
+This does **not** make Phase E complete. The live OS still has no production Identity Service or real credential database.
+
+### Remaining production requirements
 
 - isolated Ring 3 service process;
 - service startup/lifecycle model;
 - capability-protected IPC endpoint;
-- protected identity database;
-- stable `user_id` creation;
-- Aurora Key verifier creation/check;
-- persisted rate limiting;
-- local identity creation transaction;
-- credential rotation;
+- protected transactional identity database backend;
+- production stable-ID generation via reviewed secure RNG;
+- production opaque lookup-tag PRF;
+- production Argon2id verifier creation/check;
+- reboot-persisted rate limiting;
+- credential rotation transaction;
 - audit events;
 - one-time session grant issuance.
 
@@ -258,38 +283,3 @@ Every production phase should include automated/manual tests for:
 - compositor failure;
 - storage unavailable;
 - clock/time anomalies relevant to throttling.
-
-### Security
-
-- brute-force throttling;
-- account enumeration;
-- session replay;
-- stale/revoked authenticator use;
-- secret leakage in logs/crashes;
-- unauthorized IPC caller;
-- malicious removable-media parser input;
-- recovery abuse.
-
-### Performance
-
-- cold authentication latency;
-- Argon2id cost/memory consumption;
-- login UI responsiveness;
-- Identity Service idle wakeups;
-- removable-drive detection latency;
-- session startup latency.
-
-## Current next development gate
-
-The repository has completed the Phase A/B prototypes. The next production-enabling work is **not** more login UI logic inside the kernel.
-
-The correct dependency order is:
-
-1. storage/VFS foundation;
-2. first durable protected system state;
-3. isolated user-space service execution/lifecycle;
-4. secure RNG + reviewed Argon2id path;
-5. Aurora Identity Service v1;
-6. Session Manager;
-7. compositor-backed Aurora Identity System App;
-8. USB mass-storage/removable broker integration for Identity Drive.
