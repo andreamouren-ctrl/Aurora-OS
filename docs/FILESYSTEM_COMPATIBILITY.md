@@ -59,6 +59,8 @@ The CI disk contains:
 
 The test performs two complete QEMU boots against the same disk image.
 
+Workflow **#315** (`36962807514`) demonstrated a complete successful runtime path for ATA signature read, PIO write, CACHE FLUSH, readback, byte-for-byte comparison, AuroraFS mount/persistence, FAT32/VFAT, exFAT, and common VFS routing. Its overall workflow result was red only because the YAML still expected the obsolete pre-flush success message. Commit `8c493274fb81fbc6bc83d4856efcd19218775e27` fixes that assertion and adds explicit checks for AuroraFS mounting at `/system` and mounted-path VFS routing. The transport integration is therefore runtime-demonstrated, while the corrected CI gate remains pending until its run closes green.
+
 ## Partition-sector handling
 
 The partition parser accepts logical block sizes of 512, 1024, 2048, and 4096 bytes. MBR metadata is interpreted from the standard first 512 bytes of LBA 0, while GPT header and entry-table addressing use the block device's actual logical block size.
@@ -137,7 +139,7 @@ Filesystem support and hardware transport support are separate concerns.
 Currently:
 
 - ATA PIO provides the disk read/write compatibility transport used in the integration CI and exposes 512-byte sectors;
-- the block layer now has a device registry and optional explicit flush contract; ATA PIO integration is awaiting a green post-change runtime run;
+- the block layer has a device registry and optional explicit flush contract; ATA PIO exposes CACHE FLUSH and the full read/write/flush path has been runtime-demonstrated in workflow #315, with the corrected green CI gate pending;
 - AHCI controller discovery and ABAR probing exist, but AHCI data I/O is not implemented yet;
 - NVMe is not implemented yet;
 - USB/xHCI and USB mass-storage are not implemented yet;
