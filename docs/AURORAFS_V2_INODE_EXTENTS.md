@@ -1,6 +1,6 @@
 # AuroraFS v2 — Persistent inode extents and hierarchical extent trees
 
-Status: **persistent COW extent growth below level-2 is runtime-verified; bounded lookup through level-3 and full level-2 → level-3 structural growth are runtime-verified; persistent publication of the new level-3 root is implemented and awaiting runtime verification**.
+Status: **persistent COW extent growth through level-3 root publication is runtime-verified; continued append below an already-published level-3 root is the active mutation gate**.
 
 This document is part of the AuroraFS v2 on-disk contract. Repository implementation and runtime verification are tracked separately.
 
@@ -53,11 +53,8 @@ The following structural and persistent transitions are runtime-verified on synt
 - full final level-1 sibling growth — `36997766355`, with AHCI coverage in `36997766251`;
 - persistent full-level1 sibling publication — `36998412124`, with AHCI coverage in `36998412086`;
 - bounded unified lookup through level-3 — `36999077531`;
-- full level-2 root → level-3 structural COW growth at mapping 2,000,377 — main `37000379420`, AHCI `37000379412`.
-
-The structural level-3 gate is:
-
-`[aurorafs-v2] full level-2 root COW growth to level-3 at 2000377th extent self-test passed on 512/4096-byte devices`
+- full level-2 root → level-3 structural COW growth at mapping 2,000,377 — main `37000379420`, AHCI `37000379412`;
+- persistent level-3 root publication + reopen lookup — main `37001092435`, AHCI `37001092510`.
 
 ## Persistent COW ordering
 
@@ -75,7 +72,7 @@ The old published hierarchy is not modified in place by these growth paths. A pr
 
 ## Bounded unified resolver
 
-`aurora_fs_v2_extent_tree_lookup_unified()` now performs bounded iterative traversal through levels 0/1/2/3. It validates node magic/version/CRC, logical ranges, child bounds and exact parent→child level decrement. `aurora_fs_v2_inode_extent_lookup_unified()` uses the same resolver from the persistent inode root.
+`aurora_fs_v2_extent_tree_lookup_unified()` performs bounded iterative traversal through levels 0/1/2/3. It validates node magic/version/CRC, logical ranges, child bounds and exact parent→child level decrement. `aurora_fs_v2_inode_extent_lookup_unified()` uses the same resolver from the persistent inode root.
 
 Workflow `36999077531` contains the exact runtime gate:
 
@@ -85,21 +82,25 @@ Workflow `36999077531` contains the exact runtime gate:
 
 A completely full level-2 root represents **2,000,376 mappings**. `aurora_fs_v2_extent_tree_grow_level2_full_root_cow()` handles mapping 2,000,377 by retaining the old full level-2 tree as the first child of a fresh level-3 root and building a new `leaf → level-1 → level-2` branch for the appended extent.
 
-The replacement hierarchy is flushed bottom-up and the old full level-2 hierarchy remains published and untouched until a later inode publication step.
-
 Main workflow `37000379420` and AHCI workflow `37000379412` runtime-verify this structural boundary.
 
-## Implemented persistent level-3 publication
+## Runtime-verified persistent level-3 publication
 
 `aurora_fs_v2_inode_append_level3_grow_cow_commit()` composes the verified level-3 structural builder with `aurora_fs_v2_inode_publish_extent_root_cow()`.
 
-Its bounded persistent self-test starts from an inode representing 2,000,376 mappings, appends mapping 2,000,377, publishes the new level-3 root, reopens allocator/inode state and verifies the new inode counters plus lookup of both the new mapping and the historical final mapping through the retained old level-2 branch.
-
-Expected gate:
+Main workflow `37001092435` and AHCI workflow `37001092510` contain the exact gate:
 
 `[aurorafs-v2] persistent full level-2 to level-3 growth + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
 
-Until that exact line appears in green runtime CI, persistent level-3 publication remains **implemented but not runtime-verified**.
+The persistent test appends mapping 2,000,377, publishes the level-3 root, reopens allocator/inode state, verifies counters and generation, then resolves both the appended mapping and the historical final mapping through the retained old level-2 branch.
+
+## Active mutation gate
+
+The next mutation is mapping **2,000,378** under an already-published level-3 root. The final path has spare leaf capacity, so the operation should clone only:
+
+`final leaf → final level-1 → final level-2 → level-3 root`
+
+Each replacement child must be durable before its replacement parent is written, and the old level-3 root must remain untouched until inode publication.
 
 ## Test-memory policy
 
