@@ -102,6 +102,8 @@ bool aurora_fs_4kn_self_test(void) {
     log_line("[aurorafs-v2] persistent full level-2 to level-3 growth + inode publication + reopen lookup self-test passed on 512/4096-byte devices");
     if (!aurora_fs_v2_extent_tree_level3_append_self_test()) return false;
     log_line("[aurorafs-v2] existing level-3 root COW append through final leaf/level-1/level-2/root replacement self-test passed on 512/4096-byte devices");
+    if (!aurora_fs_v2_level3_append_commit_self_test()) return false;
+    log_line("[aurorafs-v2] persistent existing level-3 COW append + inode publication + reopen lookup self-test passed on 512/4096-byte devices");
     if (!aurora_fs_v2_extent_tree_level2_append_self_test()) return false;
     log_line("[aurorafs-v2] existing level-2 root COW append through leaf/level-1/root replacement self-test passed on 512/4096-byte devices");
     if (!aurora_fs_v2_inode_publish_extent_root_self_test()) return false;
