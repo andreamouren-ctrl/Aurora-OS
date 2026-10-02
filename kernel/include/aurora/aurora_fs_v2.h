@@ -1,0 +1,51 @@
+#ifndef AURORA_AURORA_FS_V2_H
+#define AURORA_AURORA_FS_V2_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include <aurora/block_device.h>
+
+#define AURORA_FS_V2_FS_BLOCK_SIZE 4096u
+#define AURORA_FS_V2_DEFAULT_BASE_BYTES 4096u
+
+struct aurora_fs_v2_allocator {
+    struct aurora_block_device *device;
+    uint64_t base_bytes;
+    uint64_t total_fs_blocks;
+    uint64_t bitmap_start;
+    uint64_t bitmap_blocks;
+    uint64_t data_start;
+};
+
+bool aurora_fs_v2_allocator_init(
+    struct aurora_fs_v2_allocator *allocator,
+    struct aurora_block_device *device,
+    uint64_t base_bytes,
+    uint64_t total_fs_blocks,
+    uint64_t bitmap_start,
+    uint64_t bitmap_blocks,
+    uint64_t data_start
+);
+
+bool aurora_fs_v2_allocator_is_allocated(
+    struct aurora_fs_v2_allocator *allocator,
+    uint64_t fs_block,
+    bool *out_allocated
+);
+
+bool aurora_fs_v2_allocator_allocate_range(
+    struct aurora_fs_v2_allocator *allocator,
+    uint64_t block_count,
+    uint64_t *out_first_block
+);
+
+bool aurora_fs_v2_allocator_free_range(
+    struct aurora_fs_v2_allocator *allocator,
+    uint64_t first_block,
+    uint64_t block_count
+);
+
+bool aurora_fs_v2_allocator_self_test(void);
+
+#endif
