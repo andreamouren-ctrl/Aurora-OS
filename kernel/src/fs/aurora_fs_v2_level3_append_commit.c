@@ -79,6 +79,8 @@ struct l3ac_test_context {
 };
 
 static struct l3ac_test_context l3ac_test;
+static struct l3ac_node l3ac_seed_node;
+static uint8_t l3ac_old_root_before[AURORA_FS_V2_FS_BLOCK_SIZE];
 
 _Static_assert(sizeof(struct l3ac_header) == L3AC_HEADER_SIZE,
                "AuroraFS v2 level-3 append commit header size");
@@ -166,40 +168,36 @@ static bool store_node(uint64_t block, struct l3ac_node *node) {
 }
 
 static bool seed_tree(void) {
-    struct l3ac_node leaf;
-    init_node(&leaf, 0u, 1u, 90u,
+    init_node(&l3ac_seed_node, 0u, 1u, 90u,
               L3AC_FULL_LEVEL2_EXTENTS, L3AC_FULL_LEVEL2_EXTENTS + 1u);
-    leaf.entries[0] = (struct l3ac_entry){
+    l3ac_seed_node.entries[0] = (struct l3ac_entry){
         L3AC_FULL_LEVEL2_EXTENTS, L3AC_OLD_DATA, 1u, 0u
     };
-    if (!store_node(L3AC_OLD_LEAF, &leaf)) return false;
+    if (!store_node(L3AC_OLD_LEAF, &l3ac_seed_node)) return false;
 
-    struct l3ac_node level1;
-    init_node(&level1, 1u, 1u, 90u,
+    init_node(&l3ac_seed_node, 1u, 1u, 90u,
               L3AC_FULL_LEVEL2_EXTENTS, L3AC_FULL_LEVEL2_EXTENTS + 1u);
-    level1.entries[0] = (struct l3ac_entry){
+    l3ac_seed_node.entries[0] = (struct l3ac_entry){
         L3AC_FULL_LEVEL2_EXTENTS, L3AC_OLD_LEAF, 1u, 0u
     };
-    if (!store_node(L3AC_OLD_LEVEL1, &level1)) return false;
+    if (!store_node(L3AC_OLD_LEVEL1, &l3ac_seed_node)) return false;
 
-    struct l3ac_node level2;
-    init_node(&level2, 2u, 1u, 90u,
+    init_node(&l3ac_seed_node, 2u, 1u, 90u,
               L3AC_FULL_LEVEL2_EXTENTS, L3AC_FULL_LEVEL2_EXTENTS + 1u);
-    level2.entries[0] = (struct l3ac_entry){
+    l3ac_seed_node.entries[0] = (struct l3ac_entry){
         L3AC_FULL_LEVEL2_EXTENTS, L3AC_OLD_LEVEL1, 1u, 0u
     };
-    if (!store_node(L3AC_OLD_LEVEL2, &level2)) return false;
+    if (!store_node(L3AC_OLD_LEVEL2, &l3ac_seed_node)) return false;
 
-    struct l3ac_node level3;
-    init_node(&level3, 3u, 2u, 90u,
+    init_node(&l3ac_seed_node, 3u, 2u, 90u,
               0u, L3AC_FULL_LEVEL2_EXTENTS + 1u);
-    level3.entries[0] = (struct l3ac_entry){
+    l3ac_seed_node.entries[0] = (struct l3ac_entry){
         0u, L3AC_UNUSED_OLD_BRANCH, L3AC_FULL_LEVEL2_EXTENTS, 0u
     };
-    level3.entries[1] = (struct l3ac_entry){
+    l3ac_seed_node.entries[1] = (struct l3ac_entry){
         L3AC_FULL_LEVEL2_EXTENTS, L3AC_OLD_LEVEL2, 1u, 0u
     };
-    return store_node(L3AC_OLD_LEVEL3, &level3);
+    return store_node(L3AC_OLD_LEVEL3, &l3ac_seed_node);
 }
 
 static void seed_inode(void) {
@@ -323,9 +321,8 @@ static bool run_test(uint32_t block_size) {
 
     int old_root_slot = slot_for(L3AC_OLD_LEVEL3, false);
     if (old_root_slot < 0) return false;
-    uint8_t old_root_before[AURORA_FS_V2_FS_BLOCK_SIZE];
     for (uint32_t i = 0u; i < AURORA_FS_V2_FS_BLOCK_SIZE; ++i)
-        old_root_before[i] = l3ac_test.slot_data[(uint32_t)old_root_slot][i];
+        l3ac_old_root_before[i] = l3ac_test.slot_data[(uint32_t)old_root_slot][i];
 
     uint64_t bytes = AURORA_FS_V2_DEFAULT_BASE_BYTES +
         (uint64_t)L3AC_TOTAL_BLOCKS * AURORA_FS_V2_FS_BLOCK_SIZE;
@@ -378,7 +375,7 @@ static bool run_test(uint32_t block_size) {
     old_root_slot = slot_for(L3AC_OLD_LEVEL3, false);
     if (old_root_slot < 0) return false;
     for (uint32_t i = 0u; i < AURORA_FS_V2_FS_BLOCK_SIZE; ++i)
-        if (old_root_before[i] != l3ac_test.slot_data[(uint32_t)old_root_slot][i]) return false;
+        if (l3ac_old_root_before[i] != l3ac_test.slot_data[(uint32_t)old_root_slot][i]) return false;
 
     uint64_t physical = 0u;
     uint64_t contiguous = 0u;
