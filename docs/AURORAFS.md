@@ -1,6 +1,6 @@
 # AuroraFS
 
-Status: **bootstrap v1 runtime-verified; v2 production-layout foundation runtime-verified, directory work active**.
+Status: **bootstrap v1 runtime-verified; v2 layout foundation runtime-verified; v2 directory traversal implemented and awaiting CI promotion**.
 
 AuroraFS is Aurora OS's native persistent filesystem direction. Bootstrap v1 remains the currently mounted native format and is preserved for compatibility. Production development proceeds as a separately versioned v2 format rather than mutating the v1 on-disk contract in place.
 
@@ -41,55 +41,27 @@ No production API or v2 metadata structure may inherit bootstrap v1 limits such 
 
 ## AuroraFS v2 production-layout foundation
 
-The first v2 milestone focuses on durable structural primitives before the common driver is switched to v2.
+AuroraFS v2 uses a **4096-byte logical filesystem block** independent of the underlying device logical-block size. The initial runtime gate verifies the same v2 layout over synthetic 512-byte and 4096-byte block devices.
 
-### Logical block size
+The v2 superblock records magic/version, filesystem block size, total blocks, generation, allocation-bitmap and inode-table geometry, first data block, root/next object identifiers, feature flags and CRC32 metadata checksum.
 
-AuroraFS v2 uses a **4096-byte logical filesystem block**. The filesystem block size is independent of the underlying device logical-block size. The initial runtime gate verifies the same v2 layout over synthetic 512-byte and 4096-byte block devices.
+The initial v2 inode is 256 bytes and uses 64-bit object IDs, parent IDs, file sizes, allocated byte counts, generation and extent coordinates. Inline extents prove multi-block persistence while an extent-tree root field is reserved for later overflow support.
 
-### Superblock
+The first runtime-verified file test persists a **6000-byte file across two 4 KiB filesystem blocks**, reopens it, validates bitmap/inode/extent metadata and verifies the complete byte pattern.
 
-The v2 superblock records:
+### Allocation bitmap limitation
 
-- magic and explicit format version;
-- filesystem block size;
-- total filesystem block count;
-- generation;
-- allocation-bitmap start and length;
-- inode-table start and length;
-- first data block;
-- root object identifier;
-- next object identifier;
-- feature/compatibility flags;
-- metadata checksum.
+Free/used blocks are represented by an on-disk bitmap whose required length is calculated from volume size. The current formatter/self-test still accepts only layouts whose bitmap occupies one 4 KiB filesystem block. This is a deliberate first-milestone limit; multi-block bitmap traversal and allocation remain required before AuroraFS v2 can claim large-volume scalability.
 
-The initial v2 metadata checksum is CRC32. The checksum field is zeroed while calculating the checksum.
+## v2 directory-record milestone
 
-### Allocation bitmap
+Directory storage is no longer modeled as the v1 fixed root table. The current v2 directory milestone implements a **128-byte checksummed directory record** containing object ID, node type, name length and UTF-8 name bytes.
 
-Free/used filesystem blocks are represented by an on-disk allocation bitmap and metadata/data blocks are marked allocated during format. The current first implementation calculates bitmap length from the volume, but its formatter/self-test currently accepts only layouts whose bitmap occupies one 4 KiB filesystem block. **This is a deliberate first-milestone limit and must not be described as fully scalable allocation yet.** Multi-block bitmap traversal/allocation is a required follow-up before large-volume scalability is claimed.
+The new self-test deliberately gives the root directory a two-block extent and places the `docs` record in the second block. After reopening the synthetic volume, lookup must scan beyond the first 4 KiB directory block, resolve the `docs` inode, then resolve `docs/note.txt` from the nested directory inode and verify the persisted file payload.
 
-### Inodes
+This directory test runs on synthetic devices exposing both 512-byte and 4096-byte logical blocks. The code is implemented and wired into the boot storage self-test, but it remains **pending runtime promotion** until the corresponding CI boot is green and the explicit directory-success log is observed.
 
-The initial v2 inode record is fixed at 256 bytes and uses 64-bit fields for:
-
-- object identifier;
-- parent object identifier;
-- logical file size;
-- allocated byte count;
-- metadata generation;
-- extent-tree root reservation;
-- extent logical/physical coordinates and lengths.
-
-The first milestone supports inline extent descriptors sufficient to prove multi-block persistence. The on-disk inode reserves an extent-tree/root pointer so the format can grow beyond inline extents without reintroducing a fixed file-size ceiling.
-
-### Extents
-
-An extent identifies a contiguous run of filesystem blocks with 64-bit logical and physical block coordinates. The current runtime self-test formats a v2 synthetic volume, persists a **6000-byte file across two 4 KiB filesystem blocks**, reopens the metadata, validates the allocation bitmap and inode/extent mapping, and verifies the full byte pattern after reopen.
-
-### Directory direction
-
-The v2 root object is represented by an inode rather than by the v1 fixed eight-entry table. General directory indexing is the active next milestone. The production design must support dynamically growing directories and nested directory objects; it must not freeze a fixed number of names into the superblock or root block.
+This first directory milestone proves persisted nested traversal and directory extents; it does not yet provide the production create/remove/rename API, directory compaction, free-slot reuse or an indexed lookup structure.
 
 ## v2 runtime verification
 
@@ -97,19 +69,19 @@ Build workflow **#394** (`36976628830`, head `9e5e2c72fd65d4e4d5ede9066ed066d5a1
 
 `[aurorafs-v2] 4KiB layout + bitmap + 64-bit inode + multi-block extent self-test passed on 512/4096-byte devices`
 
-The kernel subsequently reaches M1, so the first v2 layout foundation is **runtime-verified in the synthetic QEMU boot environment**. This verification covers the v2 formatter/reopen path, CRC32 superblock validation, one-block allocation bitmap behavior, 256-byte 64-bit inode metadata, a contiguous two-block extent, and multi-block data persistence on synthetic 512-byte and 4096-byte devices.
+The kernel subsequently reaches M1, so the first v2 layout foundation is **runtime-verified in the synthetic QEMU boot environment**. This verification covers formatter/reopen, CRC32 superblock validation, one-block allocation bitmap behavior, 256-byte 64-bit inode metadata, a contiguous two-block extent and multi-block data persistence.
 
-It does **not** yet verify dynamic directories, multiple extents, multi-block allocation bitmaps, crash consistency, migration, the common filesystem-driver/VFS v2 path, or physical hardware.
+Dynamic directory traversal is implemented after #394 but is not counted as runtime-verified until its newer CI gate completes successfully.
 
 ## v2 safety gates
 
-AuroraFS v2 remains **self-test only** and is not automatically selected for arbitrary disks. The v1 common driver remains the mounted format until v2 has runtime verification for directory operations, broader allocation behavior, general file operations and crash-consistency behavior.
+AuroraFS v2 remains **self-test only** and is not automatically selected for arbitrary disks. The v1 common driver remains the mounted format until v2 has runtime verification for broader allocation behavior, general file operations and crash-consistency behavior.
 
 A v2 formatter must never overwrite an unknown filesystem merely because AuroraFS probing failed.
 
 ## Bootstrap v1 layout
 
-The v1 bootstrap filesystem begins at device LBA 8 so low sectors remain available to development storage probes and partition metadata. Relative to the AuroraFS base:
+The v1 bootstrap filesystem begins at device LBA 8. Relative to the AuroraFS base:
 
 | Relative block | Purpose |
 | --- | --- |
@@ -117,20 +89,11 @@ The v1 bootstrap filesystem begins at device LBA 8 so low sectors remain availab
 | 1 | Fixed root directory table |
 | 2..9 | Bootstrap data blocks |
 
-All v1 filesystem blocks are 512 bytes. The root contains eight fixed 64-byte entries and each file is limited to one 512-byte block. These are deliberately retained only as compatibility/bootstrap constraints.
+All v1 filesystem blocks are 512 bytes. The root contains eight fixed 64-byte entries and each file is limited to one 512-byte block. These are retained only as compatibility/bootstrap constraints.
 
 ## Current v1 common filesystem integration
 
-The v1 driver implements:
-
-- format probing;
-- mount;
-- root-directory `stat`;
-- root-directory enumeration;
-- file reads;
-- writes to existing bootstrap files;
-- common VFS routing through `/system`;
-- device-block translation across 512/1024/2048/4096-byte block devices.
+The v1 driver implements format probing, mount, root `stat`/enumeration, file reads, writes to existing bootstrap files, `/system` VFS routing, and device-block translation across 512/1024/2048/4096-byte block devices.
 
 It remains suitable for bootstrap persistence validation but is not a production filesystem.
 
@@ -138,7 +101,7 @@ It remains suitable for bootstrap persistence validation but is not a production
 
 After the runtime-verified first v2 allocation/inode/extent foundation, production work proceeds through:
 
-1. v2 dynamic directory records and nested directory traversal;
+1. runtime-verify the new dynamic/nested directory traversal gate;
 2. multi-block allocation bitmap support and general free-range allocation;
 3. multiple extents and extent-tree overflow;
 4. general create/truncate/remove/rename operations;
