@@ -25,9 +25,9 @@ Recognition alone must never be presented as full filesystem support.
 
 | Filesystem | Detected | Read-only | Read-write | CI verification |
 | --- | --- | --- | --- | --- |
-| AuroraFS bootstrap v1 | **Yes** | **Yes** | **Existing bootstrap files only** | **Yes — reboot persistence + common VFS + synthetic 4096-byte logical block** |
-| FAT32 / VFAT | Yes | **Yes** | No | **Yes — Unicode LFN + synthetic 4096-byte logical-block probe/mount** |
-| exFAT | Yes | **Yes** | No | **Yes — 512-byte integration + synthetic 4096-byte probe/mount** |
+| AuroraFS bootstrap v1 | **Yes** | **Yes** | **Existing bootstrap files only** | **Yes — ATA/AHCI/NVMe paths + common VFS + synthetic 4096-byte logical block** |
+| FAT32 / VFAT | Yes | **Yes** | No | **Yes — ATA/AHCI/NVMe paths + Unicode LFN + synthetic 4096-byte logical-block probe/mount** |
+| exFAT | Yes | **Yes** | No | **Yes — ATA/AHCI/NVMe paths + synthetic 4096-byte probe/mount** |
 | FAT12 | Yes | Pending | No | Pending |
 | FAT16 | Yes | Pending | No | Pending |
 | NTFS | Yes | Pending | No | Pending |
@@ -39,25 +39,19 @@ Recognition alone must never be presented as full filesystem support.
 | HFS+ | Yes | Pending | No | Pending |
 | APFS | Yes | Pending | No | Pending |
 
-## Runtime-verified paths
+## Runtime-verified transport paths
 
-The current storage smoke test exercises these chains end-to-end:
+Aurora currently has three storage transports exercised through the common block/filesystem/VFS architecture:
 
-`ATA PIO -> whole-device AuroraFS volume -> AuroraFS driver -> mount manager -> VFS -> /system/aurora.boot-probe`
-
-and:
-
-`ATA PIO -> MBR -> partition scan -> filesystem driver selection -> mount manager -> VFS -> file read`
-
-The CI disk contains:
-
-- a signed AuroraFS bootstrap area used for persistence validation and common VFS mounting at `/system`;
-- partition 1: FAT32/VFAT created with standard external tooling;
-- partition 2: exFAT created with standard external tooling.
-
-The test performs two complete QEMU boots against the same disk image.
+- **ATA PIO compatibility path**: read/write/flush plus AuroraFS/FAT32/exFAT integration;
+- **AHCI SATA path**: IDENTIFY, DMA read/write, explicit flush, MBR partition discovery, AuroraFS/FAT32/VFAT/exFAT and VFS traversal;
+- **NVMe path**: PCI/BAR/MMIO discovery, Admin Identify, polling I/O queues, NVM Read/Write/Flush, MBR partition discovery, AuroraFS/FAT32/VFAT/exFAT and VFS traversal.
 
 Workflow **#322** (`36963317225`) is green and verifies the block-device registry plus ATA PIO signature read, write, CACHE FLUSH, readback, byte-for-byte comparison, AuroraFS persistence/mounting, FAT32/VFAT, exFAT, and common VFS routing. The same run also verifies a synthetic exFAT volume presented through a 4096-byte logical-block device.
+
+Workflow **Aurora AHCI Filesystem End-to-End #2** (`36972045000`) is green and verifies the complete AHCI-backed chain through AuroraFS, MBR, FAT32/VFAT, exFAT, mount manager and VFS while ATA PIO is unavailable.
+
+Workflow **Aurora NVMe Filesystem End-to-End #1** (`36975832885`) is green and verifies the complete NVMe-backed chain through AuroraFS, MBR, FAT32/VFAT, exFAT, mount manager and VFS while the AHCI controller has no active SATA ports and ATA PIO is unavailable. This demonstrates that the filesystem stack is genuinely transport-agnostic across both modern SATA and NVMe paths.
 
 Workflow **#328** (`36964846162`) is green and verifies FAT32 probe, mount, and root `stat` on a synthetic 4096-byte logical-block device after separating FAT filesystem-sector geometry from the block device's logical-block geometry.
 
@@ -84,9 +78,10 @@ Runtime-verified common-driver capabilities:
 - file reads through the VFS;
 - writes to existing bootstrap files;
 - persistence verification across reboot;
-- synthetic 4096-byte logical-block format/create/reopen/mount/read verification.
+- synthetic 4096-byte logical-block format/create/reopen/mount/read verification;
+- runtime traversal over ATA PIO, AHCI and NVMe block devices in QEMU.
 
-AuroraFS v1 preserves its existing 512-byte **logical filesystem block** on disk. The driver no longer requires the underlying block device to expose 512-byte blocks: it translates filesystem byte offsets to 512/1024/2048/4096-byte device blocks and uses read-modify-write when a 512-byte AuroraFS block occupies only part of a larger device block. This keeps compatibility with existing v1 volumes while removing the device-level 512-byte assumption.
+AuroraFS v1 preserves its existing 512-byte **logical filesystem block** on disk. The driver does not require the underlying block device to expose 512-byte blocks: it translates filesystem byte offsets to 512/1024/2048/4096-byte device blocks and uses read-modify-write when a 512-byte AuroraFS block occupies only part of a larger device block. This keeps compatibility with existing v1 volumes while removing the device-level 512-byte assumption.
 
 Current write support does not imply a production filesystem. AuroraFS bootstrap v1 still lacks general create/remove operations through the filesystem-driver contract, scalable allocation, nested directories, multi-block files, sparse files, extents, crash-consistent transactions, permissions, ownership, timestamps, and recovery structures.
 
@@ -107,7 +102,8 @@ Runtime-verified driver capabilities:
 - UTF-8 name buffers large enough to preserve the maximum VFAT filename;
 - reading a file with a Unicode long filename generated by external tooling;
 - file access through the common VFS mount path;
-- synthetic 4096-byte logical-block probe/mount/root-stat verification.
+- synthetic 4096-byte logical-block probe/mount/root-stat verification;
+- runtime traversal over ATA PIO, AHCI and NVMe in QEMU.
 
 FAT32 stores file length in 32 bits, so its approximately 4 GiB per-file ceiling is a FAT32 format property, not an Aurora VFS limit.
 
@@ -126,7 +122,8 @@ Runtime-verified read-only support includes:
 - contiguous `NoFatChain` files;
 - 64-bit file offsets and lengths at the Aurora interface;
 - reading a file from an externally generated exFAT image;
-- file access through the common VFS mount path.
+- file access through the common VFS mount path;
+- runtime traversal over ATA PIO, AHCI and NVMe in QEMU.
 
 Logical-block hardening is implemented in the exFAT driver:
 
@@ -144,17 +141,15 @@ Filesystem support and hardware transport support are separate concerns.
 
 Currently:
 
-- ATA PIO provides the disk read/write compatibility transport used in integration CI and exposes 512-byte sectors;
-- the block layer has a device registry and optional explicit flush contract; ATA PIO exposes CACHE FLUSH and the complete integration is green in workflow #322;
-- AHCI controller discovery and ABAR probing exist, but AHCI data I/O is not implemented yet;
-- NVMe is not implemented yet;
+- ATA PIO is retained as a compatibility transport;
+- AHCI baseline read/write/flush and filesystem traversal are runtime-verified in QEMU;
+- NVMe baseline read/write/flush and filesystem traversal are runtime-verified in QEMU;
+- AHCI still lacks advanced batching, robust port-reset recovery, interrupt-driven completion, NCQ and hot-plug;
+- NVMe still lacks interrupt/MSI-X completion, larger transfer/PRP-list handling, multi-controller/multi-namespace support and hot-plug policy;
 - USB/xHCI and USB mass-storage are not implemented yet;
-- partition parsing is runtime-verified for 512-byte and 4096-byte logical blocks;
-- exFAT filesystem-layer handling is runtime-verified on a synthetic 4096-byte logical-block device;
-- FAT32 filesystem-layer handling is runtime-verified on a synthetic 4096-byte logical-block device;
-- AuroraFS bootstrap is runtime-verified on a synthetic 4096-byte logical-block device while preserving its v1 on-disk layout.
+- physical hardware validation remains separate from QEMU runtime verification.
 
-Therefore FAT32/exFAT/AuroraFS support being verified does **not** yet mean Aurora can access every modern physical SATA/NVMe/USB device. The next major storage gate is real AHCI data I/O through the generic block layer.
+Therefore the modern SATA and NVMe software paths are now functional at baseline, but Aurora must not claim universal hardware compatibility until physical-device testing and advanced recovery/error handling are completed.
 
 ## Write-safety policy
 
