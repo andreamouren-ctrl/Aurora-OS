@@ -1,6 +1,6 @@
-# AuroraFS v2 — Unified extent lookup
+# AuroraFS v2 — Unified extent lookup and level-2 mutation
 
-Status: **level-2 growth and the unified leaf/level-1/level-2 lookup front door are runtime-verified**.
+Status: **level-2 growth and the unified leaf/level-1/level-2 lookup front door are runtime-verified; continued COW append beneath an existing level-2 root is implemented and awaiting runtime verification**.
 
 This document is part of the AuroraFS v2 implementation contract. It distinguishes repository implementation from runtime verification.
 
@@ -35,12 +35,33 @@ The dedicated self-test constructs a persistent hierarchy:
 
 It resolves the same mapping through the unified tree API and through an inode whose `extent_tree_root` points to the level-2 hierarchy, on synthetic 512-byte and 4096-byte logical-block devices.
 
+## Implemented COW append beneath an existing level-2 root
+
+The new tree operation `aurora_fs_v2_extent_tree_append_level2_cow()` handles the first continued-mutation case after level-2 publication: the final level-1 child and its final leaf still have spare capacity.
+
+The operation validates the published hierarchy and new extent, then performs copy-on-write bottom-up:
+
+1. clone the final leaf, append the mapping, write the fresh leaf and flush it;
+2. clone the final level-1 node, replace its final child pointer/span, write the fresh level-1 node and flush it;
+3. clone the level-2 root, replace its final child pointer/span, write the fresh level-2 root and flush it;
+4. return the new root while leaving the old level-2 root, old level-1 child and old leaf untouched.
+
+The dedicated sparse self-test starts from a one-extent three-level hierarchy, appends a second extent, verifies both mappings exclusively through the unified resolver, re-reads all old nodes to prove they were not mutated, reopens the allocator and verifies the appended mapping again. It runs on synthetic 512-byte and 4096-byte logical-block devices.
+
+Expected boot gate:
+
+`[aurorafs-v2] existing level-2 root COW append through leaf/level-1/root replacement self-test passed on 512/4096-byte devices`
+
+Until a green CI run contains that exact line, this level-2 append path remains **implemented but not runtime-verified**.
+
+## Compatibility and safety
+
+No on-disk structure changes are introduced by lookup unification or the new level-2 append path. Existing v2 nodes remain 4 KiB, use the `AUREXT2` format, and retain the 64-byte header / 32-byte entry layout.
+
+The current COW policy deliberately favors recoverability over immediate reclamation. Descendant replacement nodes are durable before their parents, and the replacement level-2 root is durable before a future inode publication step. A crash can therefore leak newly allocated metadata, but should not require in-place mutation of the previously published hierarchy. Durable reclamation remains deferred to the transaction/recovery layer.
+
 All runtime verification in this document uses synthetic QEMU block devices. The 4096-byte logical-block path is not physical 4Kn hardware certification.
-
-## Compatibility
-
-The older staged resolver entry points remain available during migration. No on-disk structure changes are introduced by lookup unification. Existing v2 nodes remain 4 KiB, use the `AUREXT2` format, and retain the 64-byte header / 32-byte entry layout.
 
 ## Next gate
 
-Migrate internal read-side callers to the unified API and implement continued copy-on-write append beneath an already-published level-2 root. For append, the modified leaf/subtree and replacement level-1 node must become durable before the replacement level-2 root is written and flushed; the inode publishes the new level-2 root last. Durable reclamation of superseded COW metadata remains deferred to the future transaction/recovery layer.
+After the tree-level append gate is runtime-verified, add persistent inode publication for that replacement level-2 root. Then cover the harder case where the final leaf is full but the final level-1 node still has child capacity, followed later by a full level-1 child and eventually a full level-2 root.
