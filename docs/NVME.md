@@ -32,10 +32,13 @@ Filesystem drivers remain transport-agnostic. AuroraFS, FAT32, exFAT and future 
 - parsing of controller model/serial, namespace count, capacity and active logical-block size;
 - Admin `Create I/O Completion Queue` and `Create I/O Submission Queue`;
 - polling I/O queue pair for namespace 1;
-- one-logical-block NVM Read command;
-- read-only `nvme-ns1` registration through the generic block-device layer;
+- one-logical-block NVM Read and NVM Write commands;
+- NVM Flush command;
+- read/write `nvme-ns1` registration through the generic block-device layer;
 - LBA0 access through `block_device_read()`;
-- dedicated QEMU q35 NVMe CI workflow with explicit discovery, Admin Identify and NVM Read assertions.
+- signed reversible write/flush/readback/restore probe restricted to the final logical block of a dedicated CI image;
+- external CI check that the original signature is restored in the backing image after the kernel probe;
+- dedicated QEMU q35 NVMe CI workflow with explicit discovery, Admin Identify, NVM Read and write-durability assertions.
 
 ### Runtime verification
 
@@ -45,14 +48,12 @@ Workflow **Aurora NVMe Probe #7** (`36974618553`) is green and runtime-verifies 
 
 Workflow **Aurora NVMe Probe #10** (`36974935129`) is green and runtime-verifies Admin creation of I/O CQ/SQ queue pair 1, NVM Read, registration of `nvme-ns1`, and LBA0 access through the generic block layer. The kernel reaches the M1 bootstrap after all of these assertions.
 
+NVM Write, Flush and the signed reversible write probe are implemented but remain **pending runtime verification** until the updated CI gate passes.
+
 The verified CI controller reports NVMe version `1.4.0`, 2048 maximum queue entries, doorbell stride 0, and supported controller page shifts 12 through 16.
 
 ### Not implemented yet
 
-- NVM Write command;
-- NVM Flush command;
-- read/write `aurora_block_device` registration;
-- signed reversible write/flush/readback/restore verification;
 - partition/filesystem/VFS traversal through NVMe;
 - interrupts/MSI-X;
 - robust timeout/recovery/reset policy beyond bounded bootstrap controller transitions;
@@ -66,19 +67,16 @@ The verified CI controller reports NVMe version `1.4.0`, 2048 maximum queue entr
 - Controller state transitions must honor `CAP.TO`, `CC.EN` and `CSTS.RDY` rather than using unbounded waits.
 - Queue depth must not exceed the controller's `CAP.MQES` limit.
 - Doorbell addresses must respect `CAP.DSTRD`.
-- Destructive write verification must be restricted to a dedicated signed CI image and restore original data before reporting success.
+- Automatic destructive verification is forbidden on arbitrary devices. The bootstrap write probe executes only when the final logical block contains the exact dedicated CI signature and restores that block before reporting success.
 - Filesystem code must remain independent of NVMe.
 
 ## Next implementation gate
 
-The next gate is NVMe write durability:
+Once the signed write/flush gate is runtime-verified, the next gate is end-to-end storage traversal:
 
-1. implement one-logical-block NVM Write;
-2. implement NVM Flush;
-3. expose namespace 1 as read/write only after both commands are available;
-4. place a dedicated CI signature in the last logical block of the NVMe test image;
-5. save the signed block, write a test pattern, flush, read back and verify;
-6. restore the original signed block, flush again and verify restoration;
-7. runtime-verify that complete reversible path in QEMU.
-
-Only after that gate is green should Aurora run the partition manager and filesystem/VFS traversal over the NVMe namespace.
+1. reuse the common storage bootstrap pipeline for `nvme-ns1` rather than duplicating filesystem logic;
+2. run partition discovery through the NVMe block device;
+3. verify FAT32/VFAT and exFAT detection/read access on NVMe-backed partitions;
+4. verify AuroraFS bootstrap persistence over NVMe;
+5. verify mount-manager and VFS routing while SATA/ATA are unavailable;
+6. add a dedicated NVMe filesystem end-to-end CI workflow.
