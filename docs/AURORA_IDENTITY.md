@@ -1,9 +1,9 @@
 # Aurora Identity
 
 Status: **Canonical subsystem specification**
-Version: **0.4**
+Version: **0.5**
 
-Aurora Identity is the Aurora OS subsystem responsible for identifying a local person, authenticating approved credentials, binding that identity to a profile, starting and locking sessions, managing authenticators, and providing recovery paths.
+Aurora Identity is the Aurora OS subsystem responsible for identifying a local person, authenticating approved credentials, binding that identity to a profile, starting and locking sessions, managing authenticators, protecting identity-bound data, representing platform security principals, and providing recovery paths.
 
 The default Aurora experience intentionally avoids a traditional visible username + password pair. A user may authenticate with an **Aurora Key** or with an enrolled authenticator such as an **Aurora Identity Drive**.
 
@@ -57,11 +57,14 @@ Aurora Identity
     ├── Aurora Identity Drive #1
     ├── Aurora Identity Drive #2
     ├── future secure hardware key
+    ├── future biometric authenticator
     ├── recovery credential
     └── future trusted-device credential
 ```
 
 Changing an Aurora Key or revoking a drive never changes `user_id` or recreates the profile.
+
+Aurora also distinguishes human identities from application, service, device, session, authenticator, recovery-authority, and managed emergency-authority identities.
 
 ## 3. Aurora Key
 
@@ -120,6 +123,7 @@ The architecture can additionally support:
 
 - Drive + PIN;
 - secure hardware authenticator;
+- biometric authenticator through Aurora Biometric Bridge;
 - multi-factor combinations;
 - managed-device restrictions;
 - high-security mode;
@@ -189,6 +193,10 @@ Aurora Identity must preserve these rules:
 12. Conventional USB drive identifiers are not sufficient cryptographic proof.
 13. Ordinary flash drives are not represented as physically non-clonable hardware keys.
 14. Authentication factor decisions are enforced by the Identity Service, not trusted to presentation code.
+15. Raw biometric data must not be exposed to ordinary applications when secure local matching is available.
+16. Aurora Key is never used directly as a durable data-encryption key.
+17. Human, application, service, device, and session identities remain distinct security principals.
+18. Managed Emergency Access is never implemented as a hidden universal backdoor.
 
 ## 8. IPC and authorization model
 
@@ -201,6 +209,7 @@ Canonical participants include:
 - Aurora Identity Service;
 - Session Manager;
 - removable-media/authenticator broker;
+- Permission Broker and future platform-identity consumers;
 - explicitly authorized recovery/admin components.
 
 Long operations are asynchronous and cancellable.
@@ -223,6 +232,8 @@ Aurora Identity also owns the authentication surface for:
 - purpose-bound re-authentication;
 - logout transition back to pre-session login.
 
+Advanced session protection can include Session Seal, Instant Lock, Ghost Session, Guest Identity, one-time access, Profile Layers, and Lock Zones.
+
 ## 10. Recovery model
 
 Recovery uses separate credentials/methods such as:
@@ -230,12 +241,15 @@ Recovery uses separate credentials/methods such as:
 - high-entropy local recovery credential;
 - enrolled secure hardware key;
 - future trusted-device approval;
+- Trusted Circle / threshold recovery;
 - managed administrator recovery;
 - optional encrypted recovery escrow later.
 
 After recovery, Aurora normally creates a new Aurora Key and revokes the old verifier.
 
 If all credentials and recovery methods are lost, Aurora does not bypass authentication.
+
+Managed Emergency Access / Break Glass is a separate, explicitly provisioned recovery/administration path and is disabled by default on personal installations.
 
 ## 11. Current implementation state
 
@@ -282,12 +296,17 @@ The canonical dependency order is:
 11. Aurora Identity Drive v1;
 12. recovery v1;
 13. secure hardware authenticators;
-14. optional multi-device federation.
+14. Application Identity / Service Identity integration with platform security;
+15. Data Seal and advanced session/data protection;
+16. Identity Migration and Identity Capsule workflows;
+17. optional trusted-device / multi-device federation;
+18. optional Biometric Bridge and managed Break Glass when their security foundations exist.
 
 ## 13. Canonical detailed documentation
 
 Detailed subsystem specifications live under [`docs/identity/`](identity/README.md):
 
+- [`FUNCTION_CATALOG.md`](identity/FUNCTION_CATALOG.md)
 - [`ARCHITECTURE.md`](identity/ARCHITECTURE.md)
 - [`SECURITY_MODEL.md`](identity/SECURITY_MODEL.md)
 - [`AURORA_KEY.md`](identity/AURORA_KEY.md)
@@ -301,6 +320,7 @@ Detailed subsystem specifications live under [`docs/identity/`](identity/README.
 - [`IMPLEMENTATION_ROADMAP.md`](identity/IMPLEMENTATION_ROADMAP.md)
 - [`TEST_PLAN.md`](identity/TEST_PLAN.md)
 - [`ADVANCED_FEATURES.md`](identity/ADVANCED_FEATURES.md)
+- [`PLATFORM_IDENTITY_EXTENSIONS.md`](identity/PLATFORM_IDENTITY_EXTENSIONS.md)
 
 Architecture decisions:
 
@@ -315,20 +335,24 @@ The architecture must be able to support, without weakening the local-first core
 
 - Aurora Ghost Session and controlled Guest Identity;
 - Identity Vault and application-bound secret use;
-- Session Seal, Instant Lock and Lock Zones;
+- Session Seal, Data Seal, Instant Lock and Lock Zones;
 - Travel Mode and stronger context-dependent policy;
 - one-time/temporary access credentials;
 - cryptographic Aurora device identities;
 - trusted-device approval and QR pairing;
-- Aurora Identity Capsule;
+- Aurora Identity Capsule and formal Identity Migration;
 - Aurora Handoff between trusted devices;
 - Aurora Presence;
 - Trusted Circle / threshold recovery;
 - local security Risk Engine;
 - multiple Profile Layers under one stable human identity;
+- Application Identity integrated with the Permission Broker;
+- Service Identity for privileged system components;
+- Aurora Biometric Bridge;
+- managed Emergency Access / Break Glass;
 - optional encrypted multi-device synchronization.
 
-These capabilities are specified in [`ADVANCED_FEATURES.md`](identity/ADVANCED_FEATURES.md) and are not all V1 requirements. Core Aurora Key authentication, recovery and ordinary local login must remain independent from cloud or multi-device availability.
+These capabilities are specified in [`ADVANCED_FEATURES.md`](identity/ADVANCED_FEATURES.md) and [`PLATFORM_IDENTITY_EXTENSIONS.md`](identity/PLATFORM_IDENTITY_EXTENSIONS.md). They are not all V1 requirements. Core Aurora Key authentication, recovery and ordinary local login must remain independent from cloud or multi-device availability.
 
 ## 15. Production readiness gate
 
@@ -344,4 +368,11 @@ Aurora Identity must not be described as production-ready until at least:
 - recovery has been abuse-reviewed;
 - removable credential parsing has been fuzz-tested;
 - compositor failure still leaves a functional fallback path;
-- offline authentication and recovery paths are verified.
+- offline authentication and recovery paths are verified;
+- biometric, data-seal, migration, and emergency-access paths are independently security-reviewed before being enabled in production.
+
+## 16. Scope freeze
+
+With the core specification, advanced capability catalogue, platform-identity extensions, and consolidated function catalogue, Aurora Identity's high-level functional architecture is considered sufficiently complete for implementation planning.
+
+Future ideas remain possible, but the project should now prioritize implementing and validating the existing dependency chain instead of continually expanding the conceptual scope.
