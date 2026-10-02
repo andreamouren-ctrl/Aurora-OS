@@ -211,5 +211,15 @@ bool aurora_fs_4kn_self_test(void) {
         return false;
     }
     log_line("[aurorafs-v2] persistent inode level-1 COW publication of 253rd extent self-test passed on 512/4096-byte devices");
+
+    if (!aurora_fs_v2_extent_tree_level2_growth_self_test()) {
+        return false;
+    }
+    log_line("[aurorafs-v2] full level-1 root COW growth to level-2 at 15877th extent self-test passed on 512/4096-byte devices");
+
+    if (!aurora_fs_v2_inode_level2_growth_self_test()) {
+        return false;
+    }
+    log_line("[aurorafs-v2] persistent inode publication of 15877th extent through level-2 root self-test passed on 512/4096-byte devices");
     return true;
 }
