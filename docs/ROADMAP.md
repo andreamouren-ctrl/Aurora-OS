@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Active implementation**
-Version: **0.15**
+Version: **0.16**
 
 The roadmap distinguishes architecture decisions, repository implementation, and runtime verification. A feature is not considered complete merely because a detector or interface exists.
 
@@ -104,7 +104,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] PCI storage discovery foundation
 - [x] AHCI controller + ABAR discovery
 - [x] ATA PIO compatibility read/write path
-- [ ] runtime-verify registry + ATA read/write/flush integration in a fully green CI run
+- [x] runtime-verify registry + ATA read/write/flush integration in CI
 - [ ] AHCI data I/O
 - [ ] NVMe transport
 - [ ] USB/xHCI + USB mass storage
@@ -137,7 +137,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] exFAT read-only driver
 - [x] exFAT external-image runtime verification through VFS
 - [x] exFAT boot-record reads are safe for 512/1024/2048/4096-byte device blocks when the filesystem sector geometry is compatible
-- [ ] runtime-verify exFAT on a synthetic 4096-byte logical-block device
+- [x] runtime-verify exFAT on a synthetic 4096-byte logical-block device
 - [ ] remove bootstrap static mount/driver limits
 - [ ] FAT12/FAT16 drivers
 - [ ] NTFS read-only driver
@@ -168,7 +168,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [ ] transactional deployment prototype
 - [ ] rollback
 
-Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC rejection and primary-to-backup fallback on the synthetic 512-byte logical-block test device. Workflow **#299** (`36914796680`) is green and extends the same GPT integrity/fallback self-test to a synthetic 4096-byte logical-block device, so partition-layer 4Kn parsing is runtime-verified. Workflow **#315** (`36962807514`) reached successful ATA signature validation, write, CACHE FLUSH, readback, byte-for-byte comparison, AuroraFS persistence/mounting, FAT32/VFAT and exFAT VFS checks at runtime; the workflow result was red only because the CI still grepped the obsolete pre-flush log string. Commit `8c493274fb81fbc6bc83d4856efcd19218775e27` fixes that gate and adds explicit AuroraFS `/system` VFS assertions. The registry/ATA integration checkbox remains open until that corrected workflow completes green. exFAT logical-block hardening is implemented at commit `48beb488d396154122de25843322e9c94c84b537` and awaits dedicated 4096-byte runtime verification.
+Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC rejection and primary-to-backup fallback on the synthetic 512-byte logical-block test device. Workflow **#299** (`36914796680`) is green and extends the same GPT integrity/fallback self-test to a synthetic 4096-byte logical-block device. Workflow **#322** (`36963317225`) is green and runtime-verifies the block-device registry + ATA PIO read/write/CACHE FLUSH path, AuroraFS persistence and common VFS routing, FAT32/VFAT and exFAT integration, and the synthetic 4096-byte logical-block exFAT probe/mount self-test.
 
 ## M4 — Graphics and Desktop foundation
 
@@ -245,16 +245,15 @@ Aurora can boot through the M1 kernel foundation and enter the native login prot
 
 Near-term dependency order:
 
-1. close the corrected green CI gate for block registry/ATA read-write-flush integration;
-2. runtime-verify exFAT on a 4096-byte logical-block test device and continue removing filesystem-level 512-byte assumptions;
-3. harden FAT32 logical-block handling;
-4. add NTFS and ext-family read-only support;
-5. implement modern AHCI data I/O;
-6. evolve AuroraFS from bootstrap v1 to scalable production allocation and directory structures;
-7. establish protected durable system state;
-8. implement secure randomness and credential verification;
-9. implement Aurora Identity Service, persistent identity records, and Session Manager;
-10. add USB storage and Aurora Identity Drive support.
+1. harden FAT32 logical-block handling and add a synthetic 4096-byte runtime test;
+2. remove remaining filesystem-level 512-byte assumptions, including AuroraFS bootstrap v1;
+3. add NTFS and ext-family read-only support;
+4. implement modern AHCI data I/O;
+5. evolve AuroraFS from bootstrap v1 to scalable production allocation and directory structures;
+6. establish protected durable system state;
+7. implement secure randomness and credential verification;
+8. implement Aurora Identity Service, persistent identity records, and Session Manager;
+9. add USB storage and Aurora Identity Drive support.
 
 Detailed Identity sequencing remains in `docs/identity/IMPLEMENTATION_ROADMAP.md`.
 
