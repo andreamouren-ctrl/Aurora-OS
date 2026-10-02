@@ -1,6 +1,6 @@
 # AuroraFS v2 — Unified extent lookup and level-2 mutation
 
-Status: **level-2 growth, unified lookup, continued COW append, durable inode root publication, composed level-2 append + inode publication, and full-last-leaf structural growth under level-2 are runtime-verified; persistent full-last-leaf publication through the inode is implemented and awaiting runtime verification**.
+Status: **level-2 growth, unified lookup, continued COW append, durable inode publication, full-last-leaf structural growth and persistent full-last-leaf publication are runtime-verified; full final level-1 sibling growth under level-2 is implemented and awaiting runtime verification**.
 
 This document is part of the AuroraFS v2 implementation contract. It distinguishes repository implementation from runtime verification.
 
@@ -62,13 +62,15 @@ The operation:
 4. clones the level-2 root, replaces the final level-1 child pointer/span and flushes it;
 5. returns the replacement level-2 root without modifying any previously published root, level-1 node or leaf.
 
-The sparse self-test starts with a level-2 hierarchy whose only leaf contains all 126 entries, appends logical block 126, verifies both the original and new mappings through the unified resolver, proves the old hierarchy remains unchanged, reopens the allocator and resolves the new mapping again. It runs on synthetic 512-byte and 4096-byte logical-block devices.
+## Runtime-verified persistent full-last-leaf publication
 
-## Implemented persistent full-last-leaf publication
+Workflow `36996338607` (head `9c56e9de28e727a2e52a21a02374abf93a94b1de`) completed successfully. The exact gate appears on q35/AHCI, ATA first boot and ATA persistence boot:
 
-`aurora_fs_v2_inode_append_level2_full_leaf_cow_commit()` composes the now-verified structural full-leaf tree replacement with `aurora_fs_v2_inode_publish_extent_root_cow()`.
+`[aurorafs-v2] persistent level-2 full-last-leaf COW append + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
 
-The ordering is deliberately child-first and publication-last:
+`aurora_fs_v2_inode_append_level2_full_leaf_cow_commit()` composes the verified structural full-leaf tree replacement with `aurora_fs_v2_inode_publish_extent_root_cow()`.
+
+The ordering is child-first and publication-last:
 
 1. allocate and flush the replacement leaf;
 2. allocate and flush the replacement level-1 parent;
@@ -76,13 +78,30 @@ The ordering is deliberately child-first and publication-last:
 4. verify the inode still references the expected old root;
 5. publish the replacement root in the inode and flush the inode-table block.
 
-The dedicated end-to-end self-test starts with a persistent inode referencing a level-2 hierarchy whose final leaf contains 126 single-block extents. It appends extent 127, publishes the replacement root, reopens the allocator and inode table, verifies the inode counters and generation, resolves the new logical block through the unified inode lookup, and also re-resolves an old logical block. It runs on synthetic 512-byte and 4096-byte logical-block devices.
+The end-to-end self-test reopens allocator and inode state, verifies counters and generation, resolves the appended mapping through the unified inode lookup, and re-resolves an old mapping. Both synthetic 512-byte and 4096-byte logical-block devices pass.
+
+## Implemented full final level-1 sibling growth under level-2
+
+`aurora_fs_v2_extent_tree_append_level2_full_level1_cow()` handles the next structural boundary. The final level-1 node already contains all 126 child leaves and its last leaf also contains all 126 mappings, while the level-2 root still has spare child capacity.
+
+A completely full level-1 subtree represents **15,876 extent mappings**. Appending the next mapping cannot modify or extend that subtree in place.
+
+The operation therefore:
+
+1. validates the level-2 root, its full final level-1 child, and that child's full final leaf;
+2. validates the new extent geometry and monotonic logical range;
+3. creates and flushes a fresh one-entry leaf;
+4. creates and flushes a fresh one-child level-1 sibling pointing at that leaf;
+5. clones the level-2 root, appends one new child entry for the sibling, updates generation/range, and flushes the replacement root;
+6. leaves the old root, old full level-1 node, and old leaves untouched.
+
+The sparse self-test materializes all 126 leaf metadata nodes with 126 mappings each without allocating backing buffers for data blocks, then appends mapping 15,877. It verifies lookup of both an old and the new mapping, proves the old hierarchy is unchanged, confirms the replacement root gained a second level-1 child, reopens the allocator, and resolves the appended mapping again. It runs on synthetic 512-byte and 4096-byte logical-block devices.
 
 Expected boot gate:
 
-`[aurorafs-v2] persistent level-2 full-last-leaf COW append + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
+`[aurorafs-v2] level-2 full level-1 sibling COW growth self-test passed on 512/4096-byte devices`
 
-Until a green CI run contains that exact line, this composed path remains **implemented but not runtime-verified**.
+Until a green CI run contains that exact line, this path remains **implemented but not runtime-verified**.
 
 ## Compatibility and safety
 
@@ -94,4 +113,4 @@ All runtime verification described here uses synthetic QEMU block devices. The 4
 
 ## Next gate
 
-After persistent full-last-leaf publication is runtime-verified, cover the case where the final level-1 child itself is full but the level-2 root still has capacity. That transition must create a fresh leaf and a fresh one-child level-1 sibling, clone the level-2 root with one additional child, and only then publish the replacement root through the inode.
+Runtime-verify the full-final-level-1 sibling growth path. Once green, compose the returned replacement level-2 root with durable inode publication and verify reopen lookup. The later structural boundary is a completely full level-2 root, which will require either a deeper tree level or a separately versioned extent-index strategy rather than silently exceeding the current node format.
