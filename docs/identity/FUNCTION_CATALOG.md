@@ -1,19 +1,19 @@
 # Aurora Identity Function Catalogue
 
 Status: **Canonical product capability map**
-Version: **0.1**
+Version: **0.2**
 
-This document is the consolidated functional map for Aurora Identity. It combines the core v1 design, advanced security/privacy capabilities, device/federation concepts, and platform-identity extensions.
+This document is the consolidated functional map for Aurora Identity. It combines the core v1 design, advanced security/privacy capabilities, device/federation concepts, platform-identity extensions, and local account/authorization policy.
 
 Not every capability ships in v1. The purpose is to keep one authoritative overview of what Aurora Identity is intended to become.
 
 ## 1. Core identity architecture
 
 ### Aurora Identity System App
-The official user-facing system application. It presents login, first-profile setup, credential management, access-device management, recovery, lock/re-authentication, sessions, and security activity.
+The official user-facing system application. It presents login, first-profile setup, credential management, access-device management, recovery, lock/re-authentication, sessions, local-user administration, access management, and security activity.
 
 ### Aurora Identity Service
-The privileged isolated user-space backend. It owns identity records, authentication policy, verifier operations, throttling, authenticator enrollment/revocation, recovery policy, and authenticated session-grant issuance.
+The privileged isolated user-space backend. It owns identity records, authentication policy, verifier operations, throttling, authenticator enrollment/revocation, recovery policy, role metadata, local-account creation policy, and authenticated session-grant issuance.
 
 ### Bootstrap / Recovery Login Surface
 A minimal framebuffer-based fallback that remains available when the normal compositor or System App cannot start. It provides the security-critical subset needed for authentication and recovery.
@@ -39,7 +39,7 @@ Aurora never stores the plaintext Aurora Key. The target production verifier use
 Aurora can generate strong random Keys using a cryptographically secure random source once that subsystem is available.
 
 ### Aurora Key rotation
-The user can replace the Aurora Key without changing `user_id`, profile, files, or enrolled devices. The old verifier is invalidated.
+The user can replace the Aurora Key without changing `user_id`, profile, files, role, or enrolled devices. The old verifier is invalidated.
 
 ### Credential masking and protected input
 Login presentation masks credential characters, clears temporary buffers when practical, and prevents credential material from entering ordinary logs, clipboard history, diagnostics, or application APIs.
@@ -196,7 +196,7 @@ Future Aurora authorization can evaluate human identity + application identity +
 ## 10. Security monitoring and adaptive protection
 
 ### Identity Timeline / Security Activity
-The System App exposes non-secret events such as successful authentication method, failed/throttled attempts, key rotation, authenticator enrollment/revocation, recovery activity, trusted-device changes, and session creation.
+The System App exposes non-secret events such as successful authentication method, failed/throttled attempts, key rotation, authenticator enrollment/revocation, recovery activity, trusted-device changes, role/access changes, and session creation.
 
 ### Local Risk Engine
 A local auditable risk evaluator can detect conditions such as repeated failures, recent recovery, newly enrolled authenticators, unusual session transitions, or use of revoked devices and request stronger authentication.
@@ -207,7 +207,9 @@ Security events may record what class of authentication occurred and when, but n
 ## 11. Identity management UX
 
 ### First-profile creation
-When policy permits, an unknown valid Aurora Key can offer creation of a new local Aurora profile instead of silently failing or automatically creating an account.
+When no persistent local human identity exists, the first successfully committed identity becomes the installation's initial Administrator.
+
+When at least one identity already exists, an unknown valid Aurora Key may offer creation only when machine policy permits it. Every later persistent identity defaults to Standard User unless an authenticated Administrator explicitly changes the role.
 
 ### Profile management
 The System App manages display name, avatar/presentation metadata, locale, and other non-secret identity preferences independently from authentication credentials.
@@ -221,10 +223,41 @@ Users can create, replace, inspect status of, and revoke recovery methods withou
 ### Session management
 The System App can later display active local sessions and linked trusted devices with appropriate lock, logout, or revoke actions.
 
+### Users & Access administration
+Authenticated Administrators can manage local users, roles, and resource grants without exposing Aurora Keys. Account and access operations use stable `user_id` values internally and require appropriate administrative authorization.
+
 ### Accessibility-aware secure login
 The final UI supports keyboard-only operation, scalable/high-contrast presentation, clear focus, reduced motion, and future protected accessibility input without leaking secret text to ordinary accessibility consumers.
 
-## 12. System guarantees
+## 12. Local account roles and file authorization
+
+### Initial Administrator bootstrap
+The first successfully committed persistent local human identity on a fresh installation becomes the initial Administrator. Merely entering an unknown Aurora Key is not enough; the identity transaction must commit successfully.
+
+### Standard User default
+Every later persistent local identity starts as Standard User unless an authenticated Administrator explicitly assigns another supported role.
+
+### Configurable additional-user creation
+After the initial Administrator exists, the Identity Service applies machine policy such as open local creation, Administrator approval, Administrator-only creation, or creation disabled. The login UI cannot bypass this policy.
+
+### Private-profile isolation
+A newly created user receives the minimum rights required to use their own private profile. They do not automatically receive access to another user's profile, pre-existing shared files, or protected system state.
+
+### Administrator-granted file access
+Access to existing/shared resources is deny-by-default for a new user and is granted through explicit Administrator-controlled rights such as READ, WRITE, CREATE, REMOVE, ENUMERATE, EXECUTE, and CONTROL.
+
+### Stable-principal ownership
+File/resource ownership and grants bind to stable `user_id` or another stable Aurora security principal, never display name or Aurora Key. Rotating a credential therefore does not alter ownership or permissions.
+
+### Administrator authority separation
+Administrator role permits management of authorization policy but does not automatically reveal other users' credentials or act as a universal cryptographic bypass for Data Seal, Vault, or other identity-bound encrypted data.
+
+### Last-Administrator protection
+Ordinary management flows must not accidentally leave a personal installation with no usable Administrator. Demotion, disablement, or deletion of the last Administrator requires another valid administrative/recovery path.
+
+Detailed policy is defined in [`ACCOUNT_ROLES_AND_FILE_ACCESS.md`](ACCOUNT_ROLES_AND_FILE_ACCESS.md).
+
+## 13. System guarantees
 
 Across all functions, Aurora Identity preserves these product guarantees:
 
@@ -240,16 +273,21 @@ Across all functions, Aurora Identity preserves these product guarantees:
 10. Failures fail closed rather than creating unauthenticated sessions.
 11. Biometric data is minimized and isolated.
 12. Emergency administration is explicit, scoped, auditable, and never a hidden backdoor.
+13. The first persistent local human identity becomes the initial Administrator.
+14. Later persistent identities default to Standard User.
+15. New users receive no automatic access to another user's private or pre-existing shared data.
+16. File/resource rights are explicit, stable-principal-bound, and revocable.
+17. Administrator status is not a universal cryptographic bypass for protected user data.
 
-## 13. Product scope conclusion
+## 14. Product scope conclusion
 
-With the core specification, advanced features, and platform extensions, Aurora Identity is intended to evolve from a login screen into Aurora OS's trusted identity boundary:
+With the core specification, advanced features, platform extensions, and account/access policy, Aurora Identity is intended to evolve from a login screen into Aurora OS's trusted identity boundary:
 
 ```text
 Who is the person?
 Which credential proved it?
-Which session/device/application/service is acting?
-What exact capability is requested?
+Which role/session/device/application/service is acting?
+What exact resource capability is requested?
 Is the current assurance sufficient for that action?
 ```
 
