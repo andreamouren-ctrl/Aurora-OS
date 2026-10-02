@@ -22,5 +22,6 @@ struct aurora_nvme_probe_result {
 };
 
 bool nvme_probe(struct aurora_nvme_probe_result *out_result);
+void nvme_bootstrap_probe(void);
 
 #endif
