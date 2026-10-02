@@ -18,6 +18,16 @@ struct aurora_fs_v2_allocator {
     uint64_t data_start;
 };
 
+struct aurora_fs_v2_format_geometry {
+    uint64_t base_bytes;
+    uint64_t total_fs_blocks;
+    uint64_t bitmap_start;
+    uint64_t bitmap_blocks;
+    uint64_t inode_start;
+    uint64_t inode_blocks;
+    uint64_t data_start;
+};
+
 bool aurora_fs_v2_allocator_init(
     struct aurora_fs_v2_allocator *allocator,
     struct aurora_block_device *device,
@@ -46,6 +56,14 @@ bool aurora_fs_v2_allocator_free_range(
     uint64_t block_count
 );
 
+bool aurora_fs_v2_format_device(
+    struct aurora_block_device *device,
+    uint64_t base_bytes,
+    uint64_t initial_data_blocks,
+    struct aurora_fs_v2_format_geometry *out_geometry
+);
+
+bool aurora_fs_v2_formatter_self_test(void);
 bool aurora_fs_v2_allocator_self_test(void);
 
 #endif
