@@ -72,13 +72,6 @@ static bool ata_wait_drq(void) {
 }
 
 static bool ata_cache_flush(void) {
-    /*
-     * Preserve the sequencing already runtime-verified by the original
-     * ATA PIO path: issue FLUSH CACHE immediately after the PIO transfer,
-     * then wait for command completion.  Waiting for DRQ to clear before
-     * issuing the command is not reliable on the QEMU IDE device and was
-     * the source of the registry/flush regression.
-     */
     arch_out8(ATA_PRIMARY_IO + ATA_REG_COMMAND, ATA_CMD_CACHE_FLUSH);
 
     if (!ata_wait_not_busy()) {
@@ -152,8 +145,8 @@ static bool ata_write_one(uint32_t lba, const uint8_t *buffer) {
         arch_out16(ATA_PRIMARY_IO + ATA_REG_DATA, word);
     }
 
-    ata_delay_400ns();
-    return true;
+    /* Preserve the exact timing of the previously verified PIO path. */
+    return ata_cache_flush();
 }
 
 static bool ata_block_read(
@@ -188,6 +181,7 @@ static bool ata_block_write(
     uint32_t block_count,
     const void *buffer
 ) {
+    (void)device;
     const uint8_t *in = (const uint8_t *)buffer;
 
     for (uint32_t i = 0u; i < block_count; ++i) {
@@ -198,8 +192,7 @@ static bool ata_block_write(
         }
     }
 
-    /* One public durability barrier commits the complete batch. */
-    return block_device_flush(device);
+    return true;
 }
 
 bool ata_pio_primary_master_init(void) {
