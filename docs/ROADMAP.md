@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Active implementation**
-Version: **0.14**
+Version: **0.15**
 
 The roadmap distinguishes architecture decisions, repository implementation, and runtime verification. A feature is not considered complete merely because a detector or interface exists.
 
@@ -104,7 +104,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] PCI storage discovery foundation
 - [x] AHCI controller + ABAR discovery
 - [x] ATA PIO compatibility read/write path
-- [ ] runtime-verify registry + ATA read/write/flush integration in CI
+- [ ] runtime-verify registry + ATA read/write/flush integration in a fully green CI run
 - [ ] AHCI data I/O
 - [ ] NVMe transport
 - [ ] USB/xHCI + USB mass storage
@@ -168,7 +168,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [ ] transactional deployment prototype
 - [ ] rollback
 
-Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC rejection and primary-to-backup fallback on the synthetic 512-byte logical-block test device. Workflow **#299** (`36914796680`) is green and extends the same GPT integrity/fallback self-test to a synthetic 4096-byte logical-block device, so partition-layer 4Kn parsing is runtime-verified. Block-device registry + explicit ATA flush integration is implemented; workflow **#308** (`36915964624`) was cancelled by the runner during dependency installation and has been re-run. exFAT logical-block hardening is implemented at commit `48beb488d396154122de25843322e9c94c84b537` and awaits dedicated 4096-byte runtime verification.
+Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC rejection and primary-to-backup fallback on the synthetic 512-byte logical-block test device. Workflow **#299** (`36914796680`) is green and extends the same GPT integrity/fallback self-test to a synthetic 4096-byte logical-block device, so partition-layer 4Kn parsing is runtime-verified. Workflow **#315** (`36962807514`) reached successful ATA signature validation, write, CACHE FLUSH, readback, byte-for-byte comparison, AuroraFS persistence/mounting, FAT32/VFAT and exFAT VFS checks at runtime; the workflow result was red only because the CI still grepped the obsolete pre-flush log string. Commit `8c493274fb81fbc6bc83d4856efcd19218775e27` fixes that gate and adds explicit AuroraFS `/system` VFS assertions. The registry/ATA integration checkbox remains open until that corrected workflow completes green. exFAT logical-block hardening is implemented at commit `48beb488d396154122de25843322e9c94c84b537` and awaits dedicated 4096-byte runtime verification.
 
 ## M4 — Graphics and Desktop foundation
 
@@ -245,7 +245,7 @@ Aurora can boot through the M1 kernel foundation and enter the native login prot
 
 Near-term dependency order:
 
-1. complete runtime verification of block registry/flush integration;
+1. close the corrected green CI gate for block registry/ATA read-write-flush integration;
 2. runtime-verify exFAT on a 4096-byte logical-block test device and continue removing filesystem-level 512-byte assumptions;
 3. harden FAT32 logical-block handling;
 4. add NTFS and ext-family read-only support;
