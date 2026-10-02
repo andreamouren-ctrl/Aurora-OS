@@ -93,6 +93,14 @@ bool aurora_fs_v2_extent_tree_lookup_level2(
     uint64_t *out_contiguous_blocks
 );
 
+bool aurora_fs_v2_extent_tree_lookup_unified(
+    struct aurora_fs_v2_allocator *allocator,
+    uint64_t root_block,
+    uint64_t logical_block,
+    uint64_t *out_physical_block,
+    uint64_t *out_contiguous_blocks
+);
+
 bool aurora_fs_v2_extent_tree_clone_append_leaf(
     struct aurora_fs_v2_allocator *allocator,
     uint64_t old_root_block,
@@ -196,6 +204,15 @@ bool aurora_fs_v2_inode_extent_lookup_level2(
     uint64_t *out_contiguous_blocks
 );
 
+bool aurora_fs_v2_inode_extent_lookup_unified(
+    struct aurora_fs_v2_allocator *allocator,
+    const struct aurora_fs_v2_format_geometry *geometry,
+    uint64_t inode_index,
+    uint64_t logical_block,
+    uint64_t *out_physical_block,
+    uint64_t *out_contiguous_blocks
+);
+
 bool aurora_fs_v2_formatter_self_test(void);
 bool aurora_fs_v2_allocator_self_test(void);
 bool aurora_fs_v2_extent_tree_self_test(void);
@@ -209,5 +226,6 @@ bool aurora_fs_v2_inode_tree_growth_self_test(void);
 bool aurora_fs_v2_inode_level1_append_self_test(void);
 bool aurora_fs_v2_inode_level1_full_leaf_self_test(void);
 bool aurora_fs_v2_inode_level2_growth_self_test(void);
+bool aurora_fs_v2_unified_lookup_self_test(void);
 
 #endif
