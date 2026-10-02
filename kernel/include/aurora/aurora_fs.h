@@ -23,6 +23,8 @@ bool aurora_fs_bootstrap_probe(
     struct aurora_fs_bootstrap_result *out_result
 );
 
+bool aurora_fs_4kn_self_test(void);
+
 const struct aurora_fs_driver *aurora_fs_driver(void);
 
 #endif
