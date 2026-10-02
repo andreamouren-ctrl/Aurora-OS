@@ -25,7 +25,7 @@ Recognition alone must never be presented as full filesystem support.
 
 | Filesystem | Detected | Read-only | Read-write | CI verification |
 | --- | --- | --- | --- | --- |
-| AuroraFS bootstrap v1 | **Yes** | **Yes** | **Existing bootstrap files only** | **Yes — reboot persistence + common VFS; 4Kn pending** |
+| AuroraFS bootstrap v1 | **Yes** | **Yes** | **Existing bootstrap files only** | **Yes — reboot persistence + common VFS + synthetic 4096-byte logical block** |
 | FAT32 / VFAT | Yes | **Yes** | No | **Yes — Unicode LFN + synthetic 4096-byte logical-block probe/mount** |
 | exFAT | Yes | **Yes** | No | **Yes — 512-byte integration + synthetic 4096-byte probe/mount** |
 | FAT12 | Yes | Pending | No | Pending |
@@ -61,13 +61,15 @@ Workflow **#322** (`36963317225`) is green and verifies the block-device registr
 
 Workflow **#328** (`36964846162`) is green and verifies FAT32 probe, mount, and root `stat` on a synthetic 4096-byte logical-block device after separating FAT filesystem-sector geometry from the block device's logical-block geometry.
 
+Workflow **#334** (`36965554498`) is green and verifies AuroraFS bootstrap format, probe-file creation, reopen, generation advancement, mount, root/file `stat`, and file read on a synthetic 4096-byte logical-block device.
+
 ## Partition-sector handling
 
 The partition parser accepts logical block sizes of 512, 1024, 2048, and 4096 bytes. MBR metadata is interpreted from the standard first 512 bytes of LBA 0, while GPT header and entry-table addressing use the block device's actual logical block size.
 
 GPT entries that cross a logical-block boundary are assembled from adjacent blocks. GPT header CRC32, partition-entry-array CRC32, and primary-to-backup GPT fallback are implemented.
 
-The partition layer is **runtime-verified on both 512-byte and 4096-byte logical-block synthetic devices**. This does not yet constitute complete end-to-end 4Kn support: every filesystem and transport must be independently validated on non-512 logical blocks.
+The partition layer is **runtime-verified on both 512-byte and 4096-byte logical-block synthetic devices**. FAT32, exFAT, and AuroraFS bootstrap also have filesystem-layer 4096-byte synthetic verification. This still does not prove support for every physical 4Kn transport; hardware transport validation remains separate.
 
 ## AuroraFS bootstrap v1
 
@@ -81,9 +83,12 @@ Runtime-verified common-driver capabilities:
 - root-directory enumeration;
 - file reads through the VFS;
 - writes to existing bootstrap files;
-- persistence verification across reboot.
+- persistence verification across reboot;
+- synthetic 4096-byte logical-block format/create/reopen/mount/read verification.
 
-Current write support does not imply a production filesystem. AuroraFS bootstrap v1 still lacks general create/remove operations through the filesystem-driver contract, scalable allocation, nested directories, multi-block files, sparse files, extents, crash-consistent transactions, and 512e/4Kn-safe parsing. Removing the fixed 512-byte block assumption is the current storage gate.
+AuroraFS v1 preserves its existing 512-byte **logical filesystem block** on disk. The driver no longer requires the underlying block device to expose 512-byte blocks: it translates filesystem byte offsets to 512/1024/2048/4096-byte device blocks and uses read-modify-write when a 512-byte AuroraFS block occupies only part of a larger device block. This keeps compatibility with existing v1 volumes while removing the device-level 512-byte assumption.
+
+Current write support does not imply a production filesystem. AuroraFS bootstrap v1 still lacks general create/remove operations through the filesystem-driver contract, scalable allocation, nested directories, multi-block files, sparse files, extents, crash-consistent transactions, permissions, ownership, timestamps, and recovery structures.
 
 ## FAT32 / VFAT
 
@@ -106,7 +111,7 @@ Runtime-verified driver capabilities:
 
 FAT32 stores file length in 32 bits, so its approximately 4 GiB per-file ceiling is a FAT32 format property, not an Aurora VFS limit.
 
-Logical-block hardening now tracks `bytes_per_sector` independently from `device_block_size` and routes FAT, directory, and file reads through byte-addressed translation over the block device. This is filesystem-layer 4Kn verification; physical 4Kn transport support remains a separate requirement.
+Logical-block hardening tracks `bytes_per_sector` independently from `device_block_size` and routes FAT, directory, and file reads through byte-addressed translation over the block device. This is filesystem-layer 4Kn verification; physical 4Kn transport support remains a separate requirement.
 
 ## exFAT
 
@@ -147,9 +152,9 @@ Currently:
 - partition parsing is runtime-verified for 512-byte and 4096-byte logical blocks;
 - exFAT filesystem-layer handling is runtime-verified on a synthetic 4096-byte logical-block device;
 - FAT32 filesystem-layer handling is runtime-verified on a synthetic 4096-byte logical-block device;
-- AuroraFS bootstrap v1 still contains a fixed 512-byte block assumption.
+- AuroraFS bootstrap is runtime-verified on a synthetic 4096-byte logical-block device while preserving its v1 on-disk layout.
 
-Therefore FAT32/exFAT/AuroraFS driver support being verified does **not** yet mean Aurora can access every modern physical SATA/NVMe/USB device.
+Therefore FAT32/exFAT/AuroraFS support being verified does **not** yet mean Aurora can access every modern physical SATA/NVMe/USB device. The next major storage gate is real AHCI data I/O through the generic block layer.
 
 ## Write-safety policy
 
