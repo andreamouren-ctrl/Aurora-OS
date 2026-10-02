@@ -1,6 +1,6 @@
 # AuroraFS
 
-Status: **bootstrap v1 runtime-verified; v2 production-layout foundation in active development**.
+Status: **bootstrap v1 runtime-verified; v2 production-layout foundation runtime-verified, directory work active**.
 
 AuroraFS is Aurora OS's native persistent filesystem direction. Bootstrap v1 remains the currently mounted native format and is preserved for compatibility. Production development proceeds as a separately versioned v2 format rather than mutating the v1 on-disk contract in place.
 
@@ -41,15 +41,15 @@ No production API or v2 metadata structure may inherit bootstrap v1 limits such 
 
 ## AuroraFS v2 production-layout foundation
 
-The first v2 milestone deliberately focuses on durable structural primitives before the common driver is switched to v2.
+The first v2 milestone focuses on durable structural primitives before the common driver is switched to v2.
 
 ### Logical block size
 
-AuroraFS v2 uses a **4096-byte logical filesystem block**. The filesystem block size is independent of the underlying device logical-block size. The implementation must translate safely over supported 512/1024/2048/4096-byte block devices through the common block layer.
+AuroraFS v2 uses a **4096-byte logical filesystem block**. The filesystem block size is independent of the underlying device logical-block size. The initial runtime gate verifies the same v2 layout over synthetic 512-byte and 4096-byte block devices.
 
 ### Superblock
 
-The v2 superblock records at minimum:
+The v2 superblock records:
 
 - magic and explicit format version;
 - filesystem block size;
@@ -67,9 +67,7 @@ The initial v2 metadata checksum is CRC32. The checksum field is zeroed while ca
 
 ### Allocation bitmap
 
-Free/used filesystem blocks are tracked by an on-disk bitmap whose length is calculated from the volume size. The bitmap is not a fixed bootstrap array. Metadata blocks are marked allocated during format and data allocation searches the bitmap for free ranges.
-
-This is a foundation for scalable allocation. Future work may add allocation groups or trees for very large volumes without changing the semantic allocation contract.
+Free/used filesystem blocks are represented by an on-disk allocation bitmap and metadata/data blocks are marked allocated during format. The current first implementation calculates bitmap length from the volume, but its formatter/self-test currently accepts only layouts whose bitmap occupies one 4 KiB filesystem block. **This is a deliberate first-milestone limit and must not be described as fully scalable allocation yet.** Multi-block bitmap traversal/allocation is a required follow-up before large-volume scalability is claimed.
 
 ### Inodes
 
@@ -80,22 +78,32 @@ The initial v2 inode record is fixed at 256 bytes and uses 64-bit fields for:
 - logical file size;
 - allocated byte count;
 - metadata generation;
-- timestamps when that milestone is enabled;
-- extent block addresses and lengths.
+- extent-tree root reservation;
+- extent logical/physical coordinates and lengths.
 
-The first milestone supports inline extent descriptors sufficient to prove multi-block persistence. The on-disk inode also reserves an extent-tree/root pointer so the format can grow beyond inline extents without reintroducing a fixed file-size ceiling.
+The first milestone supports inline extent descriptors sufficient to prove multi-block persistence. The on-disk inode reserves an extent-tree/root pointer so the format can grow beyond inline extents without reintroducing a fixed file-size ceiling.
 
 ### Extents
 
-An extent identifies a contiguous run of filesystem blocks with 64-bit logical and physical block coordinates. The first v2 runtime test must create and reopen a file larger than one 4 KiB filesystem block. Passing that test proves that AuroraFS is no longer structurally tied to the v1 single-block-file limit.
+An extent identifies a contiguous run of filesystem blocks with 64-bit logical and physical block coordinates. The current runtime self-test formats a v2 synthetic volume, persists a **6000-byte file across two 4 KiB filesystem blocks**, reopens the metadata, validates the allocation bitmap and inode/extent mapping, and verifies the full byte pattern after reopen.
 
 ### Directory direction
 
-The v2 root object is represented by an inode rather than by the v1 fixed eight-entry table. General directory indexing is a subsequent milestone. The production design must support dynamically growing directories and nested directory objects; it must not freeze a fixed number of names into the superblock or root block.
+The v2 root object is represented by an inode rather than by the v1 fixed eight-entry table. General directory indexing is the active next milestone. The production design must support dynamically growing directories and nested directory objects; it must not freeze a fixed number of names into the superblock or root block.
+
+## v2 runtime verification
+
+Build workflow **#394** (`36976628830`, head `9e5e2c72fd65d4e4d5ede9066ed066d5a1455d7c`) is green. Its BIOS serial log explicitly reports:
+
+`[aurorafs-v2] 4KiB layout + bitmap + 64-bit inode + multi-block extent self-test passed on 512/4096-byte devices`
+
+The kernel subsequently reaches M1, so the first v2 layout foundation is **runtime-verified in the synthetic QEMU boot environment**. This verification covers the v2 formatter/reopen path, CRC32 superblock validation, one-block allocation bitmap behavior, 256-byte 64-bit inode metadata, a contiguous two-block extent, and multi-block data persistence on synthetic 512-byte and 4096-byte devices.
+
+It does **not** yet verify dynamic directories, multiple extents, multi-block allocation bitmaps, crash consistency, migration, the common filesystem-driver/VFS v2 path, or physical hardware.
 
 ## v2 safety gates
 
-During early development AuroraFS v2 is **self-test only** and is not automatically selected for arbitrary disks. The v1 common driver remains the mounted format until v2 has runtime verification for format/reopen, allocation integrity, multi-block files, directories and crash-consistency behavior.
+AuroraFS v2 remains **self-test only** and is not automatically selected for arbitrary disks. The v1 common driver remains the mounted format until v2 has runtime verification for directory operations, broader allocation behavior, general file operations and crash-consistency behavior.
 
 A v2 formatter must never overwrite an unknown filesystem merely because AuroraFS probing failed.
 
@@ -128,17 +136,18 @@ It remains suitable for bootstrap persistence validation but is not a production
 
 ## Remaining production milestones
 
-After the initial v2 allocation/inode/extent self-test, production work proceeds through:
+After the runtime-verified first v2 allocation/inode/extent foundation, production work proceeds through:
 
-1. v2 directory records and nested directory traversal;
-2. multiple extents and extent-tree overflow;
-3. general create/truncate/remove/rename operations;
-4. sparse-file semantics;
-5. transactional or copy-on-write metadata update strategy;
-6. durable free-space reclamation;
-7. permissions, ownership, ACLs and timestamps;
-8. corruption detection and recovery structures;
-9. explicit v1-to-v2 migration tooling;
-10. common filesystem-driver/VFS activation only after persistence and corruption-focused CI gates are green.
+1. v2 dynamic directory records and nested directory traversal;
+2. multi-block allocation bitmap support and general free-range allocation;
+3. multiple extents and extent-tree overflow;
+4. general create/truncate/remove/rename operations;
+5. sparse-file semantics;
+6. transactional or copy-on-write metadata update strategy;
+7. durable free-space reclamation;
+8. permissions, ownership, ACLs and timestamps;
+9. corruption detection and recovery structures;
+10. explicit v1-to-v2 migration tooling;
+11. common filesystem-driver/VFS activation only after persistence and corruption-focused CI gates are green.
 
-Encryption and snapshots remain later features and are not prerequisites for the first production-layout milestone.
+Encryption and snapshots remain later features and are not prerequisites for the first production-layout milestones.
