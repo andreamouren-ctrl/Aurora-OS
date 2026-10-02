@@ -88,5 +88,6 @@ bool aurora_fs_v2_inode_level1_append_self_test(void);
 bool aurora_fs_v2_inode_level1_full_leaf_self_test(void);
 bool aurora_fs_v2_inode_level2_growth_self_test(void);
 bool aurora_fs_v2_unified_lookup_self_test(void);
+bool aurora_fs_v2_level3_lookup_self_test(void);
 
 #endif
