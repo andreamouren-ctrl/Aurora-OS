@@ -53,6 +53,22 @@ static bool ata_wait_not_busy(void) {
     return false;
 }
 
+static bool ata_wait_ready(void) {
+    for (uint32_t i = 0u; i < ATA_POLL_LIMIT; ++i) {
+        uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
+
+        if ((status & (ATA_STATUS_ERR | ATA_STATUS_DF)) != 0u) {
+            return false;
+        }
+
+        if ((status & (ATA_STATUS_BSY | ATA_STATUS_DRQ)) == 0u) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static bool ata_wait_drq(void) {
     for (uint32_t i = 0u; i < ATA_POLL_LIMIT; ++i) {
         uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
@@ -71,17 +87,12 @@ static bool ata_wait_drq(void) {
 }
 
 static bool ata_cache_flush(void) {
-    if (!ata_wait_not_busy()) {
+    if (!ata_wait_ready()) {
         return false;
     }
 
     arch_out8(ATA_PRIMARY_IO + ATA_REG_COMMAND, ATA_CMD_CACHE_FLUSH);
-    if (!ata_wait_not_busy()) {
-        return false;
-    }
-
-    uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
-    return (status & (ATA_STATUS_ERR | ATA_STATUS_DF)) == 0u;
+    return ata_wait_ready();
 }
 
 static bool ata_select_lba28(uint32_t lba) {
