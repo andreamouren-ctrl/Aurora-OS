@@ -1,6 +1,6 @@
 # AuroraFS v2 — Unified extent lookup and level-2 mutation
 
-Status: **level-2 growth, unified lookup and continued COW append beneath an existing level-2 root are runtime-verified; durable inode root publication is implemented and awaiting runtime verification**.
+Status: **level-2 growth, unified lookup, continued COW append and durable inode root publication are runtime-verified; composed level-2 append + inode publication is implemented and awaiting runtime verification**.
 
 This document is part of the AuroraFS v2 implementation contract. It distinguishes repository implementation from runtime verification.
 
@@ -27,13 +27,7 @@ The public APIs:
 - `aurora_fs_v2_extent_tree_lookup_unified()`
 - `aurora_fs_v2_inode_extent_lookup_unified()`
 
-provide one lookup surface for AuroraFS v2 tree depths currently supported by the implementation. They delegate to the depth-aware resolver, which accepts leaf, level-1 and level-2 roots.
-
-The dedicated self-test constructs a persistent hierarchy:
-
-`level-2 root -> level-1 root -> leaf -> data extent`
-
-It resolves the same mapping through the unified tree API and through an inode whose `extent_tree_root` points to the level-2 hierarchy, on synthetic 512-byte and 4096-byte logical-block devices.
+provide one lookup surface for AuroraFS v2 tree depths currently supported by the implementation.
 
 ## Runtime-verified COW append beneath an existing level-2 root
 
@@ -41,44 +35,42 @@ Aurora OS Bootstrap Build **#459** (`36990022065`, head `da7494f46b30957bb695680
 
 `[aurorafs-v2] existing level-2 root COW append through leaf/level-1/root replacement self-test passed on 512/4096-byte devices`
 
-The tree operation `aurora_fs_v2_extent_tree_append_level2_cow()` handles the first continued-mutation case after level-2 publication: the final level-1 child and its final leaf still have spare capacity.
+`aurora_fs_v2_extent_tree_append_level2_cow()` performs the replacement bottom-up: fresh leaf, fresh level-1 node, fresh level-2 root, flushing each child before its parent while leaving the published hierarchy untouched.
 
-The operation validates the published hierarchy and new extent, then performs copy-on-write bottom-up:
+## Runtime-verified durable inode root publication
 
-1. clone the final leaf, append the mapping, write the fresh leaf and flush it;
-2. clone the final level-1 node, replace its final child pointer/span, write the fresh level-1 node and flush it;
-3. clone the level-2 root, replace its final child pointer/span, write the fresh level-2 root and flush it;
-4. return the new root while leaving the old level-2 root, old level-1 child and old leaf untouched.
-
-The dedicated sparse self-test starts from a one-extent three-level hierarchy, appends a second extent, verifies both mappings exclusively through the unified resolver, re-reads all old nodes to prove they were not mutated, reopens the allocator and verifies the appended mapping again. It runs on synthetic 512-byte and 4096-byte logical-block devices.
-
-## Implemented durable inode root publication
-
-The new primitive `aurora_fs_v2_inode_publish_extent_root_cow()` separates tree durability from inode publication. It requires the caller to provide the expected old root and the already-durable replacement root. Before changing the inode it validates:
-
-- the inode still points at the expected old root;
-- the replacement root is a currently allocated AuroraFS v2 block;
-- the appended extent is in range;
-- inode size/allocation/count arithmetic cannot overflow.
-
-Only then does it update `extent_tree_root`, `extent_count`, `allocated_bytes`, `size` and `generation`, write the containing inode-table block and flush the device. A stale caller therefore cannot silently publish over a different inode root.
-
-The dedicated boot self-test persists an inode, publishes a replacement root, reopens the allocator and inode table and verifies that the new root and all counters survived on synthetic 512-byte and 4096-byte logical-block devices.
-
-Expected boot gate:
+Aurora OS Bootstrap Build **#462** (`36992375163`, head `fc59ac36163f684c1bdfc01406c982cd3a404d2f`) completed successfully. The exact gate appears in q35/AHCI, ATA first boot and ATA persistence boot:
 
 `[aurorafs-v2] durable inode COW root publication + reopen self-test passed on 512/4096-byte devices`
 
-Until a green CI run contains that exact line, this publication primitive remains **implemented but not runtime-verified**.
+`aurora_fs_v2_inode_publish_extent_root_cow()` validates the expected old root, verifies that the replacement root is allocated, checks extent and arithmetic bounds, then updates `extent_tree_root`, `extent_count`, `allocated_bytes`, `size` and `generation` and flushes the inode-table update.
+
+This keeps tree construction and root publication separate, so a replacement hierarchy can become durable before the inode starts referencing it.
+
+## Implemented end-to-end level-2 append + inode publication
+
+`aurora_fs_v2_inode_append_level2_cow_commit()` composes the two verified primitives:
+
+1. build and flush a replacement level-2 hierarchy with `aurora_fs_v2_extent_tree_append_level2_cow()`;
+2. publish that replacement root with `aurora_fs_v2_inode_publish_extent_root_cow()`;
+3. leave the old published hierarchy untouched until the inode switch succeeds.
+
+The dedicated self-test constructs a real persistent `inode -> level-2 -> level-1 -> leaf -> extent` hierarchy, performs the append, reopens the allocator and inode table, then resolves the newly appended logical block through `aurora_fs_v2_inode_extent_lookup_unified()`. It runs on synthetic 512-byte and 4096-byte logical-block devices.
+
+Expected boot gate:
+
+`[aurorafs-v2] end-to-end level-2 COW append + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
+
+Until a green CI run contains that exact line, this composed path remains **implemented but not runtime-verified**.
 
 ## Compatibility and safety
 
-No on-disk structure changes are introduced by lookup unification, level-2 append or the publication primitive. Existing v2 nodes remain 4 KiB, use the `AUREXT2` format, and retain the 64-byte header / 32-byte entry layout; inodes remain 256 bytes.
+No on-disk format change is introduced here. Extent-tree nodes remain 4 KiB with the existing `AUREXT2` layout and inodes remain 256 bytes.
 
-The current COW policy deliberately favors recoverability over immediate reclamation. Descendant replacement nodes are durable before their parents, and the replacement root is durable before inode publication. A crash can therefore leak newly allocated metadata, but should not require in-place mutation of the previously published hierarchy. Durable reclamation remains deferred to the transaction/recovery layer.
+The current COW policy deliberately favors recoverability over immediate reclamation. If failure occurs after replacement metadata allocation but before inode publication, blocks may leak but the old hierarchy remains authoritative. Reclamation and transaction replay remain future work.
 
-All runtime verification in this document uses synthetic QEMU block devices. The 4096-byte logical-block path is not physical 4Kn hardware certification.
+All runtime verification described here uses synthetic QEMU block devices. The 4096-byte logical-block path is not physical 4Kn hardware certification.
 
 ## Next gate
 
-After durable inode root publication is runtime-verified, compose it directly with `aurora_fs_v2_extent_tree_append_level2_cow()` for an end-to-end existing-level-2 inode append. Then cover the harder case where the final leaf is full but the final level-1 node still has child capacity, followed later by a full level-1 child and eventually a full level-2 root.
+After the composed path is runtime-verified, cover the harder continued-mutation case where the final leaf under an existing level-2 root is full but its level-1 parent still has child capacity. That path must create a new leaf, clone the level-1 parent with an added child, clone the level-2 root, then publish the replacement root through the inode.
