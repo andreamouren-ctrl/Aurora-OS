@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Active implementation**
-Version: **0.18**
+Version: **0.19**
 
 The roadmap distinguishes architecture decisions, repository implementation, and runtime verification. A feature is not considered complete merely because a detector or interface exists.
 
@@ -103,9 +103,14 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] ATA PIO exposes CACHE FLUSH through the block layer
 - [x] PCI storage discovery foundation
 - [x] AHCI controller + ABAR discovery
+- [x] AHCI MMIO enable + SATA-port enumeration
+- [x] AHCI polling command engine + `IDENTIFY DEVICE`
+- [x] AHCI `READ DMA EXT` through a registered read-only `block_device`
+- [x] runtime-verify AHCI LBA0 read through the generic block layer
 - [x] ATA PIO compatibility read/write path
 - [x] runtime-verify registry + ATA read/write/flush integration in CI
-- [ ] AHCI data I/O
+- [ ] AHCI `WRITE DMA EXT` + `FLUSH CACHE EXT`
+- [ ] AHCI end-to-end partition/filesystem traversal
 - [ ] NVMe transport
 - [ ] USB/xHCI + USB mass storage
 - [x] remove fixed 512-byte assumptions from the current partition/FAT32/exFAT/AuroraFS bootstrap paths
@@ -172,7 +177,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [ ] transactional deployment prototype
 - [ ] rollback
 
-Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC rejection and primary-to-backup fallback on the synthetic 512-byte logical-block test device. Workflow **#299** (`36914796680`) extends the same GPT integrity/fallback self-test to a synthetic 4096-byte logical-block device. Workflow **#322** (`36963317225`) is green and runtime-verifies the block-device registry + ATA PIO read/write/CACHE FLUSH path, AuroraFS persistence and common VFS routing, FAT32/VFAT and exFAT integration, and the synthetic 4096-byte logical-block exFAT probe/mount self-test. Workflow **#328** (`36964846162`) is green and runtime-verifies FAT32 probe/mount/root-stat handling on a synthetic 4096-byte logical-block device. Workflow **#334** (`36965554498`) is green and runtime-verifies AuroraFS bootstrap format/create/reopen/mount/read behavior on a synthetic 4096-byte logical-block device while preserving the v1 on-disk format.
+Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC rejection and primary-to-backup fallback on the synthetic 512-byte logical-block test device. Workflow **#299** (`36914796680`) extends the same GPT integrity/fallback self-test to a synthetic 4096-byte logical-block device. Workflow **#322** (`36963317225`) is green and runtime-verifies the block-device registry + ATA PIO read/write/CACHE FLUSH path, AuroraFS persistence and common VFS routing, FAT32/VFAT and exFAT integration, and the synthetic 4096-byte logical-block exFAT probe/mount self-test. Workflow **#328** (`36964846162`) is green and runtime-verifies FAT32 probe/mount/root-stat handling on a synthetic 4096-byte logical-block device. Workflow **#334** (`36965554498`) is green and runtime-verifies AuroraFS bootstrap format/create/reopen/mount/read behavior on a synthetic 4096-byte logical-block device while preserving the v1 on-disk format. Workflow **#340** (`36966185493`) is green and runtime-verifies AHCI PCI Memory Space/Bus Master enable, ABAR MMIO mapping, AHCI mode enable and SATA-port enumeration. Workflow **#344** (`36969225148`) is green and runtime-verifies AHCI `IDENTIFY DEVICE` through the polling DMA command engine. Workflow **#347** (`36969765926`) is green and runtime-verifies AHCI `READ DMA EXT`, registration of `ahci-sata0`, and LBA0 access through the generic block layer.
 
 ## M4 — Graphics and Desktop foundation
 
@@ -245,18 +250,19 @@ Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC re
 
 ## Current development gate
 
-Aurora can boot through the M1 kernel foundation and enter the native login prototype. The storage stack now has runtime-verified synthetic 4Kn handling through the partition layer, FAT32, exFAT, and AuroraFS bootstrap driver. Physical 4Kn hardware transport validation remains separate.
+Aurora can boot through the M1 kernel foundation and enter the native login prototype. The storage stack now has runtime-verified synthetic 4Kn handling through the partition layer, FAT32, exFAT, and AuroraFS bootstrap driver. AHCI now has a runtime-verified read path from PCI/MMIO discovery through `IDENTIFY DEVICE`, `READ DMA EXT`, block-device registration and LBA0 access. ATA PIO remains the write-capable compatibility baseline until AHCI write/flush and filesystem traversal are verified.
 
 Near-term dependency order:
 
-1. implement AHCI data I/O and register AHCI disks through the generic block layer;
-2. add NVMe transport;
-3. evolve AuroraFS from bootstrap v1 to scalable production allocation and directory structures;
-4. add NTFS and ext-family read-only support;
-5. establish protected durable system state;
-6. implement secure randomness and credential verification;
-7. implement Aurora Identity Service, persistent identity records, and Session Manager;
-8. add USB storage and Aurora Identity Drive support.
+1. implement and runtime-verify AHCI `WRITE DMA EXT` + `FLUSH CACHE EXT`;
+2. verify partition discovery and filesystem access through the AHCI block device;
+3. add NVMe transport;
+4. evolve AuroraFS from bootstrap v1 to scalable production allocation and directory structures;
+5. add NTFS and ext-family read-only support;
+6. establish protected durable system state;
+7. implement secure randomness and credential verification;
+8. implement Aurora Identity Service, persistent identity records, and Session Manager;
+9. add USB storage and Aurora Identity Drive support.
 
 Detailed Identity sequencing remains in `docs/identity/IMPLEMENTATION_ROADMAP.md`.
 
