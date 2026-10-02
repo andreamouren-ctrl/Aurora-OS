@@ -295,18 +295,6 @@ bool aurora_fs_v2_extent_tree_append_level2_cow(
     return true;
 }
 
-static uint8_t *block_ptr(uint64_t fs_block) {
-    if (fs_block >= L2A_TEST_TOTAL_BLOCKS) {
-        return NULL;
-    }
-    uint64_t offset = fs_block * AURORA_FS_V2_FS_BLOCK_SIZE;
-    if (offset + AURORA_FS_V2_FS_BLOCK_SIZE >
-        sizeof(l2a_test.slot_data)) {
-        return NULL;
-    }
-    return NULL;
-}
-
 static void bitmap_set(uint64_t block) {
     l2a_test.bitmap[block >> 3] |= (uint8_t)(1u << (block & 7u));
 }
