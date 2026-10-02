@@ -158,6 +158,35 @@ static void bootstrap_foreign_fs_probe(struct aurora_block_device *device) {
     }
 }
 
+static void bootstrap_native_fs_probe(
+    struct aurora_block_device *device,
+    const char *transport
+) {
+    struct aurora_fs_bootstrap_result fs_result;
+    if (!aurora_fs_bootstrap_probe(device, &fs_result)) {
+        kernel_panic("AuroraFS persistent bootstrap probe failed");
+    }
+
+    log_write("[aurorafs] transport: ");
+    log_line(transport);
+    log_write("[aurorafs] generation: ");
+    log_u64(fs_result.generation);
+    log_line("");
+
+    if (fs_result.formatted) {
+        log_line("[aurorafs] formatted bootstrap filesystem");
+    }
+
+    if (fs_result.reopened_existing_file) {
+        log_line("[aurorafs] persistent file reopened");
+    } else {
+        log_line("[aurorafs] persistent file created");
+    }
+
+    verify_aurora_fs_device(device);
+    bootstrap_foreign_fs_probe(device);
+}
+
 void bootstrap_storage_probe(void) {
     if (!block_device_self_test()) {
         kernel_panic("Block-device abstraction self-test failed");
@@ -270,6 +299,9 @@ void bootstrap_storage_probe(void) {
             } else {
                 log_line("[ahci] signed write/flush probe skipped: CI signature absent or verification failed");
             }
+
+            bootstrap_native_fs_probe(ahci_disk, "AHCI");
+            log_line("[ahci] partition/filesystem/VFS traversal completed");
         }
     } else {
         log_line("[storage] AHCI controller unavailable");
@@ -290,28 +322,7 @@ void bootstrap_storage_probe(void) {
 
         if (ata_pio_ci_probe()) {
             log_line("[ata] signed test disk read/write/flush probe passed");
-
-            struct aurora_fs_bootstrap_result fs_result;
-            if (!aurora_fs_bootstrap_probe(ata, &fs_result)) {
-                kernel_panic("AuroraFS persistent bootstrap probe failed");
-            }
-
-            log_write("[aurorafs] generation: ");
-            log_u64(fs_result.generation);
-            log_line("");
-
-            if (fs_result.formatted) {
-                log_line("[aurorafs] formatted bootstrap filesystem");
-            }
-
-            if (fs_result.reopened_existing_file) {
-                log_line("[aurorafs] persistent file reopened");
-            } else {
-                log_line("[aurorafs] persistent file created");
-            }
-
-            verify_aurora_fs_device(ata);
-            bootstrap_foreign_fs_probe(ata);
+            bootstrap_native_fs_probe(ata, "ATA PIO");
         } else {
             log_line("[ata] primary master detected; signed write probe skipped");
         }
