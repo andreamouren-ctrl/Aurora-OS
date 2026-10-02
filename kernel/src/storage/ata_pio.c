@@ -4,6 +4,7 @@
 #include <aurora/arch.h>
 #include <aurora/ata_pio.h>
 #include <aurora/block_device.h>
+#include <aurora/log.h>
 
 #define ATA_PRIMARY_IO       0x1F0u
 #define ATA_PRIMARY_CTRL     0x3F6u
@@ -281,17 +282,22 @@ static bool buffer_starts_with_test_signature(const uint8_t *buffer) {
 
 bool ata_pio_ci_probe(void) {
     if (!primary_ready || primary_master.block_count < 3u) {
+        log_line("[ata] probe failure: device not ready");
         return false;
     }
 
     uint8_t header[ATA_SECTOR_SIZE];
     if (!block_device_read(&primary_master, 0u, 1u, header)) {
+        log_line("[ata] probe failure: signature sector read");
         return false;
     }
 
     if (!buffer_starts_with_test_signature(header)) {
+        log_line("[ata] probe failure: signature mismatch");
         return false;
     }
+
+    log_line("[ata] probe stage: signature verified");
 
     uint8_t write_buffer[ATA_SECTOR_SIZE];
     uint8_t read_buffer[ATA_SECTOR_SIZE];
@@ -301,16 +307,27 @@ bool ata_pio_ci_probe(void) {
         read_buffer[i] = 0u;
     }
 
-    if (!block_device_write(&primary_master, 1u, 1u, write_buffer) ||
-        !block_device_read(&primary_master, 1u, 1u, read_buffer)) {
+    if (!block_device_write(&primary_master, 1u, 1u, write_buffer)) {
+        log_line("[ata] probe failure: write/flush batch");
         return false;
     }
 
+    log_line("[ata] probe stage: write/flush batch completed");
+
+    if (!block_device_read(&primary_master, 1u, 1u, read_buffer)) {
+        log_line("[ata] probe failure: readback");
+        return false;
+    }
+
+    log_line("[ata] probe stage: readback completed");
+
     for (size_t i = 0u; i < ATA_SECTOR_SIZE; ++i) {
         if (read_buffer[i] != write_buffer[i]) {
+            log_line("[ata] probe failure: readback mismatch");
             return false;
         }
     }
 
+    log_line("[ata] probe stage: readback matched");
     return true;
 }
