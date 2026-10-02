@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <aurora/log.h>
 #include <aurora/nvme.h>
 #include <aurora/pci.h>
 #include <aurora/vmm.h>
@@ -107,4 +108,45 @@ bool nvme_probe(struct aurora_nvme_probe_result *out_result) {
     }
 
     return true;
+}
+
+void nvme_bootstrap_probe(void) {
+    struct aurora_nvme_probe_result result;
+
+    if (!nvme_probe(&result)) {
+        log_line("[storage] NVMe controller unavailable");
+        return;
+    }
+
+    log_write("[storage] NVMe controller PCI ");
+    log_u64(result.bus);
+    log_putc(':');
+    log_u64(result.slot);
+    log_putc('.');
+    log_u64(result.function);
+    log_write(" vendor/device ");
+    log_hex64(((uint64_t)result.vendor_id << 16) | result.device_id);
+    log_line("");
+
+    log_write("[nvme] BAR0 physical: ");
+    log_hex64(result.bar0_physical);
+    log_line("");
+
+    log_write("[nvme] version: ");
+    log_hex64(result.version);
+    log_write(" max-queue-entries: ");
+    log_u64(result.max_queue_entries);
+    log_write(" doorbell-stride: ");
+    log_u64(result.doorbell_stride);
+    log_line("");
+
+    log_write("[nvme] page-shift range: ");
+    log_u64(result.minimum_page_shift);
+    log_putc('-');
+    log_u64(result.maximum_page_shift);
+    log_write(" CSTS: ");
+    log_hex64(result.controller_status);
+    log_line("");
+
+    log_line("[nvme] PCI/BAR/MMIO capability probe passed");
 }
