@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Active implementation**
-Version: **0.13**
+Version: **0.14**
 
 The roadmap distinguishes architecture decisions, repository implementation, and runtime verification. A feature is not considered complete merely because a detector or interface exists.
 
@@ -136,6 +136,8 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] FAT32/VFAT external-image runtime verification through VFS
 - [x] exFAT read-only driver
 - [x] exFAT external-image runtime verification through VFS
+- [x] exFAT boot-record reads are safe for 512/1024/2048/4096-byte device blocks when the filesystem sector geometry is compatible
+- [ ] runtime-verify exFAT on a synthetic 4096-byte logical-block device
 - [ ] remove bootstrap static mount/driver limits
 - [ ] FAT12/FAT16 drivers
 - [ ] NTFS read-only driver
@@ -166,7 +168,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [ ] transactional deployment prototype
 - [ ] rollback
 
-Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC rejection and primary-to-backup fallback on the synthetic 512-byte logical-block test device. Workflow **#299** (`36914796680`) is green and extends the same GPT integrity/fallback self-test to a synthetic 4096-byte logical-block device, so partition-layer 4Kn parsing is now runtime-verified. This does not yet mean FAT32, exFAT, AuroraFS, or every hardware transport is end-to-end 4Kn-safe. Block-device registry + explicit flush integration is implemented and being verified in workflow **#304** (`36915166492`).
+Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC rejection and primary-to-backup fallback on the synthetic 512-byte logical-block test device. Workflow **#299** (`36914796680`) is green and extends the same GPT integrity/fallback self-test to a synthetic 4096-byte logical-block device, so partition-layer 4Kn parsing is runtime-verified. Block-device registry + explicit ATA flush integration is implemented; workflow **#308** (`36915964624`) was cancelled by the runner during dependency installation and has been re-run. exFAT logical-block hardening is implemented at commit `48beb488d396154122de25843322e9c94c84b537` and awaits dedicated 4096-byte runtime verification.
 
 ## M4 — Graphics and Desktop foundation
 
@@ -244,14 +246,15 @@ Aurora can boot through the M1 kernel foundation and enter the native login prot
 Near-term dependency order:
 
 1. complete runtime verification of block registry/flush integration;
-2. continue removing filesystem-level 512-byte assumptions;
-3. add NTFS and ext-family read-only support;
-4. implement modern AHCI data I/O;
-5. evolve AuroraFS from bootstrap v1 to scalable production allocation and directory structures;
-6. establish protected durable system state;
-7. implement secure randomness and credential verification;
-8. implement Aurora Identity Service, persistent identity records, and Session Manager;
-9. add USB storage and Aurora Identity Drive support.
+2. runtime-verify exFAT on a 4096-byte logical-block test device and continue removing filesystem-level 512-byte assumptions;
+3. harden FAT32 logical-block handling;
+4. add NTFS and ext-family read-only support;
+5. implement modern AHCI data I/O;
+6. evolve AuroraFS from bootstrap v1 to scalable production allocation and directory structures;
+7. establish protected durable system state;
+8. implement secure randomness and credential verification;
+9. implement Aurora Identity Service, persistent identity records, and Session Manager;
+10. add USB storage and Aurora Identity Drive support.
 
 Detailed Identity sequencing remains in `docs/identity/IMPLEMENTATION_ROADMAP.md`.
 
