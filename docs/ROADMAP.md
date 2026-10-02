@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Active implementation**
-Version: **0.23**
+Version: **0.24**
 
 The roadmap distinguishes architecture decisions, repository implementation, and runtime verification. A feature is not considered complete merely because a detector or interface exists.
 
@@ -180,8 +180,10 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] define separately versioned AuroraFS v2 production-layout contract
 - [x] implement initial v2 4 KiB superblock, CRC32, allocation bitmap, 256-byte 64-bit inode and inline extent foundation
 - [x] implement v2 multi-block (>512 byte) extent persistence self-test on synthetic 512/4096-byte devices
-- [ ] runtime-verify AuroraFS v2 layout foundation in CI
-- [ ] v2 dynamic directory records and nested traversal
+- [x] runtime-verify AuroraFS v2 layout foundation in CI
+- [x] implement v2 checksummed directory records, two-block root directory and nested traversal
+- [x] runtime-verify v2 dynamic two-block root + nested directory traversal on synthetic 512/4096-byte devices
+- [ ] v2 multi-block allocation bitmap + general free-range allocator
 - [ ] v2 multi-extent/extent-tree overflow
 - [ ] general create/truncate/remove/rename operations
 - [ ] sparse files
@@ -199,7 +201,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [ ] transactional deployment prototype
 - [ ] rollback
 
-Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC rejection and primary-to-backup fallback on the synthetic 512-byte logical-block test device. Workflow **#299** (`36914796680`) extends the same GPT integrity/fallback self-test to a synthetic 4096-byte logical-block device. Workflow **#322** (`36963317225`) is green and runtime-verifies the block-device registry + ATA PIO read/write/CACHE FLUSH path, AuroraFS persistence and common VFS routing, FAT32/VFAT and exFAT integration, and the synthetic 4096-byte logical-block exFAT probe/mount self-test. Workflow **#328** (`36964846162`) is green and runtime-verifies FAT32 probe/mount/root-stat handling on a synthetic 4096-byte logical-block device. Workflow **#334** (`36965554498`) is green and runtime-verifies AuroraFS bootstrap format/create/reopen/mount/read behavior on a synthetic 4096-byte logical-block device while preserving the v1 on-disk format. Workflow **#340** (`36966185493`) is green and runtime-verifies AHCI PCI Memory Space/Bus Master enable, ABAR MMIO mapping, AHCI mode enable and SATA-port enumeration. Workflow **#344** (`36969225148`) is green and runtime-verifies AHCI `IDENTIFY DEVICE` through the polling DMA command engine. Workflow **#347** (`36969765926`) is green and runtime-verifies AHCI `READ DMA EXT`, registration of `ahci-sata0`, and LBA0 access through the generic block layer. Workflow **#354** (`36971048569`) is green and runtime-verifies signed reversible AHCI `WRITE DMA EXT`, `FLUSH CACHE EXT`, readback and restoration on the dedicated q35 test disk. Workflow **Aurora AHCI Filesystem End-to-End #2** (`36972045000`) is green and runtime-verifies AHCI-backed AuroraFS format/mount/read, MBR partition discovery, FAT32/VFAT file access, exFAT file access, common mount-manager routing and VFS traversal while ATA PIO is unavailable. Workflow **Aurora NVMe Probe #2** (`36973751130`) runtime-verifies PCI/64-bit BAR/MMIO discovery. Workflow **Aurora NVMe Probe #7** (`36974618553`) runtime-verifies controller enable, Admin Queue setup and Identify Controller/Namespace. Workflow **Aurora NVMe Probe #10** (`36974935129`) runtime-verifies I/O queue creation, NVM Read, block-device registration and LBA0 access. Workflow **Aurora NVMe Probe #14** (`36975450797`) runtime-verifies NVM Write, NVM Flush, readback and restoration; the CI also verifies the original signed final sector directly in the backing image after QEMU exits. Workflow **Aurora NVMe Filesystem End-to-End #1** (`36975832885`) is green and runtime-verifies the complete NVMe-backed AuroraFS/MBR/FAT32/VFAT/exFAT/VFS path while AHCI has zero active SATA ports and ATA PIO is unavailable.
+Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC rejection and primary-to-backup fallback on the synthetic 512-byte logical-block test device. Workflow **#299** (`36914796680`) extends the same GPT integrity/fallback self-test to a synthetic 4096-byte logical-block device. Workflow **#322** (`36963317225`) is green and runtime-verifies the block-device registry + ATA PIO read/write/CACHE FLUSH path, AuroraFS persistence and common VFS routing, FAT32/VFAT and exFAT integration, and the synthetic 4096-byte logical-block exFAT probe/mount self-test. Workflow **#328** (`36964846162`) is green and runtime-verifies FAT32 probe/mount/root-stat handling on a synthetic 4096-byte logical-block device. Workflow **#334** (`36965554498`) is green and runtime-verifies AuroraFS bootstrap format/create/reopen/mount/read behavior on a synthetic 4096-byte logical-block device while preserving the v1 on-disk format. Workflow **#340** (`36966185493`) is green and runtime-verifies AHCI PCI Memory Space/Bus Master enable, ABAR MMIO mapping, AHCI mode enable and SATA-port enumeration. Workflow **#344** (`36969225148`) is green and runtime-verifies AHCI `IDENTIFY DEVICE` through the polling DMA command engine. Workflow **#347** (`36969765926`) is green and runtime-verifies AHCI `READ DMA EXT`, registration of `ahci-sata0`, and LBA0 access through the generic block layer. Workflow **#354** (`36971048569`) is green and runtime-verifies signed reversible AHCI `WRITE DMA EXT`, `FLUSH CACHE EXT`, readback and restoration on the dedicated q35 test disk. Workflow **Aurora AHCI Filesystem End-to-End #2** (`36972045000`) is green and runtime-verifies AHCI-backed AuroraFS format/mount/read, MBR partition discovery, FAT32/VFAT file access, exFAT file access, common mount-manager routing and VFS traversal while ATA PIO is unavailable. Workflow **Aurora NVMe Probe #2** (`36973751130`) runtime-verifies PCI/64-bit BAR/MMIO discovery. Workflow **Aurora NVMe Probe #7** (`36974618553`) runtime-verifies controller enable, Admin Queue setup and Identify Controller/Namespace. Workflow **Aurora NVMe Probe #10** (`36974935129`) runtime-verifies I/O queue creation, NVM Read, block-device registration and LBA0 access. Workflow **Aurora NVMe Probe #14** (`36975450797`) runtime-verifies NVM Write, NVM Flush, readback and restoration; the CI also verifies the original signed final sector directly in the backing image after QEMU exits. Workflow **Aurora NVMe Filesystem End-to-End #1** (`36975832885`) is green and runtime-verifies the complete NVMe-backed AuroraFS/MBR/FAT32/VFAT/exFAT/VFS path while AHCI has zero active SATA ports and ATA PIO is unavailable. Workflow **#394** (`36976628830`) is green and runtime-verifies the AuroraFS v2 4 KiB layout, CRC32 superblock, allocation bitmap, 256-byte 64-bit inode and multi-block extent persistence on synthetic 512/4096-byte devices. Workflow **#399** (`36977213539`) is green and runtime-verifies the AuroraFS v2 checksummed directory-record format, two-block root directory extent and nested `docs/note.txt` traversal on synthetic 512/4096-byte devices.
 
 ## M4 — Graphics and Desktop foundation
 
@@ -272,13 +274,13 @@ Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC re
 
 ## Current development gate
 
-Aurora can boot through the M1 kernel foundation and enter the native login prototype. The storage stack has runtime-verified baseline modern SATA and NVMe paths through the generic block layer, partition manager, AuroraFS bootstrap, FAT32/VFAT, exFAT, mount manager and VFS. ATA PIO remains a compatibility transport. The active storage gate has moved to the separately versioned AuroraFS v2 production-layout foundation; v1 remains the mounted compatibility/bootstrap format while v2 is developed and verified in parallel.
+Aurora can boot through the M1 kernel foundation and enter the native login prototype. The storage stack has runtime-verified baseline modern SATA and NVMe paths through the generic block layer, partition manager, AuroraFS bootstrap, FAT32/VFAT, exFAT, mount manager and VFS. ATA PIO remains a compatibility transport. AuroraFS v2 now has runtime-verified layout, multi-block extent persistence and nested two-block directory traversal while v1 remains the mounted compatibility/bootstrap format.
 
 Near-term dependency order:
 
-1. runtime-verify the AuroraFS v2 allocation/inode/extent foundation;
-2. add v2 dynamic directories and nested traversal;
-3. add multi-extent/extent-tree overflow and general file mutation operations;
+1. implement and runtime-verify AuroraFS v2 multi-block allocation bitmap traversal and a general free-range allocator;
+2. add multi-extent/extent-tree overflow;
+3. add general create/truncate/remove/rename operations;
 4. establish crash-consistent metadata updates and recovery behavior;
 5. remove bootstrap static registry/mount/driver limits;
 6. add NTFS and ext-family read-only support;
