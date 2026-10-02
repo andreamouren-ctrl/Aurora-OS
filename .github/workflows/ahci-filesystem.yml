@@ -12,7 +12,8 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        # v6/v7 currently fail before step execution in this repository's Actions environment.
+        uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
@@ -150,7 +151,8 @@ jobs:
 
       - name: Upload AHCI filesystem logs
         if: always()
-        uses: actions/upload-artifact@v6
+        # Keep v4 with checkout v4 until newer action majors are accepted by this Actions environment.
+        uses: actions/upload-artifact@v4
         with:
           name: Aurora-AHCI-Filesystem
           path: |
