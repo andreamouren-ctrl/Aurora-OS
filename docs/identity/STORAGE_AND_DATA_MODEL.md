@@ -1,7 +1,7 @@
 # Aurora Identity Storage and Data Model
 
 Status: **Canonical design**
-Version: **0.2**
+Version: **0.3**
 
 ## 1. Goals
 
@@ -35,6 +35,8 @@ Identity
 
 `display_name` is not unique and is never used as the authentication key.
 
+The isolated core already defines the security-critical subset needed before profile/session integration: `user_id`, status, policy version, and record version.
+
 ## 4. Credential records
 
 Credentials are separate rows/objects bound to `user_id`.
@@ -55,11 +57,15 @@ Credential
 
 Credential-specific secret/verifier data is stored in type-specific protected records.
 
+`credential_id` is independent from `user_id`. Rotating or replacing an Aurora Key creates/replaces credential state without changing the stable human identity.
+
 ## 5. Aurora Key verifier record
 
 ```text
 AuroraKeyVerifier
 - credential_id
+- user_id
+- lookup_tag
 - algorithm
 - parameters_version
 - memory_cost
@@ -72,7 +78,52 @@ AuroraKeyVerifier
 
 Raw Aurora Key is never stored.
 
-## 6. Authenticator record
+### Opaque lookup tag
+
+Because the default Aurora login does not expose a separate public username, the Identity Service needs an index that can locate the candidate credential before executing the expensive memory-hard verifier.
+
+`lookup_tag` is therefore a **keyed opaque index**, not a plain hash of the Aurora Key.
+
+Production requirements:
+
+- derived from the normalized Aurora Key with a protected service/machine secret and a reviewed PRF construction;
+- fixed-size and suitable for indexed equality lookup;
+- unique for active Aurora Key credentials under the active lookup-key domain;
+- never sufficient by itself to authenticate;
+- never generated with an unkeyed fast hash of the Aurora Key;
+- rotatable through a versioned migration if the protected lookup secret changes.
+
+A copied database must not expose a cheap deterministic oracle that lets an attacker test guessed Aurora Keys without also possessing the protected lookup secret.
+
+## 6. Atomic identity + first credential creation
+
+Creating a local identity is one transactional publication boundary.
+
+Conceptually:
+
+```text
+BEGIN
+  insert Identity(user_id, ...)
+  insert Credential(credential_id, user_id, type=AURORA_KEY, ...)
+  insert AuroraKeyVerifier(credential_id, lookup_tag, salt, verifier, ...)
+COMMIT
+```
+
+Production invariants:
+
+- the stable Identity record and first Aurora Key credential become visible together;
+- no record becomes visible if commit fails;
+- `user_id` is unique;
+- `credential_id` is unique;
+- active `lookup_tag` is unique;
+- a concurrent create race becomes a transaction/uniqueness conflict, never duplicate credentials;
+- returning a creation error after partial durable publication is forbidden.
+
+The isolated core expresses this through `create_identity_with_key()`. The current host test store implements the contract only for deterministic tests; it is not the production database.
+
+Preflight lookup is an optimization and UX aid. Correctness still depends on commit-time uniqueness enforcement because another request may race between preflight and commit.
+
+## 7. Authenticator record
 
 ```text
 Authenticator
@@ -92,7 +143,7 @@ Authenticator
 
 For hardware-backed authenticators, public keys and attestation metadata may be stored according to later standards. Private hardware keys must not be exportable into this database.
 
-## 7. Recovery records
+## 8. Recovery records
 
 ```text
 RecoveryCredential
@@ -108,7 +159,7 @@ RecoveryCredential
 
 Recovery methods remain independent from the Aurora Key verifier.
 
-## 8. Rate-limit state
+## 9. Rate-limit state
 
 Rate-limit metadata must persist across reboot.
 
@@ -126,7 +177,7 @@ AuthThrottleState
 
 The implementation must avoid unbounded creation of arbitrary records from attacker-controlled candidate keys. Unknown-key pressure should use bounded machine/global buckets or another memory-safe strategy.
 
-## 9. Session metadata
+## 10. Session metadata
 
 Long-lived reusable session credentials should not be stored casually in the identity database.
 
@@ -144,7 +195,7 @@ SessionAuditMetadata
 
 One-time session grants should normally be transient and non-replayable.
 
-## 10. Audit records
+## 11. Audit records
 
 Identity security events may be stored in a separate protected audit stream.
 
@@ -159,21 +210,22 @@ Allowed metadata includes:
 
 Audit records must not contain raw secrets, verifier bytes, private keys, recovery secrets, or full challenge/response material.
 
-## 11. Database technology
+## 12. Database technology
 
-The first implementation may use an embedded transactional database or a small purpose-built protected store, provided it supports:
+The first production implementation may use an embedded transactional database or a small purpose-built protected store, provided it supports:
 
 - atomic transactions;
 - crash recovery;
+- uniqueness constraints/indexes required by Identity;
 - schema versioning;
 - integrity checking;
 - bounded queries;
 - controlled locking/concurrency;
 - secure file permissions/capabilities.
 
-The specific engine is not yet frozen and should be selected after Aurora's persistent storage/VFS layer is available.
+Aurora already has substantial VFS/AuroraFS/block-device foundations, but **protected durable system state** and the production transactional identity backend remain separate implementation gates. The database engine/storage format is therefore still intentionally unfrozen.
 
-## 12. Encryption at rest
+## 13. Encryption at rest
 
 Filesystem/storage encryption and identity-database encryption are related but distinct concerns.
 
@@ -181,7 +233,7 @@ If Aurora adds a machine secret or TPM/secure-element-backed storage key, identi
 
 The system must still use a memory-hard verifier even if the database file is encrypted.
 
-## 13. Integrity and corruption
+## 14. Integrity and corruption
 
 The service must detect malformed or unsupported records.
 
@@ -193,7 +245,7 @@ On corruption:
 - avoid issuing unauthenticated sessions;
 - expose only safe diagnostic information to the user.
 
-## 14. Schema versioning
+## 15. Schema versioning
 
 The database has a global schema version and individual credential format versions.
 
@@ -205,7 +257,7 @@ Migration rules:
 - failure restores the previous valid state or leaves the database in a clearly recoverable state;
 - credentials can be migrated independently when cryptographic formats change.
 
-## 15. Deletion and identity removal
+## 16. Deletion and identity removal
 
 Deleting an identity is a high-impact operation and requires explicit authenticated authorization.
 
@@ -218,24 +270,3 @@ Identity removal policy must define separately:
 - audit retention policy.
 
 Deleting the login identity must not accidentally bypass secure profile-data handling.
-
-## 16. Backup and restore
-
-A restored identity database must remain internally consistent with profile references and machine-binding state.
-
-Restore may require re-enrollment of machine-bound authenticators if device secrets changed.
-
-Aurora must avoid restoring stale revocation state in a way that silently reactivates a known lost authenticator. Backup/restore policy therefore needs monotonic or reconciliation rules before production federation/recovery is added.
-
-## 17. Acceptance criteria
-
-The first persistent data model is accepted when:
-
-- identity/credential separation is implemented;
-- all writes needed for account creation and credential rotation are transactional;
-- reboot preserves identities and throttle state;
-- crash during write does not produce a login-bypass state;
-- raw Aurora Keys are absent from storage;
-- revoked authenticators remain revoked after reboot;
-- schema version is explicit;
-- migration and corruption tests exist.
