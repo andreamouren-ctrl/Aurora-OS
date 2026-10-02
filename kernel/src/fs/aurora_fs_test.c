@@ -12,8 +12,6 @@
 #define AURORA_FS_TEST_BLOCK_SIZE 4096u
 #define AURORA_FS_TEST_BLOCK_COUNT 32u
 
-bool aurora_fs_v2_level3_full_level2_commit_self_test(void);
-
 static uint8_t test_storage[AURORA_FS_TEST_BLOCK_SIZE * AURORA_FS_TEST_BLOCK_COUNT];
 
 static bool test_read(struct aurora_block_device *device, uint64_t lba, uint32_t block_count, void *buffer) {
@@ -118,6 +116,8 @@ bool aurora_fs_4kn_self_test(void) {
     log_line("[aurorafs-v2] level-3 full level-2 sibling COW growth self-test passed on 512/4096-byte devices");
     if (!aurora_fs_v2_level3_full_level2_commit_self_test()) return false;
     log_line("[aurorafs-v2] persistent level-3 full-level2 sibling growth + inode publication + reopen lookup self-test passed on 512/4096-byte devices");
+    if (!aurora_fs_v2_level3_capacity_limit_self_test()) return false;
+    log_line("[aurorafs-v2] full level-3 capacity limit rejects 252047377th mapping without mutating tree/inode/bitmap on 512/4096-byte devices");
     if (!aurora_fs_v2_extent_tree_level2_append_self_test()) return false;
     log_line("[aurorafs-v2] existing level-2 root COW append through leaf/level-1/root replacement self-test passed on 512/4096-byte devices");
     if (!aurora_fs_v2_inode_publish_extent_root_self_test()) return false;
