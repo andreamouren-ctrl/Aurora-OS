@@ -14,6 +14,7 @@
 #define EXFAT_STREAM_NO_FAT_CHAIN 0x02u
 #define EXFAT_CLUSTER_END 0xFFFFFFF8u
 #define EXFAT_NAME_UNITS 255u
+#define EXFAT_MAX_DEVICE_BLOCK_SIZE 4096u
 
 struct exfat_context {
     struct aurora_partition partition;
@@ -115,7 +116,7 @@ static bool read_partition_bytes(
         uint64_t absolute = byte_offset + copied;
         uint64_t block = absolute / ctx->device_block_size;
         uint32_t within = (uint32_t)(absolute % ctx->device_block_size);
-        uint8_t sector[4096];
+        uint8_t sector[EXFAT_MAX_DEVICE_BLOCK_SIZE];
 
         if (ctx->device_block_size > sizeof(sector) ||
             !partition_read(&ctx->partition, block, 1u, sector)) {
@@ -480,18 +481,24 @@ static bool resolve_path(
     }
 }
 
+static bool exfat_read_boot_block(
+    const struct aurora_partition *partition,
+    uint8_t boot[EXFAT_MAX_DEVICE_BLOCK_SIZE]
+) {
+    if (partition == NULL || partition->device == NULL ||
+        partition->device->block_size < 512u ||
+        partition->device->block_size > EXFAT_MAX_DEVICE_BLOCK_SIZE) {
+        return false;
+    }
+
+    return partition_read(partition, 0u, 1u, boot);
+}
+
 static enum aurora_fs_probe_result exfat_probe(
     const struct aurora_partition *partition
 ) {
-    if (partition == NULL || partition->device == NULL ||
-        partition->device->block_size > 4096u ||
-        partition->device->block_size == 0u) {
-        return AURORA_FS_PROBE_NO_MATCH;
-    }
-
-    uint8_t boot[512];
-    if (partition->device->block_size != 512u ||
-        !partition_read(partition, 0u, 1u, boot)) {
+    uint8_t boot[EXFAT_MAX_DEVICE_BLOCK_SIZE];
+    if (!exfat_read_boot_block(partition, boot)) {
         return AURORA_FS_PROBE_NO_MATCH;
     }
 
@@ -507,6 +514,13 @@ static enum aurora_fs_probe_result exfat_probe(
         return AURORA_FS_PROBE_NO_MATCH;
     }
 
+    uint32_t sector_size = 1u << sector_shift;
+    uint32_t device_block_size = partition->device->block_size;
+    if (sector_size < device_block_size ||
+        (sector_size % device_block_size) != 0u) {
+        return AURORA_FS_PROBE_NO_MATCH;
+    }
+
     return AURORA_FS_PROBE_MATCH_READ_ONLY;
 }
 
@@ -518,8 +532,8 @@ static bool exfat_mount(
         return false;
     }
 
-    uint8_t boot[512];
-    if (!partition_read(partition, 0u, 1u, boot)) {
+    uint8_t boot[EXFAT_MAX_DEVICE_BLOCK_SIZE];
+    if (!exfat_read_boot_block(partition, boot)) {
         return false;
     }
 
@@ -543,9 +557,7 @@ static bool exfat_mount(
     uint64_t volume_bytes = volume_length * ctx->sector_size;
     uint64_t partition_bytes = partition->block_count * ctx->device_block_size;
 
-    if (ctx->sector_size < ctx->device_block_size ||
-        (ctx->sector_size % ctx->device_block_size) != 0u ||
-        ctx->fat_length == 0u || ctx->cluster_count == 0u ||
+    if (ctx->fat_length == 0u || ctx->cluster_count == 0u ||
         !cluster_valid(ctx, ctx->root_cluster) || volume_bytes > partition_bytes) {
         return false;
     }
