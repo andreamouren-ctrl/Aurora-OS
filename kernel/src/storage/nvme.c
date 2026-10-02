@@ -36,10 +36,14 @@
 #define NVME_ADMIN_OPCODE_CREATE_IO_SQ 0x01u
 #define NVME_ADMIN_OPCODE_CREATE_IO_CQ 0x05u
 #define NVME_ADMIN_OPCODE_IDENTIFY     0x06u
+#define NVME_NVM_OPCODE_FLUSH          0x00u
+#define NVME_NVM_OPCODE_WRITE          0x01u
 #define NVME_NVM_OPCODE_READ           0x02u
 
 #define NVME_IDENTIFY_CNS_NAMESPACE  0x00u
 #define NVME_IDENTIFY_CNS_CONTROLLER 0x01u
+
+static const char nvme_rw_test_signature[] = "AURORA-NVME-RW-TEST-V1";
 
 struct nvme_queue_state {
     uint64_t sq_phys;
@@ -63,6 +67,9 @@ static struct nvme_queue_state io_queue;
 static struct aurora_nvme_admin_result namespace_identity;
 static struct aurora_block_device namespace_device;
 static bool namespace_device_ready;
+static uint8_t rw_original[NVME_PAGE_SIZE];
+static uint8_t rw_pattern[NVME_PAGE_SIZE];
+static uint8_t rw_readback[NVME_PAGE_SIZE];
 
 static uint32_t mmio_read32(uint32_t offset) {
     volatile uint32_t *reg =
@@ -168,6 +175,29 @@ static void copy_ascii_trim(char *out, size_t out_size, const uint8_t *in, size_
         out[i] = (value >= 32u && value <= 126u) ? (char)value : '?';
     }
     out[length] = '\0';
+}
+
+static bool bytes_equal(const uint8_t *left, const uint8_t *right, uint32_t count) {
+    for (uint32_t i = 0u; i < count; ++i) {
+        if (left[i] != right[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool has_rw_test_signature(const uint8_t *block, uint32_t block_size) {
+    uint32_t signature_length = (uint32_t)(sizeof(nvme_rw_test_signature) - 1u);
+    if (block_size < signature_length) {
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < signature_length; ++i) {
+        if (block[i] != (uint8_t)nvme_rw_test_signature[i]) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static uint32_t doorbell_offset(uint16_t queue_id, bool completion) {
@@ -359,7 +389,7 @@ static bool io_queue_init(void) {
     create_cq[10] =
         (uint32_t)NVME_IO_QUEUE_ID |
         ((uint32_t)(NVME_IO_QUEUE_DEPTH - 1u) << 16);
-    create_cq[11] = 1u; /* Physically contiguous, polling completion queue. */
+    create_cq[11] = 1u;
 
     if (!queue_submit(&admin_queue, create_cq)) {
         pmm_free_page(cq_phys);
@@ -419,7 +449,7 @@ static bool nvme_read_one(uint64_t lba, void *buffer) {
     command[7] = (uint32_t)(data_phys >> 32);
     command[10] = (uint32_t)lba;
     command[11] = (uint32_t)(lba >> 32);
-    command[12] = 0u; /* NLB is zero-based: one logical block. */
+    command[12] = 0u;
 
     bool success = queue_submit(&io_queue, command);
     if (success) {
@@ -429,6 +459,40 @@ static bool nvme_read_one(uint64_t lba, void *buffer) {
         }
     }
 
+    pmm_free_page(data_phys);
+    return success;
+}
+
+static bool nvme_write_one(uint64_t lba, const void *buffer) {
+    if (!io_queue.initialized || !namespace_device_ready || buffer == NULL ||
+        namespace_identity.block_size == 0u ||
+        namespace_identity.block_size > NVME_PAGE_SIZE ||
+        lba >= namespace_identity.block_count) {
+        return false;
+    }
+
+    uint64_t data_phys = pmm_alloc_page();
+    if (data_phys == 0u) {
+        return false;
+    }
+
+    uint8_t *data = pmm_phys_to_virt(data_phys);
+    zero_page(data);
+    const uint8_t *source = buffer;
+    for (uint32_t i = 0u; i < namespace_identity.block_size; ++i) {
+        data[i] = source[i];
+    }
+
+    uint32_t command[16] = { 0 };
+    command[0] = NVME_NVM_OPCODE_WRITE;
+    command[1] = namespace_identity.namespace_id;
+    command[6] = (uint32_t)data_phys;
+    command[7] = (uint32_t)(data_phys >> 32);
+    command[10] = (uint32_t)lba;
+    command[11] = (uint32_t)(lba >> 32);
+    command[12] = 0u;
+
+    bool success = queue_submit(&io_queue, command);
     pmm_free_page(data_phys);
     return success;
 }
@@ -455,6 +519,42 @@ static bool nvme_block_read(
     }
 
     return true;
+}
+
+static bool nvme_block_write(
+    struct aurora_block_device *device,
+    uint64_t lba,
+    uint32_t block_count,
+    const void *buffer
+) {
+    if (device != &namespace_device || buffer == NULL || block_count == 0u ||
+        lba >= namespace_identity.block_count ||
+        (uint64_t)block_count > namespace_identity.block_count - lba) {
+        return false;
+    }
+
+    const uint8_t *bytes = buffer;
+    for (uint32_t i = 0u; i < block_count; ++i) {
+        if (!nvme_write_one(
+                lba + i,
+                bytes + (uint64_t)i * namespace_identity.block_size)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool nvme_block_flush(struct aurora_block_device *device) {
+    if (device != &namespace_device || !io_queue.initialized ||
+        !namespace_device_ready) {
+        return false;
+    }
+
+    uint32_t command[16] = { 0 };
+    command[0] = NVME_NVM_OPCODE_FLUSH;
+    command[1] = namespace_identity.namespace_id;
+    return queue_submit(&io_queue, command);
 }
 
 bool nvme_probe(struct aurora_nvme_probe_result *out_result) {
@@ -581,17 +681,65 @@ bool nvme_namespace_block_device_init(const struct aurora_nvme_admin_result *ide
     namespace_device.name = "nvme-ns1";
     namespace_device.block_size = identity->block_size;
     namespace_device.block_count = identity->block_count;
-    namespace_device.read_only = true;
+    namespace_device.read_only = false;
     namespace_device.context = NULL;
     namespace_device.read_blocks = nvme_block_read;
-    namespace_device.write_blocks = NULL;
-    namespace_device.flush = NULL;
+    namespace_device.write_blocks = nvme_block_write;
+    namespace_device.flush = nvme_block_flush;
     namespace_device_ready = true;
     return true;
 }
 
 struct aurora_block_device *nvme_namespace_block_device(void) {
     return namespace_device_ready ? &namespace_device : NULL;
+}
+
+static bool signed_rw_probe(struct aurora_block_device *device) {
+    if (device == NULL || device->block_count == 0u ||
+        device->block_size == 0u || device->block_size > NVME_PAGE_SIZE) {
+        return false;
+    }
+
+    uint64_t test_lba = device->block_count - 1u;
+    uint32_t block_size = device->block_size;
+
+    if (!block_device_read(device, test_lba, 1u, rw_original)) {
+        return false;
+    }
+
+    if (!has_rw_test_signature(rw_original, block_size)) {
+        log_line("[nvme] signed write/flush probe skipped (CI signature absent)");
+        return true;
+    }
+
+    for (uint32_t i = 0u; i < block_size; ++i) {
+        rw_pattern[i] = (uint8_t)(0x5Au ^ (uint8_t)i);
+        rw_readback[i] = 0u;
+    }
+
+    if (!block_device_write(device, test_lba, 1u, rw_pattern) ||
+        !block_device_flush(device) ||
+        !block_device_read(device, test_lba, 1u, rw_readback) ||
+        !bytes_equal(rw_pattern, rw_readback, block_size)) {
+        return false;
+    }
+
+    if (!block_device_write(device, test_lba, 1u, rw_original) ||
+        !block_device_flush(device)) {
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < block_size; ++i) {
+        rw_readback[i] = 0u;
+    }
+
+    if (!block_device_read(device, test_lba, 1u, rw_readback) ||
+        !bytes_equal(rw_original, rw_readback, block_size)) {
+        return false;
+    }
+
+    log_line("[nvme] NVM Write + Flush reversible probe verified");
+    return true;
 }
 
 void nvme_bootstrap_probe(void) {
@@ -676,4 +824,9 @@ void nvme_bootstrap_probe(void) {
     log_line("[nvme] I/O Submission/Completion Queue pair initialized");
     log_line("[storage] block device registered: nvme-ns1");
     log_line("[nvme] NVM Read LBA0 via block layer verified");
+
+    if (!signed_rw_probe(device)) {
+        log_line("[nvme] signed write/flush probe failed");
+        return;
+    }
 }
