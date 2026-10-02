@@ -1,113 +1,163 @@
 # Aurora Identity Core
 
-Status: **isolated implementation foundation**
+Status: **isolated implementation foundation with persistent store**
 
 This directory contains the implementation layer of Aurora Identity that is intentionally **not yet wired into Aurora OS login/session startup**.
 
-The goal is to build and verify the security-sensitive identity logic behind explicit platform interfaces before binding it to the real Ring 3 service lifecycle, persistent protected storage, IPC transport, compositor UI, or session manager.
+The goal is to build and verify security-sensitive identity logic behind explicit platform interfaces before binding it to the real Ring 3 service lifecycle, protected AuroraFS system state, IPC transport, compositor UI, or Session Manager.
 
 ## Implemented foundations
 
-The isolated core now implements:
+The isolated implementation now includes:
 
 - canonical Aurora Key normalization (`[A-Z0-9]{12,32}` with spaces/hyphens accepted as visual separators);
-- bounded credential structures;
-- stable opaque `user_id` and independent `credential_id` types;
-- versioned Argon2id parameter metadata contract;
-- identity/credential record state (`active`, `disabled`, `recovery-required`);
-- configurable progressive throttling policy;
-- authentication flow that resolves a candidate, checks throttling, delegates cryptographic verification, records failures, clears prior failure state on success, and fails closed on backend errors;
-- explicit interfaces for crypto, secure randomness, protected storage, and monotonic time;
-- atomic first-identity/first-key creation contract;
-- bounded retry when a random identifier resolves to the reserved all-zero value;
-- duplicate Aurora Key preflight plus mandatory commit-time uniqueness handling;
-- explicit secret-buffer clearing helper;
-- host-side tests for normalization, authentication, throttling, creation, duplicate/race handling, and backend/crypto/RNG failures.
+- stable opaque `user_id` and independent `credential_id`;
+- versioned Argon2id metadata contract;
+- identity/credential states (`active`, `disabled`, `recovery-required`);
+- configurable progressive throttling;
+- authentication flow with opaque lookup-tag resolution and fail-closed backend handling;
+- explicit provider boundaries for crypto, secure randomness and monotonic time;
+- atomic identity + first Aurora Key creation;
+- atomic Aurora Key rotation while preserving stable `user_id`;
+- opaque one-time Session Grants with bounded lifetime and atomic consumption;
+- a versioned persistent Identity Store with real close/reopen persistence;
+- dual-slot transactional publication and corruption recovery;
+- durable throttle state;
+- explicit little-endian disk serialization independent of host ABI;
+- deterministic host tests for security/control flow plus POSIX filesystem persistence tests.
 
 ## Transactional identity creation
 
-`aurora_identity_create_with_key()` performs the first core account-creation transaction without depending on a concrete database.
-
-Conceptual flow:
+`aurora_identity_create_with_key()` performs account creation through one atomic store boundary:
 
 ```text
 candidate Aurora Key
  -> normalize
  -> derive protected lookup tag
- -> preflight uniqueness check
- -> generate nonzero user_id
- -> generate nonzero credential_id
- -> generate random salt
- -> derive versioned verifier
- -> atomic store create(identity + first key credential)
- -> publish success
+ -> preflight uniqueness
+ -> generate user_id
+ -> generate credential_id
+ -> generate salt
+ -> derive verifier
+ -> atomic store create(identity + first credential)
 ```
 
-The storage adapter exposes `create_identity_with_key()` as one atomic publication boundary. A production backend must guarantee that:
+The store enforces uniqueness again at commit time. Preflight lookup is not trusted as the correctness boundary.
 
-- identity and first credential become visible together;
-- neither becomes visible when the transaction fails;
-- lookup-tag uniqueness is enforced at commit time;
-- `user_id` and `credential_id` uniqueness are enforced at commit time;
-- a race between preflight lookup and commit becomes `CREATE_CONFLICT`, never duplicate state.
+## Aurora Key rotation
 
-The core maps a commit conflict to `AURORA_IDENTITY_ALREADY_EXISTS` and fails closed on every other storage failure.
+The rotation module replaces the active Aurora Key credential without changing the human identity.
 
-## Secure randomness boundary
+```text
+authorized user_id + current credential_id
+ -> normalize replacement Key
+ -> derive new lookup tag
+ -> generate new credential_id
+ -> generate fresh salt/verifier
+ -> atomic credential replacement
+```
 
-The core does not provide its own PRNG. `fill_random()` is an explicit platform provider and production account creation must not be enabled until Aurora has a reviewed secure RNG.
+On any non-success result, the old committed credential remains the intended visible state.
 
-Secure randomness is required for at least:
+Authorization/re-authentication is deliberately a higher Identity Service responsibility and is not bypassed by the low-level rotation core.
 
-- `user_id`;
-- `credential_id`;
-- Aurora Key verifier salt;
-- future session grants, recovery credentials, challenges and authenticator keys.
+## One-time Session Grants
 
-An all-zero generated identifier is reserved as invalid. The core retries a bounded number of times and fails with `AURORA_IDENTITY_RANDOM_ERROR` rather than publishing an invalid record.
+Successful authentication can later be converted by Identity Service into an opaque Session Grant.
 
-## Credential lookup tag
+The implemented grant core provides:
 
-Aurora's default login intentionally has no public username field. The service therefore needs a way to locate the candidate credential record before running its expensive verifier.
+- 256-bit opaque bearer token;
+- one stable `user_id` binding;
+- short configurable TTL with hard maximum;
+- transient storage contract;
+- no raw bearer token persistence;
+- atomic consume;
+- replay rejection;
+- expiry rejection;
+- fail-closed RNG/crypto/clock/backend behavior.
 
-The core exposes `derive_lookup_tag()` as a crypto-provider operation. A production provider must derive an **opaque keyed lookup tag** from the normalized Aurora Key using a protected machine/service secret (for example, a reviewed PRF construction). Storing a plain deterministic hash of the Aurora Key is explicitly not acceptable because a copied database would then provide an efficient offline guessing oracle.
+The live Session Manager is not connected yet.
 
-The exact cryptographic construction is intentionally not implemented here; it must be selected together with Aurora's reviewed crypto/secure-storage layer.
+## Persistent Identity Store
 
-## Test providers
+`persistent_store.c` is the first real persistent backend for the isolated Identity implementation.
 
-The files under `tests/` contain deterministic stand-ins for lookup, verifier derivation/verification, randomness, time, and transactional storage. They exist only to exercise core control flow.
+Schema v1 stores the current security-critical subset:
 
-They are **not** linked into Aurora OS and are **not** suitable for production authentication.
+- stable Identity records;
+- Aurora Key verifier records;
+- KDF metadata;
+- salt/verifier bytes;
+- opaque lookup tags;
+- credential status;
+- failed-attempt count;
+- throttle deadline.
 
-The creation tests verify, among other cases:
+The format is explicitly serialized. C structs are never dumped directly to disk.
 
-- successful identity + first credential publication;
-- immediate authentication of the newly created record;
-- duplicate-key rejection before expensive verifier work;
-- commit-time uniqueness races;
-- no partial publication on store failure;
-- failure on RNG or verifier-provider errors;
-- bounded retry/rejection of reserved zero identifiers;
-- rejection of invalid production creation policy.
+### Dual-slot publication
 
-## Not implemented yet
+The backend alternates complete snapshots between two durable slots.
 
-This layer still deliberately does not implement:
+Each transaction:
 
-- production Argon2id itself;
-- the production opaque lookup-tag primitive;
-- production cryptographic RNG;
-- a durable identity database backend;
-- credential rotation transactions;
-- session-grant generation/consumption;
-- recovery credentials;
-- Aurora Identity Drive;
-- OS IPC transport;
-- Ring 3 process/service startup;
-- graphical UI.
+1. copies the current state into staging;
+2. applies the mutation only to staging;
+3. increments the generation;
+4. serializes and validates the complete image;
+5. publishes the inactive slot atomically;
+6. updates live memory only after successful publication.
 
-Those dependencies remain separate so no placeholder cryptography or fake persistence is accidentally promoted into the real authentication path.
+On reopen, both slots are validated and the highest valid generation is selected.
+
+Existing corrupt data is never silently interpreted as a first-run empty database.
+
+### Host POSIX adapter
+
+`persistent_store_posix.c` is the current executable durable adapter used by host CI tests.
+
+It uses:
+
+- owner-only `0600` slot files;
+- complete temporary-file write;
+- file `fsync()`;
+- atomic `rename()`;
+- parent-directory `fsync()`.
+
+This proves real process-close/process-reopen persistence and transaction behavior.
+
+It is **not** the final Aurora protected-storage adapter.
+
+The final adapter will bind the same `read_slot()` / `write_slot_atomic()` contract to AuroraFS protected system state and capability ownership.
+
+### Integrity
+
+Schema v1 uses CRC32 to detect accidental corruption and malformed/partial images.
+
+CRC32 is not cryptographic authentication. Tamper protection, authenticated storage metadata and at-rest encryption remain future protected-storage/crypto work.
+
+## Bounded state
+
+The first schema deliberately bounds local storage to 32 identities and 32 Aurora Key credential records.
+
+This keeps memory use, parsing and recovery work bounded while the security architecture is still being established.
+
+A later schema can migrate to scalable indexed storage without changing the Identity Service API.
+
+## Secure randomness and cryptography boundary
+
+The implementation does not promote test cryptography into production.
+
+Production is still blocked on reviewed implementations for:
+
+- secure CSPRNG;
+- Argon2id;
+- keyed opaque lookup-tag PRF;
+- Session Grant tag derivation;
+- future storage authentication/encryption keys.
+
+Test providers remain isolated under `tests/`.
 
 ## Build and test
 
@@ -117,22 +167,61 @@ From the repository root:
 make identity-test
 ```
 
-or directly:
+or:
 
 ```sh
 make -C services/identity test
 ```
 
-The host build uses ordinary C11 and has no dependency on the kernel. This is intentional: the same logic can later be embedded in the Aurora Identity Ring 3 service behind Aurora-native platform adapters.
+The host build is ordinary C11 and intentionally independent from the kernel.
+
+The persistent-store test exercises:
+
+```text
+empty open
+ -> create
+ -> reopen
+ -> lookup
+ -> persist throttle
+ -> reopen
+ -> rotate credential
+ -> reopen
+ -> verify old/new lookup behavior
+ -> add another identity
+ -> inject failed durable write
+ -> prove visible generation unchanged
+ -> corrupt newest slot
+ -> recover previous valid generation
+ -> corrupt all slots
+ -> fail closed
+```
+
+## Still not connected / not production-complete
+
+The implementation still deliberately lacks:
+
+- production Argon2id;
+- production keyed lookup-tag primitive;
+- production cryptographic RNG;
+- AuroraFS protected system-state adapter;
+- authenticated/encrypted Identity database at rest;
+- Ring 3 Identity Service process lifecycle;
+- capability-authorized Identity IPC;
+- Session Manager/profile bootstrap;
+- recovery credentials;
+- Aurora Identity Drive implementation;
+- live boot/login integration;
+- graphical System App.
 
 ## Integration gate
 
-The isolated core should only be connected to the real Aurora OS login path after at least:
+The core should only replace the bootstrap login path after at least:
 
-1. protected durable system state exists;
-2. Aurora has a reviewed secure RNG and credential KDF/lookup-tag provider;
-3. the Ring 3 service lifecycle and capability-authorized IPC transport exist;
-4. the persistent identity store implements the atomic contracts and crash recovery;
-5. a Session Manager can consume non-replayable session grants.
+1. protected service-owned durable system state exists;
+2. the persistent store has an AuroraFS durable adapter;
+3. reviewed CSPRNG/KDF/lookup primitives exist;
+4. Ring 3 Identity Service lifecycle and capability IPC exist;
+5. Session Manager can consume grants and bind profile capabilities;
+6. crash/recovery tests pass on the Aurora-native storage path.
 
-Until then, the existing framebuffer Aurora Identity UI remains a bootstrap/recovery prototype and must not claim production authentication.
+Until then, the framebuffer login remains a bootstrap/recovery prototype and must not claim production authentication.
