@@ -1,0 +1,33 @@
+name: Aurora Identity Core
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'services/identity/**'
+      - 'Makefile'
+      - '.github/workflows/identity.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'services/identity/**'
+      - 'Makefile'
+      - '.github/workflows/identity.yml'
+
+jobs:
+  identity-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang make
+
+      - name: Build and test Aurora Identity core
+        run: make identity-test CC=clang
