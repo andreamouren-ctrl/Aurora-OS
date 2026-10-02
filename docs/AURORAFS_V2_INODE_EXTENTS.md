@@ -1,6 +1,6 @@
 # AuroraFS v2 — Persistent inode extents and hierarchical extent trees
 
-Status: **persistent COW extent growth through level-3 root publication is runtime-verified; continued append below an already-published level-3 root is the active mutation gate**.
+Status: **persistent COW extent growth through initial level-3 root publication and continued structural append beneath level-3 are runtime-verified; persistent publication of the continued level-3 append is the active mutation gate**.
 
 This document is part of the AuroraFS v2 on-disk contract. Repository implementation and runtime verification are tracked separately.
 
@@ -54,7 +54,8 @@ The following structural and persistent transitions are runtime-verified on synt
 - persistent full-level1 sibling publication — `36998412124`, with AHCI coverage in `36998412086`;
 - bounded unified lookup through level-3 — `36999077531`;
 - full level-2 root → level-3 structural COW growth at mapping 2,000,377 — main `37000379420`, AHCI `37000379412`;
-- persistent level-3 root publication + reopen lookup — main `37001092435`, AHCI `37001092510`.
+- persistent level-3 root publication + reopen lookup — main `37001092435`, AHCI `37001092510`;
+- continued structural append beneath an existing level-3 root at mapping 2,000,378 — main `37001773924`, AHCI `37001774112`.
 
 ## Persistent COW ordering
 
@@ -92,15 +93,28 @@ Main workflow `37001092435` and AHCI workflow `37001092510` contain the exact ga
 
 `[aurorafs-v2] persistent full level-2 to level-3 growth + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
 
-The persistent test appends mapping 2,000,377, publishes the level-3 root, reopens allocator/inode state, verifies counters and generation, then resolves both the appended mapping and the historical final mapping through the retained old level-2 branch.
+## Runtime-verified continued level-3 structural append
 
-## Active mutation gate
+`aurora_fs_v2_extent_tree_append_level3_cow()` replaces only the final path under an already-published level-3 root. Mapping 2,000,378 clones the final leaf, level-1 parent, level-2 parent and level-3 root, with child-first flush ordering and old-root immutability.
 
-The next mutation is mapping **2,000,378** under an already-published level-3 root. The final path has spare leaf capacity, so the operation should clone only:
+Main workflow `37001773924` and AHCI workflow `37001774112` contain:
 
-`final leaf → final level-1 → final level-2 → level-3 root`
+`[aurorafs-v2] existing level-3 root COW append through final leaf/level-1/level-2/root replacement self-test passed on 512/4096-byte devices`
 
-Each replacement child must be durable before its replacement parent is written, and the old level-3 root must remain untouched until inode publication.
+## Active mutation gate — persistent continued level-3 append
+
+The next composed operation publishes the replacement level-3 root for mapping **2,000,378** through the inode. It must reuse the verified structural builder plus `aurora_fs_v2_inode_publish_extent_root_cow()`, then reopen allocator/inode state and verify:
+
+- the root changed;
+- `extent_count == 2,000,378`;
+- `size` and `allocated_bytes` advance correctly;
+- inode generation increments;
+- mapping 2,000,378 resolves to the new physical block;
+- mapping 2,000,377 still resolves through the replacement final branch.
+
+Expected gate:
+
+`[aurorafs-v2] persistent existing level-3 COW append + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
 
 ## Test-memory policy
 
