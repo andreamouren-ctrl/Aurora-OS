@@ -17,6 +17,7 @@
 
 #define AURORA_FS_VERSION 1u
 #define AURORA_FS_BLOCK_SIZE 512u
+#define AURORA_FS_MAX_DEVICE_BLOCK_SIZE 4096u
 #define AURORA_FS_ROOT_ENTRY_COUNT 8u
 #define AURORA_FS_ROOT_LBA 1u
 #define AURORA_FS_DATA_LBA 2u
@@ -48,19 +49,20 @@ struct aurora_fs_driver_context {
     struct aurora_fs_superblock_disk superblock;
 };
 
-_Static_assert(sizeof(struct aurora_fs_superblock_disk) == 512u,
-               "AuroraFS superblock must fill one block");
+_Static_assert(sizeof(struct aurora_fs_superblock_disk) == AURORA_FS_BLOCK_SIZE,
+               "AuroraFS superblock must fill one filesystem block");
 _Static_assert(sizeof(struct aurora_fs_dir_entry_disk) == 64u,
                "AuroraFS directory entry must be 64 bytes");
+_Static_assert(sizeof(struct aurora_fs_dir_entry_disk) * AURORA_FS_ROOT_ENTRY_COUNT ==
+                   AURORA_FS_BLOCK_SIZE,
+               "AuroraFS bootstrap directory must fill one filesystem block");
 
 static uint32_t fnv1a32(const uint8_t *data, size_t length) {
     uint32_t hash = 2166136261u;
-
     for (size_t i = 0u; i < length; ++i) {
         hash ^= data[i];
         hash *= 16777619u;
     }
-
     return hash;
 }
 
@@ -75,7 +77,6 @@ static bool string_equal(const char *a, const char *b) {
     if (a == NULL || b == NULL) {
         return false;
     }
-
     size_t i = 0u;
     while (a[i] != '\0' || b[i] != '\0') {
         if (a[i] != b[i]) {
@@ -90,16 +91,13 @@ static bool names_equal(const char *entry_name, const char *name) {
     for (size_t i = 0u; i < 32u; ++i) {
         char a = entry_name[i];
         char b = name[i];
-
         if (a != b) {
             return false;
         }
-
         if (a == '\0') {
             return true;
         }
     }
-
     return true;
 }
 
@@ -108,7 +106,6 @@ static void copy_name(char destination[32], const char *name) {
     for (; i < AURORA_FS_BOOTSTRAP_NAME_MAX && name[i] != '\0'; ++i) {
         destination[i] = name[i];
     }
-
     destination[i] = '\0';
     for (++i; i < 32u; ++i) {
         destination[i] = '\0';
@@ -123,6 +120,280 @@ static void copy_fs_name(char destination[AURORA_FS_NAME_MAX], const char *sourc
     destination[i] = '\0';
 }
 
+static bool device_geometry_supported(const struct aurora_block_device *device) {
+    if (device == NULL || device->block_size < AURORA_FS_BLOCK_SIZE ||
+        device->block_size > AURORA_FS_MAX_DEVICE_BLOCK_SIZE) {
+        return false;
+    }
+    return device->block_size == 512u || device->block_size == 1024u ||
+        device->block_size == 2048u || device->block_size == 4096u;
+}
+
+static bool mul_u64(uint64_t a, uint64_t b, uint64_t *out) {
+    if (out == NULL || (a != 0u && b > UINT64_MAX / a)) {
+        return false;
+    }
+    *out = a * b;
+    return true;
+}
+
+static uint64_t bootstrap_base_bytes(void) {
+    return (uint64_t)AURORA_FS_BOOTSTRAP_BASE_LBA * AURORA_FS_BLOCK_SIZE;
+}
+
+static bool available_fs_blocks_device(
+    const struct aurora_block_device *device,
+    uint64_t *out_blocks
+) {
+    uint64_t bytes;
+    if (!device_geometry_supported(device) ||
+        !mul_u64(device->block_count, device->block_size, &bytes) ||
+        bytes <= bootstrap_base_bytes()) {
+        return false;
+    }
+    *out_blocks = (bytes - bootstrap_base_bytes()) / AURORA_FS_BLOCK_SIZE;
+    return *out_blocks != 0u;
+}
+
+static bool available_fs_blocks_partition(
+    const struct aurora_partition *partition,
+    uint64_t *out_blocks
+) {
+    if (partition == NULL || !device_geometry_supported(partition->device)) {
+        return false;
+    }
+    uint64_t bytes;
+    if (!mul_u64(partition->block_count, partition->device->block_size, &bytes) ||
+        bytes <= bootstrap_base_bytes()) {
+        return false;
+    }
+    *out_blocks = (bytes - bootstrap_base_bytes()) / AURORA_FS_BLOCK_SIZE;
+    return *out_blocks != 0u;
+}
+
+static bool device_read_bytes(
+    struct aurora_block_device *device,
+    uint64_t byte_offset,
+    void *buffer,
+    size_t length
+) {
+    if (!device_geometry_supported(device) || (buffer == NULL && length != 0u)) {
+        return false;
+    }
+
+    uint64_t total_bytes;
+    if (!mul_u64(device->block_count, device->block_size, &total_bytes) ||
+        byte_offset > total_bytes || (uint64_t)length > total_bytes - byte_offset) {
+        return false;
+    }
+
+    uint8_t scratch[AURORA_FS_MAX_DEVICE_BLOCK_SIZE];
+    uint8_t *out = (uint8_t *)buffer;
+    size_t copied = 0u;
+    while (copied < length) {
+        uint64_t absolute = byte_offset + copied;
+        uint64_t lba = absolute / device->block_size;
+        size_t within = (size_t)(absolute % device->block_size);
+        if (!block_device_read(device, lba, 1u, scratch)) {
+            return false;
+        }
+        size_t take = device->block_size - within;
+        if (take > length - copied) {
+            take = length - copied;
+        }
+        for (size_t i = 0u; i < take; ++i) {
+            out[copied + i] = scratch[within + i];
+        }
+        copied += take;
+    }
+    return true;
+}
+
+static bool device_write_bytes(
+    struct aurora_block_device *device,
+    uint64_t byte_offset,
+    const void *buffer,
+    size_t length
+) {
+    if (!device_geometry_supported(device) || device->read_only ||
+        (buffer == NULL && length != 0u)) {
+        return false;
+    }
+
+    uint64_t total_bytes;
+    if (!mul_u64(device->block_count, device->block_size, &total_bytes) ||
+        byte_offset > total_bytes || (uint64_t)length > total_bytes - byte_offset) {
+        return false;
+    }
+
+    uint8_t scratch[AURORA_FS_MAX_DEVICE_BLOCK_SIZE];
+    const uint8_t *source = (const uint8_t *)buffer;
+    size_t written = 0u;
+    while (written < length) {
+        uint64_t absolute = byte_offset + written;
+        uint64_t lba = absolute / device->block_size;
+        size_t within = (size_t)(absolute % device->block_size);
+        size_t take = device->block_size - within;
+        if (take > length - written) {
+            take = length - written;
+        }
+
+        if (within != 0u || take != device->block_size) {
+            if (!block_device_read(device, lba, 1u, scratch)) {
+                return false;
+            }
+        }
+        for (size_t i = 0u; i < take; ++i) {
+            scratch[within + i] = source[written + i];
+        }
+        if (!block_device_write(device, lba, 1u, scratch)) {
+            return false;
+        }
+        written += take;
+    }
+    return true;
+}
+
+static bool partition_read_bytes(
+    const struct aurora_partition *partition,
+    uint64_t byte_offset,
+    void *buffer,
+    size_t length
+) {
+    if (partition == NULL || !device_geometry_supported(partition->device) ||
+        (buffer == NULL && length != 0u)) {
+        return false;
+    }
+
+    uint64_t total_bytes;
+    if (!mul_u64(partition->block_count, partition->device->block_size, &total_bytes) ||
+        byte_offset > total_bytes || (uint64_t)length > total_bytes - byte_offset) {
+        return false;
+    }
+
+    uint8_t scratch[AURORA_FS_MAX_DEVICE_BLOCK_SIZE];
+    uint8_t *out = (uint8_t *)buffer;
+    size_t copied = 0u;
+    while (copied < length) {
+        uint64_t absolute = byte_offset + copied;
+        uint64_t lba = absolute / partition->device->block_size;
+        size_t within = (size_t)(absolute % partition->device->block_size);
+        if (!partition_read(partition, lba, 1u, scratch)) {
+            return false;
+        }
+        size_t take = partition->device->block_size - within;
+        if (take > length - copied) {
+            take = length - copied;
+        }
+        for (size_t i = 0u; i < take; ++i) {
+            out[copied + i] = scratch[within + i];
+        }
+        copied += take;
+    }
+    return true;
+}
+
+static bool partition_write_bytes(
+    const struct aurora_partition *partition,
+    uint64_t byte_offset,
+    const void *buffer,
+    size_t length
+) {
+    if (partition == NULL || !device_geometry_supported(partition->device) ||
+        partition->device->read_only || (buffer == NULL && length != 0u)) {
+        return false;
+    }
+
+    uint64_t total_bytes;
+    if (!mul_u64(partition->block_count, partition->device->block_size, &total_bytes) ||
+        byte_offset > total_bytes || (uint64_t)length > total_bytes - byte_offset) {
+        return false;
+    }
+
+    uint8_t scratch[AURORA_FS_MAX_DEVICE_BLOCK_SIZE];
+    const uint8_t *source = (const uint8_t *)buffer;
+    size_t written = 0u;
+    while (written < length) {
+        uint64_t absolute = byte_offset + written;
+        uint64_t lba = absolute / partition->device->block_size;
+        size_t within = (size_t)(absolute % partition->device->block_size);
+        size_t take = partition->device->block_size - within;
+        if (take > length - written) {
+            take = length - written;
+        }
+
+        if (within != 0u || take != partition->device->block_size) {
+            if (!partition_read(partition, lba, 1u, scratch)) {
+                return false;
+            }
+        }
+        for (size_t i = 0u; i < take; ++i) {
+            scratch[within + i] = source[written + i];
+        }
+        if (!partition_write(partition, lba, 1u, scratch)) {
+            return false;
+        }
+        written += take;
+    }
+    return true;
+}
+
+static uint64_t fs_block_byte_offset(uint64_t relative_block) {
+    return bootstrap_base_bytes() + relative_block * AURORA_FS_BLOCK_SIZE;
+}
+
+static bool device_read_fs_block(
+    struct aurora_block_device *device,
+    uint64_t relative_block,
+    void *buffer
+) {
+    return device_read_bytes(
+        device,
+        fs_block_byte_offset(relative_block),
+        buffer,
+        AURORA_FS_BLOCK_SIZE
+    );
+}
+
+static bool device_write_fs_block(
+    struct aurora_block_device *device,
+    uint64_t relative_block,
+    const void *buffer
+) {
+    return device_write_bytes(
+        device,
+        fs_block_byte_offset(relative_block),
+        buffer,
+        AURORA_FS_BLOCK_SIZE
+    );
+}
+
+static bool partition_read_fs_block(
+    const struct aurora_partition *partition,
+    uint64_t relative_block,
+    void *buffer
+) {
+    return partition_read_bytes(
+        partition,
+        fs_block_byte_offset(relative_block),
+        buffer,
+        AURORA_FS_BLOCK_SIZE
+    );
+}
+
+static bool partition_write_fs_block(
+    const struct aurora_partition *partition,
+    uint64_t relative_block,
+    const void *buffer
+) {
+    return partition_write_bytes(
+        partition,
+        fs_block_byte_offset(relative_block),
+        buffer,
+        AURORA_FS_BLOCK_SIZE
+    );
+}
+
 static void set_magic(struct aurora_fs_superblock_disk *superblock) {
     const uint8_t magic[8] = {
         AURORA_FS_MAGIC_0, AURORA_FS_MAGIC_1,
@@ -130,7 +401,6 @@ static void set_magic(struct aurora_fs_superblock_disk *superblock) {
         AURORA_FS_MAGIC_4, AURORA_FS_MAGIC_5,
         AURORA_FS_MAGIC_6, AURORA_FS_MAGIC_7
     };
-
     for (size_t i = 0u; i < sizeof(magic); ++i) {
         superblock->magic[i] = magic[i];
     }
@@ -143,13 +413,11 @@ static bool magic_valid(const struct aurora_fs_superblock_disk *superblock) {
         AURORA_FS_MAGIC_4, AURORA_FS_MAGIC_5,
         AURORA_FS_MAGIC_6, AURORA_FS_MAGIC_7
     };
-
     for (size_t i = 0u; i < sizeof(magic); ++i) {
         if (superblock->magic[i] != magic[i]) {
             return false;
         }
     }
-
     return true;
 }
 
@@ -174,7 +442,6 @@ static bool superblock_valid(
         superblock->total_blocks > available_blocks) {
         return false;
     }
-
     return superblock_checksum(superblock) == superblock->metadata_checksum;
 }
 
@@ -184,21 +451,17 @@ static bool write_superblock(
 ) {
     superblock->metadata_checksum = 0u;
     superblock->metadata_checksum = superblock_checksum(superblock);
-    return block_device_write(
-        device,
-        AURORA_FS_BOOTSTRAP_BASE_LBA,
-        1u,
-        superblock
-    );
+    return device_write_fs_block(device, 0u, superblock);
 }
 
 static bool format_filesystem(
     struct aurora_block_device *device,
     struct aurora_fs_superblock_disk *superblock
 ) {
-    if (device == NULL || device->block_size != AURORA_FS_BLOCK_SIZE ||
-        device->block_count <= AURORA_FS_BOOTSTRAP_BASE_LBA + AURORA_FS_DATA_LBA +
-            AURORA_FS_ROOT_ENTRY_COUNT) {
+    uint64_t available_blocks;
+    if (device == NULL || device->read_only ||
+        !available_fs_blocks_device(device, &available_blocks) ||
+        available_blocks <= AURORA_FS_DATA_LBA + AURORA_FS_ROOT_ENTRY_COUNT) {
         return false;
     }
 
@@ -206,7 +469,7 @@ static bool format_filesystem(
     set_magic(superblock);
     superblock->version = AURORA_FS_VERSION;
     superblock->block_size = AURORA_FS_BLOCK_SIZE;
-    superblock->total_blocks = device->block_count - AURORA_FS_BOOTSTRAP_BASE_LBA;
+    superblock->total_blocks = available_blocks;
     superblock->root_lba = AURORA_FS_ROOT_LBA;
     superblock->data_lba = AURORA_FS_DATA_LBA;
     superblock->generation = 1u;
@@ -217,93 +480,54 @@ static bool format_filesystem(
     if (!write_superblock(device, superblock)) {
         return false;
     }
-
-    return block_device_write(
-        device,
-        AURORA_FS_BOOTSTRAP_BASE_LBA + AURORA_FS_ROOT_LBA,
-        1u,
-        directory
-    );
+    return device_write_fs_block(device, AURORA_FS_ROOT_LBA, directory);
 }
 
 static bool load_superblock(
     struct aurora_block_device *device,
     struct aurora_fs_superblock_disk *superblock
 ) {
-    if (!block_device_read(
-            device,
-            AURORA_FS_BOOTSTRAP_BASE_LBA,
-            1u,
-            superblock)) {
+    uint64_t available_blocks;
+    if (!available_fs_blocks_device(device, &available_blocks) ||
+        !device_read_fs_block(device, 0u, superblock)) {
         return false;
     }
-
-    if (device->block_count <= AURORA_FS_BOOTSTRAP_BASE_LBA) {
-        return false;
-    }
-
-    return superblock_valid(
-        superblock,
-        device->block_count - AURORA_FS_BOOTSTRAP_BASE_LBA
-    );
+    return superblock_valid(superblock, available_blocks);
 }
 
 static bool read_directory(
     struct aurora_block_device *device,
     struct aurora_fs_dir_entry_disk directory[AURORA_FS_ROOT_ENTRY_COUNT]
 ) {
-    return block_device_read(
-        device,
-        AURORA_FS_BOOTSTRAP_BASE_LBA + AURORA_FS_ROOT_LBA,
-        1u,
-        directory
-    );
+    return device_read_fs_block(device, AURORA_FS_ROOT_LBA, directory);
 }
 
 static bool write_directory(
     struct aurora_block_device *device,
     const struct aurora_fs_dir_entry_disk directory[AURORA_FS_ROOT_ENTRY_COUNT]
 ) {
-    return block_device_write(
-        device,
-        AURORA_FS_BOOTSTRAP_BASE_LBA + AURORA_FS_ROOT_LBA,
-        1u,
-        directory
-    );
+    return device_write_fs_block(device, AURORA_FS_ROOT_LBA, directory);
 }
 
 static bool driver_read_superblock(
     const struct aurora_partition *partition,
     struct aurora_fs_superblock_disk *superblock
 ) {
-    if (partition == NULL || partition->device == NULL ||
-        partition->device->block_size != AURORA_FS_BLOCK_SIZE ||
-        partition->block_count <= AURORA_FS_BOOTSTRAP_BASE_LBA) {
+    uint64_t available_blocks;
+    if (!available_fs_blocks_partition(partition, &available_blocks) ||
+        !partition_read_fs_block(partition, 0u, superblock)) {
         return false;
     }
-
-    if (!partition_read(
-            partition,
-            AURORA_FS_BOOTSTRAP_BASE_LBA,
-            1u,
-            superblock)) {
-        return false;
-    }
-
-    return superblock_valid(
-        superblock,
-        partition->block_count - AURORA_FS_BOOTSTRAP_BASE_LBA
-    );
+    return superblock_valid(superblock, available_blocks);
 }
 
 static bool driver_read_directory(
     const struct aurora_fs_driver_context *context,
     struct aurora_fs_dir_entry_disk directory[AURORA_FS_ROOT_ENTRY_COUNT]
 ) {
-    return partition_read(
+    return partition_read_fs_block(
         &context->partition,
-        AURORA_FS_BOOTSTRAP_BASE_LBA + context->superblock.root_lba,
-        1u,
+        context->superblock.root_lba,
         directory
     );
 }
@@ -312,10 +536,9 @@ static bool driver_write_directory(
     const struct aurora_fs_driver_context *context,
     const struct aurora_fs_dir_entry_disk directory[AURORA_FS_ROOT_ENTRY_COUNT]
 ) {
-    return partition_write(
+    return partition_write_fs_block(
         &context->partition,
-        AURORA_FS_BOOTSTRAP_BASE_LBA + context->superblock.root_lba,
-        1u,
+        context->superblock.root_lba,
         directory
     );
 }
@@ -345,7 +568,6 @@ static int driver_find_entry(
             return (int)i;
         }
     }
-
     return -1;
 }
 
@@ -356,12 +578,9 @@ static enum aurora_fs_probe_result aurora_fs_probe_driver(
     if (!driver_read_superblock(partition, &superblock)) {
         return AURORA_FS_PROBE_NO_MATCH;
     }
-
-    if (partition->device != NULL && !partition->device->read_only) {
-        return AURORA_FS_PROBE_MATCH_READ_WRITE;
-    }
-
-    return AURORA_FS_PROBE_MATCH_READ_ONLY;
+    return partition->device != NULL && !partition->device->read_only
+        ? AURORA_FS_PROBE_MATCH_READ_WRITE
+        : AURORA_FS_PROBE_MATCH_READ_ONLY;
 }
 
 static bool aurora_fs_mount_driver(
@@ -384,7 +603,6 @@ static bool aurora_fs_mount_driver(
     if (context == NULL) {
         return false;
     }
-
     context->partition = *partition;
     context->superblock = superblock;
     *out_context = context;
@@ -393,7 +611,6 @@ static bool aurora_fs_mount_driver(
 
 static void aurora_fs_unmount_driver(void *context) {
     (void)context;
-    /* Current bootstrap heap is monotonic and has no free operation yet. */
 }
 
 static bool aurora_fs_stat_driver(
@@ -404,7 +621,6 @@ static bool aurora_fs_stat_driver(
     if (opaque_context == NULL || path == NULL || out_stat == NULL) {
         return false;
     }
-
     zero_bytes(out_stat, sizeof(*out_stat));
 
     if (string_equal(path, "/")) {
@@ -449,7 +665,6 @@ static bool aurora_fs_readdir_driver(
         if (directory[i].in_use == 0u) {
             continue;
         }
-
         if (seen == index) {
             zero_bytes(out_entry, sizeof(*out_entry));
             copy_fs_name(out_entry->name, directory[i].name);
@@ -460,7 +675,6 @@ static bool aurora_fs_readdir_driver(
         }
         ++seen;
     }
-
     return false;
 }
 
@@ -472,7 +686,7 @@ static bool aurora_fs_read_driver(
     size_t length,
     size_t *out_read
 ) {
-    if (opaque_context == NULL || path == NULL || buffer == NULL) {
+    if (opaque_context == NULL || path == NULL || (buffer == NULL && length != 0u)) {
         return false;
     }
 
@@ -498,25 +712,17 @@ static bool aurora_fs_read_driver(
     }
 
     uint8_t block[AURORA_FS_BLOCK_SIZE];
-    if (!partition_read(
-            &context->partition,
-            AURORA_FS_BOOTSTRAP_BASE_LBA + entry->start_block,
-            1u,
-            block)) {
-        return false;
-    }
-
-    if (fnv1a32(block, entry->size) != entry->data_checksum) {
+    if (!partition_read_fs_block(&context->partition, entry->start_block, block) ||
+        fnv1a32(block, entry->size) != entry->data_checksum) {
         return false;
     }
 
     size_t available = (size_t)entry->size - (size_t)offset;
     size_t to_copy = length < available ? length : available;
-    uint8_t *destination = buffer;
+    uint8_t *destination = (uint8_t *)buffer;
     for (size_t i = 0u; i < to_copy; ++i) {
         destination[i] = block[(size_t)offset + i];
     }
-
     if (out_read != NULL) {
         *out_read = to_copy;
     }
@@ -531,7 +737,7 @@ static bool aurora_fs_write_driver(
     size_t length,
     size_t *out_written
 ) {
-    if (opaque_context == NULL || path == NULL || buffer == NULL) {
+    if (opaque_context == NULL || path == NULL || (buffer == NULL && length != 0u)) {
         return false;
     }
 
@@ -558,34 +764,24 @@ static bool aurora_fs_write_driver(
     uint8_t block[AURORA_FS_BLOCK_SIZE];
     zero_bytes(block, sizeof(block));
     if (entry->size != 0u) {
-        if (!partition_read(
-                &context->partition,
-                AURORA_FS_BOOTSTRAP_BASE_LBA + entry->start_block,
-                1u,
-                block)) {
-            return false;
-        }
-        if (fnv1a32(block, entry->size) != entry->data_checksum) {
+        if (!partition_read_fs_block(&context->partition, entry->start_block, block) ||
+            fnv1a32(block, entry->size) != entry->data_checksum) {
             return false;
         }
     }
 
-    const uint8_t *source = buffer;
+    const uint8_t *source = (const uint8_t *)buffer;
     for (size_t i = 0u; i < length; ++i) {
         block[(size_t)offset + i] = source[i];
     }
 
-    uint32_t new_size = entry->size;
     uint64_t write_end = offset + length;
+    uint32_t new_size = entry->size;
     if (write_end > new_size) {
         new_size = (uint32_t)write_end;
     }
 
-    if (!partition_write(
-            &context->partition,
-            AURORA_FS_BOOTSTRAP_BASE_LBA + entry->start_block,
-            1u,
-            block)) {
+    if (!partition_write_fs_block(&context->partition, entry->start_block, block)) {
         return false;
     }
 
@@ -620,14 +816,12 @@ bool aurora_fs_bootstrap_probe(
     struct aurora_block_device *device,
     struct aurora_fs_bootstrap_result *out_result
 ) {
-    if (device == NULL || device->read_only ||
-        device->block_size != AURORA_FS_BLOCK_SIZE) {
+    if (device == NULL || device->read_only || !device_geometry_supported(device)) {
         return false;
     }
 
     struct aurora_fs_bootstrap_result result = { 0 };
     struct aurora_fs_superblock_disk superblock;
-
     if (!load_superblock(device, &superblock)) {
         if (!format_filesystem(device, &superblock)) {
             return false;
@@ -647,7 +841,6 @@ bool aurora_fs_bootstrap_probe(
 
     int found_index = -1;
     int free_index = -1;
-
     for (size_t i = 0u; i < AURORA_FS_ROOT_ENTRY_COUNT; ++i) {
         if (directory[i].in_use != 0u) {
             if (names_equal(directory[i].name, probe_name)) {
@@ -668,24 +861,15 @@ bool aurora_fs_bootstrap_probe(
         }
 
         uint8_t block[AURORA_FS_BLOCK_SIZE];
-        if (!block_device_read(
-                device,
-                AURORA_FS_BOOTSTRAP_BASE_LBA + entry->start_block,
-                1u,
-                block)) {
+        if (!device_read_fs_block(device, entry->start_block, block) ||
+            fnv1a32(block, entry->size) != entry->data_checksum) {
             return false;
         }
-
-        if (fnv1a32(block, entry->size) != entry->data_checksum) {
-            return false;
-        }
-
         for (size_t i = 0u; i < sizeof(probe_data); ++i) {
             if (block[i] != probe_data[i]) {
                 return false;
             }
         }
-
         result.reopened_existing_file = true;
     } else {
         if (free_index < 0) {
@@ -702,12 +886,7 @@ bool aurora_fs_bootstrap_probe(
         for (size_t i = 0u; i < sizeof(probe_data); ++i) {
             block[i] = probe_data[i];
         }
-
-        if (!block_device_write(
-                device,
-                AURORA_FS_BOOTSTRAP_BASE_LBA + start_block,
-                1u,
-                block)) {
+        if (!device_write_fs_block(device, start_block, block)) {
             return false;
         }
 
@@ -730,10 +909,8 @@ bool aurora_fs_bootstrap_probe(
     }
 
     result.generation = superblock.generation;
-
     if (out_result != NULL) {
         *out_result = result;
     }
-
     return true;
 }
