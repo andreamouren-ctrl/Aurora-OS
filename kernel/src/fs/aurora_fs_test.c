@@ -3,6 +3,7 @@
 
 #include <aurora/aurora_fs.h>
 #include <aurora/aurora_fs_v2.h>
+#include <aurora/aurora_fs_v2_inode_publish.h>
 #include <aurora/block_device.h>
 #include <aurora/fs_driver.h>
 #include <aurora/log.h>
@@ -231,5 +232,10 @@ bool aurora_fs_4kn_self_test(void) {
         return false;
     }
     log_line("[aurorafs-v2] existing level-2 root COW append through leaf/level-1/root replacement self-test passed on 512/4096-byte devices");
+
+    if (!aurora_fs_v2_inode_publish_extent_root_self_test()) {
+        return false;
+    }
+    log_line("[aurorafs-v2] durable inode COW root publication + reopen self-test passed on 512/4096-byte devices");
     return true;
 }
