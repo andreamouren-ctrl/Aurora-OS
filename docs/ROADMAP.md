@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Active implementation**
-Version: **0.17**
+Version: **0.18**
 
 The roadmap distinguishes architecture decisions, repository implementation, and runtime verification. A feature is not considered complete merely because a detector or interface exists.
 
@@ -108,7 +108,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [ ] AHCI data I/O
 - [ ] NVMe transport
 - [ ] USB/xHCI + USB mass storage
-- [ ] remove remaining fixed 512-byte-sector assumptions
+- [x] remove fixed 512-byte assumptions from the current partition/FAT32/exFAT/AuroraFS bootstrap paths
 - [ ] remove bootstrap static block-device registry limit
 
 ### Partition layer
@@ -122,7 +122,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] bounded variable GPT entry-size parsing up to 4096 bytes
 - [x] runtime-verify GPT CRC rejection and backup-header fallback
 - [x] runtime-verify 4096-byte logical block parsing
-- [ ] end-to-end 512e/4Kn-safe filesystem path
+- [x] filesystem-layer 4Kn-safe path for partition/FAT32/exFAT/AuroraFS bootstrap on synthetic devices
 - [ ] extended/logical MBR partitions
 
 ### Filesystem framework
@@ -155,8 +155,8 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] register AuroraFS through the common filesystem-driver interface
 - [x] mount AuroraFS through the common mount manager and VFS at `/system`
 - [x] common-driver stat/readdir/read and existing-file write path
-- [ ] remove fixed 512-byte block assumption from bootstrap format/driver
-- [ ] runtime-verify AuroraFS on a 4096-byte logical-block synthetic device
+- [x] remove device-block 512-byte assumption while preserving the v1 512-byte logical filesystem block format
+- [x] runtime-verify AuroraFS on a 4096-byte logical-block synthetic device
 - [ ] scalable production allocation structures
 - [ ] directories, multi-block files, sparse files, and extents
 - [ ] crash-consistent metadata strategy
@@ -172,7 +172,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [ ] transactional deployment prototype
 - [ ] rollback
 
-Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC rejection and primary-to-backup fallback on the synthetic 512-byte logical-block test device. Workflow **#299** (`36914796680`) is green and extends the same GPT integrity/fallback self-test to a synthetic 4096-byte logical-block device. Workflow **#322** (`36963317225`) is green and runtime-verifies the block-device registry + ATA PIO read/write/CACHE FLUSH path, AuroraFS persistence and common VFS routing, FAT32/VFAT and exFAT integration, and the synthetic 4096-byte logical-block exFAT probe/mount self-test. Workflow **#328** (`36964846162`) is green and runtime-verifies FAT32 probe/mount/root-stat handling on a synthetic 4096-byte logical-block device after decoupling FAT filesystem sectors from device blocks.
+Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC rejection and primary-to-backup fallback on the synthetic 512-byte logical-block test device. Workflow **#299** (`36914796680`) extends the same GPT integrity/fallback self-test to a synthetic 4096-byte logical-block device. Workflow **#322** (`36963317225`) is green and runtime-verifies the block-device registry + ATA PIO read/write/CACHE FLUSH path, AuroraFS persistence and common VFS routing, FAT32/VFAT and exFAT integration, and the synthetic 4096-byte logical-block exFAT probe/mount self-test. Workflow **#328** (`36964846162`) is green and runtime-verifies FAT32 probe/mount/root-stat handling on a synthetic 4096-byte logical-block device. Workflow **#334** (`36965554498`) is green and runtime-verifies AuroraFS bootstrap format/create/reopen/mount/read behavior on a synthetic 4096-byte logical-block device while preserving the v1 on-disk format.
 
 ## M4 — Graphics and Desktop foundation
 
@@ -245,14 +245,14 @@ Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC re
 
 ## Current development gate
 
-Aurora can boot through the M1 kernel foundation and enter the native login prototype. Storage work has advanced ahead of the original milestone order because persistent Identity requires durable local state.
+Aurora can boot through the M1 kernel foundation and enter the native login prototype. The storage stack now has runtime-verified synthetic 4Kn handling through the partition layer, FAT32, exFAT, and AuroraFS bootstrap driver. Physical 4Kn hardware transport validation remains separate.
 
 Near-term dependency order:
 
-1. remove the fixed 512-byte assumption from AuroraFS bootstrap v1 and runtime-verify it on a synthetic 4096-byte logical-block device;
-2. add NTFS and ext-family read-only support;
-3. implement modern AHCI data I/O;
-4. evolve AuroraFS from bootstrap v1 to scalable production allocation and directory structures;
+1. implement AHCI data I/O and register AHCI disks through the generic block layer;
+2. add NVMe transport;
+3. evolve AuroraFS from bootstrap v1 to scalable production allocation and directory structures;
+4. add NTFS and ext-family read-only support;
 5. establish protected durable system state;
 6. implement secure randomness and credential verification;
 7. implement Aurora Identity Service, persistent identity records, and Session Manager;
