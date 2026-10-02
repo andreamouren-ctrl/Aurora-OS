@@ -245,6 +245,25 @@ void bootstrap_storage_probe(void) {
 
             log_write("[ahci] model: ");
             log_line(identify.model);
+
+            if (!ahci_primary_block_device_init()) {
+                kernel_panic("AHCI primary block-device initialization failed");
+            }
+
+            struct aurora_block_device *ahci_disk = ahci_primary_block_device();
+            if (ahci_disk == NULL || !block_device_register(ahci_disk) ||
+                block_device_find("ahci-sata0") != ahci_disk) {
+                kernel_panic("AHCI block-device registry integration failed");
+            }
+
+            uint8_t first_block[4096];
+            if (ahci_disk->block_size > sizeof(first_block) ||
+                !block_device_read(ahci_disk, 0u, 1u, first_block)) {
+                kernel_panic("AHCI READ DMA EXT LBA0 verification failed");
+            }
+
+            log_line("[storage] block device registered: ahci-sata0");
+            log_line("[ahci] READ DMA EXT LBA0 via block layer verified");
         }
     } else {
         log_line("[storage] AHCI controller unavailable");
