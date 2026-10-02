@@ -187,6 +187,21 @@ static void bootstrap_native_fs_probe(
     bootstrap_foreign_fs_probe(device);
 }
 
+void bootstrap_storage_probe_device(
+    struct aurora_block_device *device,
+    const char *transport
+) {
+    if (device == NULL || transport == NULL) {
+        kernel_panic("Common storage filesystem probe received invalid device");
+    }
+
+    bootstrap_native_fs_probe(device, transport);
+
+    log_write("[storage] ");
+    log_write(transport);
+    log_line(" partition/filesystem/VFS traversal completed");
+}
+
 void bootstrap_storage_probe(void) {
     if (!block_device_self_test()) {
         kernel_panic("Block-device abstraction self-test failed");
@@ -300,8 +315,7 @@ void bootstrap_storage_probe(void) {
                 log_line("[ahci] signed write/flush probe skipped: CI signature absent or verification failed");
             }
 
-            bootstrap_native_fs_probe(ahci_disk, "AHCI");
-            log_line("[ahci] partition/filesystem/VFS traversal completed");
+            bootstrap_storage_probe_device(ahci_disk, "AHCI");
         }
     } else {
         log_line("[storage] AHCI controller unavailable");
@@ -322,7 +336,7 @@ void bootstrap_storage_probe(void) {
 
         if (ata_pio_ci_probe()) {
             log_line("[ata] signed test disk read/write/flush probe passed");
-            bootstrap_native_fs_probe(ata, "ATA PIO");
+            bootstrap_storage_probe_device(ata, "ATA PIO");
         } else {
             log_line("[ata] primary master detected; signed write probe skipped");
         }
