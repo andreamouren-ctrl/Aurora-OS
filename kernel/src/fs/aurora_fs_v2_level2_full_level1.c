@@ -19,7 +19,7 @@
 #define F1_FIRST_LEAF 32u
 #define F1_FIRST_DATA 1024u
 #define F1_FULL_LEVEL1_EXTENTS (F1_CAPACITY * F1_CAPACITY)
-#define F1_SLOT_COUNT 136u
+#define F1_SLOT_COUNT 8u
 
 struct f1_header {
     uint8_t magic[8];
@@ -125,6 +125,18 @@ static bool magic_valid(const struct f1_node *node) {
     return true;
 }
 
+static void init_node(struct f1_node *node, uint16_t level, uint16_t count,
+                      uint64_t generation, uint64_t first, uint64_t last) {
+    zero_bytes(node, sizeof(*node));
+    set_magic(node);
+    node->header.version = 1u;
+    node->header.level = level;
+    node->header.entry_count = count;
+    node->header.generation = generation;
+    node->header.first_logical = first;
+    node->header.last_logical_exclusive = last;
+}
+
 static bool fs_geometry(const struct aurora_fs_v2_allocator *allocator,
                         uint64_t fs_block, uint64_t *out_lba, uint32_t *out_count) {
     if (allocator == NULL || allocator->device == NULL || out_lba == NULL || out_count == NULL ||
@@ -175,18 +187,6 @@ static bool write_node(struct aurora_fs_v2_allocator *allocator,
     }
     node->header.checksum = node_checksum(node);
     return block_device_write(allocator->device, lba, count, node);
-}
-
-static void init_node(struct f1_node *node, uint16_t level, uint16_t count,
-                      uint64_t generation, uint64_t first, uint64_t last) {
-    zero_bytes(node, sizeof(*node));
-    set_magic(node);
-    node->header.version = 1u;
-    node->header.level = level;
-    node->header.entry_count = count;
-    node->header.generation = generation;
-    node->header.first_logical = first;
-    node->header.last_logical_exclusive = last;
 }
 
 static void release_block(struct aurora_fs_v2_allocator *allocator, uint64_t block) {
@@ -321,6 +321,38 @@ static int slot_for(uint64_t block, bool create) {
     return -1;
 }
 
+static void seed_old_level1(struct f1_node *node) {
+    init_node(node, F1_LEVEL_ONE, F1_CAPACITY, 20u, 0u, F1_FULL_LEVEL1_EXTENTS);
+    for (uint16_t child = 0u; child < F1_CAPACITY; ++child) {
+        uint64_t first = (uint64_t)child * F1_CAPACITY;
+        node->entries[child] = (struct f1_entry){
+            first, F1_FIRST_LEAF + child, F1_CAPACITY, 0u
+        };
+    }
+    node->header.checksum = node_checksum(node);
+}
+
+static void seed_old_root(struct f1_node *node) {
+    init_node(node, F1_LEVEL_TWO, 1u, 20u, 0u, F1_FULL_LEVEL1_EXTENTS);
+    node->entries[0] = (struct f1_entry){
+        0u, F1_OLD_LEVEL1, F1_FULL_LEVEL1_EXTENTS, 0u
+    };
+    node->header.checksum = node_checksum(node);
+}
+
+static void seed_old_leaf(uint64_t fs_block, struct f1_node *node) {
+    uint64_t child = fs_block - F1_FIRST_LEAF;
+    uint64_t first = child * F1_CAPACITY;
+    init_node(node, F1_LEVEL_LEAF, F1_CAPACITY, 20u, first, first + F1_CAPACITY);
+    for (uint16_t entry = 0u; entry < F1_CAPACITY; ++entry) {
+        uint64_t logical = first + entry;
+        node->entries[entry] = (struct f1_entry){
+            logical, F1_FIRST_DATA + logical, 1u, 0u
+        };
+    }
+    node->header.checksum = node_checksum(node);
+}
+
 static bool transfer_geometry(struct aurora_block_device *device, uint64_t lba,
                               uint32_t count, uint64_t *out_offset, uint64_t *out_length) {
     return device != NULL && out_offset != NULL && out_length != NULL && count != 0u &&
@@ -353,12 +385,32 @@ static bool sparse_read(struct aurora_block_device *device, uint64_t lba,
     }
     uint64_t fs_block =
         (offset - AURORA_FS_V2_DEFAULT_BASE_BYTES) / AURORA_FS_V2_FS_BLOCK_SIZE;
+
     int slot = slot_for(fs_block, false);
-    if (slot < 0) {
+    if (slot >= 0) {
+        for (uint32_t i = 0u; i < AURORA_FS_V2_FS_BLOCK_SIZE; ++i) {
+            out[i] = test_ctx.slot_data[(uint32_t)slot][i];
+        }
         return true;
     }
-    for (uint32_t i = 0u; i < AURORA_FS_V2_FS_BLOCK_SIZE; ++i) {
-        out[i] = test_ctx.slot_data[(uint32_t)slot][i];
+
+    struct f1_node generated;
+    bool generated_node = true;
+    if (fs_block == F1_OLD_LEVEL2) {
+        seed_old_root(&generated);
+    } else if (fs_block == F1_OLD_LEVEL1) {
+        seed_old_level1(&generated);
+    } else if (fs_block >= F1_FIRST_LEAF &&
+               fs_block < F1_FIRST_LEAF + F1_CAPACITY) {
+        seed_old_leaf(fs_block, &generated);
+    } else {
+        generated_node = false;
+    }
+    if (generated_node) {
+        const uint8_t *src = (const uint8_t *)&generated;
+        for (uint32_t i = 0u; i < AURORA_FS_V2_FS_BLOCK_SIZE; ++i) {
+            out[i] = src[i];
+        }
     }
     return true;
 }
@@ -401,19 +453,6 @@ static bool sparse_flush(struct aurora_block_device *device) {
     return device != NULL;
 }
 
-static bool store_node(uint64_t block, struct f1_node *node) {
-    int slot = slot_for(block, true);
-    if (slot < 0) {
-        return false;
-    }
-    node->header.checksum = node_checksum(node);
-    const uint8_t *src = (const uint8_t *)node;
-    for (uint32_t i = 0u; i < AURORA_FS_V2_FS_BLOCK_SIZE; ++i) {
-        test_ctx.slot_data[(uint32_t)slot][i] = src[i];
-    }
-    return true;
-}
-
 static bool setup_test(uint32_t block_size, struct aurora_block_device *device,
                        struct aurora_fs_v2_allocator *allocator) {
     zero_bytes(&test_ctx, sizeof(test_ctx));
@@ -425,46 +464,13 @@ static bool setup_test(uint32_t block_size, struct aurora_block_device *device,
     }
     bitmap_set(F1_OLD_LEVEL1);
     bitmap_set(F1_OLD_LEVEL2);
-
-    struct f1_node level1;
-    init_node(&level1, F1_LEVEL_ONE, F1_CAPACITY, 20u,
-              0u, F1_FULL_LEVEL1_EXTENTS);
-
-    for (uint16_t child = 0u; child < F1_CAPACITY; ++child) {
-        uint64_t leaf_block = F1_FIRST_LEAF + child;
-        uint64_t first = (uint64_t)child * F1_CAPACITY;
-        uint64_t last = first + F1_CAPACITY;
-        bitmap_set(leaf_block);
-        level1.entries[child] = (struct f1_entry){
-            first, leaf_block, F1_CAPACITY, 0u
-        };
-
-        struct f1_node leaf;
-        init_node(&leaf, F1_LEVEL_LEAF, F1_CAPACITY, 20u, first, last);
-        for (uint16_t entry = 0u; entry < F1_CAPACITY; ++entry) {
-            uint64_t logical = first + entry;
-            leaf.entries[entry] = (struct f1_entry){
-                logical, F1_FIRST_DATA + logical, 1u, 0u
-            };
-            bitmap_set(F1_FIRST_DATA + logical);
-        }
-        if (!store_node(leaf_block, &leaf)) {
-            return false;
-        }
+    for (uint64_t child = 0u; child < F1_CAPACITY; ++child) {
+        bitmap_set(F1_FIRST_LEAF + child);
+    }
+    for (uint64_t logical = 0u; logical <= F1_FULL_LEVEL1_EXTENTS; ++logical) {
+        bitmap_set(F1_FIRST_DATA + logical);
     }
 
-    struct f1_node root;
-    init_node(&root, F1_LEVEL_TWO, 1u, 20u,
-              0u, F1_FULL_LEVEL1_EXTENTS);
-    root.entries[0] = (struct f1_entry){
-        0u, F1_OLD_LEVEL1, F1_FULL_LEVEL1_EXTENTS, 0u
-    };
-    if (!store_node(F1_OLD_LEVEL1, &level1) ||
-        !store_node(F1_OLD_LEVEL2, &root)) {
-        return false;
-    }
-
-    bitmap_set(F1_FIRST_DATA + F1_FULL_LEVEL1_EXTENTS);
     uint64_t bytes = AURORA_FS_V2_DEFAULT_BASE_BYTES +
         (uint64_t)F1_TOTAL_BLOCKS * AURORA_FS_V2_FS_BLOCK_SIZE;
     *device = (struct aurora_block_device){
