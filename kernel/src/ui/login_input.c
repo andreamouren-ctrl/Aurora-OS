@@ -97,6 +97,11 @@ void login_input_init(void) {
     bootstrap_storage_probe();
     nvme_bootstrap_probe();
 
+    struct aurora_block_device *nvme = nvme_namespace_block_device();
+    if (nvme != NULL) {
+        bootstrap_storage_probe_device(nvme, "NVMe");
+    }
+
     credential_length = 0u;
 
     for (size_t i = 0u; i < sizeof(credential_buffer); ++i) {
