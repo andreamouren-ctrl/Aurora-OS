@@ -1,8 +1,8 @@
 # AuroraFS v2 — Level-3 extent-tree contract
 
-Status: **level-3 lookup/growth, continued append and full-last-leaf structural COW growth are runtime-verified; persistent full-last-leaf inode publication is implemented and awaiting CI verification**.
+Status: **level-3 lookup/growth, continued append, full-last-leaf structural growth and persistent full-last-leaf inode publication are runtime-verified**.
 
-This document extends the existing AuroraFS v2 `AUREXT2` extent-tree contract. The on-disk behavior is explicit and remains compatible with the existing 4 KiB node and 256-byte inode layouts.
+This document extends the existing AuroraFS v2 `AUREXT2` extent-tree contract. The on-disk behavior remains compatible with the existing 4 KiB node and 256-byte inode layouts.
 
 ## Capacity and level contract
 
@@ -17,74 +17,55 @@ The current supported maximum root level is explicitly bounded to **3**. Higher 
 
 No inode layout, node size, magic, checksum, entry size or node version changes are introduced by level 3. `level == 0` is a leaf; every internal node must point to children whose level is exactly one lower. Parent/child logical ranges must be monotonic, non-empty and bounded.
 
-## Runtime-verified level-3 lookup
+## Runtime-verified level-3 lookup and growth
 
-Workflow **`36999077531`** verified the bounded common resolver across levels 0/1/2/3 on synthetic 512-byte and 4096-byte logical-block devices.
-
-Exact gate:
+Workflow `36999077531` verified bounded common lookup through levels 0/1/2/3:
 
 `[aurorafs-v2] bounded unified level-3 tree + inode lookup self-test passed on 512/4096-byte devices`
 
-## Runtime-verified level-2 → level-3 growth
-
-A full level-2 root contains 126 full level-1 children and covers 2,000,376 single-block mappings. `aurora_fs_v2_extent_tree_grow_level2_full_root_cow()` creates mapping 2,000,377 through a fresh leaf, level-1, level-2 and level-3 root while retaining the old full level-2 tree as the first child.
-
-Main workflow **`37000379420`** and AHCI workflow **`37000379412`** verified:
+Main workflow `37000379420` and AHCI workflow `37000379412` verified full level-2 → level-3 structural growth at mapping 2,000,377:
 
 `[aurorafs-v2] full level-2 root COW growth to level-3 at 2000377th extent self-test passed on 512/4096-byte devices`
 
-Persistent inode publication through `aurora_fs_v2_inode_append_level3_grow_cow_commit()` was verified by main workflow **`37001092435`** and AHCI workflow **`37001092510`**:
+Main workflow `37001092435` and AHCI workflow `37001092510` verified persistent inode publication and reopen lookup:
 
 `[aurorafs-v2] persistent full level-2 to level-3 growth + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
 
 ## Runtime-verified continued append under existing level-3
 
-`aurora_fs_v2_extent_tree_append_level3_cow()` handles the next mapping while the final leaf still has spare capacity. It replaces only the final leaf/level-1/level-2 path and clones the level-3 root, flushing children before parents.
+`aurora_fs_v2_extent_tree_append_level3_cow()` replaces only the final leaf/level-1/level-2 path and clones the level-3 root, flushing children before parents.
 
-Main workflow **`37001773924`** and AHCI workflow **`37001774112`** verified:
+Main workflow `37001773924` and AHCI workflow `37001774112` verified:
 
 `[aurorafs-v2] existing level-3 root COW append through final leaf/level-1/level-2/root replacement self-test passed on 512/4096-byte devices`
 
-The persistent composed path `aurora_fs_v2_inode_append_level3_cow_commit()` was runtime-verified by Aurora OS Bootstrap Build **`37004408218`**, head `cacdbb7d42bc580e22d1a333e3be079c1cd53584`:
+The persistent composed path `aurora_fs_v2_inode_append_level3_cow_commit()` is runtime-verified by Bootstrap Build `37004408218`, head `cacdbb7d42bc580e22d1a333e3be079c1cd53584`:
 
 `[aurorafs-v2] persistent existing level-3 COW append + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
 
-That milestone also exposed and fixed excessive kernel-stack use in its synthetic self-test. The production COW algorithm and on-disk format were unchanged; large 4 KiB test buffers were moved to static scratch storage. The same green run proves subsequent AuroraFS v1 persistence remained healthy: first ATA boot created the persistent file and the second boot reopened it.
+That milestone also fixed excessive kernel-stack use in its synthetic self-test by moving 4 KiB test buffers to static scratch storage. Production COW behavior and the on-disk format were unchanged.
 
-## Runtime-verified full-last-leaf growth under existing level-3
+## Runtime-verified full-last-leaf growth under level-3
 
-`aurora_fs_v2_extent_tree_append_level3_full_leaf_cow()` handles the first append where the final leaf below a published level-3 root is already full. The final level-2 child is validated, then the already-verified `aurora_fs_v2_extent_tree_append_level2_full_leaf_cow()` builder creates a fresh leaf and replacement lower hierarchy. The level-3 root is cloned only after the replacement level-2 subtree is durable.
+`aurora_fs_v2_extent_tree_append_level3_full_leaf_cow()` handles the first append where the final leaf below a published level-3 root is already full. It validates the final level-2 child, delegates lower-tree growth to the verified `aurora_fs_v2_extent_tree_append_level2_full_leaf_cow()`, then clones and flushes the replacement level-3 root.
 
-The synthetic test starts with a level-3 tree whose final branch contains a full 126-entry leaf after a 2,000,376-mapping prefix. It appends the next mapping, reopens the allocator, verifies the new and previous final mappings through the unified resolver, and proves the old level-3 root remains byte-identical.
-
-Aurora OS Bootstrap Build **`37005018110`**, head `073302a537cbd31a2346f9b4ba20381091c085b8`, completed successfully. The exact gate appears on q35/AHCI, ATA first boot and ATA persistence boot:
+Bootstrap Build `37005018110`, head `073302a537cbd31a2346f9b4ba20381091c085b8`, verified:
 
 `[aurorafs-v2] level-3 full-last-leaf COW append with new child leaf self-test passed on 512/4096-byte devices`
 
-The same run also reaches `[aurorafs] persistent file created` on first ATA boot and `[aurorafs] persistent file reopened` on second ATA boot, confirming the self-test does not disturb the operational v1 path.
+The same run preserved the operational v1 path: first ATA boot created the persistent file and second ATA boot reopened it.
 
-## Persistent full-last-leaf publication — implemented / CI pending
+## Runtime-verified persistent full-last-leaf publication
 
-`aurora_fs_v2_inode_append_level3_full_leaf_cow_commit()` is now implemented. It composes the verified structural builder with `aurora_fs_v2_inode_publish_extent_root_cow()` so publication remains child-first and inode-last.
+`aurora_fs_v2_inode_append_level3_full_leaf_cow_commit()` composes the verified structural builder with `aurora_fs_v2_inode_publish_extent_root_cow()`. The self-test seeds a persistent inode, snapshots the old root, publishes the replacement hierarchy, reopens allocator/inode state, verifies root/count/size/allocation/generation, resolves both historical and new mappings, and confirms the old root remains byte-identical.
 
-The dedicated self-test:
-
-1. seeds a persistent inode pointing at the published level-3 full-leaf hierarchy;
-2. snapshots the old root;
-3. builds and flushes the replacement leaf/level-1/level-2/level-3 hierarchy;
-4. publishes the replacement root through the inode;
-5. reopens allocator and inode state;
-6. verifies root change, extent count, size, allocated bytes and generation;
-7. verifies both the new mapping and the historical final mapping;
-8. verifies the old published root is still byte-identical.
-
-All large 4 KiB synthetic buffers are static scratch storage, not kernel-stack allocations.
-
-Expected boot gate:
+Aurora OS Bootstrap Build **`37005580767`**, head `fa55ab563db4a501b2b964f0db3514443efeb559`, completed successfully. The exact gate appears on q35/AHCI, ATA first boot and ATA persistence boot:
 
 `[aurorafs-v2] persistent level-3 full-last-leaf COW append + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
 
-Until a green CI run contains that exact line and the normal AuroraFS v1 persistence path still creates/reopens successfully, this milestone remains **implemented but not runtime-verified**.
+The same run reaches `[aurorafs] persistent file created` on first ATA boot, `[aurorafs] persistent file reopened` on second ATA boot, and M1 successfully in both paths. This confirms the synthetic v2 gate does not disturb the operational AuroraFS v1 persistence path.
+
+All large 4 KiB synthetic buffers in the recent level-3 tests use static scratch storage rather than the kernel boot stack.
 
 ## Failure and recovery behavior
 
@@ -92,6 +73,6 @@ The policy remains child-first and publication-last. A failure before inode publ
 
 ## Next structural gate
 
-After persistent full-last-leaf publication is green, the next level-3 mutation gate is a **full final level-1 child** below the published level-3 root. The operation must create a new level-1 sibling within the final level-2 node, then clone/flush the replacement level-2 and level-3 parents before inode publication.
+The next level-3 mutation gate is a **full final level-1 child** below the published level-3 root. The operation must create a new level-1 sibling inside the final level-2 node, then clone/flush the replacement level-2 and level-3 parents before inode publication. The old published hierarchy must remain byte-identical until publication.
 
 Synthetic 4096-byte logical-block verification is not physical 4Kn hardware certification.
