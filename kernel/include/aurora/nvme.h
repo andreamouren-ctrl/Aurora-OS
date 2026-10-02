@@ -21,7 +21,17 @@ struct aurora_nvme_probe_result {
     uint8_t maximum_page_shift;
 };
 
+struct aurora_nvme_admin_result {
+    char model[41];
+    char serial[21];
+    uint32_t namespace_count;
+    uint32_t namespace_id;
+    uint64_t block_count;
+    uint32_t block_size;
+};
+
 bool nvme_probe(struct aurora_nvme_probe_result *out_result);
+bool nvme_admin_identify(struct aurora_nvme_admin_result *out_result);
 void nvme_bootstrap_probe(void);
 
 #endif
