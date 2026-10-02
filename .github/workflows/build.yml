@@ -212,9 +212,11 @@ jobs:
           echo "===== Aurora ATA first boot serial log ====="
           cat "$ATA_SERIAL_LOG"
 
-          grep -F "[ata] signed test disk read/write probe passed" "$ATA_SERIAL_LOG"
+          grep -F "[ata] signed test disk read/write/flush probe passed" "$ATA_SERIAL_LOG"
           grep -F "[aurorafs] formatted bootstrap filesystem" "$ATA_SERIAL_LOG"
           grep -F "[aurorafs] persistent file created" "$ATA_SERIAL_LOG"
+          grep -F "[aurorafs] mounted at /system via common filesystem framework" "$ATA_SERIAL_LOG"
+          grep -F "[vfs] AuroraFS mounted-path routing verified" "$ATA_SERIAL_LOG"
           grep -F "[partition] discovered: 2" "$ATA_SERIAL_LOG"
           grep -F "[fs] detected FAT32 on partition 1" "$ATA_SERIAL_LOG"
           grep -F "[fat32] external image mounted read-only" "$ATA_SERIAL_LOG"
@@ -260,6 +262,8 @@ jobs:
             exit 1
           fi
 
+          grep -F "[aurorafs] mounted at /system via common filesystem framework" "$ATA_SERIAL_LOG_2"
+          grep -F "[vfs] AuroraFS mounted-path routing verified" "$ATA_SERIAL_LOG_2"
           grep -F "[fat32] external file read verified" "$ATA_SERIAL_LOG_2"
           grep -F "[fat32] VFAT long Unicode filename verified" "$ATA_SERIAL_LOG_2"
           grep -F "[vfs] FAT32 mounted-path routing verified" "$ATA_SERIAL_LOG_2"
