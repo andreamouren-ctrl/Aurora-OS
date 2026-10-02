@@ -1,6 +1,6 @@
 # AuroraFS
 
-Status: **bootstrap v1 runtime-verified; v2 layout, nested directories and multi-block allocator runtime-verified; scalable formatter implemented and awaiting runtime promotion**.
+Status: **bootstrap v1 runtime-verified; v2 layout, nested directories, multi-block allocator and scalable formatter runtime-verified; extent-tree overflow implemented and awaiting runtime promotion**.
 
 AuroraFS is Aurora OS's native persistent filesystem direction. Bootstrap v1 remains the currently mounted native format and is preserved for compatibility. Production development proceeds as a separately versioned v2 format rather than mutating the v1 on-disk contract in place.
 
@@ -43,7 +43,7 @@ AuroraFS v2 uses a **4096-byte logical filesystem block** independent of the und
 
 The v2 superblock records magic/version, filesystem block size, total blocks, generation, allocation-bitmap and inode-table geometry, first data block, root/next object identifiers, feature flags and CRC32 metadata checksum.
 
-The initial v2 inode is 256 bytes and uses 64-bit object IDs, parent IDs, file sizes, allocated byte counts, generation and extent coordinates. Inline extents prove multi-block persistence while an extent-tree root field is reserved for later overflow support.
+The initial v2 inode is 256 bytes and uses 64-bit object IDs, parent IDs, file sizes, allocated byte counts, generation and extent coordinates. Four inline extents provide the fast path while the extent-tree root field is the overflow path for fragmented files.
 
 The first runtime-verified file test persists a **6000-byte file across two 4 KiB filesystem blocks**, reopens it, validates bitmap/inode/extent metadata and verifies the complete byte pattern.
 
@@ -57,15 +57,33 @@ Build workflow **#407** (`36980285923`) is green and the serial log explicitly r
 
 `[aurorafs-v2] multi-block bitmap + cross-boundary range allocator self-test passed on 512/4096-byte devices`
 
-Therefore the scalable allocator is now **runtime-verified in the synthetic QEMU boot environment**.
+Therefore the scalable allocator is **runtime-verified in the synthetic QEMU boot environment**.
 
 ## v2 scalable formatter milestone
 
-A reusable `aurora_fs_v2_format_device()` path now computes volume geometry from the block device, supports any bitmap length representable by the 64-bit layout, writes the checksummed v2 superblock, initializes every bitmap block, reserves metadata and initial data blocks, zeroes the inode-table region and flushes through the common block-device contract.
+A reusable `aurora_fs_v2_format_device()` path computes volume geometry from the block device, supports bitmap lengths derived from the 64-bit volume geometry, writes the checksummed v2 superblock, initializes every bitmap block, reserves metadata and initial data blocks, zeroes the inode-table region and flushes through the common block-device contract.
 
-Its self-test again models a 70,000-block volume requiring three bitmap blocks, reopens the written superblock, validates its checksum and geometry, initializes the general allocator from the formatted volume and verifies that the first post-format allocation begins exactly after the formatter-reserved data range. The gate runs on synthetic 512-byte and 4096-byte block devices.
+Its self-test models a 70,000-block volume requiring three bitmap blocks, reopens the written superblock, validates checksum and geometry, initializes the general allocator from the formatted volume and verifies that the first post-format allocation begins exactly after the formatter-reserved data range. The gate runs on synthetic 512-byte and 4096-byte block devices.
 
-This formatter is **implemented and boot-gated but not yet runtime-promoted** until its newer CI run is green and the explicit formatter-success serial line is observed.
+Build workflow **#411** (`36981472946`) is green and the serial log explicitly reports:
+
+`[aurorafs-v2] scalable multi-bitmap formatter + reopen/allocator integration self-test passed on 512/4096-byte devices`
+
+The formatter is therefore **runtime-verified in the synthetic QEMU boot environment**.
+
+## v2 extent-tree overflow milestone
+
+The v2 overflow path now has a dedicated extent-tree module rather than increasing the fixed inode extent array. The public extent mapping remains 64-bit (`logical_block`, `physical_block`, `block_count`). Tree nodes are one 4 KiB filesystem block, contain a 64-byte checksummed header and 32-byte entries, and are allocated through the already verified general bitmap allocator.
+
+A leaf node stores up to **126 extent mappings**. When a file exceeds one leaf, a level-1 root stores logical ranges and child-block pointers. The current first implementation therefore represents up to **15,876 extents** with one root plus up to 126 leaves while keeping lookup bounded to one root read and one leaf read. Node CRC32 is verified on reopen.
+
+The new self-test deliberately creates **130 one-block file extents separated by allocated blocks**, forcing physical fragmentation and forcing the tree to overflow from the first leaf into a second leaf. It writes the tree, reopens the allocator, resolves every logical block to the expected physical block and explicitly probes both sides of the leaf boundary. The same gate runs on synthetic 512-byte and 4096-byte devices.
+
+This extent-tree code is **implemented and boot-gated but not yet runtime-promoted** until its CI run is green and the explicit success serial line is observed:
+
+`[aurorafs-v2] two-level extent tree + 130 fragmented extents persistence self-test passed on 512/4096-byte devices`
+
+Current limitations of this first tree milestone: no level-2+ root growth, no node split/merge update algorithm, and no rollback yet if a multi-node construction fails after some blocks have been allocated. Those are later mutation/crash-consistency hardening tasks, not claims of the current gate.
 
 ## v2 directory-record milestone
 
@@ -85,7 +103,9 @@ Build workflow **#399** (`36977213539`) runtime-verifies dynamic nested-director
 
 Build workflow **#407** (`36980285923`) runtime-verifies multi-block bitmap traversal and the general cross-boundary range allocator.
 
-The scalable formatter is implemented after #407 and remains pending promotion until its newer CI gate completes.
+Build workflow **#411** (`36981472946`) runtime-verifies scalable multi-bitmap formatting plus reopen/allocator integration.
+
+The two-level extent-tree overflow path is implemented after #411 and remains pending promotion until its newer CI gate completes.
 
 ## v2 safety gates
 
@@ -113,12 +133,12 @@ It remains suitable for bootstrap persistence validation but is not a production
 
 ## Remaining production milestones
 
-1. runtime-verify the scalable multi-bitmap v2 formatter;
-2. multiple extents and extent-tree overflow;
+1. runtime-verify the two-level extent-tree overflow path;
+2. integrate inline-to-tree extent promotion into persistent v2 inode/file mutation;
 3. general create/truncate/remove/rename operations;
 4. sparse-file semantics;
 5. transactional or copy-on-write metadata update strategy;
-6. durable free-space reclamation;
+6. durable free-space reclamation and failed-operation rollback;
 7. permissions, ownership, ACLs and timestamps;
 8. corruption detection and recovery structures;
 9. explicit v1-to-v2 migration tooling;
