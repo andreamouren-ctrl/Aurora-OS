@@ -226,5 +226,10 @@ bool aurora_fs_4kn_self_test(void) {
         return false;
     }
     log_line("[aurorafs-v2] unified leaf/level-1/level-2 tree and inode lookup self-test passed on 512/4096-byte devices");
+
+    if (!aurora_fs_v2_extent_tree_level2_append_self_test()) {
+        return false;
+    }
+    log_line("[aurorafs-v2] existing level-2 root COW append through leaf/level-1/root replacement self-test passed on 512/4096-byte devices");
     return true;
 }
