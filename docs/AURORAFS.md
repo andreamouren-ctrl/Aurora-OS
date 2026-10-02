@@ -1,6 +1,6 @@
 # AuroraFS
 
-Status: **bootstrap v1 runtime-verified; v2 layout foundation runtime-verified; v2 directory traversal implemented and awaiting CI promotion**.
+Status: **bootstrap v1 runtime-verified; v2 layout and nested directory traversal runtime-verified; multi-block allocation work active**.
 
 AuroraFS is Aurora OS's native persistent filesystem direction. Bootstrap v1 remains the currently mounted native format and is preserved for compatibility. Production development proceeds as a separately versioned v2 format rather than mutating the v1 on-disk contract in place.
 
@@ -51,27 +51,35 @@ The first runtime-verified file test persists a **6000-byte file across two 4 Ki
 
 ### Allocation bitmap limitation
 
-Free/used blocks are represented by an on-disk bitmap whose required length is calculated from volume size. The current formatter/self-test still accepts only layouts whose bitmap occupies one 4 KiB filesystem block. This is a deliberate first-milestone limit; multi-block bitmap traversal and allocation remain required before AuroraFS v2 can claim large-volume scalability.
+Free/used blocks are represented by an on-disk bitmap whose required length is calculated from volume size. The current formatter/self-test still accepts only layouts whose bitmap occupies one 4 KiB filesystem block. This is a deliberate first-milestone limit; multi-block bitmap traversal and allocation are the active next gate before AuroraFS v2 can claim large-volume scalability.
 
 ## v2 directory-record milestone
 
-Directory storage is no longer modeled as the v1 fixed root table. The current v2 directory milestone implements a **128-byte checksummed directory record** containing object ID, node type, name length and UTF-8 name bytes.
+Directory storage is no longer modeled as the v1 fixed root table. The v2 directory milestone implements a **128-byte checksummed directory record** containing object ID, node type, name length and UTF-8 name bytes.
 
-The new self-test deliberately gives the root directory a two-block extent and places the `docs` record in the second block. After reopening the synthetic volume, lookup must scan beyond the first 4 KiB directory block, resolve the `docs` inode, then resolve `docs/note.txt` from the nested directory inode and verify the persisted file payload.
+The self-test deliberately gives the root directory a two-block extent and places the `docs` record in the second block. After reopening the synthetic volume, lookup scans beyond the first 4 KiB directory block, resolves the `docs` inode, then resolves `docs/note.txt` from the nested directory inode and verifies the persisted file payload.
 
-This directory test runs on synthetic devices exposing both 512-byte and 4096-byte logical blocks. The code is implemented and wired into the boot storage self-test, but it remains **pending runtime promotion** until the corresponding CI boot is green and the explicit directory-success log is observed.
+This directory test runs on synthetic devices exposing both 512-byte and 4096-byte logical blocks. Build workflow **#399** (`36977213539`, head `877131a721264f0992b2c701839d8da0b8b9162d`) is green and the serial log explicitly reports:
+
+`[aurorafs-v2] dynamic two-block root + nested directory traversal self-test passed on 512/4096-byte devices`
+
+The same run reaches the M1 user-space bootstrap and repeats the directory-success line in the ATA storage boot, so persisted nested traversal is **runtime-verified in the synthetic QEMU boot environment**.
 
 This first directory milestone proves persisted nested traversal and directory extents; it does not yet provide the production create/remove/rename API, directory compaction, free-slot reuse or an indexed lookup structure.
 
 ## v2 runtime verification
 
-Build workflow **#394** (`36976628830`, head `9e5e2c72fd65d4e4d5ede9066ed066d5a1455d7c`) is green. Its BIOS serial log explicitly reports:
+Build workflow **#394** (`36976628830`, head `9e5e2c791d7b65a55f2563fdb338651cd8ed4a46`) runtime-verifies the first layout foundation:
 
 `[aurorafs-v2] 4KiB layout + bitmap + 64-bit inode + multi-block extent self-test passed on 512/4096-byte devices`
 
-The kernel subsequently reaches M1, so the first v2 layout foundation is **runtime-verified in the synthetic QEMU boot environment**. This verification covers formatter/reopen, CRC32 superblock validation, one-block allocation bitmap behavior, 256-byte 64-bit inode metadata, a contiguous two-block extent and multi-block data persistence.
+Build workflow **#399** (`36977213539`) runtime-verifies the next directory milestone:
 
-Dynamic directory traversal is implemented after #394 but is not counted as runtime-verified until its newer CI gate completes successfully.
+`[aurorafs-v2] dynamic two-block root + nested directory traversal self-test passed on 512/4096-byte devices`
+
+Together these gates currently verify formatter/reopen, CRC32 superblock validation, one-block allocation bitmap behavior, 256-byte 64-bit inode metadata, contiguous multi-block extents, multi-block file persistence, a two-block root directory extent, nested directory lookup and persisted nested file reads on synthetic 512-byte and 4096-byte devices.
+
+They do **not** yet verify multi-block allocation bitmaps, multiple extents, extent-tree overflow, crash consistency, migration, the common filesystem-driver/VFS v2 path, or physical hardware.
 
 ## v2 safety gates
 
@@ -99,18 +107,17 @@ It remains suitable for bootstrap persistence validation but is not a production
 
 ## Remaining production milestones
 
-After the runtime-verified first v2 allocation/inode/extent foundation, production work proceeds through:
+After the runtime-verified layout and nested-directory milestones, production work proceeds through:
 
-1. runtime-verify the new dynamic/nested directory traversal gate;
-2. multi-block allocation bitmap support and general free-range allocation;
-3. multiple extents and extent-tree overflow;
-4. general create/truncate/remove/rename operations;
-5. sparse-file semantics;
-6. transactional or copy-on-write metadata update strategy;
-7. durable free-space reclamation;
-8. permissions, ownership, ACLs and timestamps;
-9. corruption detection and recovery structures;
-10. explicit v1-to-v2 migration tooling;
-11. common filesystem-driver/VFS activation only after persistence and corruption-focused CI gates are green.
+1. multi-block allocation bitmap support and general free-range allocation;
+2. multiple extents and extent-tree overflow;
+3. general create/truncate/remove/rename operations;
+4. sparse-file semantics;
+5. transactional or copy-on-write metadata update strategy;
+6. durable free-space reclamation;
+7. permissions, ownership, ACLs and timestamps;
+8. corruption detection and recovery structures;
+9. explicit v1-to-v2 migration tooling;
+10. common filesystem-driver/VFS activation only after persistence and corruption-focused CI gates are green.
 
 Encryption and snapshots remain later features and are not prerequisites for the first production-layout milestones.
