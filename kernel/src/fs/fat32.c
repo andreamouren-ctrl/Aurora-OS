@@ -5,7 +5,6 @@
 #include <aurora/heap.h>
 #include <aurora/partition.h>
 
-#define FAT32_SECTOR_SIZE 512u
 #define FAT32_ENTRY_SIZE 32u
 #define FAT32_ATTR_DIRECTORY 0x10u
 #define FAT32_ATTR_VOLUME_ID 0x08u
@@ -14,9 +13,12 @@
 #define FAT32_CLUSTER_BAD 0x0FFFFFF7u
 #define FAT32_LFN_UNITS 260u
 #define FAT32_LFN_MAX_ENTRIES 20u
+#define FAT32_MAX_BLOCK_SIZE 4096u
 
 struct fat32_context {
     struct aurora_partition partition;
+    uint32_t bytes_per_sector;
+    uint32_t device_block_size;
     uint8_t sectors_per_cluster;
     uint16_t reserved_sectors;
     uint8_t fat_count;
@@ -73,12 +75,70 @@ static bool string_equal_ci(const char *a, const char *b) {
     }
 }
 
-static uint32_t cluster_to_sector(const struct fat32_context *ctx, uint32_t cluster) {
-    return ctx->first_data_sector + (cluster - 2u) * ctx->sectors_per_cluster;
+static bool valid_sector_size(uint32_t size) {
+    return size >= 512u && size <= 4096u &&
+        (size & (size - 1u)) == 0u;
+}
+
+static bool read_partition_bytes(
+    const struct fat32_context *ctx,
+    uint64_t byte_offset,
+    void *buffer,
+    size_t length
+) {
+    uint8_t *out = (uint8_t *)buffer;
+    size_t copied = 0u;
+
+    while (copied < length) {
+        uint64_t absolute = byte_offset + copied;
+        uint64_t block = absolute / ctx->device_block_size;
+        uint32_t within = (uint32_t)(absolute % ctx->device_block_size);
+        uint8_t raw[FAT32_MAX_BLOCK_SIZE];
+
+        if (ctx->device_block_size > sizeof(raw) ||
+            !partition_read(&ctx->partition, block, 1u, raw)) {
+            return false;
+        }
+
+        size_t available = ctx->device_block_size - within;
+        size_t remaining = length - copied;
+        size_t take = available < remaining ? available : remaining;
+        for (size_t i = 0u; i < take; ++i) {
+            out[copied + i] = raw[within + i];
+        }
+        copied += take;
+    }
+
+    return true;
+}
+
+static bool read_boot_block(
+    const struct aurora_partition *partition,
+    uint8_t boot[FAT32_MAX_BLOCK_SIZE]
+) {
+    if (partition == NULL || partition->device == NULL ||
+        partition->device->block_size < 512u ||
+        partition->device->block_size > FAT32_MAX_BLOCK_SIZE) {
+        return false;
+    }
+    return partition_read(partition, 0u, 1u, boot);
 }
 
 static bool cluster_valid(const struct fat32_context *ctx, uint32_t cluster) {
     return cluster >= 2u && cluster < ctx->total_clusters + 2u;
+}
+
+static uint64_t cluster_byte_offset(
+    const struct fat32_context *ctx,
+    uint32_t cluster
+) {
+    return (uint64_t)ctx->first_data_sector * ctx->bytes_per_sector
+        + (uint64_t)(cluster - 2u) * ctx->sectors_per_cluster
+            * ctx->bytes_per_sector;
+}
+
+static uint64_t cluster_size_bytes(const struct fat32_context *ctx) {
+    return (uint64_t)ctx->sectors_per_cluster * ctx->bytes_per_sector;
 }
 
 static bool fat32_next_cluster(
@@ -86,17 +146,14 @@ static bool fat32_next_cluster(
     uint32_t cluster,
     uint32_t *out_next
 ) {
-    uint64_t fat_offset = (uint64_t)cluster * 4u;
-    uint64_t fat_sector = (uint64_t)ctx->reserved_sectors
-        + fat_offset / FAT32_SECTOR_SIZE;
-    uint32_t offset = (uint32_t)(fat_offset % FAT32_SECTOR_SIZE);
-
-    uint8_t sector[FAT32_SECTOR_SIZE];
-    if (!partition_read(&ctx->partition, fat_sector, 1u, sector)) {
+    uint64_t fat_byte = (uint64_t)ctx->reserved_sectors * ctx->bytes_per_sector
+        + (uint64_t)cluster * 4u;
+    uint8_t raw[4];
+    if (!read_partition_bytes(ctx, fat_byte, raw, sizeof(raw))) {
         return false;
     }
 
-    uint32_t next = le32(sector + offset) & 0x0FFFFFFFu;
+    uint32_t next = le32(raw) & 0x0FFFFFFFu;
     if (next == FAT32_CLUSTER_BAD || next < 2u) {
         return false;
     }
@@ -107,7 +164,6 @@ static bool fat32_next_cluster(
 
 static void decode_short_name(const uint8_t raw[11], char out[AURORA_FS_NAME_MAX]) {
     size_t pos = 0u;
-
     for (size_t i = 0u; i < 8u && raw[i] != ' '; ++i) {
         out[pos++] = (char)raw[i];
     }
@@ -126,7 +182,6 @@ static void decode_short_name(const uint8_t raw[11], char out[AURORA_FS_NAME_MAX
             out[pos++] = (char)raw[i];
         }
     }
-
     out[pos] = '\0';
 }
 
@@ -158,7 +213,6 @@ static void lfn_copy_fragment(
         14u, 16u, 18u, 20u, 22u, 24u,
         28u, 30u
     };
-
     size_t base = ((size_t)order - 1u) * 13u;
     for (size_t i = 0u; i < 13u && base + i < FAT32_LFN_UNITS; ++i) {
         state->units[base + i] = le16(raw + offsets[i]);
@@ -198,20 +252,14 @@ static bool utf8_append(
     size_t *position,
     uint32_t codepoint
 ) {
-    size_t needed;
-    if (codepoint <= 0x7Fu) {
-        needed = 1u;
-    } else if (codepoint <= 0x7FFu) {
-        needed = 2u;
-    } else if (codepoint <= 0xFFFFu) {
-        needed = 3u;
-    } else if (codepoint <= 0x10FFFFu) {
-        needed = 4u;
-    } else {
+    size_t needed = codepoint <= 0x7Fu ? 1u
+        : codepoint <= 0x7FFu ? 2u
+        : codepoint <= 0xFFFFu ? 3u : 4u;
+
+    if (codepoint > 0x10FFFFu) {
         codepoint = 0xFFFDu;
         needed = 3u;
     }
-
     if (*position + needed >= capacity) {
         return false;
     }
@@ -231,7 +279,6 @@ static bool utf8_append(
         out[(*position)++] = (char)(0x80u | ((codepoint >> 6) & 0x3Fu));
         out[(*position)++] = (char)(0x80u | (codepoint & 0x3Fu));
     }
-
     return true;
 }
 
@@ -243,7 +290,7 @@ static bool lfn_to_utf8(
         return false;
     }
 
-    size_t out_pos = 0u;
+    size_t position = 0u;
     for (size_t i = 0u; i < FAT32_LFN_UNITS; ++i) {
         uint16_t unit = state->units[i];
         if (unit == 0x0000u || unit == 0xFFFFu) {
@@ -269,13 +316,13 @@ static bool lfn_to_utf8(
             codepoint = 0xFFFDu;
         }
 
-        if (!utf8_append(out, AURORA_FS_NAME_MAX, &out_pos, codepoint)) {
+        if (!utf8_append(out, AURORA_FS_NAME_MAX, &position, codepoint)) {
             return false;
         }
     }
 
-    out[out_pos] = '\0';
-    return out_pos != 0u;
+    out[position] = '\0';
+    return position != 0u;
 }
 
 static void decode_entry(
@@ -288,15 +335,13 @@ static void decode_entry(
         short_name_checksum(raw) == lfn->checksum) {
         used_lfn = lfn_to_utf8(lfn, out->name);
     }
-
     if (!used_lfn) {
         decode_short_name(raw, out->name);
     }
 
     out->attributes = raw[11u];
-    uint32_t high = le16(raw + 20u);
-    uint32_t low = le16(raw + 26u);
-    out->first_cluster = (high << 16) | low;
+    out->first_cluster = ((uint32_t)le16(raw + 20u) << 16)
+        | le16(raw + 26u);
     out->size = le32(raw + 28u);
 }
 
@@ -313,50 +358,42 @@ static bool read_directory_entry(
     lfn_clear(&lfn);
 
     while (cluster_valid(ctx, cluster) && guard++ <= ctx->total_clusters) {
-        uint32_t first_sector = cluster_to_sector(ctx, cluster);
+        uint64_t cluster_bytes = cluster_size_bytes(ctx);
+        uint64_t entry_count = cluster_bytes / FAT32_ENTRY_SIZE;
+        uint64_t base = cluster_byte_offset(ctx, cluster);
 
-        for (uint32_t sector_index = 0u;
-             sector_index < ctx->sectors_per_cluster;
-             ++sector_index) {
-            uint8_t sector[FAT32_SECTOR_SIZE];
-            if (!partition_read(
-                    &ctx->partition,
-                    (uint64_t)first_sector + sector_index,
-                    1u,
-                    sector)) {
+        for (uint64_t index = 0u; index < entry_count; ++index) {
+            uint8_t raw[FAT32_ENTRY_SIZE];
+            if (!read_partition_bytes(
+                    ctx,
+                    base + index * FAT32_ENTRY_SIZE,
+                    raw,
+                    sizeof(raw))) {
                 return false;
             }
 
-            for (size_t offset = 0u; offset < FAT32_SECTOR_SIZE; offset += FAT32_ENTRY_SIZE) {
-                const uint8_t *raw = sector + offset;
-
-                if (raw[0] == 0x00u) {
-                    return false;
-                }
-
-                if (raw[0] == 0xE5u) {
-                    lfn_clear(&lfn);
-                    continue;
-                }
-
-                if (raw[11u] == FAT32_ATTR_LFN) {
-                    lfn_accept(&lfn, raw);
-                    continue;
-                }
-
-                if ((raw[11u] & FAT32_ATTR_VOLUME_ID) != 0u) {
-                    lfn_clear(&lfn);
-                    continue;
-                }
-
-                if (visible_index == target_index) {
-                    decode_entry(raw, &lfn, out_entry);
-                    return true;
-                }
-
-                ++visible_index;
-                lfn_clear(&lfn);
+            if (raw[0] == 0x00u) {
+                return false;
             }
+            if (raw[0] == 0xE5u) {
+                lfn_clear(&lfn);
+                continue;
+            }
+            if (raw[11u] == FAT32_ATTR_LFN) {
+                lfn_accept(&lfn, raw);
+                continue;
+            }
+            if ((raw[11u] & FAT32_ATTR_VOLUME_ID) != 0u) {
+                lfn_clear(&lfn);
+                continue;
+            }
+
+            if (visible_index == target_index) {
+                decode_entry(raw, &lfn, out_entry);
+                return true;
+            }
+            ++visible_index;
+            lfn_clear(&lfn);
         }
 
         uint32_t next;
@@ -365,7 +402,6 @@ static bool read_directory_entry(
         }
         cluster = next;
     }
-
     return false;
 }
 
@@ -396,7 +432,6 @@ static bool resolve_path(
     if (path == NULL || out_entry == NULL || out_is_root == NULL || path[0] != '/') {
         return false;
     }
-
     if (path[1] == '\0') {
         *out_is_root = true;
         return true;
@@ -404,20 +439,18 @@ static bool resolve_path(
 
     *out_is_root = false;
     uint32_t directory_cluster = ctx->root_cluster;
-    size_t pos = 1u;
+    size_t position = 1u;
 
     for (;;) {
         char component[AURORA_FS_NAME_MAX];
         size_t length = 0u;
-
-        while (path[pos] != '\0' && path[pos] != '/') {
+        while (path[position] != '\0' && path[position] != '/') {
             if (length + 1u >= sizeof(component)) {
                 return false;
             }
-            component[length++] = path[pos++];
+            component[length++] = path[position++];
         }
         component[length] = '\0';
-
         if (length == 0u) {
             return false;
         }
@@ -426,21 +459,17 @@ static bool resolve_path(
         if (!find_in_directory(ctx, directory_cluster, component, &entry)) {
             return false;
         }
-
-        while (path[pos] == '/') {
-            ++pos;
+        while (path[position] == '/') {
+            ++position;
         }
-
-        if (path[pos] == '\0') {
+        if (path[position] == '\0') {
             *out_entry = entry;
             return true;
         }
-
         if ((entry.attributes & FAT32_ATTR_DIRECTORY) == 0u ||
             !cluster_valid(ctx, entry.first_cluster)) {
             return false;
         }
-
         directory_cluster = entry.first_cluster;
     }
 }
@@ -448,25 +477,23 @@ static bool resolve_path(
 static enum aurora_fs_probe_result fat32_probe(
     const struct aurora_partition *partition
 ) {
-    if (partition == NULL || partition->device == NULL ||
-        partition->device->block_size != FAT32_SECTOR_SIZE) {
+    uint8_t boot[FAT32_MAX_BLOCK_SIZE];
+    if (!read_boot_block(partition, boot)) {
         return AURORA_FS_PROBE_NO_MATCH;
     }
 
-    uint8_t sector[FAT32_SECTOR_SIZE];
-    if (!partition_read(partition, 0u, 1u, sector)) {
+    uint32_t bytes_per_sector = le16(boot + 11u);
+    uint32_t device_block_size = partition->device->block_size;
+    if (boot[510u] != 0x55u || boot[511u] != 0xAAu ||
+        !valid_sector_size(bytes_per_sector) ||
+        bytes_per_sector < device_block_size ||
+        (bytes_per_sector % device_block_size) != 0u ||
+        le16(boot + 17u) != 0u || le16(boot + 22u) != 0u ||
+        le32(boot + 36u) == 0u) {
         return AURORA_FS_PROBE_NO_MATCH;
     }
 
-    if (sector[510] != 0x55u || sector[511] != 0xAAu ||
-        le16(sector + 11u) != FAT32_SECTOR_SIZE ||
-        le16(sector + 17u) != 0u ||
-        le16(sector + 22u) != 0u ||
-        le32(sector + 36u) == 0u) {
-        return AURORA_FS_PROBE_NO_MATCH;
-    }
-
-    uint8_t sectors_per_cluster = sector[13u];
+    uint8_t sectors_per_cluster = boot[13u];
     if (sectors_per_cluster == 0u ||
         (sectors_per_cluster & (sectors_per_cluster - 1u)) != 0u) {
         return AURORA_FS_PROBE_NO_MATCH;
@@ -479,12 +506,12 @@ static bool fat32_mount(
     const struct aurora_partition *partition,
     void **out_context
 ) {
-    if (fat32_probe(partition) == AURORA_FS_PROBE_NO_MATCH || out_context == NULL) {
+    if (out_context == NULL || fat32_probe(partition) == AURORA_FS_PROBE_NO_MATCH) {
         return false;
     }
 
-    uint8_t sector[FAT32_SECTOR_SIZE];
-    if (!partition_read(partition, 0u, 1u, sector)) {
+    uint8_t boot[FAT32_MAX_BLOCK_SIZE];
+    if (!read_boot_block(partition, boot)) {
         return false;
     }
 
@@ -494,24 +521,28 @@ static bool fat32_mount(
     }
 
     ctx->partition = *partition;
-    ctx->sectors_per_cluster = sector[13u];
-    ctx->reserved_sectors = le16(sector + 14u);
-    ctx->fat_count = sector[16u];
-    ctx->sectors_per_fat = le32(sector + 36u);
-    ctx->root_cluster = le32(sector + 44u) & 0x0FFFFFFFu;
+    ctx->bytes_per_sector = le16(boot + 11u);
+    ctx->device_block_size = partition->device->block_size;
+    ctx->sectors_per_cluster = boot[13u];
+    ctx->reserved_sectors = le16(boot + 14u);
+    ctx->fat_count = boot[16u];
+    ctx->sectors_per_fat = le32(boot + 36u);
+    ctx->root_cluster = le32(boot + 44u) & 0x0FFFFFFFu;
 
-    uint64_t total_sectors = le16(sector + 19u);
+    uint64_t total_sectors = le16(boot + 19u);
     if (total_sectors == 0u) {
-        total_sectors = le32(sector + 32u);
+        total_sectors = le32(boot + 32u);
     }
 
     uint64_t first_data = (uint64_t)ctx->reserved_sectors
         + (uint64_t)ctx->fat_count * ctx->sectors_per_fat;
+    uint64_t partition_bytes = partition->block_count * ctx->device_block_size;
 
     if (ctx->reserved_sectors == 0u || ctx->fat_count == 0u ||
         ctx->sectors_per_fat == 0u || total_sectors == 0u ||
-        total_sectors > partition->block_count || first_data >= total_sectors ||
-        first_data > UINT32_MAX) {
+        total_sectors > UINT64_MAX / ctx->bytes_per_sector ||
+        total_sectors * ctx->bytes_per_sector > partition_bytes ||
+        first_data >= total_sectors || first_data > UINT32_MAX) {
         return false;
     }
 
@@ -519,8 +550,7 @@ static bool fat32_mount(
     ctx->total_clusters = (uint32_t)((total_sectors - first_data)
         / ctx->sectors_per_cluster);
 
-    if (ctx->total_clusters < 65525u ||
-        !cluster_valid(ctx, ctx->root_cluster)) {
+    if (ctx->total_clusters < 65525u || !cluster_valid(ctx, ctx->root_cluster)) {
         return false;
     }
 
@@ -530,7 +560,6 @@ static bool fat32_mount(
 
 static void fat32_unmount(void *context) {
     (void)context;
-    /* Early Aurora heap is monotonic; mount contexts live for the boot lifetime. */
 }
 
 static bool fat32_stat(
@@ -550,8 +579,7 @@ static bool fat32_stat(
     }
 
     out_stat->type = is_root || (entry.attributes & FAT32_ATTR_DIRECTORY) != 0u
-        ? AURORA_FS_ENTRY_DIRECTORY
-        : AURORA_FS_ENTRY_FILE;
+        ? AURORA_FS_ENTRY_DIRECTORY : AURORA_FS_ENTRY_FILE;
     out_stat->size = is_root ? 0u : entry.size;
     out_stat->allocated_size = 0u;
     out_stat->created_time_ns = 0u;
@@ -567,7 +595,7 @@ static bool fat32_readdir(
     uint64_t index,
     struct aurora_fs_dirent *out_entry
 ) {
-    if (context == NULL || out_entry == NULL || path == NULL) {
+    if (context == NULL || path == NULL || out_entry == NULL) {
         return false;
     }
 
@@ -596,8 +624,7 @@ static bool fat32_readdir(
     }
     out_entry->name[i] = '\0';
     out_entry->type = (entry.attributes & FAT32_ATTR_DIRECTORY) != 0u
-        ? AURORA_FS_ENTRY_DIRECTORY
-        : AURORA_FS_ENTRY_FILE;
+        ? AURORA_FS_ENTRY_DIRECTORY : AURORA_FS_ENTRY_FILE;
     out_entry->size = entry.size;
     out_entry->filesystem_id = entry.first_cluster;
     return true;
@@ -621,11 +648,7 @@ static bool fat32_read(
     struct fat32_dir_entry entry;
     bool is_root;
     if (!resolve_path(ctx, path, &entry, &is_root) || is_root ||
-        (entry.attributes & FAT32_ATTR_DIRECTORY) != 0u) {
-        return false;
-    }
-
-    if (offset > entry.size) {
+        (entry.attributes & FAT32_ATTR_DIRECTORY) != 0u || offset > entry.size) {
         return false;
     }
     if (length == 0u || offset == entry.size) {
@@ -638,19 +661,18 @@ static bool fat32_read(
         wanted = (size_t)remaining_file;
     }
 
-    uint64_t cluster_bytes = (uint64_t)ctx->sectors_per_cluster * FAT32_SECTOR_SIZE;
+    uint64_t cluster_bytes = cluster_size_bytes(ctx);
     uint64_t skip_clusters = offset / cluster_bytes;
     uint64_t offset_in_cluster = offset % cluster_bytes;
     uint32_t cluster = entry.first_cluster;
-
     if (!cluster_valid(ctx, cluster)) {
         return false;
     }
 
     for (uint64_t i = 0u; i < skip_clusters; ++i) {
         uint32_t next;
-        if (!fat32_next_cluster(ctx, cluster, &next) || next >= FAT32_CLUSTER_END ||
-            !cluster_valid(ctx, next)) {
+        if (!fat32_next_cluster(ctx, cluster, &next) ||
+            next >= FAT32_CLUSTER_END || !cluster_valid(ctx, next)) {
             return false;
         }
         cluster = next;
@@ -665,33 +687,19 @@ static bool fat32_read(
             return false;
         }
 
-        uint32_t first_sector = cluster_to_sector(ctx, cluster);
-        uint32_t start_sector = (uint32_t)(offset_in_cluster / FAT32_SECTOR_SIZE);
-        uint32_t byte_in_sector = (uint32_t)(offset_in_cluster % FAT32_SECTOR_SIZE);
-
-        for (uint32_t sector_index = start_sector;
-             sector_index < ctx->sectors_per_cluster && copied < wanted;
-             ++sector_index) {
-            uint8_t sector[FAT32_SECTOR_SIZE];
-            if (!partition_read(
-                    &ctx->partition,
-                    (uint64_t)first_sector + sector_index,
-                    1u,
-                    sector)) {
-                return false;
-            }
-
-            size_t available = FAT32_SECTOR_SIZE - byte_in_sector;
-            size_t remaining = wanted - copied;
-            size_t take = available < remaining ? available : remaining;
-
-            for (size_t i = 0u; i < take; ++i) {
-                out[copied + i] = sector[byte_in_sector + i];
-            }
-            copied += take;
-            byte_in_sector = 0u;
+        size_t remaining = wanted - copied;
+        uint64_t available64 = cluster_bytes - offset_in_cluster;
+        size_t available = available64 > SIZE_MAX ? SIZE_MAX : (size_t)available64;
+        size_t take = available < remaining ? available : remaining;
+        if (!read_partition_bytes(
+                ctx,
+                cluster_byte_offset(ctx, cluster) + offset_in_cluster,
+                out + copied,
+                take)) {
+            return false;
         }
 
+        copied += take;
         offset_in_cluster = 0u;
         if (copied >= wanted) {
             break;
