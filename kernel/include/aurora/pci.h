@@ -43,6 +43,12 @@ uint32_t pci_read_bar32(
     uint8_t bar_index
 );
 
+bool pci_read_bar64(
+    const struct aurora_pci_device *device,
+    uint8_t bar_index,
+    uint64_t *out_address
+);
+
 bool pci_enable_memory_bus_master(
     const struct aurora_pci_device *device
 );
