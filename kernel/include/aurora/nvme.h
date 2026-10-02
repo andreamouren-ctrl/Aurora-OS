@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+struct aurora_block_device;
+
 struct aurora_nvme_probe_result {
     bool found;
     uint8_t bus;
@@ -32,6 +34,8 @@ struct aurora_nvme_admin_result {
 
 bool nvme_probe(struct aurora_nvme_probe_result *out_result);
 bool nvme_admin_identify(struct aurora_nvme_admin_result *out_result);
+bool nvme_namespace_block_device_init(const struct aurora_nvme_admin_result *identity);
+struct aurora_block_device *nvme_namespace_block_device(void);
 void nvme_bootstrap_probe(void);
 
 #endif
