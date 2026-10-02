@@ -1,0 +1,149 @@
+#include <stddef.h>
+#include <stdint.h>
+
+#include <aurora/aurora_fs.h>
+#include <aurora/block_device.h>
+#include <aurora/fs_driver.h>
+#include <aurora/partition.h>
+
+#define AURORA_FS_TEST_BLOCK_SIZE 4096u
+#define AURORA_FS_TEST_BLOCK_COUNT 32u
+
+static uint8_t test_storage[AURORA_FS_TEST_BLOCK_SIZE * AURORA_FS_TEST_BLOCK_COUNT];
+
+static bool test_read(
+    struct aurora_block_device *device,
+    uint64_t lba,
+    uint32_t block_count,
+    void *buffer
+) {
+    (void)device;
+    if (buffer == NULL || lba > AURORA_FS_TEST_BLOCK_COUNT ||
+        block_count > AURORA_FS_TEST_BLOCK_COUNT - lba) {
+        return false;
+    }
+
+    uint8_t *out = (uint8_t *)buffer;
+    size_t offset = (size_t)lba * AURORA_FS_TEST_BLOCK_SIZE;
+    size_t length = (size_t)block_count * AURORA_FS_TEST_BLOCK_SIZE;
+    for (size_t i = 0u; i < length; ++i) {
+        out[i] = test_storage[offset + i];
+    }
+    return true;
+}
+
+static bool test_write(
+    struct aurora_block_device *device,
+    uint64_t lba,
+    uint32_t block_count,
+    const void *buffer
+) {
+    (void)device;
+    if (buffer == NULL || lba > AURORA_FS_TEST_BLOCK_COUNT ||
+        block_count > AURORA_FS_TEST_BLOCK_COUNT - lba) {
+        return false;
+    }
+
+    const uint8_t *in = (const uint8_t *)buffer;
+    size_t offset = (size_t)lba * AURORA_FS_TEST_BLOCK_SIZE;
+    size_t length = (size_t)block_count * AURORA_FS_TEST_BLOCK_SIZE;
+    for (size_t i = 0u; i < length; ++i) {
+        test_storage[offset + i] = in[i];
+    }
+    return true;
+}
+
+static bool test_flush(struct aurora_block_device *device) {
+    (void)device;
+    return true;
+}
+
+static void clear_storage(void) {
+    for (size_t i = 0u; i < sizeof(test_storage); ++i) {
+        test_storage[i] = 0u;
+    }
+}
+
+static bool bytes_equal(const uint8_t *a, const uint8_t *b, size_t length) {
+    for (size_t i = 0u; i < length; ++i) {
+        if (a[i] != b[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool aurora_fs_4kn_self_test(void) {
+    clear_storage();
+
+    struct aurora_block_device device = {
+        .name = "aurorafs-4kn-self-test",
+        .block_size = AURORA_FS_TEST_BLOCK_SIZE,
+        .block_count = AURORA_FS_TEST_BLOCK_COUNT,
+        .read_only = false,
+        .context = NULL,
+        .read_blocks = test_read,
+        .write_blocks = test_write,
+        .flush = test_flush
+    };
+
+    struct aurora_fs_bootstrap_result first = { 0 };
+    if (!aurora_fs_bootstrap_probe(&device, &first) || !first.formatted ||
+        first.reopened_existing_file) {
+        return false;
+    }
+
+    struct aurora_fs_bootstrap_result second = { 0 };
+    if (!aurora_fs_bootstrap_probe(&device, &second) || second.formatted ||
+        !second.reopened_existing_file || second.generation <= first.generation) {
+        return false;
+    }
+
+    struct aurora_partition partition = { 0 };
+    partition.device = &device;
+    partition.scheme = AURORA_PARTITION_SCHEME_WHOLE_DEVICE;
+    partition.index = 0u;
+    partition.first_lba = 0u;
+    partition.block_count = device.block_count;
+
+    const struct aurora_fs_driver *driver = aurora_fs_driver();
+    if (driver == NULL || driver->probe == NULL || driver->mount == NULL ||
+        driver->stat == NULL || driver->read == NULL) {
+        return false;
+    }
+
+    if (driver->probe(&partition) != AURORA_FS_PROBE_MATCH_READ_WRITE) {
+        return false;
+    }
+
+    void *context = NULL;
+    if (!driver->mount(&partition, &context) || context == NULL) {
+        return false;
+    }
+
+    struct aurora_fs_stat stat;
+    if (!driver->stat(context, "/aurora.boot-probe", &stat) ||
+        stat.type != AURORA_FS_ENTRY_FILE || stat.size != 17u) {
+        return false;
+    }
+
+    static const uint8_t expected[] = "AURORA-FS-PERSIST";
+    uint8_t buffer[sizeof(expected) - 1u];
+    size_t read = 0u;
+    if (!driver->read(
+            context,
+            "/aurora.boot-probe",
+            0u,
+            buffer,
+            sizeof(buffer),
+            &read) ||
+        read != sizeof(buffer) || !bytes_equal(buffer, expected, sizeof(buffer))) {
+        return false;
+    }
+
+    if (driver->unmount != NULL) {
+        driver->unmount(context);
+    }
+
+    return true;
+}
