@@ -12,7 +12,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -152,7 +152,7 @@ jobs:
 
       - name: Upload NVMe filesystem logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v6
         with:
           name: Aurora-NVMe-Filesystem
           path: |
