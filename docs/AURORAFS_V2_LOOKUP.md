@@ -1,6 +1,6 @@
 # AuroraFS v2 — Unified extent lookup and level-2 mutation
 
-Status: **level-2 growth, unified lookup, continued COW append, durable inode publication, full-last-leaf structural growth and persistent full-last-leaf publication are runtime-verified; full final level-1 sibling growth under level-2 is implemented and awaiting runtime verification**.
+Status: **level-2 growth, unified lookup, continued COW append, durable inode publication, full-last-leaf growth/publication and full final level-1 sibling growth are runtime-verified; persistent publication of full-level1 sibling growth is implemented and awaiting runtime verification**.
 
 This document is part of the AuroraFS v2 implementation contract. It distinguishes repository implementation from runtime verification.
 
@@ -44,23 +44,15 @@ Aurora OS Bootstrap Build **#465** (`36994012534`, head `567c5dd27297200a711fcab
 
 `[aurorafs-v2] end-to-end level-2 COW append + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
 
-`aurora_fs_v2_inode_append_level2_cow_commit()` composes the verified tree replacement and inode publication paths. The self-test constructs a persistent `inode -> level-2 -> level-1 -> leaf -> extent` hierarchy, performs the append, reopens allocator and inode table, then resolves the new mapping through the unified inode lookup.
+`aurora_fs_v2_inode_append_level2_cow_commit()` composes the verified tree replacement and inode publication paths.
 
 ## Runtime-verified full-last-leaf COW append under level-2
 
-Workflow `36994521731` (head `e65c70759264ca8c7d451e22e01e1251ec443048`) completed successfully. Its q35/AHCI, ATA first-boot and ATA persistence-boot serial logs contain the exact gate:
+Workflow `36994521731` (head `e65c70759264ca8c7d451e22e01e1251ec443048`) completed successfully. Its q35/AHCI, ATA first-boot and ATA persistence-boot serial logs contain:
 
 `[aurorafs-v2] level-2 full-last-leaf COW append with new child leaf self-test passed on 512/4096-byte devices`
 
-`aurora_fs_v2_extent_tree_append_level2_full_leaf_cow()` handles the structural case where the final leaf is full at 126 extent mappings while its level-1 parent still has room for another child.
-
-The operation:
-
-1. validates the existing level-2 root, final level-1 node and full final leaf;
-2. creates a fresh one-entry leaf containing the appended extent and flushes it;
-3. clones the final level-1 node, appends a new child entry pointing at the fresh leaf and flushes it;
-4. clones the level-2 root, replaces the final level-1 child pointer/span and flushes it;
-5. returns the replacement level-2 root without modifying any previously published root, level-1 node or leaf.
+`aurora_fs_v2_extent_tree_append_level2_full_leaf_cow()` creates a fresh leaf, clones the final level-1 parent with a new child, then clones the level-2 root while preserving the old published hierarchy.
 
 ## Runtime-verified persistent full-last-leaf publication
 
@@ -68,40 +60,41 @@ Workflow `36996338607` (head `9c56e9de28e727a2e52a21a02374abf93a94b1de`) complet
 
 `[aurorafs-v2] persistent level-2 full-last-leaf COW append + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
 
-`aurora_fs_v2_inode_append_level2_full_leaf_cow_commit()` composes the verified structural full-leaf tree replacement with `aurora_fs_v2_inode_publish_extent_root_cow()`.
+`aurora_fs_v2_inode_append_level2_full_leaf_cow_commit()` preserves child-first/publication-last ordering: replacement leaf, replacement level-1, replacement level-2 root, then inode publication and flush.
 
-The ordering is child-first and publication-last:
+## Runtime-verified full final level-1 sibling growth under level-2
 
-1. allocate and flush the replacement leaf;
-2. allocate and flush the replacement level-1 parent;
-3. allocate and flush the replacement level-2 root;
-4. verify the inode still references the expected old root;
-5. publish the replacement root in the inode and flush the inode-table block.
-
-The end-to-end self-test reopens allocator and inode state, verifies counters and generation, resolves the appended mapping through the unified inode lookup, and re-resolves an old mapping. Both synthetic 512-byte and 4096-byte logical-block devices pass.
-
-## Implemented full final level-1 sibling growth under level-2
-
-`aurora_fs_v2_extent_tree_append_level2_full_level1_cow()` handles the next structural boundary. The final level-1 node already contains all 126 child leaves and its last leaf also contains all 126 mappings, while the level-2 root still has spare child capacity.
-
-A completely full level-1 subtree represents **15,876 extent mappings**. Appending the next mapping cannot modify or extend that subtree in place.
-
-The operation therefore:
-
-1. validates the level-2 root, its full final level-1 child, and that child's full final leaf;
-2. validates the new extent geometry and monotonic logical range;
-3. creates and flushes a fresh one-entry leaf;
-4. creates and flushes a fresh one-child level-1 sibling pointing at that leaf;
-5. clones the level-2 root, appends one new child entry for the sibling, updates generation/range, and flushes the replacement root;
-6. leaves the old root, old full level-1 node, and old leaves untouched.
-
-The self-test represents all 126 full historical leaves deterministically and synthesizes their 4 KiB metadata only when the block device reads them. It keeps only the allocation bitmap and a small bounded cache for newly written COW nodes, avoiding hundreds of KiB of permanent kernel BSS while still exercising the exact 15,876-mapping structural boundary. The test appends mapping 15,877, verifies lookup of an old and the new mapping, proves the old hierarchy is unchanged, confirms the replacement root gained a second level-1 child, reopens the allocator, and resolves the appended mapping again. It runs on synthetic 512-byte and 4096-byte logical-block devices.
-
-Expected boot gate:
+Workflow `36997766355` (head `e19fb799d3be5a6ddc4eb8b01efcd35d6b10f4cb`) completed successfully. The exact gate appears in the q35/BIOS serial log, ATA first boot and ATA persistence boot:
 
 `[aurorafs-v2] level-2 full level-1 sibling COW growth self-test passed on 512/4096-byte devices`
 
-Until a green CI run contains that exact line, this path remains **implemented but not runtime-verified**.
+The corresponding AHCI end-to-end workflow `36997766251` also completed the AHCI smoke path successfully with the same structural gate before the storage traversal.
+
+`aurora_fs_v2_extent_tree_append_level2_full_level1_cow()` handles a final level-1 node containing all 126 child leaves, each with 126 mappings, while the level-2 root still has spare capacity. A completely full level-1 subtree therefore represents **15,876 extent mappings**.
+
+The operation:
+
+1. validates the level-2 root, full final level-1 child and full final leaf;
+2. creates and flushes a fresh one-entry leaf;
+3. creates and flushes a fresh one-child level-1 sibling;
+4. clones the level-2 root and appends the sibling as another child;
+5. flushes the replacement root and leaves the old root/subtree untouched.
+
+The self-test synthesizes the 126 historical leaf metadata blocks deterministically on read and stores only the bitmap plus a small bounded cache for newly written COW nodes. This avoids the earlier high-BSS harness while still exercising the complete 15,876-mapping structural boundary on synthetic 512-byte and 4096-byte logical-block devices.
+
+## Implemented persistent full-level1 sibling publication
+
+`aurora_fs_v2_inode_append_level2_full_level1_cow_commit()` composes the verified sibling-growth builder with `aurora_fs_v2_inode_publish_extent_root_cow()`.
+
+The persistent self-test starts with an inode referencing a completely full 15,876-mapping level-1 subtree beneath a level-2 root. It appends mapping 15,877, publishes the replacement level-2 root into the inode, reopens allocator/inode state, validates `extent_tree_root`, `extent_count`, `size`, `allocated_bytes` and `generation`, then resolves both the newly appended mapping and an old mapping through the unified inode resolver.
+
+The test keeps the same sparse/generated historical-tree model, adding only one real 4 KiB inode block plus a bounded cache for new COW metadata. It runs on synthetic 512-byte and 4096-byte logical-block devices.
+
+Expected boot gate:
+
+`[aurorafs-v2] persistent level-2 full-level1 sibling growth + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
+
+Until a green CI run contains that exact line, this composed path remains **implemented but not runtime-verified**.
 
 ## Compatibility and safety
 
@@ -113,4 +106,4 @@ All runtime verification described here uses synthetic QEMU block devices. The 4
 
 ## Next gate
 
-Runtime-verify the full-final-level-1 sibling growth path. Once green, compose the returned replacement level-2 root with durable inode publication and verify reopen lookup. The later structural boundary is a completely full level-2 root, which will require either a deeper tree level or a separately versioned extent-index strategy rather than silently exceeding the current node format.
+Runtime-verify persistent publication of the full-level1 sibling-growth path. After that, define the architecture for a **completely full level-2 root** (126 full level-1 children = **2,000,376 extent mappings**). That boundary requires an explicit deeper-tree or separately versioned extent-index contract; AuroraFS v2 must not silently exceed the current on-disk node-level contract.
