@@ -30,23 +30,29 @@ Filesystem drivers remain transport-agnostic. AuroraFS, FAT32, exFAT and future 
 - Admin `Identify Controller`;
 - Admin `Identify Namespace` for namespace 1;
 - parsing of controller model/serial, namespace count, capacity and active logical-block size;
-- bootstrap diagnostics for controller, queue and namespace geometry;
-- dedicated QEMU q35 NVMe CI workflow with explicit Admin Identify assertions.
+- Admin `Create I/O Completion Queue` and `Create I/O Submission Queue`;
+- polling I/O queue pair for namespace 1;
+- one-logical-block NVM Read command;
+- read-only `nvme-ns1` registration through the generic block-device layer;
+- LBA0 access through `block_device_read()`;
+- dedicated QEMU q35 NVMe CI workflow with explicit discovery, Admin Identify and NVM Read assertions.
 
 ### Runtime verification
 
 Workflow **Aurora NVMe Probe #2** (`36973751130`) is green and runtime-verifies PCI discovery, 64-bit BAR0 decoding, non-cacheable MMIO mapping and reads of `CAP`, `VS` and `CSTS` on QEMU q35 with a real emulated NVMe controller.
 
-The verified CI controller reports NVMe version `1.4.0`, 2048 maximum queue entries, doorbell stride 0, supported controller page shifts 12 through 16, and reaches the M1 user-space bootstrap after the probe.
+Workflow **Aurora NVMe Probe #7** (`36974618553`) is green and runtime-verifies bounded controller reconfiguration, Admin Submission/Completion Queues, `Identify Controller`, `Identify Namespace 1`, model/serial parsing, namespace capacity and active logical-block geometry. The QEMU namespace reports 131072 blocks with a 512-byte logical block.
 
-Admin Queue initialization and Identify Controller/Namespace are implemented but remain **pending runtime verification** until the updated NVMe CI gate passes.
+Workflow **Aurora NVMe Probe #10** (`36974935129`) is green and runtime-verifies Admin creation of I/O CQ/SQ queue pair 1, NVM Read, registration of `nvme-ns1`, and LBA0 access through the generic block layer. The kernel reaches the M1 bootstrap after all of these assertions.
+
+The verified CI controller reports NVMe version `1.4.0`, 2048 maximum queue entries, doorbell stride 0, and supported controller page shifts 12 through 16.
 
 ### Not implemented yet
 
-- I/O Submission/Completion Queue pairs;
-- NVM read/write commands;
-- Flush command;
-- generic `aurora_block_device` registration;
+- NVM Write command;
+- NVM Flush command;
+- read/write `aurora_block_device` registration;
+- signed reversible write/flush/readback/restore verification;
 - partition/filesystem/VFS traversal through NVMe;
 - interrupts/MSI-X;
 - robust timeout/recovery/reset policy beyond bounded bootstrap controller transitions;
@@ -65,13 +71,14 @@ Admin Queue initialization and Identify Controller/Namespace are implemented but
 
 ## Next implementation gate
 
-After the Admin Queue + Identify gate is runtime-verified, the next gate is:
+The next gate is NVMe write durability:
 
-1. issue Admin `Create I/O Completion Queue` and `Create I/O Submission Queue`;
-2. create a polling I/O queue pair for namespace 1;
-3. implement one-logical-block NVMe Read;
-4. expose namespace 1 initially as a read-only `aurora_block_device`;
-5. runtime-verify LBA0 through the generic block layer;
-6. only then add NVMe Write + Flush and a signed reversible CI write probe.
+1. implement one-logical-block NVM Write;
+2. implement NVM Flush;
+3. expose namespace 1 as read/write only after both commands are available;
+4. place a dedicated CI signature in the last logical block of the NVMe test image;
+5. save the signed block, write a test pattern, flush, read back and verify;
+6. restore the original signed block, flush again and verify restoration;
+7. runtime-verify that complete reversible path in QEMU.
 
-After read/write/flush is stable, Aurora can run the partition manager and filesystem/VFS traversal over the NVMe namespace.
+Only after that gate is green should Aurora run the partition manager and filesystem/VFS traversal over the NVMe namespace.
