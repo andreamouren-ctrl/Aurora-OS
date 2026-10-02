@@ -26,7 +26,7 @@ jobs:
         run: |
           truncate -s 64M build/aurora-nvme.img
 
-      - name: NVMe PCI BAR MMIO smoke boot
+      - name: NVMe admin identify smoke boot
         run: |
           set -u
 
@@ -67,6 +67,10 @@ jobs:
           grep -F "[nvme] version:" "$SERIAL_LOG"
           grep -F "[nvme] page-shift range:" "$SERIAL_LOG"
           grep -F "[nvme] PCI/BAR/MMIO capability probe passed" "$SERIAL_LOG"
+          grep -F "[nvme] Admin Queue initialized and controller ready" "$SERIAL_LOG"
+          grep -F "[nvme] model:" "$SERIAL_LOG"
+          grep -F "[nvme] namespace 1 blocks:" "$SERIAL_LOG"
+          grep -F "[nvme] Identify Controller + Namespace 1 passed" "$SERIAL_LOG"
           grep -F "[kernel] M1 user-space bootstrap reached successfully" "$SERIAL_LOG"
 
       - name: Upload NVMe logs
