@@ -182,6 +182,11 @@ void bootstrap_storage_probe(void) {
     }
     log_line("[fat32] synthetic 4096-byte logical-block probe/mount self-test passed");
 
+    if (!aurora_fs_4kn_self_test()) {
+        kernel_panic("AuroraFS 4096-byte logical-block persistence self-test failed");
+    }
+    log_line("[aurorafs] synthetic 4096-byte logical-block persistence self-test passed");
+
     fs_driver_registry_init();
     fs_mount_manager_init();
 
