@@ -180,6 +180,12 @@ void bootstrap_storage_probe(void) {
 
     log_line("[partition] GPT integrity + backup fallback verified on 512 and 4096-byte logical blocks");
 
+    if (!exfat_4kn_self_test()) {
+        kernel_panic("exFAT 4096-byte logical-block self-test failed");
+    }
+
+    log_line("[exfat] synthetic 4096-byte logical-block probe/mount self-test passed");
+
     fs_driver_registry_init();
     fs_mount_manager_init();
 
