@@ -1,6 +1,6 @@
 # Aurora OS AHCI Transport
 
-Status: **active implementation**
+Status: **runtime-verified baseline; advanced features pending**
 
 This document defines the current AHCI storage transport state and the implementation contract for modern SATA data I/O.
 
@@ -10,7 +10,7 @@ AHCI is a hardware transport beneath the generic Aurora block-device layer:
 
 `PCI -> AHCI controller -> SATA port -> AHCI block device -> partition manager -> filesystem -> VFS`
 
-Filesystem support must remain independent from the transport. FAT32, exFAT and AuroraFS must not contain AHCI-specific behavior.
+Filesystem support remains transport-independent. FAT32, exFAT and AuroraFS contain no AHCI-specific behavior.
 
 ## Current implementation state
 
@@ -31,12 +31,15 @@ Filesystem support must remain independent from the transport. FAT32, exFAT and 
 - `IDENTIFY DEVICE`;
 - parsing sector count, logical sector size and model string;
 - `READ DMA EXT` for single sectors;
-- AHCI-backed `aurora_block_device` registration;
+- `WRITE DMA EXT` for single sectors;
+- `FLUSH CACHE EXT`;
+- AHCI-backed read-write `aurora_block_device` registration;
 - block-layer LBA0 read verification;
-- isolated `WRITE DMA EXT` transport;
-- `FLUSH CACHE EXT` transport;
-- read-write AHCI block-device wrapper;
-- signed reversible CI write/flush/readback/restore probe restricted to a dedicated signature in the final sector.
+- signed reversible CI write/flush/readback/restore probe restricted to a dedicated signature in the final sector;
+- partition discovery through the common partition manager;
+- FAT32 and exFAT discovery and read-only access through the common filesystem framework;
+- AuroraFS bootstrap format/mount/read path through AHCI;
+- mounted-path routing through the common VFS.
 
 ### Runtime verification
 
@@ -48,14 +51,17 @@ Workflow **#347** (`36969765926`) is green and runtime-verifies `READ DMA EXT`, 
 
 Workflow **#354** (`36971048569`) is green and runtime-verifies the signed reversible `WRITE DMA EXT + FLUSH CACHE EXT + readback + restore` probe on the dedicated QEMU q35 test disk. The log confirms the original final-sector contents are restored before success is reported.
 
+Workflow **Aurora AHCI Filesystem End-to-End #2** (`36972045000`) is green and runtime-verifies the complete storage traversal on a q35 AHCI-backed disk: AHCI block device -> MBR partition discovery -> AuroraFS bootstrap format/mount/read -> FAT32 detection and Unicode VFAT file read -> exFAT detection and file read -> mount manager -> VFS. The same run reaches the M1 user-space bootstrap successfully with ATA PIO unavailable, demonstrating that the verified filesystem traversal is actually using AHCI.
+
 ### Not implemented yet
 
 - multi-sector batching and multi-entry PRDT;
 - robust timeout/error recovery and port reset;
 - NCQ;
 - interrupt-driven completion;
-- hot-plug handling;
-- end-to-end partition/filesystem traversal using the AHCI device instead of the ATA PIO compatibility path.
+- hot-plug handling.
+
+These are performance, concurrency and resilience improvements. They are no longer prerequisites for the verified baseline AHCI storage path.
 
 ## DMA memory requirements
 
@@ -63,22 +69,22 @@ AHCI command structures use DMA-visible physical pages owned by the PMM. Their p
 
 The current implementation intentionally uses polling, one command slot and one PRDT entry to establish correctness before adding concurrency and interrupt-driven operation.
 
-## Initial data-I/O target
+## Baseline data-I/O gate
 
-The first complete AHCI runtime path must provide:
+The baseline AHCI runtime path now provides:
 
 1. controller initialization — **verified**;
 2. one active SATA port — **verified**;
 3. `IDENTIFY DEVICE` — **verified**;
 4. sector count/logical sector discovery — **verified**;
 5. sector reads through the generic block layer — **verified**;
-6. write/readback probe on the dedicated CI disk — **verified**;
+6. signed reversible write/readback probe on the dedicated CI disk — **verified**;
 7. explicit cache flush — **verified**;
 8. read-write generic `block_device` — **verified**;
-9. partition discovery through the existing partition manager — pending;
-10. filesystem access through the existing mount/VFS stack — pending.
+9. partition discovery through the existing partition manager — **verified**;
+10. filesystem access through the existing mount/VFS stack — **verified**.
 
-ATA PIO remains a compatibility baseline while the AHCI filesystem path is being validated. AHCI read/write/flush no longer depends on ATA PIO for runtime verification.
+ATA PIO remains a compatibility transport. AHCI is now the primary runtime-verified modern SATA transport baseline for Aurora OS.
 
 ## Safety and compatibility rules
 
@@ -91,4 +97,4 @@ ATA PIO remains a compatibility baseline while the AHCI filesystem path is being
 
 ## Next implementation gate
 
-The immediate gate is end-to-end traversal through the existing storage stack: AHCI read-write block device -> partition manager -> filesystem detector -> mount manager -> VFS. The first target is AuroraFS plus FAT32/exFAT on a q35 AHCI-backed image prepared by CI.
+The baseline AHCI transport gate is closed. Subsequent AHCI work should focus on robustness and performance: multi-sector commands, larger/multiple PRDT entries, timeout/error recovery, port reset, interrupt-driven completion, NCQ and hot-plug support. The broader storage roadmap can now advance to NVMe and production AuroraFS work without relying on ATA PIO as the primary modern-disk path.
