@@ -5,6 +5,9 @@
 
 #define PCI_CONFIG_ADDRESS_PORT 0xCF8u
 #define PCI_CONFIG_DATA_PORT    0xCFCu
+#define PCI_COMMAND_OFFSET      0x04u
+#define PCI_COMMAND_MEMORY      (1u << 1)
+#define PCI_COMMAND_BUS_MASTER  (1u << 2)
 
 static void pci_out32(uint16_t port, uint32_t value) {
     __asm__ volatile (
@@ -26,21 +29,44 @@ static uint32_t pci_in32(uint16_t port) {
     return value;
 }
 
+static uint32_t pci_config_address(
+    uint8_t bus,
+    uint8_t slot,
+    uint8_t function,
+    uint8_t offset
+) {
+    return 0x80000000u |
+        ((uint32_t)bus << 16) |
+        ((uint32_t)slot << 11) |
+        ((uint32_t)function << 8) |
+        ((uint32_t)offset & 0xFCu);
+}
+
 uint32_t pci_config_read32(
     uint8_t bus,
     uint8_t slot,
     uint8_t function,
     uint8_t offset
 ) {
-    uint32_t address =
-        0x80000000u |
-        ((uint32_t)bus << 16) |
-        ((uint32_t)slot << 11) |
-        ((uint32_t)function << 8) |
-        ((uint32_t)offset & 0xFCu);
-
-    pci_out32(PCI_CONFIG_ADDRESS_PORT, address);
+    pci_out32(
+        PCI_CONFIG_ADDRESS_PORT,
+        pci_config_address(bus, slot, function, offset)
+    );
     return pci_in32(PCI_CONFIG_DATA_PORT);
+}
+
+void pci_config_write32(
+    uint8_t bus,
+    uint8_t slot,
+    uint8_t function,
+    uint8_t offset,
+    uint32_t value
+) {
+    pci_out32(
+        PCI_CONFIG_ADDRESS_PORT,
+        pci_config_address(bus, slot, function, offset)
+    );
+    pci_out32(PCI_CONFIG_DATA_PORT, value);
 }
 
 static bool pci_read_device(
@@ -134,4 +160,41 @@ uint32_t pci_read_bar32(
         device->function,
         (uint8_t)(0x10u + bar_index * 4u)
     );
+}
+
+bool pci_enable_memory_bus_master(
+    const struct aurora_pci_device *device
+) {
+    if (device == NULL) {
+        return false;
+    }
+
+    uint32_t command_status = pci_config_read32(
+        device->bus,
+        device->slot,
+        device->function,
+        PCI_COMMAND_OFFSET
+    );
+
+    uint32_t updated = command_status |
+        PCI_COMMAND_MEMORY |
+        PCI_COMMAND_BUS_MASTER;
+
+    pci_config_write32(
+        device->bus,
+        device->slot,
+        device->function,
+        PCI_COMMAND_OFFSET,
+        updated
+    );
+
+    uint32_t verify = pci_config_read32(
+        device->bus,
+        device->slot,
+        device->function,
+        PCI_COMMAND_OFFSET
+    );
+
+    return (verify & (PCI_COMMAND_MEMORY | PCI_COMMAND_BUS_MASTER)) ==
+        (PCI_COMMAND_MEMORY | PCI_COMMAND_BUS_MASTER);
 }
