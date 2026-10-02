@@ -28,6 +28,12 @@ struct aurora_fs_v2_format_geometry {
     uint64_t data_start;
 };
 
+struct aurora_fs_v2_extent {
+    uint64_t logical_block;
+    uint64_t physical_block;
+    uint64_t block_count;
+};
+
 bool aurora_fs_v2_allocator_init(
     struct aurora_fs_v2_allocator *allocator,
     struct aurora_block_device *device,
@@ -63,7 +69,23 @@ bool aurora_fs_v2_format_device(
     struct aurora_fs_v2_format_geometry *out_geometry
 );
 
+bool aurora_fs_v2_extent_tree_write(
+    struct aurora_fs_v2_allocator *allocator,
+    const struct aurora_fs_v2_extent *extents,
+    uint32_t extent_count,
+    uint64_t *out_root_block
+);
+
+bool aurora_fs_v2_extent_tree_lookup(
+    struct aurora_fs_v2_allocator *allocator,
+    uint64_t root_block,
+    uint64_t logical_block,
+    uint64_t *out_physical_block,
+    uint64_t *out_contiguous_blocks
+);
+
 bool aurora_fs_v2_formatter_self_test(void);
 bool aurora_fs_v2_allocator_self_test(void);
+bool aurora_fs_v2_extent_tree_self_test(void);
 
 #endif
