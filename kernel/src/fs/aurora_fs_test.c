@@ -170,5 +170,11 @@ bool aurora_fs_4kn_self_test(void) {
     }
 
     log_line("[aurorafs-v2] scalable multi-bitmap formatter + reopen/allocator integration self-test passed on 512/4096-byte devices");
+
+    if (!aurora_fs_v2_extent_tree_self_test()) {
+        return false;
+    }
+
+    log_line("[aurorafs-v2] two-level extent tree + 130 fragmented extents persistence self-test passed on 512/4096-byte devices");
     return true;
 }
