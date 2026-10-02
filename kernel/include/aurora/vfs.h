@@ -22,7 +22,10 @@ struct aurora_vfs_stat {
 
 bool vfs_init(void);
 bool vfs_create_file(const char *path);
+bool vfs_create_directory(const char *path);
 bool vfs_remove(const char *path);
+bool vfs_rename(const char *old_path, const char *new_path);
+bool vfs_truncate_file(const char *path, uint64_t size);
 bool vfs_stat(const char *path, struct aurora_vfs_stat *out_stat);
 
 bool vfs_write_file(
