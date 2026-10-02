@@ -26,7 +26,7 @@ jobs:
         run: |
           truncate -s 64M build/aurora-nvme.img
 
-      - name: NVMe admin identify smoke boot
+      - name: NVMe IO queue smoke boot
         run: |
           set -u
 
@@ -71,6 +71,9 @@ jobs:
           grep -F "[nvme] model:" "$SERIAL_LOG"
           grep -F "[nvme] namespace 1 blocks:" "$SERIAL_LOG"
           grep -F "[nvme] Identify Controller + Namespace 1 passed" "$SERIAL_LOG"
+          grep -F "[nvme] I/O Submission/Completion Queue pair initialized" "$SERIAL_LOG"
+          grep -F "[storage] block device registered: nvme-ns1" "$SERIAL_LOG"
+          grep -F "[nvme] NVM Read LBA0 via block layer verified" "$SERIAL_LOG"
           grep -F "[kernel] M1 user-space bootstrap reached successfully" "$SERIAL_LOG"
 
       - name: Upload NVMe logs
