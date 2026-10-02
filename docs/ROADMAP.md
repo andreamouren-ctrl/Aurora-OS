@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Active implementation**
-Version: **0.24**
+Version: **0.25**
 
 The roadmap distinguishes architecture decisions, repository implementation, and runtime verification. A feature is not considered complete merely because a detector or interface exists.
 
@@ -183,7 +183,9 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] runtime-verify AuroraFS v2 layout foundation in CI
 - [x] implement v2 checksummed directory records, two-block root directory and nested traversal
 - [x] runtime-verify v2 dynamic two-block root + nested directory traversal on synthetic 512/4096-byte devices
-- [ ] v2 multi-block allocation bitmap + general free-range allocator
+- [x] implement v2 multi-block bitmap traversal + 64-bit contiguous range allocate/query/free API
+- [ ] runtime-verify v2 multi-block bitmap allocator on synthetic 512/4096-byte devices
+- [ ] integrate scalable allocator into the v2 formatter/volume path
 - [ ] v2 multi-extent/extent-tree overflow
 - [ ] general create/truncate/remove/rename operations
 - [ ] sparse files
@@ -274,11 +276,11 @@ Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC re
 
 ## Current development gate
 
-Aurora can boot through the M1 kernel foundation and enter the native login prototype. The storage stack has runtime-verified baseline modern SATA and NVMe paths through the generic block layer, partition manager, AuroraFS bootstrap, FAT32/VFAT, exFAT, mount manager and VFS. ATA PIO remains a compatibility transport. AuroraFS v2 now has runtime-verified layout, multi-block extent persistence and nested two-block directory traversal while v1 remains the mounted compatibility/bootstrap format.
+Aurora can boot through the M1 kernel foundation and enter the native login prototype. The storage stack has runtime-verified baseline modern SATA and NVMe paths through the generic block layer, partition manager, AuroraFS bootstrap, FAT32/VFAT, exFAT, mount manager and VFS. ATA PIO remains a compatibility transport. AuroraFS v2 now has runtime-verified layout, multi-block extent persistence and nested two-block directory traversal while v1 remains the mounted compatibility/bootstrap format. A scalable, windowed multi-block bitmap allocator is implemented and is the active runtime gate.
 
 Near-term dependency order:
 
-1. implement and runtime-verify AuroraFS v2 multi-block allocation bitmap traversal and a general free-range allocator;
+1. runtime-verify the AuroraFS v2 multi-block bitmap/range allocator and integrate it into the formatter;
 2. add multi-extent/extent-tree overflow;
 3. add general create/truncate/remove/rename operations;
 4. establish crash-consistent metadata updates and recovery behavior;
