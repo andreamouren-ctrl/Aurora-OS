@@ -224,6 +224,28 @@ void bootstrap_storage_probe(void) {
         log_write("[storage] AHCI ABAR physical: ");
         log_hex64(ahci.abar_physical);
         log_line("");
+
+        log_write("[ahci] active SATA ports mask: ");
+        log_hex64(ahci.sata_ports_active);
+        log_line("");
+
+        if (ahci.sata_ports_active != 0u) {
+            struct aurora_ahci_identify_result identify;
+            if (!ahci_identify_first(&identify)) {
+                kernel_panic("AHCI active SATA port IDENTIFY DEVICE failed");
+            }
+
+            log_write("[ahci] IDENTIFY DEVICE passed on port ");
+            log_u64(identify.port);
+            log_write(" sectors: ");
+            log_u64(identify.sector_count);
+            log_write(" logical-sector: ");
+            log_u64(identify.logical_sector_size);
+            log_line("");
+
+            log_write("[ahci] model: ");
+            log_line(identify.model);
+        }
     } else {
         log_line("[storage] AHCI controller unavailable");
     }
