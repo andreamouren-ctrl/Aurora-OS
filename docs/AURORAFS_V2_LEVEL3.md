@@ -1,6 +1,6 @@
 # AuroraFS v2 — Level-3 extent-tree contract
 
-Status: **level-3 lookup/growth, continued append, full-last-leaf structural growth and persistent full-last-leaf inode publication are runtime-verified**.
+Status: **level-3 lookup/growth, continued append, full-last-leaf structural growth and persistent full-last-leaf inode publication are runtime-verified; full final level-1 sibling growth is implemented and awaiting CI verification**.
 
 This document extends the existing AuroraFS v2 `AUREXT2` extent-tree contract. The on-disk behavior remains compatible with the existing 4 KiB node and 256-byte inode layouts.
 
@@ -57,22 +57,39 @@ The same run preserved the operational v1 path: first ATA boot created the persi
 
 ## Runtime-verified persistent full-last-leaf publication
 
-`aurora_fs_v2_inode_append_level3_full_leaf_cow_commit()` composes the verified structural builder with `aurora_fs_v2_inode_publish_extent_root_cow()`. The self-test seeds a persistent inode, snapshots the old root, publishes the replacement hierarchy, reopens allocator/inode state, verifies root/count/size/allocation/generation, resolves both historical and new mappings, and confirms the old root remains byte-identical.
+`aurora_fs_v2_inode_append_level3_full_leaf_cow_commit()` composes the verified structural builder with `aurora_fs_v2_inode_publish_extent_root_cow()`.
 
 Aurora OS Bootstrap Build **`37005580767`**, head `fa55ab563db4a501b2b964f0db3514443efeb559`, completed successfully. The exact gate appears on q35/AHCI, ATA first boot and ATA persistence boot:
 
 `[aurorafs-v2] persistent level-3 full-last-leaf COW append + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
 
-The same run reaches `[aurorafs] persistent file created` on first ATA boot, `[aurorafs] persistent file reopened` on second ATA boot, and M1 successfully in both paths. This confirms the synthetic v2 gate does not disturb the operational AuroraFS v1 persistence path.
+The same run reaches `[aurorafs] persistent file created` on first ATA boot, `[aurorafs] persistent file reopened` on second ATA boot, and M1 successfully in both paths.
 
-All large 4 KiB synthetic buffers in the recent level-3 tests use static scratch storage rather than the kernel boot stack.
+## Full final level-1 sibling growth — implemented / CI pending
+
+`aurora_fs_v2_extent_tree_append_level3_full_level1_cow()` handles a published level-3 hierarchy whose final level-2 child ends in a completely full level-1 node. It validates the level-3 → level-2 boundary, delegates lower growth to the already runtime-verified `aurora_fs_v2_extent_tree_append_level2_full_level1_cow()`, then clones only the level-3 root with the replacement level-2 child and expanded span.
+
+The lower builder performs the required bottom-up sequence:
+
+1. create and flush a fresh one-entry leaf;
+2. create and flush a fresh one-entry level-1 sibling;
+3. clone and flush the final level-2 node with the additional sibling;
+4. clone and flush the level-3 root.
+
+The dedicated sparse self-test represents a genuinely full 126-child level-1 range (15,876 mappings) below the final level-2 branch, materializes the final full leaf required by the mutation, appends the next mapping, reopens allocator state, verifies both the historical final mapping and the new mapping through the unified resolver, and confirms the old level-3 root remains byte-identical. Large 4 KiB buffers remain static scratch storage.
+
+Expected boot gate:
+
+`[aurorafs-v2] level-3 full level-1 sibling COW growth self-test passed on 512/4096-byte devices`
+
+Until a green CI run contains that exact line and the normal v1 two-boot persistence path remains healthy, this milestone is **implemented but not runtime-verified**.
 
 ## Failure and recovery behavior
 
 The policy remains child-first and publication-last. A failure before inode publication leaves the old root authoritative and may leak newly allocated metadata. A successful inode publication makes the replacement hierarchy authoritative. Durable reclamation, transaction replay and crash recovery remain future work.
 
-## Next structural gate
+## Next gate
 
-The next level-3 mutation gate is a **full final level-1 child** below the published level-3 root. The operation must create a new level-1 sibling inside the final level-2 node, then clone/flush the replacement level-2 and level-3 parents before inode publication. The old published hierarchy must remain byte-identical until publication.
+After the structural full-level1 gate is green, add persistent inode publication/reopen verification for the same growth path. After that, the next hierarchy boundary is a **full final level-2 child under a level-3 root that still has room for another level-2 sibling**.
 
 Synthetic 4096-byte logical-block verification is not physical 4Kn hardware certification.
