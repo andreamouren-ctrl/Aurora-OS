@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Active implementation**
-Version: **0.21**
+Version: **0.22**
 
 The roadmap distinguishes architecture decisions, repository implementation, and runtime verification. A feature is not considered complete merely because a detector or interface exists.
 
@@ -116,7 +116,17 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [ ] AHCI multi-sector batching / multi-entry PRDT
 - [ ] AHCI robust timeout/error recovery and port reset
 - [ ] AHCI interrupt-driven completion / NCQ / hot-plug
-- [ ] NVMe transport
+- [x] NVMe PCI discovery + 64-bit BAR0/MMIO capability probe
+- [x] runtime-verify NVMe PCI/BAR/MMIO discovery
+- [x] NVMe controller enable + Admin SQ/CQ + `Identify Controller` / `Identify Namespace`
+- [x] runtime-verify NVMe Admin Queue and namespace geometry
+- [x] NVMe I/O CQ/SQ + NVM Read + `nvme-ns1` generic block-device registration
+- [x] runtime-verify NVMe LBA0 read through the generic block layer
+- [x] NVMe NVM Write + NVM Flush through the read/write block layer
+- [x] runtime-verify signed reversible NVMe write/flush/readback/restore probe
+- [x] implement common partition/filesystem/VFS traversal for `nvme-ns1`
+- [ ] runtime-verify NVMe -> MBR -> AuroraFS/FAT32/exFAT -> VFS end-to-end
+- [ ] NVMe interrupts/MSI-X, recovery hardening, multiple namespaces/controllers and hot-plug
 - [ ] USB/xHCI + USB mass storage
 - [x] remove fixed 512-byte assumptions from the current partition/FAT32/exFAT/AuroraFS bootstrap paths
 - [ ] remove bootstrap static block-device registry limit
@@ -182,7 +192,7 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [ ] transactional deployment prototype
 - [ ] rollback
 
-Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC rejection and primary-to-backup fallback on the synthetic 512-byte logical-block test device. Workflow **#299** (`36914796680`) extends the same GPT integrity/fallback self-test to a synthetic 4096-byte logical-block device. Workflow **#322** (`36963317225`) is green and runtime-verifies the block-device registry + ATA PIO read/write/CACHE FLUSH path, AuroraFS persistence and common VFS routing, FAT32/VFAT and exFAT integration, and the synthetic 4096-byte logical-block exFAT probe/mount self-test. Workflow **#328** (`36964846162`) is green and runtime-verifies FAT32 probe/mount/root-stat handling on a synthetic 4096-byte logical-block device. Workflow **#334** (`36965554498`) is green and runtime-verifies AuroraFS bootstrap format/create/reopen/mount/read behavior on a synthetic 4096-byte logical-block device while preserving the v1 on-disk format. Workflow **#340** (`36966185493`) is green and runtime-verifies AHCI PCI Memory Space/Bus Master enable, ABAR MMIO mapping, AHCI mode enable and SATA-port enumeration. Workflow **#344** (`36969225148`) is green and runtime-verifies AHCI `IDENTIFY DEVICE` through the polling DMA command engine. Workflow **#347** (`36969765926`) is green and runtime-verifies AHCI `READ DMA EXT`, registration of `ahci-sata0`, and LBA0 access through the generic block layer. Workflow **#354** (`36971048569`) is green and runtime-verifies signed reversible AHCI `WRITE DMA EXT`, `FLUSH CACHE EXT`, readback and restoration on the dedicated q35 test disk. Workflow **Aurora AHCI Filesystem End-to-End #2** (`36972045000`) is green and runtime-verifies AHCI-backed AuroraFS format/mount/read, MBR partition discovery, FAT32/VFAT file access, exFAT file access, common mount-manager routing and VFS traversal while ATA PIO is unavailable.
+Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC rejection and primary-to-backup fallback on the synthetic 512-byte logical-block test device. Workflow **#299** (`36914796680`) extends the same GPT integrity/fallback self-test to a synthetic 4096-byte logical-block device. Workflow **#322** (`36963317225`) is green and runtime-verifies the block-device registry + ATA PIO read/write/CACHE FLUSH path, AuroraFS persistence and common VFS routing, FAT32/VFAT and exFAT integration, and the synthetic 4096-byte logical-block exFAT probe/mount self-test. Workflow **#328** (`36964846162`) is green and runtime-verifies FAT32 probe/mount/root-stat handling on a synthetic 4096-byte logical-block device. Workflow **#334** (`36965554498`) is green and runtime-verifies AuroraFS bootstrap format/create/reopen/mount/read behavior on a synthetic 4096-byte logical-block device while preserving the v1 on-disk format. Workflow **#340** (`36966185493`) is green and runtime-verifies AHCI PCI Memory Space/Bus Master enable, ABAR MMIO mapping, AHCI mode enable and SATA-port enumeration. Workflow **#344** (`36969225148`) is green and runtime-verifies AHCI `IDENTIFY DEVICE` through the polling DMA command engine. Workflow **#347** (`36969765926`) is green and runtime-verifies AHCI `READ DMA EXT`, registration of `ahci-sata0`, and LBA0 access through the generic block layer. Workflow **#354** (`36971048569`) is green and runtime-verifies signed reversible AHCI `WRITE DMA EXT`, `FLUSH CACHE EXT`, readback and restoration on the dedicated q35 test disk. Workflow **Aurora AHCI Filesystem End-to-End #2** (`36972045000`) is green and runtime-verifies AHCI-backed AuroraFS format/mount/read, MBR partition discovery, FAT32/VFAT file access, exFAT file access, common mount-manager routing and VFS traversal while ATA PIO is unavailable. Workflow **Aurora NVMe Probe #2** (`36973751130`) runtime-verifies PCI/64-bit BAR/MMIO discovery. Workflow **Aurora NVMe Probe #7** (`36974618553`) runtime-verifies controller enable, Admin Queue setup and Identify Controller/Namespace. Workflow **Aurora NVMe Probe #10** (`36974935129`) runtime-verifies I/O queue creation, NVM Read, block-device registration and LBA0 access. Workflow **Aurora NVMe Probe #14** (`36975450797`) runtime-verifies NVM Write, NVM Flush, readback and restoration; the CI also verifies the original signed final sector directly in the backing image after QEMU exits.
 
 ## M4 — Graphics and Desktop foundation
 
@@ -255,19 +265,19 @@ Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC re
 
 ## Current development gate
 
-Aurora can boot through the M1 kernel foundation and enter the native login prototype. The storage stack now has runtime-verified synthetic 4Kn handling through the partition layer, FAT32, exFAT, and AuroraFS bootstrap driver. AHCI is now runtime-verified end-to-end from PCI/MMIO discovery through IDENTIFY, DMA read/write, explicit flush, generic block-device registration, MBR partition discovery, AuroraFS, FAT32/exFAT and VFS traversal on q35. ATA PIO remains a compatibility transport rather than the primary modern SATA path.
+Aurora can boot through the M1 kernel foundation and enter the native login prototype. The storage stack has runtime-verified synthetic 4Kn handling through the partition layer, FAT32, exFAT and AuroraFS bootstrap driver. AHCI is runtime-verified end-to-end from PCI/MMIO discovery through IDENTIFY, DMA read/write, explicit flush, generic block-device registration, MBR partition discovery, AuroraFS, FAT32/exFAT and VFS traversal on q35. NVMe is now runtime-verified from PCI/BAR/MMIO discovery through Admin Identify, polling I/O queues, generic block-device registration, NVM Read/Write and NVM Flush. Its common partition/filesystem/VFS traversal is implemented and is the active runtime-verification gate. ATA PIO remains a compatibility transport.
 
 Near-term dependency order:
 
-1. add NVMe transport;
+1. runtime-verify NVMe partition/filesystem/VFS traversal end-to-end;
 2. evolve AuroraFS from bootstrap v1 to scalable production allocation and directory structures;
 3. remove bootstrap static registry/mount/driver limits;
 4. add NTFS and ext-family read-only support;
-5. strengthen AHCI with batching, recovery, interrupts, NCQ and hot-plug;
+5. strengthen AHCI/NVMe with batching, recovery, interrupt-driven completion and hot-plug policy;
 6. establish protected durable system state;
 7. implement secure randomness and credential verification;
 8. implement Aurora Identity Service, persistent identity records, and Session Manager;
-9. add USB storage and Aurora Identity Drive support.
+9. add USB/xHCI storage and Aurora Identity Drive support.
 
 Detailed Identity sequencing remains in `docs/identity/IMPLEMENTATION_ROADMAP.md`.
 
