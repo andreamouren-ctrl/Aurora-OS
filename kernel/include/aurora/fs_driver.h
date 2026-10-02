@@ -86,6 +86,29 @@ typedef bool (*aurora_fs_write_fn)(
     size_t *out_written
 );
 
+typedef bool (*aurora_fs_create_fn)(
+    void *context,
+    const char *path,
+    enum aurora_fs_entry_type type
+);
+
+typedef bool (*aurora_fs_remove_fn)(
+    void *context,
+    const char *path
+);
+
+typedef bool (*aurora_fs_rename_fn)(
+    void *context,
+    const char *old_path,
+    const char *new_path
+);
+
+typedef bool (*aurora_fs_truncate_fn)(
+    void *context,
+    const char *path,
+    uint64_t size
+);
+
 struct aurora_fs_driver {
     const char *name;
     aurora_fs_probe_fn probe;
@@ -95,6 +118,10 @@ struct aurora_fs_driver {
     aurora_fs_readdir_fn readdir;
     aurora_fs_read_fn read;
     aurora_fs_write_fn write;
+    aurora_fs_create_fn create;
+    aurora_fs_remove_fn remove;
+    aurora_fs_rename_fn rename;
+    aurora_fs_truncate_fn truncate;
 };
 
 struct aurora_fs_match {

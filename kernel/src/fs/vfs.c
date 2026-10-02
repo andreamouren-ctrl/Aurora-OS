@@ -103,6 +103,19 @@ static struct bootstrap_vfs_file *vfs_find_free_slot(void) {
     return NULL;
 }
 
+static bool vfs_copy_path(char destination[AURORA_VFS_PATH_MAX], const char *path) {
+    if (!vfs_path_valid(path)) {
+        return false;
+    }
+
+    size_t length = vfs_string_length(path);
+    for (size_t i = 0u; i <= length; ++i) {
+        destination[i] = path[i];
+    }
+
+    return true;
+}
+
 static enum aurora_vfs_node_type vfs_node_type_from_fs(
     enum aurora_fs_entry_type type
 ) {
@@ -127,6 +140,12 @@ static const struct aurora_fs_mount *vfs_resolve_mount(
     return fs_mount_resolve(path, out_relative_path);
 }
 
+static bool vfs_mount_is_writable(const struct aurora_fs_mount *mount) {
+    return mount != NULL &&
+        mount->driver != NULL &&
+        mount->access == AURORA_FS_PROBE_MATCH_READ_WRITE;
+}
+
 bool vfs_init(void) {
     for (size_t i = 0u; i < AURORA_VFS_BOOTSTRAP_FILE_MAX; ++i) {
         bootstrap_files[i].used = false;
@@ -143,8 +162,17 @@ bool vfs_create_file(const char *path) {
         return false;
     }
 
-    if (vfs_resolve_mount(path, NULL) != NULL) {
-        return false;
+    const char *relative_path = NULL;
+    const struct aurora_fs_mount *mount = vfs_resolve_mount(path, &relative_path);
+
+    if (mount != NULL) {
+        return vfs_mount_is_writable(mount) &&
+            mount->driver->create != NULL &&
+            mount->driver->create(
+                mount->context,
+                relative_path,
+                AURORA_FS_ENTRY_FILE
+            );
     }
 
     if (vfs_find_file(path) != NULL) {
@@ -153,14 +181,8 @@ bool vfs_create_file(const char *path) {
 
     struct bootstrap_vfs_file *slot = vfs_find_free_slot();
 
-    if (slot == NULL) {
+    if (slot == NULL || !vfs_copy_path(slot->path, path)) {
         return false;
-    }
-
-    size_t length = vfs_string_length(path);
-
-    for (size_t i = 0u; i <= length; ++i) {
-        slot->path[i] = path[i];
     }
 
     slot->size = 0u;
@@ -168,13 +190,37 @@ bool vfs_create_file(const char *path) {
     return true;
 }
 
-bool vfs_remove(const char *path) {
-    if (!vfs_initialized || path == NULL) {
+bool vfs_create_directory(const char *path) {
+    if (!vfs_initialized || !vfs_path_valid(path)) {
         return false;
     }
 
-    if (vfs_resolve_mount(path, NULL) != NULL) {
+    const char *relative_path = NULL;
+    const struct aurora_fs_mount *mount = vfs_resolve_mount(path, &relative_path);
+
+    if (!vfs_mount_is_writable(mount) || mount->driver->create == NULL) {
         return false;
+    }
+
+    return mount->driver->create(
+        mount->context,
+        relative_path,
+        AURORA_FS_ENTRY_DIRECTORY
+    );
+}
+
+bool vfs_remove(const char *path) {
+    if (!vfs_initialized || !vfs_path_valid(path)) {
+        return false;
+    }
+
+    const char *relative_path = NULL;
+    const struct aurora_fs_mount *mount = vfs_resolve_mount(path, &relative_path);
+
+    if (mount != NULL) {
+        return vfs_mount_is_writable(mount) &&
+            mount->driver->remove != NULL &&
+            mount->driver->remove(mount->context, relative_path);
     }
 
     struct bootstrap_vfs_file *file = vfs_find_file(path);
@@ -193,6 +239,82 @@ bool vfs_remove(const char *path) {
 
     file->size = 0u;
     file->used = false;
+    return true;
+}
+
+bool vfs_rename(const char *old_path, const char *new_path) {
+    if (!vfs_initialized ||
+        !vfs_path_valid(old_path) ||
+        !vfs_path_valid(new_path) ||
+        vfs_paths_equal(old_path, new_path)) {
+        return false;
+    }
+
+    const char *old_relative = NULL;
+    const char *new_relative = NULL;
+    const struct aurora_fs_mount *old_mount = vfs_resolve_mount(old_path, &old_relative);
+    const struct aurora_fs_mount *new_mount = vfs_resolve_mount(new_path, &new_relative);
+
+    if (old_mount != NULL || new_mount != NULL) {
+        if (old_mount == NULL || new_mount == NULL || old_mount != new_mount ||
+            !vfs_mount_is_writable(old_mount) || old_mount->driver->rename == NULL) {
+            return false;
+        }
+
+        return old_mount->driver->rename(
+            old_mount->context,
+            old_relative,
+            new_relative
+        );
+    }
+
+    if (vfs_find_file(new_path) != NULL) {
+        return false;
+    }
+
+    struct bootstrap_vfs_file *file = vfs_find_file(old_path);
+    if (file == NULL) {
+        return false;
+    }
+
+    return vfs_copy_path(file->path, new_path);
+}
+
+bool vfs_truncate_file(const char *path, uint64_t size) {
+    if (!vfs_initialized || !vfs_path_valid(path)) {
+        return false;
+    }
+
+    const char *relative_path = NULL;
+    const struct aurora_fs_mount *mount = vfs_resolve_mount(path, &relative_path);
+
+    if (mount != NULL) {
+        return vfs_mount_is_writable(mount) &&
+            mount->driver->truncate != NULL &&
+            mount->driver->truncate(mount->context, relative_path, size);
+    }
+
+    if (size > AURORA_VFS_BOOTSTRAP_DATA_MAX) {
+        return false;
+    }
+
+    struct bootstrap_vfs_file *file = vfs_find_file(path);
+    if (file == NULL) {
+        return false;
+    }
+
+    size_t new_size = (size_t)size;
+    if (new_size > file->size) {
+        for (size_t i = file->size; i < new_size; ++i) {
+            file->data[i] = 0u;
+        }
+    } else {
+        for (size_t i = new_size; i < file->size; ++i) {
+            file->data[i] = 0u;
+        }
+    }
+
+    file->size = new_size;
     return true;
 }
 
@@ -266,8 +388,7 @@ bool vfs_write_file(
     );
 
     if (mount != NULL) {
-        if (mount->driver == NULL || mount->driver->write == NULL ||
-            mount->access != AURORA_FS_PROBE_MATCH_READ_WRITE) {
+        if (!vfs_mount_is_writable(mount) || mount->driver->write == NULL) {
             return false;
         }
 
@@ -358,6 +479,7 @@ bool vfs_read_file(
 
 bool vfs_self_test(void) {
     static const char probe_path[] = "/.aurora-vfs-probe";
+    static const char renamed_path[] = "/.aurora-vfs-probe-renamed";
     static const uint8_t probe_data[] = {
         0x41u, 0x55u, 0x52u, 0x4Fu, 0x52u, 0x41u
     };
@@ -375,29 +497,63 @@ bool vfs_self_test(void) {
         return false;
     }
 
-    if (!vfs_stat(probe_path, &stat) ||
-        stat.type != AURORA_VFS_NODE_FILE ||
-        stat.size != sizeof(probe_data)) {
+    if (!vfs_rename(probe_path, renamed_path) ||
+        vfs_stat(probe_path, &stat)) {
         vfs_remove(probe_path);
+        vfs_remove(renamed_path);
+        return false;
+    }
+
+    if (!vfs_truncate_file(renamed_path, 3u)) {
+        vfs_remove(renamed_path);
+        return false;
+    }
+
+    if (!vfs_stat(renamed_path, &stat) ||
+        stat.type != AURORA_VFS_NODE_FILE ||
+        stat.size != 3u) {
+        vfs_remove(renamed_path);
         return false;
     }
 
     if (!vfs_read_file(
-            probe_path,
+            renamed_path,
             readback,
             sizeof(readback),
             &read_length) ||
-        read_length != sizeof(probe_data)) {
-        vfs_remove(probe_path);
+        read_length != 3u) {
+        vfs_remove(renamed_path);
         return false;
     }
 
-    for (size_t i = 0u; i < sizeof(probe_data); ++i) {
+    for (size_t i = 0u; i < read_length; ++i) {
         if (readback[i] != probe_data[i]) {
-            vfs_remove(probe_path);
+            vfs_remove(renamed_path);
             return false;
         }
     }
 
-    return vfs_remove(probe_path);
+    if (!vfs_truncate_file(renamed_path, sizeof(probe_data))) {
+        vfs_remove(renamed_path);
+        return false;
+    }
+
+    if (!vfs_read_file(
+            renamed_path,
+            readback,
+            sizeof(readback),
+            &read_length) ||
+        read_length != sizeof(probe_data)) {
+        vfs_remove(renamed_path);
+        return false;
+    }
+
+    for (size_t i = 3u; i < sizeof(probe_data); ++i) {
+        if (readback[i] != 0u) {
+            vfs_remove(renamed_path);
+            return false;
+        }
+    }
+
+    return vfs_remove(renamed_path);
 }
