@@ -107,6 +107,13 @@ bool aurora_fs_v2_inode_extent_append(
     const struct aurora_fs_v2_extent *extent
 );
 
+bool aurora_fs_v2_inode_extent_append_tree_cow(
+    struct aurora_fs_v2_allocator *allocator,
+    const struct aurora_fs_v2_format_geometry *geometry,
+    uint64_t inode_index,
+    const struct aurora_fs_v2_extent *extent
+);
+
 bool aurora_fs_v2_inode_extent_lookup(
     struct aurora_fs_v2_allocator *allocator,
     const struct aurora_fs_v2_format_geometry *geometry,
@@ -120,5 +127,6 @@ bool aurora_fs_v2_formatter_self_test(void);
 bool aurora_fs_v2_allocator_self_test(void);
 bool aurora_fs_v2_extent_tree_self_test(void);
 bool aurora_fs_v2_inode_extent_self_test(void);
+bool aurora_fs_v2_inode_tree_append_self_test(void);
 
 #endif
