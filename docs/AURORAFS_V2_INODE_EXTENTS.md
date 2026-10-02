@@ -1,6 +1,6 @@
 # AuroraFS v2 — Persistent inode extent promotion and tree-backed growth
 
-Status: **inline-to-tree promotion, sixth-extent COW append, tree-layer 126→127 growth and persistent inode publication of extent 127 are runtime-verified; continued append to an existing level-1 tree is the active milestone**.
+Status: **inline-to-tree promotion, sixth-extent COW append, tree-layer 126→127 growth and persistent inode publication of extent 127 are runtime-verified; continued level-1 COW append through extent 128 is implemented and awaiting runtime promotion**.
 
 This document is part of the AuroraFS v2 on-disk contract. Repository implementation and runtime verification are tracked separately.
 
@@ -38,7 +38,7 @@ The tree-layer transition writes two fresh leaves plus a fresh level-1 root and 
 
 ## Verified persistent inode publication at extent 127
 
-Aurora OS Bootstrap Build **#437** (`36984123103`, head `1a54f33eb0c033b5eec978918a305b942691b968`) completed successfully. The exact gate appears in the q35/AHCI boot, the ATA first boot and the ATA persistence boot:
+Aurora OS Bootstrap Build **#437** (`36984123103`, head `1a54f33eb0c033b5eec978918a305b942691b968`) completed successfully. The exact gate appears in q35/AHCI, ATA first boot and ATA persistence boot:
 
 `[aurorafs-v2] persistent inode COW publication of 127th extent through level-1 root self-test passed on 512/4096-byte devices`
 
@@ -46,24 +46,39 @@ Persistent inode publication of the 127th mapping is therefore **runtime-verifie
 
 `aurora_fs_v2_inode_extent_append_tree_grow_cow()` validates the persisted inode and new extent, computes all overflow-sensitive size/allocation values before allocating replacement metadata, selects leaf-clone COW below 126 extents or full-leaf expansion at exactly 126, waits until the replacement hierarchy is durable, then publishes the new root and advances inode count, size, allocation and generation.
 
-The sparse persistence gate begins with an inode pointing at a full 126-entry leaf, appends extent 127, verifies a new level-1 root was published, reopens the allocator and resolves all 127 mappings through the public inode lookup path.
+## Implemented continued append to an existing level-1 root
+
+The first level-1 mutation path is now implemented through `aurora_fs_v2_extent_tree_append_level1_cow()` and `aurora_fs_v2_inode_extent_append_level1_cow()`.
+
+For a published level-1 root whose final child leaf still has spare capacity, the tree operation:
+
+1. CRC-validates the level-1 root and last child leaf;
+2. validates that the new extent is monotonic and inside filesystem geometry;
+3. copies the final leaf, appends the new mapping, advances leaf generation, writes it to a fresh block and flushes it;
+4. copies the root, replaces only the final child pointer/span, extends the root logical end and advances root generation;
+5. writes the replacement root to a fresh block and flushes it;
+6. returns the new root while leaving the old root and old child leaf untouched.
+
+The persistent inode operation pre-validates size/allocation overflow, invokes the tree COW path, then publishes the fresh root and advances extent count, logical size, allocated bytes and inode generation.
+
+The sparse tree test starts with two children: a full 126-entry first leaf and a second leaf containing logical extent 126. It appends logical extent 127, which is the **128th extent**, verifies all 128 mappings through normal lookup, and re-reads the old root and old last leaf to prove they were not modified.
+
+The sparse inode test starts from a persistent 127-extent inode pointing at that level-1 root, appends extent 128, publishes a fresh root, reopens the allocator and resolves all 128 logical mappings through the public inode resolver. Both tests run on synthetic 512-byte and 4096-byte logical-block devices.
+
+Expected runtime gates:
+
+`[aurorafs-v2] existing level-1 root COW append with last-leaf replacement self-test passed on 512/4096-byte devices`
+
+`[aurorafs-v2] persistent inode level-1 COW publication of 128th extent self-test passed on 512/4096-byte devices`
+
+Until a green CI run contains both exact serial lines, continued append through extent 128 remains **implemented but not runtime-verified**.
 
 ## Safety model
 
 The current COW policy favors recoverability over immediate reclamation. Replacement nodes are written and flushed before inode publication. A crash before publication leaves the old tree authoritative and can leak replacement blocks; a crash after publication leaves the new tree authoritative while old nodes can remain allocated. Durable reclamation is intentionally deferred to the planned transaction/recovery layer.
 
-## Active milestone — append to an existing level-1 root
+## Next mutation gate
 
-The next mutation path starts from the already-published two-child level-1 tree produced at extent 127. For extent 128 and later, while the last child leaf still has spare capacity, AuroraFS v2 will:
-
-1. CRC-validate the level-1 root and its last child leaf;
-2. copy that last leaf into a fresh block and append the new extent;
-3. flush the replacement leaf;
-4. copy the root into a fresh block, replace the last child pointer/range and extend the root logical range;
-5. flush the replacement root;
-6. publish the replacement root through the inode;
-7. leave the old root and old child untouched until transactional reclamation exists.
-
-A later sub-gate will handle the case where the last child leaf is full but the level-1 root still has child capacity by adding a new child leaf. Root-full growth to level 2 remains a subsequent milestone.
+After runtime verification of the 128th-extent path, the next case is a level-1 root whose final child leaf is full while the root still has child capacity. AuroraFS v2 must allocate a fresh leaf for the new extent, COW the root with an additional child-range entry, flush the hierarchy and publish that new root through the inode. Root-full growth to level 2 remains a later milestone.
 
 All current v2 runtime gates use QEMU synthetic block devices. 4096-byte logical-block support is runtime-verified synthetically, not on physical 4Kn hardware.
