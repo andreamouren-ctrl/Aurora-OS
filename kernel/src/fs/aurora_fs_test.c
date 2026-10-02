@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include <aurora/aurora_fs.h>
+#include <aurora/aurora_fs_v2.h>
 #include <aurora/block_device.h>
 #include <aurora/fs_driver.h>
 #include <aurora/log.h>
@@ -157,5 +158,11 @@ bool aurora_fs_4kn_self_test(void) {
     }
 
     log_line("[aurorafs-v2] dynamic two-block root + nested directory traversal self-test passed on 512/4096-byte devices");
+
+    if (!aurora_fs_v2_allocator_self_test()) {
+        return false;
+    }
+
+    log_line("[aurorafs-v2] multi-block bitmap + cross-boundary range allocator self-test passed on 512/4096-byte devices");
     return true;
 }
