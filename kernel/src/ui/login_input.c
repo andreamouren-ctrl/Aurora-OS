@@ -4,6 +4,7 @@
 #include <aurora/input.h>
 #include <aurora/login_input.h>
 #include <aurora/login_ui.h>
+#include <aurora/nvme.h>
 
 #define AURORA_KEY_MIN_LENGTH 12u
 #define AURORA_KEY_MAX_LENGTH 32u
@@ -94,6 +95,7 @@ void login_input_init(void) {
      * UI path once Aurora has a dedicated service/bootstrap manager.
      */
     bootstrap_storage_probe();
+    nvme_bootstrap_probe();
 
     credential_length = 0u;
 
