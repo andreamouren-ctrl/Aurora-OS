@@ -97,6 +97,8 @@ jobs:
             exit 1
           fi
 
+          grep -F "[exfat] synthetic 4096-byte logical-block probe/mount self-test passed" "$SERIAL_LOG"
+
           if ! grep -F \
             "[kernel] M1 user-space bootstrap reached successfully" \
             "$SERIAL_LOG"; then
@@ -213,6 +215,7 @@ jobs:
           cat "$ATA_SERIAL_LOG"
 
           grep -F "[ata] signed test disk read/write/flush probe passed" "$ATA_SERIAL_LOG"
+          grep -F "[exfat] synthetic 4096-byte logical-block probe/mount self-test passed" "$ATA_SERIAL_LOG"
           grep -F "[aurorafs] formatted bootstrap filesystem" "$ATA_SERIAL_LOG"
           grep -F "[aurorafs] persistent file created" "$ATA_SERIAL_LOG"
           grep -F "[aurorafs] mounted at /system via common filesystem framework" "$ATA_SERIAL_LOG"
