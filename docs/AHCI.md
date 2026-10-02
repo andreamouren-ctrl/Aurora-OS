@@ -31,8 +31,12 @@ Filesystem support must remain independent from the transport. FAT32, exFAT and 
 - `IDENTIFY DEVICE`;
 - parsing sector count, logical sector size and model string;
 - `READ DMA EXT` for single sectors;
-- read-only AHCI-backed `aurora_block_device` registration;
-- block-layer LBA0 read verification.
+- AHCI-backed `aurora_block_device` registration;
+- block-layer LBA0 read verification;
+- isolated `WRITE DMA EXT` transport;
+- `FLUSH CACHE EXT` transport;
+- read-write AHCI block-device wrapper;
+- signed reversible CI write/flush/readback/restore probe restricted to a dedicated signature in the final sector.
 
 ### Runtime verification
 
@@ -42,11 +46,10 @@ Workflow **#344** (`36969225148`) is green and runtime-verifies the first real A
 
 Workflow **#347** (`36969765926`) is green and runtime-verifies `READ DMA EXT`, registration of `ahci-sata0` in the generic block-device registry, and an LBA0 read through `block_device_read()`.
 
+`WRITE DMA EXT`, `FLUSH CACHE EXT`, the read-write wrapper and the reversible signed write probe are **implemented but not yet considered runtime-verified** until the post-change q35 CI run closes green.
+
 ### Not implemented yet
 
-- `WRITE DMA EXT`;
-- `FLUSH CACHE EXT`;
-- AHCI write/readback durability probe;
 - multi-sector batching and multi-entry PRDT;
 - robust timeout/error recovery and port reset;
 - NCQ;
@@ -69,9 +72,9 @@ The first complete AHCI runtime path must provide:
 3. `IDENTIFY DEVICE` — **verified**;
 4. sector count/logical sector discovery — **verified**;
 5. sector reads through the generic block layer — **verified**;
-6. write/readback probe on the dedicated CI disk — pending;
-7. explicit cache flush — pending;
-8. read-write generic `block_device` — pending;
+6. write/readback probe on the dedicated CI disk — implemented, verification pending;
+7. explicit cache flush — implemented, verification pending;
+8. read-write generic `block_device` — implemented, verification pending;
 9. partition discovery through the existing partition manager — pending;
 10. filesystem access through the existing mount/VFS stack — pending.
 
@@ -85,8 +88,8 @@ ATA PIO remains the compatibility baseline until AHCI read/write/flush and end-t
 - Failed commands must not silently fall back to success.
 - DMA buffers and command structures must remain valid until the controller has completed the command.
 - Filesystem code must remain transport-agnostic.
-- Destructive write probes must be limited to dedicated CI media and must preserve/restore the original sector contents.
+- Destructive write probes are restricted to media carrying the dedicated `AURORA-AHCI-RW-TEST-V1` signature and restore the original sector contents before reporting success.
 
 ## Next implementation gate
 
-The next gate is `WRITE DMA EXT + FLUSH CACHE EXT`, followed by a reversible write/flush/readback/restore probe on the dedicated QEMU q35 test disk. Only after that passes will the AHCI block device be treated as read-write and exercised through partition discovery and the filesystem/VFS stack.
+The immediate gate is a green q35 CI run proving `WRITE DMA EXT + FLUSH CACHE EXT + readback + restore`. After that, the AHCI block device will be exercised through partition discovery and the filesystem/VFS stack.
