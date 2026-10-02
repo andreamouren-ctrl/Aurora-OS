@@ -150,43 +150,41 @@ bool aurora_fs_4kn_self_test(void) {
     if (!aurora_fs_v2_layout_self_test()) {
         return false;
     }
-
     log_line("[aurorafs-v2] 4KiB layout + bitmap + 64-bit inode + multi-block extent self-test passed on 512/4096-byte devices");
 
     if (!aurora_fs_v2_directory_self_test()) {
         return false;
     }
-
     log_line("[aurorafs-v2] dynamic two-block root + nested directory traversal self-test passed on 512/4096-byte devices");
 
     if (!aurora_fs_v2_allocator_self_test()) {
         return false;
     }
-
     log_line("[aurorafs-v2] multi-block bitmap + cross-boundary range allocator self-test passed on 512/4096-byte devices");
 
     if (!aurora_fs_v2_formatter_self_test()) {
         return false;
     }
-
     log_line("[aurorafs-v2] scalable multi-bitmap formatter + reopen/allocator integration self-test passed on 512/4096-byte devices");
 
     if (!aurora_fs_v2_extent_tree_self_test()) {
         return false;
     }
-
     log_line("[aurorafs-v2] two-level extent tree + 130 fragmented extents persistence self-test passed on 512/4096-byte devices");
 
     if (!aurora_fs_v2_inode_extent_self_test()) {
         return false;
     }
-
     log_line("[aurorafs-v2] persistent inode inline-to-tree promotion at fifth extent self-test passed on 512/4096-byte devices");
 
     if (!aurora_fs_v2_inode_tree_append_self_test()) {
         return false;
     }
-
     log_line("[aurorafs-v2] tree-backed inode copy-on-write sixth-extent append self-test passed on 512/4096-byte devices");
+
+    if (!aurora_fs_v2_extent_tree_growth_self_test()) {
+        return false;
+    }
+    log_line("[aurorafs-v2] full-leaf COW 126-to-127 extent growth into level-1 root self-test passed on 512/4096-byte devices");
     return true;
 }
