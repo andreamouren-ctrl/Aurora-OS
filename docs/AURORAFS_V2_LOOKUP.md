@@ -1,6 +1,6 @@
 # AuroraFS v2 — Unified extent lookup and level-2 mutation
 
-Status: **level-2 growth, unified lookup, continued COW append, durable inode root publication and composed level-2 append + inode publication are runtime-verified; full-last-leaf growth under level-2 is implemented and awaiting runtime verification**.
+Status: **level-2 growth, unified lookup, continued COW append, durable inode root publication, composed level-2 append + inode publication, and full-last-leaf structural growth under level-2 are runtime-verified; persistent full-last-leaf publication through the inode is implemented and awaiting runtime verification**.
 
 This document is part of the AuroraFS v2 implementation contract. It distinguishes repository implementation from runtime verification.
 
@@ -46,9 +46,13 @@ Aurora OS Bootstrap Build **#465** (`36994012534`, head `567c5dd27297200a711fcab
 
 `aurora_fs_v2_inode_append_level2_cow_commit()` composes the verified tree replacement and inode publication paths. The self-test constructs a persistent `inode -> level-2 -> level-1 -> leaf -> extent` hierarchy, performs the append, reopens allocator and inode table, then resolves the new mapping through the unified inode lookup.
 
-## Implemented full-last-leaf COW append under level-2
+## Runtime-verified full-last-leaf COW append under level-2
 
-`aurora_fs_v2_extent_tree_append_level2_full_leaf_cow()` handles the next structural case: the final leaf is full at 126 extent mappings, while its level-1 parent still has room for another child.
+Workflow `36994521731` (head `e65c70759264ca8c7d451e22e01e1251ec443048`) completed successfully. Its q35/AHCI, ATA first-boot and ATA persistence-boot serial logs contain the exact gate:
+
+`[aurorafs-v2] level-2 full-last-leaf COW append with new child leaf self-test passed on 512/4096-byte devices`
+
+`aurora_fs_v2_extent_tree_append_level2_full_leaf_cow()` handles the structural case where the final leaf is full at 126 extent mappings while its level-1 parent still has room for another child.
 
 The operation:
 
@@ -60,11 +64,25 @@ The operation:
 
 The sparse self-test starts with a level-2 hierarchy whose only leaf contains all 126 entries, appends logical block 126, verifies both the original and new mappings through the unified resolver, proves the old hierarchy remains unchanged, reopens the allocator and resolves the new mapping again. It runs on synthetic 512-byte and 4096-byte logical-block devices.
 
+## Implemented persistent full-last-leaf publication
+
+`aurora_fs_v2_inode_append_level2_full_leaf_cow_commit()` composes the now-verified structural full-leaf tree replacement with `aurora_fs_v2_inode_publish_extent_root_cow()`.
+
+The ordering is deliberately child-first and publication-last:
+
+1. allocate and flush the replacement leaf;
+2. allocate and flush the replacement level-1 parent;
+3. allocate and flush the replacement level-2 root;
+4. verify the inode still references the expected old root;
+5. publish the replacement root in the inode and flush the inode-table block.
+
+The dedicated end-to-end self-test starts with a persistent inode referencing a level-2 hierarchy whose final leaf contains 126 single-block extents. It appends extent 127, publishes the replacement root, reopens the allocator and inode table, verifies the inode counters and generation, resolves the new logical block through the unified inode lookup, and also re-resolves an old logical block. It runs on synthetic 512-byte and 4096-byte logical-block devices.
+
 Expected boot gate:
 
-`[aurorafs-v2] level-2 full-last-leaf COW append with new child leaf self-test passed on 512/4096-byte devices`
+`[aurorafs-v2] persistent level-2 full-last-leaf COW append + inode publication + reopen lookup self-test passed on 512/4096-byte devices`
 
-This path is currently **implemented but not runtime-verified**.
+Until a green CI run contains that exact line, this composed path remains **implemented but not runtime-verified**.
 
 ## Compatibility and safety
 
@@ -76,4 +94,4 @@ All runtime verification described here uses synthetic QEMU block devices. The 4
 
 ## Next gate
 
-After the tree-level full-last-leaf path is runtime-verified, compose it with durable inode publication. After that, cover the case where the final level-1 child itself is full but the level-2 root still has capacity, requiring a fresh leaf + fresh level-1 child and a cloned level-2 root with one additional child.
+After persistent full-last-leaf publication is runtime-verified, cover the case where the final level-1 child itself is full but the level-2 root still has capacity. That transition must create a fresh leaf and a fresh one-child level-1 sibling, clone the level-2 root with one additional child, and only then publish the replacement root through the inode.
