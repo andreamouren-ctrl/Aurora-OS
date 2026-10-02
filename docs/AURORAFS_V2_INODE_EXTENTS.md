@@ -1,55 +1,50 @@
 # AuroraFS v2 — Persistent inode extent promotion
 
-Status: **two-level extent tree runtime-verified; persistent inline-to-tree inode promotion implemented and awaiting runtime promotion**.
+Status: **two-level extent tree and persistent inline-to-tree inode promotion runtime-verified; continued tree-backed append is the active milestone**.
 
-This document is part of the AuroraFS v2 on-disk contract. It distinguishes code that exists in the repository from behavior demonstrated by a runtime CI gate.
+This document is part of the AuroraFS v2 on-disk contract. It distinguishes repository implementation from behavior demonstrated by runtime CI gates.
 
 ## Verified prerequisite: two-level extent tree
 
-Aurora OS Bootstrap Build **#414** (`36981973396`, head `115936948dd0e9426fca2f3323e497bd7e125642`) completed successfully. Its QEMU serial log explicitly reports:
+Aurora OS Bootstrap Build **#414** (`36981973396`, head `115936948dd0e9426fca2f3323e497bd7e125642`) completed successfully. Its QEMU serial log reports:
 
 `[aurorafs-v2] two-level extent tree + 130 fragmented extents persistence self-test passed on 512/4096-byte devices`
 
-The line is present in the q35/AHCI boot and again in the ATA PIO boot. Therefore the current two-level AuroraFS v2 extent-tree foundation is **runtime-verified in the synthetic QEMU environment** for devices exposing 512-byte and 4096-byte logical blocks. This is not a physical-hardware 4Kn certification.
+The verified tree uses 4 KiB checksummed nodes. A leaf stores up to 126 extent mappings. A level-1 root stores child logical ranges and child filesystem-block pointers, allowing the current two-level representation to describe up to 15,876 extents. Higher tree levels and online node split/merge remain future work.
 
-The verified tree uses 4 KiB checksummed nodes. A leaf stores up to 126 extent mappings. A level-1 root stores child logical ranges and child filesystem-block pointers, allowing the current two-level representation to describe up to 15,876 extents. Higher tree levels and online node split/merge are not implemented yet.
+## Runtime-verified inode promotion
 
-## Persistent inode promotion contract
-
-AuroraFS v2 inodes remain **256 bytes** and retain the already established four-inline-extent layout. The new persistent mutation primitive does not silently change that on-disk inode size or reorder existing fields.
-
-A regular file begins with `extent_tree_root == 0`. The first four appended extents are persisted directly in the inode's four inline slots. When a fifth extent is appended, AuroraFS v2 now:
-
-1. reads the current inode from the formatter-defined inode table;
-2. validates the existing inline extent sequence and the new extent;
-3. builds an extent tree containing the four existing mappings plus the new fifth mapping;
-4. persists and flushes the new tree through the common block-device and allocator layers;
-5. stores the resulting root filesystem-block coordinate in `extent_tree_root`;
-6. records the total extent count as five;
-7. clears the no-longer-authoritative inline slots;
-8. advances inode generation, size and allocated-byte metadata;
-9. persists and flushes the updated inode block.
-
-Lookup is unified: an inode with no tree root is resolved from its inline extents; an inode with a nonzero tree root delegates to the verified extent-tree lookup path. Callers therefore do not need separate read logic after promotion.
-
-## Repository implementation
-
-The public v2 interface now exposes persistent inode extent initialization, append and lookup primitives in `kernel/include/aurora/aurora_fs_v2.h`. The implementation is isolated in `kernel/src/fs/aurora_fs_v2_inode_extents.c` and operates through `aurora_block_device`, `aurora_fs_v2_format_geometry`, `aurora_fs_v2_allocator`, and the extent-tree API.
-
-The boot self-test formats a fresh v2 volume, creates a regular-file inode, allocates five deliberately separated one-block data ranges, persists four inline extents, appends the fifth extent to force promotion, reopens the allocator and resolves every logical extent again. The same test is executed over synthetic 512-byte and 4096-byte logical block devices.
-
-Expected runtime gate:
+Aurora OS Bootstrap Build **#422** (`36982594135`, head `a0465e948615a513fc9ab9da5b0a0a98a7861dfc`) completed successfully. The exact gate appears in the q35/AHCI boot and in both ATA PIO boots, including the persisted second boot:
 
 `[aurorafs-v2] persistent inode inline-to-tree promotion at fifth extent self-test passed on 512/4096-byte devices`
 
-Until a green CI run contains that exact serial line, this promotion path remains **implemented but not runtime-verified**.
+The transition is therefore **runtime-verified in the synthetic QEMU environment** for devices exposing 512-byte and 4096-byte logical blocks. This is not physical-hardware 4Kn certification.
+
+AuroraFS v2 inodes remain **256 bytes** and retain four inline extent slots. No on-disk inode size or existing field ordering changed for this milestone.
+
+A regular file begins with `extent_tree_root == 0`. The first four appended extents are persisted directly in the inode. When a fifth extent is appended, AuroraFS v2:
+
+1. reads the inode from the formatter-defined inode table;
+2. validates the inline extent sequence and new extent;
+3. builds a tree containing the four existing mappings plus the new fifth mapping;
+4. persists and flushes the new tree through the common block-device and allocator layers;
+5. publishes the tree root in `extent_tree_root`;
+6. records total extent count five and clears the no-longer-authoritative inline slots;
+7. advances inode generation, size and allocated-byte metadata;
+8. persists and flushes the updated inode block.
+
+Lookup is transparent: tree-less inodes resolve their inline entries; tree-backed inodes delegate to the verified extent-tree lookup path.
+
+## Runtime test shape
+
+The gate formats a fresh v2 volume, creates a regular-file inode, allocates five deliberately separated one-block data ranges, persists four inline extents and adds the fifth to force promotion. It then reopens the allocator and resolves every logical block back to its expected physical block on both synthetic 512-byte and 4096-byte devices.
 
 ## Safety and current limits
 
-The promotion sequence deliberately writes the new tree before switching the inode root, so an inode never points to a tree that has not been written. However, the operation is **not yet crash-transactional**: if inode persistence fails after tree allocation, tree blocks can be leaked. This is an accepted development-stage limitation and must be addressed by the planned transactional/copy-on-write metadata strategy and recovery model.
+Tree data is written before the inode publishes its new root, so the inode never references an unwritten tree. The transition is not yet fully crash-transactional: if inode publication fails after tree allocation, tree blocks can be leaked. That failure mode favors leakage over metadata corruption and will be addressed by the planned copy-on-write/transaction and recovery model.
 
-Appending additional extents to an inode that has already been promoted is not yet supported by this first mutation milestone. Online tree mutation, node splitting/merging, tree-block reclamation, truncate/remove integration and rollback are follow-up work.
+At the #422 milestone, appending another extent to an inode that has already been promoted is not yet supported. Tree-block reclamation, online split/merge, truncate/remove integration and transactional rollback are also pending.
 
-## Next gate
+## Active next gate — continued tree-backed append
 
-After runtime promotion of the fifth-extent inode transition, the next AuroraFS v2 storage milestone is to support **continued append/mutation after promotion**, including rebuilding or mutating the existing tree safely. That work is a prerequisite for general create/truncate/remove/rename operations and for production fragmented-file growth.
+The next implementation must allow a promoted file to continue growing. The preferred rule is copy-on-write publication: construct a replacement tree that includes the new mapping, flush it, switch the inode to the new root, then reclaim the old tree only after the inode update is durable. The first sub-gate can cover a promoted single-leaf tree; leaf-to-level-1 growth follows before general file mutation APIs are considered ready.
