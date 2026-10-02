@@ -112,6 +112,7 @@ jobs:
             -smp 1 \
             -vga std \
             -cdrom build/AuroraOS-x86_64.iso \
+            -boot d \
             -drive file="$IMAGE",format=raw,if=none,id=aurora_disk \
             -device ide-hd,drive=aurora_disk \
             -serial file:"$SERIAL_LOG" \
