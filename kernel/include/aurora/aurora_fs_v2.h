@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include <aurora/block_device.h>
+#include <aurora/aurora_fs_v2_limits.h>
 
 #define AURORA_FS_V2_FS_BLOCK_SIZE 4096u
 #define AURORA_FS_V2_DEFAULT_BASE_BYTES 4096u
