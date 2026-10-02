@@ -34,4 +34,8 @@ bool ahci_identify_first(struct aurora_ahci_identify_result *out_result);
 bool ahci_primary_block_device_init(void);
 struct aurora_block_device *ahci_primary_block_device(void);
 
+bool ahci_rw_block_device_init(void);
+struct aurora_block_device *ahci_rw_block_device(void);
+bool ahci_rw_signed_probe(void);
+
 #endif
