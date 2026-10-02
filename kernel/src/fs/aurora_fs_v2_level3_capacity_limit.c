@@ -2,12 +2,13 @@
 #include <stdint.h>
 
 #include <aurora/aurora_fs_v2.h>
+#include <aurora/aurora_fs_v2_limits.h>
 #include <aurora/block_device.h>
 
 #define L3L_HEADER_SIZE 64u
 #define L3L_ENTRY_SIZE 32u
-#define L3L_CAPACITY ((AURORA_FS_V2_FS_BLOCK_SIZE - L3L_HEADER_SIZE) / L3L_ENTRY_SIZE)
-#define L3L_LEVEL_THREE 3u
+#define L3L_CAPACITY AURORA_FS_V2_EXTENT_NODE_CAPACITY
+#define L3L_LEVEL_THREE AURORA_FS_V2_MAX_ROOT_LEVEL
 #define L3L_TOTAL_BLOCKS 128u
 #define L3L_BITMAP_START 1u
 #define L3L_INODE_START 2u
@@ -16,8 +17,8 @@
 #define L3L_ROOT_BLOCK 20u
 #define L3L_NEW_DATA 40u
 #define L3L_INODE_INDEX 1u
-#define L3L_LEVEL2_SPAN 2000376ull
-#define L3L_MAX_EXTENTS ((uint64_t)L3L_CAPACITY * L3L_LEVEL2_SPAN)
+#define L3L_LEVEL2_SPAN AURORA_FS_V2_LEVEL2_EXTENT_CAPACITY
+#define L3L_MAX_EXTENTS AURORA_FS_V2_LEVEL3_EXTENT_CAPACITY
 #define L3L_INODE_SIZE 256u
 #define L3L_INODE_FILE 1u
 
@@ -87,6 +88,10 @@ _Static_assert(sizeof(struct l3l_inode) == L3L_INODE_SIZE,
                "AuroraFS v2 level-3 limit inode size");
 _Static_assert(L3L_CAPACITY == 126u,
                "AuroraFS v2 level-3 limit assumes 126 entries");
+_Static_assert(L3L_LEVEL_THREE == 3u,
+               "AuroraFS v2 maximum root level changed");
+_Static_assert(L3L_LEVEL2_SPAN == 2000376ull,
+               "AuroraFS v2 level-2 capacity contract changed");
 _Static_assert(L3L_MAX_EXTENTS == 252047376ull,
                "AuroraFS v2 level-3 maximum mapping count changed");
 
