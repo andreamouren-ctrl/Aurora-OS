@@ -182,5 +182,11 @@ bool aurora_fs_4kn_self_test(void) {
     }
 
     log_line("[aurorafs-v2] persistent inode inline-to-tree promotion at fifth extent self-test passed on 512/4096-byte devices");
+
+    if (!aurora_fs_v2_inode_tree_append_self_test()) {
+        return false;
+    }
+
+    log_line("[aurorafs-v2] tree-backed inode copy-on-write sixth-extent append self-test passed on 512/4096-byte devices");
     return true;
 }
