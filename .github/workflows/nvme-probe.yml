@@ -1,0 +1,79 @@
+name: Aurora NVMe Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  nvme-probe-x86_64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld make xorriso curl git binutils python3 qemu-system-x86
+
+      - name: Build Aurora OS
+        run: make iso
+
+      - name: Prepare NVMe image
+        run: |
+          truncate -s 64M build/aurora-nvme.img
+
+      - name: NVMe PCI BAR MMIO smoke boot
+        run: |
+          set -u
+
+          SERIAL_LOG=build/qemu-nvme-serial.log
+          DEBUG_LOG=build/qemu-nvme-debug.log
+          IMAGE=build/aurora-nvme.img
+          rm -f "$SERIAL_LOG" "$DEBUG_LOG"
+
+          set +e
+          timeout 15s qemu-system-x86_64 \
+            -M q35 \
+            -m 512M \
+            -smp 1 \
+            -vga std \
+            -cdrom build/AuroraOS-x86_64.iso \
+            -boot d \
+            -drive file="$IMAGE",format=raw,if=none,id=nvme0 \
+            -device nvme,serial=AURORA-NVME-CI,drive=nvme0 \
+            -serial file:"$SERIAL_LOG" \
+            -d int,cpu_reset \
+            -D "$DEBUG_LOG" \
+            -display none \
+            -no-reboot \
+            -no-shutdown
+          STATUS=$?
+          set -e
+
+          if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ]; then
+            echo "NVMe QEMU exited unexpectedly with status $STATUS" >&2
+            exit "$STATUS"
+          fi
+
+          echo "===== Aurora NVMe serial log ====="
+          cat "$SERIAL_LOG"
+
+          grep -F "[storage] NVMe controller PCI" "$SERIAL_LOG"
+          grep -F "[nvme] BAR0 physical:" "$SERIAL_LOG"
+          grep -F "[nvme] version:" "$SERIAL_LOG"
+          grep -F "[nvme] page-shift range:" "$SERIAL_LOG"
+          grep -F "[nvme] PCI/BAR/MMIO capability probe passed" "$SERIAL_LOG"
+          grep -F "[kernel] M1 user-space bootstrap reached successfully" "$SERIAL_LOG"
+
+      - name: Upload NVMe logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aurora-NVMe-Probe
+          path: |
+            build/qemu-nvme-serial.log
+            build/qemu-nvme-debug.log
