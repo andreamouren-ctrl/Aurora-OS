@@ -7,6 +7,7 @@
 #include <aurora/timer.h>
 
 #define LAPIC_DIVIDE_BY_16 0x3u
+#define LAPIC_MIN_ONESHOT_NS 1000000ull
 
 static enum aurora_timer_mode active_mode;
 
@@ -166,6 +167,22 @@ bool timer_arm_ns(uint64_t delay_ns) {
 
     if (active_mode ==
         AURORA_TIMER_LAPIC_ONESHOT) {
+        /*
+         * Aurora currently uses very short deadlines only as scheduler
+         * wake-up kicks. On xAPIC one-shot hardware (and especially QEMU's
+         * i440fx/q35 emulation), sub-millisecond deadlines can expire during
+         * the MMIO programming path and leave the bootstrap CPU executing HLT
+         * with no interrupt pending. Clamp those wake-ups in time, rather
+         * than to an arbitrary fixed tick count, so the behavior stays stable
+         * across different calibrated LAPIC frequencies.
+         *
+         * Normal deadlines are unchanged: the scheduler quantum is 4 ms and
+         * the timer bootstrap probe already requests 1 ms.
+         */
+        if (delay_ns < LAPIC_MIN_ONESHOT_NS) {
+            delay_ns = LAPIC_MIN_ONESHOT_NS;
+        }
+
         __uint128_t scaled =
             (__uint128_t)delay_ns *
             lapic_timer_hz;

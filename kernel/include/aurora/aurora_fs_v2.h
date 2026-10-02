@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include <aurora/block_device.h>
+#include <aurora/aurora_fs_v2_limits.h>
 
 #define AURORA_FS_V2_FS_BLOCK_SIZE 4096u
 #define AURORA_FS_V2_DEFAULT_BASE_BYTES 4096u
@@ -57,6 +58,7 @@ bool aurora_fs_v2_extent_tree_grow_level2_full_root_cow(struct aurora_fs_v2_allo
 bool aurora_fs_v2_extent_tree_append_level3_cow(struct aurora_fs_v2_allocator *allocator, uint64_t old_root_block, const struct aurora_fs_v2_extent *extent, uint64_t *out_new_root_block);
 bool aurora_fs_v2_extent_tree_append_level3_full_leaf_cow(struct aurora_fs_v2_allocator *allocator, uint64_t old_root_block, const struct aurora_fs_v2_extent *extent, uint64_t *out_new_root_block);
 bool aurora_fs_v2_extent_tree_append_level3_full_level1_cow(struct aurora_fs_v2_allocator *allocator, uint64_t old_root_block, const struct aurora_fs_v2_extent *extent, uint64_t *out_new_root_block);
+bool aurora_fs_v2_extent_tree_append_level3_full_level2_cow(struct aurora_fs_v2_allocator *allocator, uint64_t old_root_block, const struct aurora_fs_v2_extent *extent, uint64_t *out_new_root_block);
 
 bool aurora_fs_v2_inode_append_level2_cow_commit(struct aurora_fs_v2_allocator *allocator, const struct aurora_fs_v2_format_geometry *geometry, uint64_t inode_index, uint64_t expected_old_root, const struct aurora_fs_v2_extent *extent);
 bool aurora_fs_v2_inode_append_level2_full_leaf_cow_commit(struct aurora_fs_v2_allocator *allocator, const struct aurora_fs_v2_format_geometry *geometry, uint64_t inode_index, uint64_t expected_old_root, const struct aurora_fs_v2_extent *extent);
@@ -65,6 +67,7 @@ bool aurora_fs_v2_inode_append_level3_grow_cow_commit(struct aurora_fs_v2_alloca
 bool aurora_fs_v2_inode_append_level3_cow_commit(struct aurora_fs_v2_allocator *allocator, const struct aurora_fs_v2_format_geometry *geometry, uint64_t inode_index, uint64_t expected_old_root, const struct aurora_fs_v2_extent *extent);
 bool aurora_fs_v2_inode_append_level3_full_leaf_cow_commit(struct aurora_fs_v2_allocator *allocator, const struct aurora_fs_v2_format_geometry *geometry, uint64_t inode_index, uint64_t expected_old_root, const struct aurora_fs_v2_extent *extent);
 bool aurora_fs_v2_inode_append_level3_full_level1_cow_commit(struct aurora_fs_v2_allocator *allocator, const struct aurora_fs_v2_format_geometry *geometry, uint64_t inode_index, uint64_t expected_old_root, const struct aurora_fs_v2_extent *extent);
+bool aurora_fs_v2_inode_append_level3_full_level2_cow_commit(struct aurora_fs_v2_allocator *allocator, const struct aurora_fs_v2_format_geometry *geometry, uint64_t inode_index, uint64_t expected_old_root, const struct aurora_fs_v2_extent *extent);
 bool aurora_fs_v2_inode_extent_init(struct aurora_block_device *device, const struct aurora_fs_v2_format_geometry *geometry, uint64_t inode_index, uint64_t object_id, uint64_t parent_object_id);
 bool aurora_fs_v2_inode_extent_append(struct aurora_fs_v2_allocator *allocator, const struct aurora_fs_v2_format_geometry *geometry, uint64_t inode_index, const struct aurora_fs_v2_extent *extent);
 bool aurora_fs_v2_inode_extent_append_tree_cow(struct aurora_fs_v2_allocator *allocator, const struct aurora_fs_v2_format_geometry *geometry, uint64_t inode_index, const struct aurora_fs_v2_extent *extent);
@@ -90,6 +93,7 @@ bool aurora_fs_v2_extent_tree_level3_growth_self_test(void);
 bool aurora_fs_v2_extent_tree_level3_append_self_test(void);
 bool aurora_fs_v2_extent_tree_level3_full_leaf_self_test(void);
 bool aurora_fs_v2_extent_tree_level3_full_level1_self_test(void);
+bool aurora_fs_v2_extent_tree_level3_full_level2_self_test(void);
 bool aurora_fs_v2_level2_commit_self_test(void);
 bool aurora_fs_v2_level2_full_leaf_commit_self_test(void);
 bool aurora_fs_v2_level2_full_level1_commit_self_test(void);
@@ -97,6 +101,8 @@ bool aurora_fs_v2_level3_commit_self_test(void);
 bool aurora_fs_v2_level3_append_commit_self_test(void);
 bool aurora_fs_v2_level3_full_leaf_commit_self_test(void);
 bool aurora_fs_v2_level3_full_level1_commit_self_test(void);
+bool aurora_fs_v2_level3_full_level2_commit_self_test(void);
+bool aurora_fs_v2_level3_capacity_limit_self_test(void);
 bool aurora_fs_v2_inode_extent_self_test(void);
 bool aurora_fs_v2_inode_tree_append_self_test(void);
 bool aurora_fs_v2_inode_tree_growth_self_test(void);
