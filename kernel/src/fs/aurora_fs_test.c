@@ -4,6 +4,7 @@
 #include <aurora/aurora_fs.h>
 #include <aurora/aurora_fs_v2.h>
 #include <aurora/aurora_fs_v2_inode_publish.h>
+#include <aurora/aurora_fs_v2_objects.h>
 #include <aurora/block_device.h>
 #include <aurora/fs_driver.h>
 #include <aurora/log.h>
@@ -66,6 +67,8 @@ bool aurora_fs_4kn_self_test(void) {
     log_line("[aurorafs-v2] 4KiB layout + bitmap + 64-bit inode + multi-block extent self-test passed on 512/4096-byte devices");
     if (!aurora_fs_v2_directory_self_test()) return false;
     log_line("[aurorafs-v2] dynamic two-block root + nested directory traversal self-test passed on 512/4096-byte devices");
+    if (!aurora_fs_v2_create_mkdir_self_test()) return false;
+    log_line("[aurorafs-v2] persistent create + mkdir + nested directory entry reopen self-test passed on 512/4096-byte devices");
     if (!aurora_fs_v2_allocator_self_test()) return false;
     log_line("[aurorafs-v2] multi-block bitmap + cross-boundary range allocator self-test passed on 512/4096-byte devices");
     if (!aurora_fs_v2_formatter_self_test()) return false;
