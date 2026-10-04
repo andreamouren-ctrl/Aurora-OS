@@ -248,10 +248,21 @@ static bool resolve_file_block(
     uint64_t logical_block,
     uint64_t *out_physical
 ) {
+    if (out_physical == NULL) return false;
+
+    struct v2f_inode_disk inode;
+    if (allocator == NULL || allocator->device == NULL ||
+        !read_inode(allocator->device, geometry, inode_index, &inode) ||
+        !file_inode_valid(&inode)) return false;
+
     uint64_t contiguous;
-    return out_physical != NULL &&
-        aurora_fs_v2_inode_extent_lookup_unified(
+    if (inode.extent_tree_root == 0u) {
+        return aurora_fs_v2_inode_extent_lookup(
             allocator, geometry, inode_index, logical_block, out_physical, &contiguous);
+    }
+
+    return aurora_fs_v2_inode_extent_lookup_unified(
+        allocator, geometry, inode_index, logical_block, out_physical, &contiguous);
 }
 
 static bool write_range(
