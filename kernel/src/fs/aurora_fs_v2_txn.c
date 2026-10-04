@@ -27,16 +27,18 @@ struct v2tx_record_disk {
     uint32_t version;
     uint32_t state;
     uint32_t operation;
-    uint32_t range_count;
+    uint32_t rollback_range_count;
+    uint32_t cleanup_range_count;
     uint64_t sequence;
     uint64_t inode_index;
     uint64_t old_root;
     uint64_t new_root;
     uint64_t old_size;
     uint64_t new_size;
-    struct v2tx_range_disk ranges[AURORA_FS_V2_TXN_RANGE_CAPACITY];
+    struct v2tx_range_disk rollback_ranges[AURORA_FS_V2_TXN_ROLLBACK_RANGE_CAPACITY];
+    struct v2tx_range_disk cleanup_ranges[AURORA_FS_V2_TXN_CLEANUP_RANGE_CAPACITY];
     uint32_t checksum;
-    uint8_t reserved[52];
+    uint8_t reserved[48];
 } __attribute__((packed));
 
 static uint8_t v2tx_superblock[AURORA_FS_V2_FS_BLOCK_SIZE];
@@ -163,7 +165,8 @@ bool aurora_fs_v2_txn_load(
     }
     if (disk->version != V2TX_VERSION || !state_valid(disk->state) ||
         !operation_valid(disk->operation) ||
-        disk->range_count > AURORA_FS_V2_TXN_RANGE_CAPACITY ||
+        disk->rollback_range_count > AURORA_FS_V2_TXN_ROLLBACK_RANGE_CAPACITY ||
+        disk->cleanup_range_count > AURORA_FS_V2_TXN_CLEANUP_RANGE_CAPACITY ||
         disk->checksum != record_checksum(disk)) return false;
 
     out_record->state = (enum aurora_fs_v2_txn_state)disk->state;
@@ -174,10 +177,15 @@ bool aurora_fs_v2_txn_load(
     out_record->new_root = disk->new_root;
     out_record->old_size = disk->old_size;
     out_record->new_size = disk->new_size;
-    out_record->range_count = disk->range_count;
-    for (uint32_t i = 0u; i < disk->range_count; ++i) {
-        out_record->ranges[i].first_block = disk->ranges[i].first_block;
-        out_record->ranges[i].block_count = disk->ranges[i].block_count;
+    out_record->rollback_range_count = disk->rollback_range_count;
+    out_record->cleanup_range_count = disk->cleanup_range_count;
+    for (uint32_t i = 0u; i < disk->rollback_range_count; ++i) {
+        out_record->rollback_ranges[i].first_block = disk->rollback_ranges[i].first_block;
+        out_record->rollback_ranges[i].block_count = disk->rollback_ranges[i].block_count;
+    }
+    for (uint32_t i = 0u; i < disk->cleanup_range_count; ++i) {
+        out_record->cleanup_ranges[i].first_block = disk->cleanup_ranges[i].first_block;
+        out_record->cleanup_ranges[i].block_count = disk->cleanup_ranges[i].block_count;
     }
     return true;
 }
@@ -190,7 +198,8 @@ bool aurora_fs_v2_txn_prepare(
     if (device == NULL || device->read_only || record == NULL || record->sequence == 0u ||
         record->state != AURORA_FS_V2_TXN_PREPARED ||
         record->operation == AURORA_FS_V2_TXN_OP_NONE ||
-        record->range_count > AURORA_FS_V2_TXN_RANGE_CAPACITY ||
+        record->rollback_range_count > AURORA_FS_V2_TXN_ROLLBACK_RANGE_CAPACITY ||
+        record->cleanup_range_count > AURORA_FS_V2_TXN_CLEANUP_RANGE_CAPACITY ||
         !read_superblock(device, base_bytes)) return false;
 
     struct v2tx_record_disk *disk = disk_record();
@@ -199,16 +208,21 @@ bool aurora_fs_v2_txn_prepare(
     disk->version = V2TX_VERSION;
     disk->state = (uint32_t)AURORA_FS_V2_TXN_PREPARED;
     disk->operation = (uint32_t)record->operation;
-    disk->range_count = record->range_count;
+    disk->rollback_range_count = record->rollback_range_count;
+    disk->cleanup_range_count = record->cleanup_range_count;
     disk->sequence = record->sequence;
     disk->inode_index = record->inode_index;
     disk->old_root = record->old_root;
     disk->new_root = record->new_root;
     disk->old_size = record->old_size;
     disk->new_size = record->new_size;
-    for (uint32_t i = 0u; i < record->range_count; ++i) {
-        disk->ranges[i].first_block = record->ranges[i].first_block;
-        disk->ranges[i].block_count = record->ranges[i].block_count;
+    for (uint32_t i = 0u; i < record->rollback_range_count; ++i) {
+        disk->rollback_ranges[i].first_block = record->rollback_ranges[i].first_block;
+        disk->rollback_ranges[i].block_count = record->rollback_ranges[i].block_count;
+    }
+    for (uint32_t i = 0u; i < record->cleanup_range_count; ++i) {
+        disk->cleanup_ranges[i].first_block = record->cleanup_ranges[i].first_block;
+        disk->cleanup_ranges[i].block_count = record->cleanup_ranges[i].block_count;
     }
     disk->checksum = record_checksum(disk);
     update_superblock_checksum();
