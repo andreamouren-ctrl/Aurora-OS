@@ -31,5 +31,6 @@ bool aurora_fs_v2_remove_child_reclaim(
 );
 
 bool aurora_fs_v2_space_reclaim_self_test(void);
+bool aurora_fs_v2_space_reclaim_runtime_self_test(void);
 
 #endif
