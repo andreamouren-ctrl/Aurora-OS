@@ -5,6 +5,7 @@
 #include <aurora/aurora_fs_v2_driver.h>
 #include <aurora/aurora_fs_v2_file_io.h>
 #include <aurora/aurora_fs_v2_integrity.h>
+#include <aurora/aurora_fs_v2_metadata.h>
 #include <aurora/aurora_fs_v2_namespace_txn.h>
 #include <aurora/aurora_fs_v2_objects.h>
 #include <aurora/aurora_fs_v2_recovery.h>
@@ -402,13 +403,23 @@ static bool v2d_stat(void *opaque, const char *path, struct aurora_fs_stat *out_
     struct v2d_context *context = opaque;
     uint64_t inode_index;
     struct v2d_inode_disk inode;
-    if (out_stat == NULL || !resolve_path(context, path, &inode_index, &inode)) return false;
-    (void)inode_index;
+    struct aurora_fs_v2_metadata metadata;
+    if (out_stat == NULL || !resolve_path(context, path, &inode_index, &inode) ||
+        !aurora_fs_v2_metadata_read(
+            &context->view, &context->geometry, inode_index, &metadata)) return false;
     zero_bytes(out_stat, sizeof(*out_stat));
     out_stat->type = map_type(inode.type);
     out_stat->size = inode.size;
     out_stat->allocated_size = inode.allocated_bytes;
+    out_stat->created_time_ns = metadata.created_time_ns;
+    out_stat->changed_time_ns = metadata.changed_time_ns;
+    out_stat->modified_time_ns = metadata.modified_time_ns;
+    out_stat->accessed_time_ns = metadata.accessed_time_ns;
     out_stat->filesystem_id = inode.object_id;
+    out_stat->uid = metadata.uid;
+    out_stat->gid = metadata.gid;
+    out_stat->mode = metadata.mode;
+    out_stat->link_count = metadata.link_count;
     return out_stat->type != AURORA_FS_ENTRY_UNKNOWN;
 }
 
@@ -547,6 +558,34 @@ static bool v2d_truncate(void *opaque, const char *path, uint64_t size) {
         &context->allocator, &context->geometry, inode_index, size);
 }
 
+static bool v2d_chmod(void *opaque, const char *path, uint32_t mode) {
+    struct v2d_context *context = opaque;
+    uint64_t inode_index;
+    struct v2d_inode_disk inode;
+    struct aurora_fs_v2_metadata metadata;
+    if ((mode & ~AURORA_FS_V2_MODE_PERMISSION_MASK) != 0u ||
+        !resolve_path(context, path, &inode_index, &inode) ||
+        !aurora_fs_v2_metadata_read(
+            &context->view, &context->geometry, inode_index, &metadata)) return false;
+    metadata.mode = mode;
+    return aurora_fs_v2_metadata_write(
+        &context->view, &context->geometry, inode_index, &metadata);
+}
+
+static bool v2d_chown(void *opaque, const char *path, uint32_t uid, uint32_t gid) {
+    struct v2d_context *context = opaque;
+    uint64_t inode_index;
+    struct v2d_inode_disk inode;
+    struct aurora_fs_v2_metadata metadata;
+    if (!resolve_path(context, path, &inode_index, &inode) ||
+        !aurora_fs_v2_metadata_read(
+            &context->view, &context->geometry, inode_index, &metadata)) return false;
+    metadata.uid = uid;
+    metadata.gid = gid;
+    return aurora_fs_v2_metadata_write(
+        &context->view, &context->geometry, inode_index, &metadata);
+}
+
 static const struct aurora_fs_driver v2d_driver = {
     .name = "AuroraFS v2",
     .probe = v2d_probe,
@@ -559,7 +598,9 @@ static const struct aurora_fs_driver v2d_driver = {
     .create = v2d_create,
     .remove = v2d_remove,
     .rename = v2d_rename,
-    .truncate = v2d_truncate
+    .truncate = v2d_truncate,
+    .chmod = v2d_chmod,
+    .chown = v2d_chown
 };
 
 const struct aurora_fs_driver *aurora_fs_v2_driver(void) {
