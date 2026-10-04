@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include <aurora/aurora_fs_v2_acl.h>
+#include <aurora/aurora_fs_v2_integrity.h>
 #include <aurora/aurora_fs_v2_metadata.h>
 #include <aurora/aurora_fs_v2_objects.h>
 #include <aurora/block_device.h>
@@ -387,6 +388,23 @@ static bool run_test(uint32_t block_size) {
         !aurora_fs_v2_acl_check_access(
             &device, &geometry, 1u, 9999u, 300u,
             AURORA_FS_V2_ACL_PERM_READ | AURORA_FS_V2_ACL_PERM_WRITE)) return false;
+
+    struct aurora_fs_v2_integrity_report report;
+    if (!aurora_fs_v2_integrity_check_full(
+            &device, AURORA_FS_V2_DEFAULT_BASE_BYTES, &report)) return false;
+
+    uint64_t inode1_offset = geometry.base_bytes +
+        geometry.inode_start * AURORA_FS_V2_FS_BLOCK_SIZE + V2A_INODE_SIZE;
+    struct v2a_inode_disk *inode1 =
+        (struct v2a_inode_disk *)(v2a_test_storage + inode1_offset);
+    uint8_t saved_acl_magic = inode1->reserved1[V2A_ACL_OFFSET];
+    inode1->reserved1[V2A_ACL_OFFSET] ^= 1u;
+    if (aurora_fs_v2_integrity_check_full(
+            &device, AURORA_FS_V2_DEFAULT_BASE_BYTES, &report) ||
+        report.error != AURORA_FS_V2_INTEGRITY_BAD_METADATA) return false;
+    inode1->reserved1[V2A_ACL_OFFSET] = saved_acl_magic;
+    if (!aurora_fs_v2_integrity_check_full(
+            &device, AURORA_FS_V2_DEFAULT_BASE_BYTES, &report)) return false;
 
     if (!aurora_fs_v2_acl_clear(&device, &geometry, 1u) ||
         !aurora_fs_v2_acl_read(&device, &geometry, 1u, &reopened) ||
