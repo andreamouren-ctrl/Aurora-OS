@@ -10,6 +10,7 @@
 #include <aurora/aurora_fs_v2_recovery.h>
 #include <aurora/block_device.h>
 #include <aurora/heap.h>
+#include <aurora/log.h>
 #include <aurora/partition.h>
 
 #define V2D_INODE_SIZE 256u
@@ -71,11 +72,6 @@ _Static_assert(sizeof(struct v2d_directory_record_disk) == V2D_DIRECTORY_RECORD_
 static void zero_bytes(void *buffer, size_t length) {
     uint8_t *bytes = buffer;
     for (size_t i = 0u; i < length; ++i) bytes[i] = 0u;
-}
-
-static bool bytes_equal(const uint8_t *a, const uint8_t *b, size_t length) {
-    for (size_t i = 0u; i < length; ++i) if (a[i] != b[i]) return false;
-    return true;
 }
 
 static uint32_t crc32_ieee(const uint8_t *data, size_t length) {
@@ -575,31 +571,49 @@ bool aurora_fs_v2_prepare_system_partition(
     bool *out_formatted
 ) {
     if (partition == NULL || out_formatted == NULL || partition->device == NULL ||
-        partition->device->read_only) return false;
+        partition->device->read_only) {
+        log_line("[aurorafs-v2] prepare failed: invalid partition");
+        return false;
+    }
     *out_formatted = false;
 
     struct v2d_partition_view backing;
     struct aurora_block_device view;
-    if (!init_view(partition, &backing, &view)) return false;
+    if (!init_view(partition, &backing, &view)) {
+        log_line("[aurorafs-v2] prepare failed: init view");
+        return false;
+    }
 
     struct aurora_fs_v2_integrity_report report;
     struct aurora_fs_v2_format_geometry geometry;
     bool existing = load_geometry(&view, &geometry, &report);
     if (!existing) {
         if (!aurora_fs_v2_format_device(
-                &view, AURORA_FS_V2_DEFAULT_BASE_BYTES, 0u, &geometry) ||
-            !aurora_fs_v2_object_init(
-                &view, &geometry, 0u, 1u, 1u, AURORA_FS_V2_OBJECT_DIRECTORY)) return false;
+                &view, AURORA_FS_V2_DEFAULT_BASE_BYTES, 0u, &geometry)) {
+            log_line("[aurorafs-v2] prepare failed: format");
+            return false;
+        }
+        if (!aurora_fs_v2_object_init(
+                &view, &geometry, 0u, 1u, 1u, AURORA_FS_V2_OBJECT_DIRECTORY)) {
+            log_line("[aurorafs-v2] prepare failed: root init");
+            return false;
+        }
         *out_formatted = true;
     }
 
     struct aurora_fs_v2_allocator allocator;
     if (!aurora_fs_v2_allocator_init(
             &allocator, &view, geometry.base_bytes, geometry.total_fs_blocks,
-            geometry.bitmap_start, geometry.bitmap_blocks, geometry.data_start)) return false;
+            geometry.bitmap_start, geometry.bitmap_blocks, geometry.data_start)) {
+        log_line("[aurorafs-v2] prepare failed: allocator");
+        return false;
+    }
 
     if (existing && !report.transaction_clean &&
-        !aurora_fs_v2_recover_pending_transaction(&allocator, &geometry)) return false;
+        !aurora_fs_v2_recover_pending_transaction(&allocator, &geometry)) {
+        log_line("[aurorafs-v2] prepare failed: recovery");
+        return false;
+    }
 
     struct v2d_context temporary;
     zero_bytes(&temporary, sizeof(temporary));
@@ -611,22 +625,41 @@ bool aurora_fs_v2_prepare_system_partition(
     temporary.allocator = allocator;
     temporary.allocator.device = &temporary.view;
 
-    uint64_t probe_inode;
     struct v2d_inode_disk probe;
-    if (!find_inode_by_object(&temporary, V2D_BOOT_PROBE_OBJECT, &probe_inode, &probe)) {
+    if (!read_inode(&temporary, V2D_BOOT_PROBE_INODE, &probe)) {
+        log_line("[aurorafs-v2] prepare failed: boot probe inode read");
+        return false;
+    }
+    if (probe.object_id == 0u) {
         if (!aurora_fs_v2_create_child_txn(
                 &temporary.allocator, &temporary.geometry, 0u,
                 V2D_BOOT_PROBE_INODE, V2D_BOOT_PROBE_OBJECT,
-                AURORA_FS_V2_OBJECT_FILE, "aurora.boot-probe")) return false;
+                AURORA_FS_V2_OBJECT_FILE, "aurora.boot-probe")) {
+            log_line("[aurorafs-v2] prepare failed: boot probe create");
+            return false;
+        }
         static const uint8_t payload[] = "AURORA-FS-V2-PERSIST";
         size_t written = 0u;
         if (!aurora_fs_v2_file_write(
                 &temporary.allocator, &temporary.geometry, V2D_BOOT_PROBE_INODE,
                 0u, payload, sizeof(payload) - 1u, &written) ||
-            written != sizeof(payload) - 1u) return false;
+            written != sizeof(payload) - 1u) {
+            log_line("[aurorafs-v2] prepare failed: boot probe write");
+            return false;
+        }
+    } else if (probe.object_id != V2D_BOOT_PROBE_OBJECT ||
+               probe.type != (uint32_t)AURORA_FS_V2_OBJECT_FILE ||
+               probe.parent_object_id != 1u) {
+        log_line("[aurorafs-v2] prepare failed: boot probe inode mismatch");
+        return false;
     }
 
     if (!aurora_fs_v2_integrity_check_full(
-            &temporary.view, temporary.geometry.base_bytes, &report)) return false;
+            &temporary.view, temporary.geometry.base_bytes, &report)) {
+        log_write("[aurorafs-v2] prepare failed: integrity code ");
+        log_u64((uint64_t)report.error);
+        log_line("");
+        return false;
+    }
     return true;
 }
