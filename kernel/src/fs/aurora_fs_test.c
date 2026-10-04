@@ -5,6 +5,7 @@
 #include <aurora/aurora_fs_v2.h>
 #include <aurora/aurora_fs_v2_file_io.h>
 #include <aurora/aurora_fs_v2_inode_publish.h>
+#include <aurora/aurora_fs_v2_integrity.h>
 #include <aurora/aurora_fs_v2_mutation.h>
 #include <aurora/aurora_fs_v2_objects.h>
 #include <aurora/aurora_fs_v2_space_reclaim.h>
@@ -78,6 +79,8 @@ bool aurora_fs_4kn_self_test(void) {
     log_line("[aurorafs-v2] inline data reclaim + persistent remove/rename + non-empty directory guard self-test passed on 512/4096-byte devices");
     if (!aurora_fs_v2_space_reclaim_runtime_self_test()) return false;
     log_line("[aurorafs-v2] tree-backed truncate COW reclaim + reopen bitmap reuse self-test passed on 512/4096-byte devices");
+    if (!aurora_fs_v2_integrity_self_test()) return false;
+    log_line("[aurorafs-v2] read-only integrity scan rejects superblock/inode/directory/bitmap/reference corruption on 512/4096-byte devices");
     if (!aurora_fs_v2_allocator_self_test()) return false;
     log_line("[aurorafs-v2] multi-block bitmap + cross-boundary range allocator self-test passed on 512/4096-byte devices");
     if (!aurora_fs_v2_formatter_self_test()) return false;
