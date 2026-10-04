@@ -3,6 +3,7 @@
 
 #include <aurora/aurora_fs_v2.h>
 #include <aurora/aurora_fs_v2_objects.h>
+#include <aurora/aurora_fs_v2_recovery.h>
 #include <aurora/aurora_fs_v2_space_reclaim.h>
 #include <aurora/block_device.h>
 
@@ -218,5 +219,6 @@ static bool run_geometry(uint32_t block_size) {
 }
 
 bool aurora_fs_v2_space_reclaim_runtime_self_test(void) {
-    return run_geometry(512u) && run_geometry(4096u);
+    return run_geometry(512u) && run_geometry(4096u) &&
+        aurora_fs_v2_recovery_self_test();
 }
