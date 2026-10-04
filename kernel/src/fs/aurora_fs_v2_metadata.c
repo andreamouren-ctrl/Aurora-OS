@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <aurora/aurora_fs_v2_acl.h>
 #include <aurora/aurora_fs_v2_metadata.h>
 #include <aurora/block_device.h>
 
@@ -222,9 +223,15 @@ bool aurora_fs_v2_metadata_read(
     struct aurora_fs_v2_metadata *out_metadata
 ) {
     struct v2m_inode_disk *inode;
-    return out_metadata != NULL &&
-        load_inode(device, geometry, inode_index, NULL, NULL, &inode) &&
-        decode_metadata(inode, out_metadata);
+    if (out_metadata == NULL ||
+        !load_inode(device, geometry, inode_index, NULL, NULL, &inode) ||
+        !decode_metadata(inode, out_metadata)) return false;
+
+    /* Security metadata is one logical integrity unit.  ACL parsing lives in the
+       ACL module, but every normal metadata read verifies that the companion
+       ACL tail is either absent (all zero) or structurally/CRC valid. */
+    struct aurora_fs_v2_acl acl;
+    return aurora_fs_v2_acl_read(device, geometry, inode_index, &acl);
 }
 
 bool aurora_fs_v2_metadata_write(
