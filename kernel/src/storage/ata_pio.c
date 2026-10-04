@@ -145,7 +145,17 @@ static bool ata_write_one(uint32_t lba, const uint8_t *buffer) {
         arch_out16(ATA_PRIMARY_IO + ATA_REG_DATA, word);
     }
 
-    /* Preserve the exact timing of the previously verified PIO path. */
+    /* The device may assert BSY after the PIO data phase while committing the
+       sector. Do not issue CACHE FLUSH until WRITE SECTORS has completed. */
+    if (!ata_wait_not_busy()) {
+        return false;
+    }
+
+    uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
+    if ((status & (ATA_STATUS_ERR | ATA_STATUS_DF)) != 0u) {
+        return false;
+    }
+
     return ata_cache_flush();
 }
 
