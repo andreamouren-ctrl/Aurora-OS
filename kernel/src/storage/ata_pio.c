@@ -29,9 +29,10 @@
 #define ATA_CMD_WRITE_SECTORS 0x30u
 #define ATA_CMD_CACHE_FLUSH   0xE7u
 
-#define ATA_SECTOR_SIZE 512u
-#define ATA_POLL_LIMIT  1000000u
-#define ATA_LBA28_MAX   0x0FFFFFFFull
+#define ATA_SECTOR_SIZE       512u
+#define ATA_POLL_LIMIT        1000000u
+#define ATA_FLUSH_POLL_LIMIT  10000000u
+#define ATA_LBA28_MAX         0x0FFFFFFFull
 
 static struct aurora_block_device primary_master;
 static bool primary_ready;
@@ -79,6 +80,17 @@ static bool ata_wait_write_complete(void) {
     return false;
 }
 
+static bool ata_wait_flush_complete(void) {
+    for (uint32_t i = 0u; i < ATA_FLUSH_POLL_LIMIT; ++i) {
+        uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
+        if ((status & ATA_STATUS_BSY) != 0u) {
+            continue;
+        }
+        return (status & (ATA_STATUS_ERR | ATA_STATUS_DF)) == 0u;
+    }
+    return false;
+}
+
 static void ata_log_status(const char *prefix) {
     uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
     uint8_t error = arch_in8(ATA_PRIMARY_IO + ATA_REG_ERROR);
@@ -93,13 +105,7 @@ static void ata_log_status(const char *prefix) {
 static bool ata_cache_flush(void) {
     arch_out8(ATA_PRIMARY_IO + ATA_REG_COMMAND, ATA_CMD_CACHE_FLUSH);
     ata_delay_400ns();
-
-    if (!ata_wait_not_busy()) {
-        return false;
-    }
-
-    uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
-    return (status & (ATA_STATUS_ERR | ATA_STATUS_DF)) == 0u;
+    return ata_wait_flush_complete();
 }
 
 static bool ata_select_lba28(uint32_t lba) {
