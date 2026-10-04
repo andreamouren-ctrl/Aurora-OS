@@ -30,9 +30,14 @@ struct aurora_fs_stat {
     uint64_t size;
     uint64_t allocated_size;
     uint64_t created_time_ns;
+    uint64_t changed_time_ns;
     uint64_t modified_time_ns;
     uint64_t accessed_time_ns;
     uint64_t filesystem_id;
+    uint32_t uid;
+    uint32_t gid;
+    uint32_t mode;
+    uint32_t link_count;
 };
 
 struct aurora_fs_dirent {
@@ -109,6 +114,19 @@ typedef bool (*aurora_fs_truncate_fn)(
     uint64_t size
 );
 
+typedef bool (*aurora_fs_chmod_fn)(
+    void *context,
+    const char *path,
+    uint32_t mode
+);
+
+typedef bool (*aurora_fs_chown_fn)(
+    void *context,
+    const char *path,
+    uint32_t uid,
+    uint32_t gid
+);
+
 struct aurora_fs_driver {
     const char *name;
     aurora_fs_probe_fn probe;
@@ -122,6 +140,8 @@ struct aurora_fs_driver {
     aurora_fs_remove_fn remove;
     aurora_fs_rename_fn rename;
     aurora_fs_truncate_fn truncate;
+    aurora_fs_chmod_fn chmod;
+    aurora_fs_chown_fn chown;
 };
 
 struct aurora_fs_match {
