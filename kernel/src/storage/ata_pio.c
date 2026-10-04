@@ -50,45 +50,49 @@ static bool ata_wait_not_busy(void) {
             return true;
         }
     }
-
     return false;
 }
 
 static bool ata_wait_drq(void) {
     for (uint32_t i = 0u; i < ATA_POLL_LIMIT; ++i) {
         uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
-
         if ((status & (ATA_STATUS_ERR | ATA_STATUS_DF)) != 0u) {
             return false;
         }
-
-        if ((status & ATA_STATUS_BSY) == 0u &&
-            (status & ATA_STATUS_DRQ) != 0u) {
+        if ((status & ATA_STATUS_BSY) == 0u && (status & ATA_STATUS_DRQ) != 0u) {
             return true;
         }
     }
-
     return false;
 }
 
 static bool ata_wait_write_complete(void) {
     for (uint32_t i = 0u; i < ATA_POLL_LIMIT; ++i) {
         uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
-
         if ((status & (ATA_STATUS_ERR | ATA_STATUS_DF)) != 0u) {
             return false;
         }
-
         if ((status & (ATA_STATUS_BSY | ATA_STATUS_DRQ)) == 0u) {
             return true;
         }
     }
-
     return false;
+}
+
+static void ata_log_status(const char *prefix) {
+    uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
+    uint8_t error = arch_in8(ATA_PRIMARY_IO + ATA_REG_ERROR);
+    log_write(prefix);
+    log_write(" status=");
+    log_hex64(status);
+    log_write(" error=");
+    log_hex64(error);
+    log_line("");
 }
 
 static bool ata_cache_flush(void) {
     arch_out8(ATA_PRIMARY_IO + ATA_REG_COMMAND, ATA_CMD_CACHE_FLUSH);
+    ata_delay_400ns();
 
     if (!ata_wait_not_busy()) {
         return false;
@@ -102,15 +106,11 @@ static bool ata_select_lba28(uint32_t lba) {
     if ((uint64_t)lba > ATA_LBA28_MAX) {
         return false;
     }
-
     if (!ata_wait_not_busy()) {
         return false;
     }
 
-    arch_out8(
-        ATA_PRIMARY_IO + ATA_REG_DRIVE,
-        (uint8_t)(0xE0u | ((lba >> 24) & 0x0Fu))
-    );
+    arch_out8(ATA_PRIMARY_IO + ATA_REG_DRIVE, (uint8_t)(0xE0u | ((lba >> 24) & 0x0Fu)));
     ata_delay_400ns();
     return true;
 }
@@ -156,14 +156,10 @@ static bool ata_write_one(uint32_t lba, const uint8_t *buffer) {
     }
 
     for (size_t i = 0u; i < ATA_SECTOR_SIZE / 2u; ++i) {
-        uint16_t word = (uint16_t)buffer[i * 2u]
-            | ((uint16_t)buffer[i * 2u + 1u] << 8);
+        uint16_t word = (uint16_t)buffer[i * 2u] | ((uint16_t)buffer[i * 2u + 1u] << 8);
         arch_out16(ATA_PRIMARY_IO + ATA_REG_DATA, word);
     }
 
-    /* PIO WRITE SECTORS is complete only after the device clears both BSY and
-       DRQ. The caller may then submit the next sector or issue one cache flush
-       for the completed batch. */
     ata_delay_400ns();
     return ata_wait_write_complete();
 }
@@ -175,7 +171,6 @@ static bool ata_block_read(
     void *buffer
 ) {
     (void)device;
-
     uint8_t *out = (uint8_t *)buffer;
 
     for (uint32_t i = 0u; i < block_count; ++i) {
@@ -185,7 +180,6 @@ static bool ata_block_read(
             return false;
         }
     }
-
     return true;
 }
 
@@ -211,9 +205,6 @@ static bool ata_block_write(
         }
     }
 
-    /* One durable flush is sufficient for all sectors submitted in this block
-       layer request and avoids thousands of redundant flush commands while
-       AuroraFS writes 4 KiB metadata blocks. */
     return ata_cache_flush();
 }
 
@@ -230,20 +221,13 @@ bool ata_pio_primary_master_init(void) {
     arch_out8(ATA_PRIMARY_IO + ATA_REG_COMMAND, ATA_CMD_IDENTIFY);
 
     uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
-    if (status == 0u) {
-        return false;
-    }
-
-    if (!ata_wait_not_busy()) {
+    if (status == 0u || !ata_wait_not_busy()) {
         return false;
     }
 
     if (arch_in8(ATA_PRIMARY_IO + ATA_REG_LBA_MID) != 0u ||
-        arch_in8(ATA_PRIMARY_IO + ATA_REG_LBA_HIGH) != 0u) {
-        return false;
-    }
-
-    if (!ata_wait_drq()) {
+        arch_in8(ATA_PRIMARY_IO + ATA_REG_LBA_HIGH) != 0u ||
+        !ata_wait_drq()) {
         return false;
     }
 
@@ -252,9 +236,7 @@ bool ata_pio_primary_master_init(void) {
         identify[i] = arch_in16(ATA_PRIMARY_IO + ATA_REG_DATA);
     }
 
-    uint64_t sectors = (uint64_t)identify[60]
-        | ((uint64_t)identify[61] << 16);
-
+    uint64_t sectors = (uint64_t)identify[60] | ((uint64_t)identify[61] << 16);
     if (sectors == 0u) {
         return false;
     }
@@ -278,13 +260,11 @@ struct aurora_block_device *ata_pio_primary_master_device(void) {
 
 static bool buffer_starts_with_test_signature(const uint8_t *buffer) {
     static const char signature[] = "AURORA-STORAGE-TEST-V1";
-
     for (size_t i = 0u; i < sizeof(signature) - 1u; ++i) {
         if (buffer[i] != (uint8_t)signature[i]) {
             return false;
         }
     }
-
     return true;
 }
 
@@ -299,7 +279,6 @@ bool ata_pio_ci_probe(void) {
         log_line("[ata] probe failure: signature sector read");
         return false;
     }
-
     if (!buffer_starts_with_test_signature(header)) {
         log_line("[ata] probe failure: signature mismatch");
         return false;
@@ -309,24 +288,27 @@ bool ata_pio_ci_probe(void) {
 
     uint8_t write_buffer[ATA_SECTOR_SIZE];
     uint8_t read_buffer[ATA_SECTOR_SIZE];
-
     for (size_t i = 0u; i < ATA_SECTOR_SIZE; ++i) {
         write_buffer[i] = (uint8_t)((i * 29u + 0x5Au) & 0xFFu);
         read_buffer[i] = 0u;
     }
 
-    if (!block_device_write(&primary_master, 1u, 1u, write_buffer)) {
-        log_line("[ata] probe failure: write/flush batch");
+    if (!ata_write_one(1u, write_buffer)) {
+        ata_log_status("[ata] probe failure: WRITE SECTORS completion");
         return false;
     }
+    log_line("[ata] probe stage: WRITE SECTORS completed");
 
-    log_line("[ata] probe stage: write/flush batch completed");
+    if (!ata_cache_flush()) {
+        ata_log_status("[ata] probe failure: CACHE FLUSH");
+        return false;
+    }
+    log_line("[ata] probe stage: CACHE FLUSH completed");
 
     if (!block_device_read(&primary_master, 1u, 1u, read_buffer)) {
         log_line("[ata] probe failure: readback");
         return false;
     }
-
     log_line("[ata] probe stage: readback completed");
 
     for (size_t i = 0u; i < ATA_SECTOR_SIZE; ++i) {
