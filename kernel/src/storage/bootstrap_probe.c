@@ -4,6 +4,7 @@
 #include <aurora/ata_pio.h>
 #include <aurora/aurora_fs.h>
 #include <aurora/aurora_fs_v2_driver.h>
+#include <aurora/aurora_fs_v2_metadata.h>
 #include <aurora/block_device.h>
 #include <aurora/bootstrap_probe.h>
 #include <aurora/exfat.h>
@@ -18,6 +19,9 @@
 #define BOOTSTRAP_PARTITION_MAX 8u
 #define AURORA_SYSTEM_MIN_BYTES (8u * 1024u * 1024u)
 #define AURORA_SYSTEM_BOOTSTRAP_BYTES (16u * 1024u * 1024u)
+#define AURORA_V2_METADATA_TEST_UID 1000u
+#define AURORA_V2_METADATA_TEST_GID 100u
+#define AURORA_V2_METADATA_TEST_MODE 0640u
 
 static bool bytes_equal(const uint8_t *a, const uint8_t *b, size_t length) {
     for (size_t i = 0u; i < length; ++i) {
@@ -83,6 +87,41 @@ static bool choose_system_partition(
     return true;
 }
 
+static void verify_aurora_fs_v2_metadata_persistence(void) {
+    static const char probe_path[] = "/system/aurora.boot-probe";
+    struct aurora_vfs_stat stat;
+    if (!vfs_stat(probe_path, &stat) || stat.type != AURORA_VFS_NODE_FILE)
+        kernel_panic("AuroraFS v2 metadata stat verification failed");
+
+    bool legacy_defaults =
+        stat.uid == 0u && stat.gid == 0u &&
+        stat.mode == AURORA_FS_V2_MODE_FILE_DEFAULT;
+
+    if (legacy_defaults) {
+        if (!vfs_chown(
+                probe_path, AURORA_V2_METADATA_TEST_UID,
+                AURORA_V2_METADATA_TEST_GID) ||
+            !vfs_chmod(probe_path, AURORA_V2_METADATA_TEST_MODE) ||
+            !vfs_stat(probe_path, &stat) ||
+            stat.uid != AURORA_V2_METADATA_TEST_UID ||
+            stat.gid != AURORA_V2_METADATA_TEST_GID ||
+            stat.mode != AURORA_V2_METADATA_TEST_MODE ||
+            stat.link_count != 1u) {
+            kernel_panic("AuroraFS v2 metadata initialization verification failed");
+        }
+        log_line("[vfs] AuroraFS v2 ownership/mode metadata initialized and reread");
+        return;
+    }
+
+    if (stat.uid != AURORA_V2_METADATA_TEST_UID ||
+        stat.gid != AURORA_V2_METADATA_TEST_GID ||
+        stat.mode != AURORA_V2_METADATA_TEST_MODE ||
+        stat.link_count != 1u) {
+        kernel_panic("AuroraFS v2 metadata persistence verification failed");
+    }
+    log_line("[vfs] AuroraFS v2 ownership/mode metadata persisted across reboot");
+}
+
 static void verify_aurora_fs_v2_mount(const struct aurora_partition *system_partition) {
     struct aurora_fs_mount *mount = NULL;
     if (!fs_mount_partition("/system", system_partition, &mount) || mount == NULL ||
@@ -95,6 +134,8 @@ static void verify_aurora_fs_v2_mount(const struct aurora_partition *system_part
             "/system/aurora.boot-probe", expected, sizeof(expected) - 1u)) {
         kernel_panic("AuroraFS v2 VFS persistent file verification failed");
     }
+
+    verify_aurora_fs_v2_metadata_persistence();
 
     static const uint8_t mutation_payload[] = "AURORA-V2-VFS-MUTATION";
     if (!vfs_create_file("/system/.v2-mutation-test") ||
