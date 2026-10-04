@@ -71,6 +71,22 @@ static bool ata_wait_drq(void) {
     return false;
 }
 
+static bool ata_wait_write_complete(void) {
+    for (uint32_t i = 0u; i < ATA_POLL_LIMIT; ++i) {
+        uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
+
+        if ((status & (ATA_STATUS_ERR | ATA_STATUS_DF)) != 0u) {
+            return false;
+        }
+
+        if ((status & (ATA_STATUS_BSY | ATA_STATUS_DRQ)) == 0u) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static bool ata_cache_flush(void) {
     arch_out8(ATA_PRIMARY_IO + ATA_REG_COMMAND, ATA_CMD_CACHE_FLUSH);
 
@@ -145,18 +161,11 @@ static bool ata_write_one(uint32_t lba, const uint8_t *buffer) {
         arch_out16(ATA_PRIMARY_IO + ATA_REG_DATA, word);
     }
 
-    /* The device may assert BSY after the PIO data phase while committing the
-       sector. Do not issue CACHE FLUSH until WRITE SECTORS has completed. */
-    if (!ata_wait_not_busy()) {
-        return false;
-    }
-
-    uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
-    if ((status & (ATA_STATUS_ERR | ATA_STATUS_DF)) != 0u) {
-        return false;
-    }
-
-    return ata_cache_flush();
+    /* PIO WRITE SECTORS is complete only after the device clears both BSY and
+       DRQ. The caller may then submit the next sector or issue one cache flush
+       for the completed batch. */
+    ata_delay_400ns();
+    return ata_wait_write_complete();
 }
 
 static bool ata_block_read(
@@ -202,7 +211,10 @@ static bool ata_block_write(
         }
     }
 
-    return true;
+    /* One durable flush is sufficient for all sectors submitted in this block
+       layer request and avoids thousands of redundant flush commands while
+       AuroraFS writes 4 KiB metadata blocks. */
+    return ata_cache_flush();
 }
 
 bool ata_pio_primary_master_init(void) {
