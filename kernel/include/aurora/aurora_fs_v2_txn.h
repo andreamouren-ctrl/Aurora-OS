@@ -21,7 +21,8 @@ enum aurora_fs_v2_txn_operation {
     AURORA_FS_V2_TXN_OP_RENAME = 5
 };
 
-#define AURORA_FS_V2_TXN_RANGE_CAPACITY 8u
+#define AURORA_FS_V2_TXN_ROLLBACK_RANGE_CAPACITY 4u
+#define AURORA_FS_V2_TXN_CLEANUP_RANGE_CAPACITY 4u
 
 struct aurora_fs_v2_txn_range {
     uint64_t first_block;
@@ -37,8 +38,10 @@ struct aurora_fs_v2_txn_record {
     uint64_t new_root;
     uint64_t old_size;
     uint64_t new_size;
-    uint32_t range_count;
-    struct aurora_fs_v2_txn_range ranges[AURORA_FS_V2_TXN_RANGE_CAPACITY];
+    uint32_t rollback_range_count;
+    uint32_t cleanup_range_count;
+    struct aurora_fs_v2_txn_range rollback_ranges[AURORA_FS_V2_TXN_ROLLBACK_RANGE_CAPACITY];
+    struct aurora_fs_v2_txn_range cleanup_ranges[AURORA_FS_V2_TXN_CLEANUP_RANGE_CAPACITY];
 };
 
 bool aurora_fs_v2_txn_load(
