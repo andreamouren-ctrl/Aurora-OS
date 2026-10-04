@@ -17,6 +17,7 @@
 
 #define BOOTSTRAP_PARTITION_MAX 8u
 #define AURORA_SYSTEM_MIN_BYTES (8u * 1024u * 1024u)
+#define AURORA_SYSTEM_BOOTSTRAP_BYTES (16u * 1024u * 1024u)
 
 static bool bytes_equal(const uint8_t *a, const uint8_t *b, size_t length) {
     for (size_t i = 0u; i < length; ++i) {
@@ -68,13 +69,17 @@ static bool choose_system_partition(
         (AURORA_SYSTEM_MIN_BYTES + device->block_size - 1u) / device->block_size;
     if (tail_blocks < minimum_blocks) return false;
 
+    uint64_t bootstrap_blocks =
+        (AURORA_SYSTEM_BOOTSTRAP_BYTES + device->block_size - 1u) / device->block_size;
+    if (bootstrap_blocks > tail_blocks) bootstrap_blocks = tail_blocks;
+
     for (size_t i = 0u; i < sizeof(*out_partition); ++i)
         ((uint8_t *)out_partition)[i] = 0u;
     out_partition->device = device;
     out_partition->scheme = AURORA_PARTITION_SCHEME_MBR;
     out_partition->index = 0u;
     out_partition->first_lba = tail_start;
-    out_partition->block_count = tail_blocks;
+    out_partition->block_count = bootstrap_blocks;
     return true;
 }
 
