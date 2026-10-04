@@ -112,6 +112,8 @@ jobs:
           grep -F "[ahci] READ DMA EXT LBA0 via block layer verified" "$SERIAL_LOG"
           grep -F "[ahci] signed WRITE DMA EXT + FLUSH CACHE EXT probe passed and restored" "$SERIAL_LOG"
           grep -F "[exfat] synthetic 4096-byte logical-block probe/mount self-test passed" "$SERIAL_LOG"
+          grep -F "[aurorafs-v2] mounted at /system via common filesystem framework" "$SERIAL_LOG"
+          grep -F "[vfs] AuroraFS v2 mounted-path mutation routing verified" "$SERIAL_LOG"
 
           if ! grep -F \
             "[kernel] M1 user-space bootstrap reached successfully" \
@@ -230,10 +232,10 @@ jobs:
 
           grep -F "[ata] signed test disk read/write/flush probe passed" "$ATA_SERIAL_LOG"
           grep -F "[exfat] synthetic 4096-byte logical-block probe/mount self-test passed" "$ATA_SERIAL_LOG"
-          grep -F "[aurorafs] formatted bootstrap filesystem" "$ATA_SERIAL_LOG"
-          grep -F "[aurorafs] persistent file created" "$ATA_SERIAL_LOG"
-          grep -F "[aurorafs] mounted at /system via common filesystem framework" "$ATA_SERIAL_LOG"
-          grep -F "[vfs] AuroraFS mounted-path routing verified" "$ATA_SERIAL_LOG"
+          grep -F "[aurorafs-v2] formatted system filesystem" "$ATA_SERIAL_LOG"
+          grep -F "[aurorafs-v2] persistent file created" "$ATA_SERIAL_LOG"
+          grep -F "[aurorafs-v2] mounted at /system via common filesystem framework" "$ATA_SERIAL_LOG"
+          grep -F "[vfs] AuroraFS v2 mounted-path mutation routing verified" "$ATA_SERIAL_LOG"
           grep -F "[partition] discovered: 2" "$ATA_SERIAL_LOG"
           grep -F "[fs] detected FAT32 on partition 1" "$ATA_SERIAL_LOG"
           grep -F "[fat32] external image mounted read-only" "$ATA_SERIAL_LOG"
@@ -273,14 +275,14 @@ jobs:
           echo "===== Aurora ATA second boot serial log ====="
           cat "$ATA_SERIAL_LOG_2"
 
-          if ! grep -F "[aurorafs] persistent file reopened" "$ATA_SERIAL_LOG_2"; then
-            echo "AuroraFS did not recover the persistent file after reboot" >&2
+          if ! grep -F "[aurorafs-v2] persistent file reopened" "$ATA_SERIAL_LOG_2"; then
+            echo "AuroraFS v2 did not recover the persistent file after reboot" >&2
             tail -n 200 "$ATA_DEBUG_LOG_2" >&2 || true
             exit 1
           fi
 
-          grep -F "[aurorafs] mounted at /system via common filesystem framework" "$ATA_SERIAL_LOG_2"
-          grep -F "[vfs] AuroraFS mounted-path routing verified" "$ATA_SERIAL_LOG_2"
+          grep -F "[aurorafs-v2] mounted at /system via common filesystem framework" "$ATA_SERIAL_LOG_2"
+          grep -F "[vfs] AuroraFS v2 mounted-path mutation routing verified" "$ATA_SERIAL_LOG_2"
           grep -F "[fat32] external file read verified" "$ATA_SERIAL_LOG_2"
           grep -F "[fat32] VFAT long Unicode filename verified" "$ATA_SERIAL_LOG_2"
           grep -F "[vfs] FAT32 mounted-path routing verified" "$ATA_SERIAL_LOG_2"
