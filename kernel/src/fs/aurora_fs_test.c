@@ -3,6 +3,7 @@
 
 #include <aurora/aurora_fs.h>
 #include <aurora/aurora_fs_v2.h>
+#include <aurora/aurora_fs_v2_acl.h>
 #include <aurora/aurora_fs_v2_file_io.h>
 #include <aurora/aurora_fs_v2_inode_publish.h>
 #include <aurora/aurora_fs_v2_integrity.h>
@@ -84,6 +85,8 @@ bool aurora_fs_4kn_self_test(void) {
     log_line("[aurorafs-v2] read-only integrity scan rejects superblock/inode/directory/bitmap/reference corruption on 512/4096-byte devices");
     if (!aurora_fs_v2_metadata_self_test()) return false;
     log_line("[aurorafs-v2] persistent ownership + mode + timestamps metadata self-test passed on 512/4096-byte devices");
+    if (!aurora_fs_v2_acl_self_test()) return false;
+    log_line("[aurorafs-v2] persistent compact ACL + named user/group access evaluation self-test passed on 512/4096-byte devices");
     if (!aurora_fs_v2_allocator_self_test()) return false;
     log_line("[aurorafs-v2] multi-block bitmap + cross-boundary range allocator self-test passed on 512/4096-byte devices");
     if (!aurora_fs_v2_formatter_self_test()) return false;

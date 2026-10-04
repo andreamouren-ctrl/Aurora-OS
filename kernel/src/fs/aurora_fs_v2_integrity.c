@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include <aurora/aurora_fs_v2_integrity.h>
+#include <aurora/aurora_fs_v2_metadata.h>
 #include <aurora/aurora_fs_v2_objects.h>
 #include <aurora/aurora_fs_v2_txn.h>
 #include <aurora/block_device.h>
@@ -551,7 +552,15 @@ bool aurora_fs_v2_integrity_check_full(
             out_report->failing_inode_index = index;
             return false;
         }
-        if (inode.object_id != 0u) out_report->active_inodes++;
+        if (inode.object_id != 0u) {
+            struct aurora_fs_v2_metadata metadata;
+            if (!aurora_fs_v2_metadata_read(device, &geometry, index, &metadata)) {
+                out_report->error = AURORA_FS_V2_INTEGRITY_BAD_METADATA;
+                out_report->failing_inode_index = index;
+                return false;
+            }
+            out_report->active_inodes++;
+        }
     }
 
     for (uint64_t index = 0u; index < inode_capacity; ++index) {
@@ -670,6 +679,16 @@ static bool run_integrity_test(uint32_t block_size) {
     inode1->type = 99u;
     if (!expect_failure(&device, AURORA_FS_V2_INTEGRITY_BAD_INODE)) return false;
     inode1->type = saved_type;
+
+    if (!aurora_fs_v2_metadata_initialize(
+            &device, &geometry, 1u, AURORA_FS_V2_OBJECT_FILE,
+            7u, 9u, 0640u, 0u)) return false;
+    if (!aurora_fs_v2_integrity_check_full(
+            &device, AURORA_FS_V2_DEFAULT_BASE_BYTES, &report)) return false;
+    uint8_t saved_metadata_magic = inode1->reserved1[0];
+    inode1->reserved1[0] ^= 1u;
+    if (!expect_failure(&device, AURORA_FS_V2_INTEGRITY_BAD_METADATA)) return false;
+    inode1->reserved1[0] = saved_metadata_magic;
 
     uint64_t root_offset = geometry.base_bytes +
         geometry.inode_start * AURORA_FS_V2_FS_BLOCK_SIZE;
