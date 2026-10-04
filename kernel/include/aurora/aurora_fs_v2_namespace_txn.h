@@ -34,5 +34,6 @@ bool aurora_fs_v2_remove_child_txn(
 );
 
 bool aurora_fs_v2_namespace_txn_self_test(void);
+bool aurora_fs_v2_namespace_txn_runtime_self_test(void);
 
 #endif
