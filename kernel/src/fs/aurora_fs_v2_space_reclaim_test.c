@@ -132,8 +132,13 @@ static bool seed_tree_file(
             .physical_block = physical[i],
             .block_count = 1u
         };
-        if (!aurora_fs_v2_inode_extent_append(
-                allocator, geometry, inode_index, &extent)) return false;
+        if (i < AURORA_FS_V2_INLINE_EXTENT_COUNT + 1u) {
+            if (!aurora_fs_v2_inode_extent_append(
+                    allocator, geometry, inode_index, &extent)) return false;
+        } else {
+            if (!aurora_fs_v2_inode_extent_append_tree_cow(
+                    allocator, geometry, inode_index, &extent)) return false;
+        }
     }
     return true;
 }
