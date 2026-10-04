@@ -12,14 +12,20 @@
 #define V2TX_MAGIC_5 'N'
 #define V2TX_MAGIC_6 '2'
 #define V2TX_MAGIC_7 '\0'
-#define V2TX_VERSION 1u
+#define V2TX_VERSION 2u
 #define V2TX_SUPERBLOCK_CHECKSUM_OFFSET 96u
 #define V2TX_RECORD_OFFSET 128u
-#define V2TX_RECORD_SIZE 256u
+#define V2TX_RECORD_SIZE 768u
 
 struct v2tx_range_disk {
     uint64_t first_block;
     uint64_t block_count;
+} __attribute__((packed));
+
+struct v2tx_namespace_slot_disk {
+    uint64_t record_index;
+    uint8_t before[AURORA_FS_V2_TXN_NAMESPACE_RECORD_SIZE];
+    uint8_t after[AURORA_FS_V2_TXN_NAMESPACE_RECORD_SIZE];
 } __attribute__((packed));
 
 struct v2tx_record_disk {
@@ -37,20 +43,31 @@ struct v2tx_record_disk {
     uint64_t new_size;
     struct v2tx_range_disk rollback_ranges[AURORA_FS_V2_TXN_ROLLBACK_RANGE_CAPACITY];
     struct v2tx_range_disk cleanup_ranges[AURORA_FS_V2_TXN_CLEANUP_RANGE_CAPACITY];
+    uint64_t parent_inode_index;
+    uint64_t child_inode_index;
+    uint64_t child_object_id;
+    uint32_t namespace_slot_count;
+    uint32_t namespace_flags;
+    struct v2tx_namespace_slot_disk namespace_slots[AURORA_FS_V2_TXN_NAMESPACE_SLOT_CAPACITY];
     uint32_t checksum;
-    uint8_t reserved[48];
 } __attribute__((packed));
 
 static uint8_t v2tx_superblock[AURORA_FS_V2_FS_BLOCK_SIZE];
 
 _Static_assert(sizeof(struct v2tx_record_disk) == V2TX_RECORD_SIZE,
-               "AuroraFS v2 transaction record must remain 256 bytes");
+               "AuroraFS v2 transaction record must remain 768 bytes");
 _Static_assert(V2TX_RECORD_OFFSET + V2TX_RECORD_SIZE <= AURORA_FS_V2_FS_BLOCK_SIZE,
                "AuroraFS v2 transaction record must fit in superblock reserved area");
 
 static void zero_bytes(void *buffer, size_t length) {
     uint8_t *bytes = buffer;
     for (size_t i = 0u; i < length; ++i) bytes[i] = 0u;
+}
+
+static void copy_bytes(void *destination, const void *source, size_t length) {
+    uint8_t *out = destination;
+    const uint8_t *in = source;
+    for (size_t i = 0u; i < length; ++i) out[i] = in[i];
 }
 
 static uint32_t crc32_ieee(const uint8_t *data, size_t length) {
@@ -167,6 +184,7 @@ bool aurora_fs_v2_txn_load(
         !operation_valid(disk->operation) ||
         disk->rollback_range_count > AURORA_FS_V2_TXN_ROLLBACK_RANGE_CAPACITY ||
         disk->cleanup_range_count > AURORA_FS_V2_TXN_CLEANUP_RANGE_CAPACITY ||
+        disk->namespace_slot_count > AURORA_FS_V2_TXN_NAMESPACE_SLOT_CAPACITY ||
         disk->checksum != record_checksum(disk)) return false;
 
     out_record->state = (enum aurora_fs_v2_txn_state)disk->state;
@@ -187,6 +205,19 @@ bool aurora_fs_v2_txn_load(
         out_record->cleanup_ranges[i].first_block = disk->cleanup_ranges[i].first_block;
         out_record->cleanup_ranges[i].block_count = disk->cleanup_ranges[i].block_count;
     }
+
+    out_record->parent_inode_index = disk->parent_inode_index;
+    out_record->child_inode_index = disk->child_inode_index;
+    out_record->child_object_id = disk->child_object_id;
+    out_record->namespace_slot_count = disk->namespace_slot_count;
+    out_record->namespace_flags = disk->namespace_flags;
+    for (uint32_t i = 0u; i < disk->namespace_slot_count; ++i) {
+        out_record->namespace_slots[i].record_index = disk->namespace_slots[i].record_index;
+        copy_bytes(out_record->namespace_slots[i].before, disk->namespace_slots[i].before,
+                   AURORA_FS_V2_TXN_NAMESPACE_RECORD_SIZE);
+        copy_bytes(out_record->namespace_slots[i].after, disk->namespace_slots[i].after,
+                   AURORA_FS_V2_TXN_NAMESPACE_RECORD_SIZE);
+    }
     return true;
 }
 
@@ -200,6 +231,7 @@ bool aurora_fs_v2_txn_prepare(
         record->operation == AURORA_FS_V2_TXN_OP_NONE ||
         record->rollback_range_count > AURORA_FS_V2_TXN_ROLLBACK_RANGE_CAPACITY ||
         record->cleanup_range_count > AURORA_FS_V2_TXN_CLEANUP_RANGE_CAPACITY ||
+        record->namespace_slot_count > AURORA_FS_V2_TXN_NAMESPACE_SLOT_CAPACITY ||
         !read_superblock(device, base_bytes)) return false;
 
     struct v2tx_record_disk *disk = disk_record();
@@ -224,6 +256,20 @@ bool aurora_fs_v2_txn_prepare(
         disk->cleanup_ranges[i].first_block = record->cleanup_ranges[i].first_block;
         disk->cleanup_ranges[i].block_count = record->cleanup_ranges[i].block_count;
     }
+
+    disk->parent_inode_index = record->parent_inode_index;
+    disk->child_inode_index = record->child_inode_index;
+    disk->child_object_id = record->child_object_id;
+    disk->namespace_slot_count = record->namespace_slot_count;
+    disk->namespace_flags = record->namespace_flags;
+    for (uint32_t i = 0u; i < record->namespace_slot_count; ++i) {
+        disk->namespace_slots[i].record_index = record->namespace_slots[i].record_index;
+        copy_bytes(disk->namespace_slots[i].before, record->namespace_slots[i].before,
+                   AURORA_FS_V2_TXN_NAMESPACE_RECORD_SIZE);
+        copy_bytes(disk->namespace_slots[i].after, record->namespace_slots[i].after,
+                   AURORA_FS_V2_TXN_NAMESPACE_RECORD_SIZE);
+    }
+
     disk->checksum = record_checksum(disk);
     update_superblock_checksum();
     return write_superblock(device, base_bytes);
