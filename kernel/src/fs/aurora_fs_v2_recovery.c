@@ -172,7 +172,3 @@ bool aurora_fs_v2_recover_pending_transaction(
 
     return false;
 }
-
-bool aurora_fs_v2_recovery_self_test(void) {
-    return true;
-}
