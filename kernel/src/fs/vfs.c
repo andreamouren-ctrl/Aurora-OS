@@ -229,6 +229,31 @@ bool vfs_chown(const char *path, uint32_t uid, uint32_t gid) {
         mount->driver->chown(mount->context, relative_path, uid, gid);
 }
 
+bool vfs_sync(const char *path) {
+    if (!vfs_initialized || path == NULL || path[0] != '/') return false;
+    const char *relative_path = NULL;
+    const struct aurora_fs_mount *mount = vfs_resolve_mount(path, &relative_path);
+    (void)relative_path;
+    return mount != NULL && mount->driver != NULL && mount->driver->sync != NULL &&
+        mount->driver->sync(mount->context);
+}
+
+bool vfs_fsync(const char *path) {
+    if (!vfs_initialized || !vfs_path_valid(path)) return false;
+    const char *relative_path = NULL;
+    const struct aurora_fs_mount *mount = vfs_resolve_mount(path, &relative_path);
+    return mount != NULL && mount->driver != NULL && mount->driver->fsync != NULL &&
+        mount->driver->fsync(mount->context, relative_path);
+}
+
+bool vfs_fdatasync(const char *path) {
+    if (!vfs_initialized || !vfs_path_valid(path)) return false;
+    const char *relative_path = NULL;
+    const struct aurora_fs_mount *mount = vfs_resolve_mount(path, &relative_path);
+    return mount != NULL && mount->driver != NULL && mount->driver->fdatasync != NULL &&
+        mount->driver->fdatasync(mount->context, relative_path);
+}
+
 bool vfs_write_file(const char *path, const void *data, size_t length) {
     if (!vfs_initialized || path == NULL || data == NULL) return false;
     const char *relative_path = NULL;
