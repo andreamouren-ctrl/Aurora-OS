@@ -18,6 +18,16 @@ enum aurora_vfs_node_type {
 struct aurora_vfs_stat {
     enum aurora_vfs_node_type type;
     uint64_t size;
+    uint64_t allocated_size;
+    uint64_t created_time_ns;
+    uint64_t changed_time_ns;
+    uint64_t modified_time_ns;
+    uint64_t accessed_time_ns;
+    uint64_t filesystem_id;
+    uint32_t uid;
+    uint32_t gid;
+    uint32_t mode;
+    uint32_t link_count;
 };
 
 bool vfs_init(void);
@@ -27,6 +37,8 @@ bool vfs_remove(const char *path);
 bool vfs_rename(const char *old_path, const char *new_path);
 bool vfs_truncate_file(const char *path, uint64_t size);
 bool vfs_stat(const char *path, struct aurora_vfs_stat *out_stat);
+bool vfs_chmod(const char *path, uint32_t mode);
+bool vfs_chown(const char *path, uint32_t uid, uint32_t gid);
 
 bool vfs_write_file(
     const char *path,
