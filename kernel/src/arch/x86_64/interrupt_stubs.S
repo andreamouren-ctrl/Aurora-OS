@@ -65,6 +65,13 @@ isr_stub_keyboard:
     pushq $65
     jmp isr_common
 
+.global isr_stub_reschedule
+.type isr_stub_reschedule, @function
+isr_stub_reschedule:
+    pushq $0
+    pushq $66
+    jmp isr_common
+
 .global isr_stub_spurious
 .type isr_stub_spurious, @function
 isr_stub_spurious:
