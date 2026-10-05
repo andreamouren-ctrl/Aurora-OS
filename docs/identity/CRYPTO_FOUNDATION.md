@@ -1,11 +1,11 @@
 # Aurora Identity Crypto Foundation
 
 Status: **isolated implementation foundation**
-Version: **0.1**
+Version: **0.2**
 
 ## 1. Purpose
 
-This milestone provides the first reusable cryptographic building blocks for Aurora Identity without claiming that Aurora OS already has a complete production entropy or password-verification subsystem.
+This layer provides reusable cryptographic building blocks for Aurora Identity without claiming that Aurora OS already has a complete production entropy, protected-key, or live authentication subsystem.
 
 Implemented in `services/identity/`:
 
@@ -15,7 +15,8 @@ Implemented in `services/identity/`:
 - HMAC-DRBG using HMAC-SHA256;
 - domain-separated HMAC lookup tags for Aurora Key indexing;
 - domain-separated HMAC tags for one-time Session Grant tokens;
-- an Identity random-provider adapter backed by an already-instantiated HMAC-DRBG.
+- an Identity random-provider adapter backed by an already-instantiated HMAC-DRBG;
+- an isolated Argon2id verifier provider backed by the pinned official Argon2 reference implementation.
 
 ## 2. Security boundary
 
@@ -29,7 +30,7 @@ The current API therefore requires entropy and nonce bytes explicitly. Tests use
 
 ### No blind dependence on CPU random instructions
 
-This milestone does not treat `RDRAND`, timing jitter, TSC values, device serials, or other convenient machine values as a production entropy source merely because they are available.
+This foundation does not treat `RDRAND`, timing jitter, TSC values, device serials, or other convenient machine values as a production entropy source merely because they are available.
 
 Future platform work must define how Aurora collects, health-checks, combines, and exposes entropy before the Identity Service can label its random provider production-ready.
 
@@ -58,7 +59,7 @@ The DRBG is intended to produce values such as:
 
 Aurora login intentionally has no public username field. Identity must therefore find the candidate Aurora Key record before running Argon2id.
 
-The crypto provider now derives:
+The crypto provider derives:
 
 ```text
 lookup_tag = HMAC-SHA256(
@@ -76,7 +77,7 @@ Properties:
 
 The `lookup_key` is a protected machine/service secret and **must remain stable across reboot**. Regenerating it on every boot would make existing lookup tags unreproducible.
 
-Provisioning, protected persistence, rotation, and migration of this key remain future Protected System State work.
+Provisioning, protected persistence, rotation, and migration of this key remain Protected System State work.
 
 ## 5. Session Grant token tags
 
@@ -104,18 +105,32 @@ Do not reuse one HMAC key for unrelated Identity protocols.
 
 Future recovery, audit authentication, storage integrity, or device-pairing protocols should receive their own derived/key-separated domains as required by their threat models.
 
-## 7. Argon2id remains separate
+## 7. Argon2id verifier
 
-This milestone does **not** implement the Aurora Key verifier itself.
+Aurora now has an isolated Argon2id provider backed by the official PHC reference implementation, pinned at commit:
 
-The target remains Argon2id with:
+```text
+f57e61e19229e23c4445b85494dbf7c07de721cb
+```
 
-- unique random salt per credential;
-- versioned memory/time/parallelism parameters;
-- constant-time comparison where applicable;
-- parameters selected against real Aurora hardware targets.
+Aurora parameter version 1 maps to Argon2 version 1.3 (`v=19`) and direct stored memory/time/parallelism values after validation.
 
-The HMAC lookup tag is an index only. It is never sufficient to authenticate a user.
+Before any memory-hard operation, the provider enforces configured bounds for:
+
+- memory KiB;
+- time cost;
+- parallelism;
+- salt length;
+- verifier length;
+- Argon2 minimum memory-per-lane requirement.
+
+This means a corrupted or malicious record cannot request unbounded RAM/CPU merely by changing persisted KDF metadata.
+
+Verifier comparison uses Aurora's constant-time equality helper, and temporary derived verifier bytes are explicitly cleared.
+
+The official RFC 9106 Argon2id test vector is part of CI coverage.
+
+See `ARGON2ID_PROVIDER.md` for the implementation boundary and remaining integration requirements.
 
 ## 8. Test coverage
 
@@ -128,7 +143,10 @@ Host-side tests include:
 - fixed lookup-tag vector;
 - fixed Session Grant tag vector;
 - domain/key separation checks;
-- random-provider generation through the provider adapter.
+- random-provider generation through the provider adapter;
+- RFC 9106 Argon2id v=19 vector;
+- Argon2id adapter derive/verify paths;
+- resource-bound and parameter-version rejection.
 
 ## 9. Remaining production gates
 
@@ -137,7 +155,7 @@ Before this foundation can be used by the live Aurora Identity Service, Aurora s
 1. a reviewed kernel/platform entropy collection subsystem;
 2. secure DRBG initial seeding and periodic reseeding policy;
 3. protected provisioning/storage of the persistent lookup HMAC key;
-4. Argon2id implementation and parameter calibration;
+4. Argon2id parameter calibration for supported Aurora hardware classes;
 5. protected AuroraFS system state;
 6. Ring 3 Identity Service lifecycle and capability-authorized IPC;
 7. secure memory/secret-lifetime hardening appropriate to the final service runtime.
