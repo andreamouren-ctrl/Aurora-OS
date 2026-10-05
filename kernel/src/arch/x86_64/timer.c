@@ -9,7 +9,7 @@
 
 #define LAPIC_DIVIDE_BY_16 0x3u
 #define LAPIC_MIN_ONESHOT_NS 1000000ull
-#define AP_BOOTSTRAP_QUANTUM_NS 4000000ull
+#define AP_BOOTSTRAP_PREEMPTION_NS 4000000ull
 
 /* The callback is installed once by the scheduler and then read-only. */
 static timer_callback_fn callback_fn;
@@ -43,7 +43,7 @@ static struct interrupt_frame *timer_interrupt(
      * callback path unchanged.
      */
     if (cpu != NULL && cpu->bootstrap_cpu == 0u) {
-        (void)timer_arm_ns(AP_BOOTSTRAP_QUANTUM_NS);
+        (void)timer_arm_ns(AP_BOOTSTRAP_PREEMPTION_NS);
         return frame;
     }
 
