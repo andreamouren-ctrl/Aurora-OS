@@ -6,8 +6,10 @@
 #include <aurora/boot.h>
 #include <aurora/clock.h>
 #include <aurora/cpu_local.h>
+#include <aurora/cpu_topology.h>
 #include <aurora/interrupts.h>
 #include <aurora/gdt.h>
+#include <aurora/log.h>
 #include <aurora/scheduler.h>
 #include <aurora/smp.h>
 #include <aurora/syscall.h>
@@ -26,6 +28,88 @@ static volatile uint32_t timer_ready_count;
 static volatile uint32_t timer_prepare_target;
 static volatile uint32_t scheduler_ap_count;
 static volatile bool scheduler_release;
+
+static bool cpu_online_with_topology(uint32_t index) {
+    return index < cpu_count &&
+        __atomic_load_n(&cpus[index].state, __ATOMIC_ACQUIRE) ==
+            AURORA_CPU_ONLINE &&
+        cpus[index].topology.valid;
+}
+
+uint32_t smp_package_count(void) {
+    uint32_t count = 0u;
+
+    for (uint32_t i = 0u; i < cpu_count; ++i) {
+        if (!cpu_online_with_topology(i)) continue;
+
+        uint32_t package_id = cpus[i].topology.package_id;
+        bool seen = false;
+
+        for (uint32_t j = 0u; j < i; ++j) {
+            if (cpu_online_with_topology(j) &&
+                cpus[j].topology.package_id == package_id) {
+                seen = true;
+                break;
+            }
+        }
+
+        if (!seen) ++count;
+    }
+
+    return count;
+}
+
+uint32_t smp_physical_core_count(void) {
+    uint32_t count = 0u;
+
+    for (uint32_t i = 0u; i < cpu_count; ++i) {
+        if (!cpu_online_with_topology(i)) continue;
+
+        uint32_t package_id = cpus[i].topology.package_id;
+        uint32_t core_id = cpus[i].topology.core_id;
+        bool seen = false;
+
+        for (uint32_t j = 0u; j < i; ++j) {
+            if (cpu_online_with_topology(j) &&
+                cpus[j].topology.package_id == package_id &&
+                cpus[j].topology.core_id == core_id) {
+                seen = true;
+                break;
+            }
+        }
+
+        if (!seen) ++count;
+    }
+
+    return count;
+}
+
+uint32_t smp_max_threads_per_core(void) {
+    uint32_t maximum = 0u;
+
+    for (uint32_t i = 0u; i < cpu_count; ++i) {
+        if (!cpu_online_with_topology(i)) continue;
+
+        if (cpus[i].topology.threads_per_core > maximum)
+            maximum = cpus[i].topology.threads_per_core;
+    }
+
+    return maximum;
+}
+
+static void log_topology_summary(void) {
+    log_write("[smp] packages: ");
+    log_u64(smp_package_count());
+    log_line("");
+
+    log_write("[smp] physical cores: ");
+    log_u64(smp_physical_core_count());
+    log_line("");
+
+    log_write("[smp] SMT threads/core: ");
+    log_u64(smp_max_threads_per_core());
+    log_line("");
+}
 
 static void ap_fail(struct aurora_cpu_runtime *cpu) {
     if (cpu != NULL) {
@@ -97,7 +181,8 @@ static void ap_entry(
             cpu_local_at(cpu->logical_id);
 
         ok = local != NULL &&
-            local->lapic_id == lapic_id_value;
+            local->lapic_id == lapic_id_value &&
+            cpu_topology_detect_current(&cpu->topology);
     }
 
     if (ok) {
@@ -160,12 +245,6 @@ static void ap_entry(
         ap_scheduler_fail(cpu);
     }
 
-    /*
-     * Ownership becomes externally visible only after a valid scheduler frame
-     * exists. interrupt_enter_frame() is a one-way transition: after this
-     * point the AP executes on its dedicated idle thread stack and timer
-     * preemption may perform ordinary scheduler context switches.
-     */
     __atomic_fetch_add(
         &scheduler_ap_count,
         1u,
@@ -212,6 +291,7 @@ bool smp_init(void) {
         cpu->processor_id = boot_cpu.processor_id;
         cpu->lapic_id = boot_cpu.lapic_id;
         cpu->bootstrap = boot_cpu.bootstrap;
+        cpu->topology.valid = false;
         cpu->state = boot_cpu.bootstrap
             ? AURORA_CPU_ONLINE
             : AURORA_CPU_OFFLINE;
@@ -223,6 +303,12 @@ bool smp_init(void) {
         }
 
         if (boot_cpu.bootstrap) {
+            if (!cpu_topology_detect_current(&cpu->topology)) {
+                cpu->state = AURORA_CPU_FAILED;
+                __atomic_fetch_add(&failed_count, 1u, __ATOMIC_ACQ_REL);
+                continue;
+            }
+
             found_bsp = true;
             __atomic_fetch_add(&online_count, 1u, __ATOMIC_ACQ_REL);
         }
@@ -263,22 +349,29 @@ bool smp_init(void) {
         ++started_aps;
     }
 
-    if (started_aps == 0) {
-        return failed_count == 0;
+    if (started_aps != 0u) {
+        uint64_t deadline = clock_now_ns() + 1000000000ull;
+
+        while (__atomic_load_n(&response_count, __ATOMIC_ACQUIRE) < started_aps &&
+               clock_now_ns() < deadline) {
+            __asm__ volatile ("pause");
+        }
+
+        if (__atomic_load_n(&response_count, __ATOMIC_ACQUIRE) != started_aps) {
+            return false;
+        }
     }
 
-    uint64_t deadline = clock_now_ns() + 1000000000ull;
-
-    while (__atomic_load_n(&response_count, __ATOMIC_ACQUIRE) < started_aps &&
-           clock_now_ns() < deadline) {
-        __asm__ volatile ("pause");
-    }
-
-    if (__atomic_load_n(&response_count, __ATOMIC_ACQUIRE) != started_aps) {
+    if (__atomic_load_n(&failed_count, __ATOMIC_ACQUIRE) != 0u ||
+        smp_online_cpu_count() != cpu_count ||
+        smp_package_count() == 0u ||
+        smp_physical_core_count() == 0u ||
+        smp_max_threads_per_core() == 0u) {
         return false;
     }
 
-    return __atomic_load_n(&failed_count, __ATOMIC_ACQUIRE) == 0;
+    log_topology_summary();
+    return true;
 }
 
 bool smp_prepare_ap_timers(void) {

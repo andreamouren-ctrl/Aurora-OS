@@ -79,7 +79,7 @@ jobs:
           timeout 15s qemu-system-x86_64 \
             -M q35 \
             -m 512M \
-            -smp 4 \
+            -smp 4,sockets=1,cores=2,threads=2 \
             -vga std \
             -cdrom build/AuroraOS-x86_64.iso \
             -drive file="$STORAGE_IMAGE",format=raw,if=none,id=aurora_disk \
@@ -105,6 +105,9 @@ jobs:
           grep -F "[cpu] bootstrap CPU-local state initialized" "$SERIAL_LOG"
           grep -F "[smp] CPUs reported: 4" "$SERIAL_LOG"
           grep -F "[smp] CPUs online: 4" "$SERIAL_LOG"
+          grep -F "[smp] packages: 1" "$SERIAL_LOG"
+          grep -F "[smp] physical cores: 2" "$SERIAL_LOG"
+          grep -F "[smp] SMT threads/core: 2" "$SERIAL_LOG"
           grep -F "[smp] CPU-local execution state ready; APs awaiting scheduler release" "$SERIAL_LOG"
           grep -F "[sched] scheduler-owned CPUs: 4" "$SERIAL_LOG"
           grep -F "[sched] AP local timer preemption CPUs: 3" "$SERIAL_LOG"
