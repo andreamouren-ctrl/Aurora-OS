@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include <aurora/arch.h>
+#include <aurora/cpu_local.h>
 #include <aurora/gdt.h>
 #include <aurora/heap.h>
 #include <aurora/interrupts.h>
@@ -40,12 +41,9 @@ struct scheduler_thread {
 };
 
 static struct scheduler_thread threads[SCHEDULER_MAX_THREADS];
-static uint32_t current_index;
-static uint32_t idle_index;
 static aurora_thread_id next_id;
 static bool initialized;
 static bool started;
-static uint64_t context_switches;
 static aurora_spinlock scheduler_lock = AURORA_SPINLOCK_INIT;
 
 static void copy_name(char destination[32], const char *source) {
@@ -73,6 +71,12 @@ static struct scheduler_thread *find_thread_locked(aurora_thread_id id) {
             return &threads[i];
     }
     return NULL;
+}
+
+static struct aurora_cpu_local *current_cpu_locked(void) {
+    struct aurora_cpu_local *cpu = cpu_local_current();
+    if (cpu == NULL) kernel_panic("Scheduler has no CPU-local state");
+    return cpu;
 }
 
 static uint64_t thread_kernel_stack_top(const struct scheduler_thread *thread) {
@@ -199,7 +203,8 @@ static void thread_trampoline(struct scheduler_thread *thread) {
     for (;;) arch_idle();
 }
 
-static uint32_t find_next_thread_locked(void) {
+static uint32_t find_next_thread_locked(struct aurora_cpu_local *cpu) {
+    uint32_t current_index = cpu->scheduler_current_index;
     for (uint32_t offset = 1u; offset <= SCHEDULER_MAX_THREADS; ++offset) {
         uint32_t index = (current_index + offset) % SCHEDULER_MAX_THREADS;
         if (index == current_index) continue;
@@ -211,6 +216,7 @@ static uint32_t find_next_thread_locked(void) {
         threads[current_index].state == THREAD_RUNNABLE)
         return current_index;
 
+    uint32_t idle_index = cpu->scheduler_idle_index;
     if (idle_index < SCHEDULER_MAX_THREADS &&
         threads[idle_index].state == THREAD_RUNNABLE)
         return idle_index;
@@ -240,8 +246,10 @@ static void prepare_thread(struct scheduler_thread *thread) {
     }
 }
 
-static struct interrupt_frame *select_after_current_stops_locked(void) {
-    uint32_t next_index = find_next_thread_locked();
+static struct interrupt_frame *select_after_current_stops_locked(
+    struct aurora_cpu_local *cpu
+) {
+    uint32_t next_index = find_next_thread_locked(cpu);
     if (next_index == SCHEDULER_MAX_THREADS)
         kernel_panic("Scheduler has no runnable thread");
 
@@ -250,13 +258,13 @@ static struct interrupt_frame *select_after_current_stops_locked(void) {
         kernel_panic("Runnable thread has no saved frame");
 
     next->state = THREAD_RUNNING;
-    if (next_index != current_index) {
-        current_index = next_index;
-        ++context_switches;
+    if (next_index != cpu->scheduler_current_index) {
+        cpu->scheduler_current_index = next_index;
+        ++cpu->scheduler_context_switches;
     }
 
     prepare_thread(next);
-    if (has_other_useful_runnable_locked(current_index))
+    if (has_other_useful_runnable_locked(cpu->scheduler_current_index))
         (void)timer_arm_ns(SCHEDULER_QUANTUM_NS);
     else
         timer_cancel();
@@ -266,6 +274,8 @@ static struct interrupt_frame *select_after_current_stops_locked(void) {
 
 static struct interrupt_frame *scheduler_on_timer(struct interrupt_frame *frame) {
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
+    struct aurora_cpu_local *cpu = current_cpu_locked();
+    uint32_t current_index = cpu->scheduler_current_index;
 
     if (!started || current_index >= SCHEDULER_MAX_THREADS) {
         spinlock_unlock_irqrestore(&scheduler_lock, irq);
@@ -275,7 +285,7 @@ static struct interrupt_frame *scheduler_on_timer(struct interrupt_frame *frame)
     struct scheduler_thread *current = &threads[current_index];
     current->saved_frame = frame;
     if (current->state == THREAD_RUNNING) current->state = THREAD_RUNNABLE;
-    struct interrupt_frame *next = select_after_current_stops_locked();
+    struct interrupt_frame *next = select_after_current_stops_locked(cpu);
 
     spinlock_unlock_irqrestore(&scheduler_lock, irq);
     return next;
@@ -286,14 +296,15 @@ bool scheduler_init(void) {
 
     spinlock_init(&scheduler_lock);
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
+    struct aurora_cpu_local *cpu = current_cpu_locked();
 
     for (uint32_t i = 0u; i < SCHEDULER_MAX_THREADS; ++i)
         clear_bytes(&threads[i], sizeof(threads[i]));
 
-    current_index = 0u;
-    idle_index = SCHEDULER_MAX_THREADS;
+    cpu->scheduler_current_index = 0u;
+    cpu->scheduler_idle_index = SCHEDULER_MAX_THREADS;
+    cpu->scheduler_context_switches = 0u;
     next_id = 1u;
-    context_switches = 0u;
     initialized = false;
     started = false;
 
@@ -316,11 +327,11 @@ bool scheduler_init(void) {
 
     for (uint32_t i = 0u; i < SCHEDULER_MAX_THREADS; ++i) {
         if (threads[i].id == idle_id) {
-            idle_index = i;
+            cpu->scheduler_idle_index = i;
             break;
         }
     }
-    if (idle_index == SCHEDULER_MAX_THREADS) {
+    if (cpu->scheduler_idle_index == SCHEDULER_MAX_THREADS) {
         spinlock_unlock_irqrestore(&scheduler_lock, irq);
         return false;
     }
@@ -357,13 +368,14 @@ aurora_thread_id scheduler_create_user_thread(
 
 bool scheduler_start(void) {
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
+    struct aurora_cpu_local *cpu = current_cpu_locked();
     if (!initialized || started) {
         spinlock_unlock_irqrestore(&scheduler_lock, irq);
         return false;
     }
 
     started = true;
-    if (has_other_useful_runnable_locked(current_index) &&
+    if (has_other_useful_runnable_locked(cpu->scheduler_current_index) &&
         !timer_arm_ns(SCHEDULER_QUANTUM_NS)) {
         started = false;
         spinlock_unlock_irqrestore(&scheduler_lock, irq);
@@ -385,6 +397,8 @@ bool scheduler_thread_finished(aurora_thread_id id) {
 
 aurora_thread_id scheduler_current_thread_id(void) {
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
+    struct aurora_cpu_local *cpu = current_cpu_locked();
+    uint32_t current_index = cpu->scheduler_current_index;
     aurora_thread_id id = current_index < SCHEDULER_MAX_THREADS
         ? threads[current_index].id : 0u;
     spinlock_unlock_irqrestore(&scheduler_lock, irq);
@@ -393,6 +407,8 @@ aurora_thread_id scheduler_current_thread_id(void) {
 
 struct aurora_process *scheduler_current_process(void) {
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
+    struct aurora_cpu_local *cpu = current_cpu_locked();
+    uint32_t current_index = cpu->scheduler_current_index;
     struct aurora_process *process = current_index < SCHEDULER_MAX_THREADS
         ? threads[current_index].process : NULL;
     spinlock_unlock_irqrestore(&scheduler_lock, irq);
@@ -401,6 +417,8 @@ struct aurora_process *scheduler_current_process(void) {
 
 struct interrupt_frame *scheduler_terminate_current(void) {
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
+    struct aurora_cpu_local *cpu = current_cpu_locked();
+    uint32_t current_index = cpu->scheduler_current_index;
     if (!started || current_index >= SCHEDULER_MAX_THREADS)
         kernel_panic("Invalid scheduler termination request");
 
@@ -409,14 +427,18 @@ struct interrupt_frame *scheduler_terminate_current(void) {
         kernel_panic("Kernel thread termination through user path");
 
     current->state = THREAD_TERMINATED;
-    struct interrupt_frame *next = select_after_current_stops_locked();
+    struct interrupt_frame *next = select_after_current_stops_locked(cpu);
     spinlock_unlock_irqrestore(&scheduler_lock, irq);
     return next;
 }
 
 uint64_t scheduler_context_switch_count(void) {
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
-    uint64_t count = context_switches;
+    uint64_t count = 0u;
+    for (uint32_t i = 0u; i < AURORA_MAX_SMP_CPUS; ++i) {
+        struct aurora_cpu_local *cpu = cpu_local_at(i);
+        if (cpu != NULL) count += cpu->scheduler_context_switches;
+    }
     spinlock_unlock_irqrestore(&scheduler_lock, irq);
     return count;
 }
