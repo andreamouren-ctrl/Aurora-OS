@@ -136,13 +136,6 @@ static void ap_entry(
         arch_halt();
     }
 
-    /*
-     * Timer preparation is a separate bootstrap phase. The BSP installs the
-     * shared IDT timer handler first, then releases exactly one AP at a time
-     * to calibrate/program its Local APIC timer with IF still clear. This
-     * keeps AP timer calibration out of the scheduler handoff critical path
-     * and makes failures independently observable.
-     */
     while (__atomic_load_n(&timer_prepare_target, __ATOMIC_ACQUIRE) !=
            cpu->logical_id) {
         __asm__ volatile ("pause");
@@ -158,28 +151,28 @@ static void ap_entry(
         __ATOMIC_ACQ_REL
     );
 
-    /*
-     * The AP is timer-ready but cannot enter scheduler ownership until the
-     * BSP has initialized heap/scheduler and assigned a dedicated idle thread.
-     * Keep interrupts disabled while waiting.
-     */
     while (!__atomic_load_n(&scheduler_release, __ATOMIC_ACQUIRE)) {
         __asm__ volatile ("pause");
     }
 
-    if (!scheduler_start_ap()) {
+    struct interrupt_frame *idle_frame = scheduler_start_ap();
+    if (idle_frame == NULL) {
         ap_scheduler_fail(cpu);
     }
 
+    /*
+     * Ownership becomes externally visible only after a valid scheduler frame
+     * exists. interrupt_enter_frame() is a one-way transition: after this
+     * point the AP executes on its dedicated idle thread stack and timer
+     * preemption may perform ordinary scheduler context switches.
+     */
     __atomic_fetch_add(
         &scheduler_ap_count,
         1u,
         __ATOMIC_ACQ_REL
     );
 
-    for (;;) {
-        arch_idle();
-    }
+    interrupt_enter_frame(idle_frame);
 }
 
 bool smp_init(void) {
@@ -205,10 +198,6 @@ bool smp_init(void) {
 
     bool found_bsp = false;
 
-    /*
-     * First discover/register every CPU before any AP is released. This makes
-     * LAPIC-id -> CPU-local lookup complete and deterministic on every CPU.
-     */
     for (uint32_t i = 0; i < cpu_count; ++i) {
         struct aurora_boot_cpu boot_cpu;
 
