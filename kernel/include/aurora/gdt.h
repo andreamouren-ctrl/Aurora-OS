@@ -15,9 +15,7 @@
 bool gdt_init_bsp(uint32_t cpu_slot);
 bool gdt_init_ap(uint32_t cpu_slot);
 
-void gdt_set_bsp_kernel_stack(
-    uint64_t stack_top
-);
+void gdt_set_current_kernel_stack(uint64_t stack_top);
 
 uint16_t gdt_user_code_selector(void);
 uint16_t gdt_user_data_selector(void);

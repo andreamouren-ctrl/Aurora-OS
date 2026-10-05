@@ -235,7 +235,7 @@ static void prepare_thread(struct scheduler_thread *thread) {
         uint64_t kernel_stack_top = thread_kernel_stack_top(thread);
         if (kernel_stack_top == 0u)
             kernel_panic("User thread has no kernel stack");
-        gdt_set_bsp_kernel_stack(kernel_stack_top);
+        gdt_set_current_kernel_stack(kernel_stack_top);
         syscall_set_kernel_stack(kernel_stack_top);
     }
 }

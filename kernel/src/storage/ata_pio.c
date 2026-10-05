@@ -4,6 +4,7 @@
 #include <aurora/arch.h>
 #include <aurora/ata_pio.h>
 #include <aurora/block_device.h>
+#include <aurora/clock.h>
 #include <aurora/log.h>
 
 #define ATA_PRIMARY_IO       0x1F0u
@@ -31,7 +32,7 @@
 
 #define ATA_SECTOR_SIZE       512u
 #define ATA_POLL_LIMIT        1000000u
-#define ATA_FLUSH_POLL_LIMIT  10000000u
+#define ATA_FLUSH_TIMEOUT_NS  5000000000ull
 #define ATA_LBA28_MAX         0x0FFFFFFFull
 
 static struct aurora_block_device primary_master;
@@ -81,14 +82,27 @@ static bool ata_wait_write_complete(void) {
 }
 
 static bool ata_wait_flush_complete(void) {
-    for (uint32_t i = 0u; i < ATA_FLUSH_POLL_LIMIT; ++i) {
-        uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
-        if ((status & ATA_STATUS_BSY) != 0u) {
-            continue;
-        }
-        return (status & (ATA_STATUS_ERR | ATA_STATUS_DF)) == 0u;
+    uint64_t start = clock_now_ns();
+    uint64_t deadline = start + ATA_FLUSH_TIMEOUT_NS;
+
+    /* Overflow is not realistic at boot, but keep the comparison bounded. */
+    if (deadline < start) {
+        deadline = UINT64_MAX;
     }
-    return false;
+
+    for (;;) {
+        uint8_t status = arch_in8(ATA_PRIMARY_IO + ATA_REG_STATUS);
+
+        if ((status & ATA_STATUS_BSY) == 0u) {
+            return (status & (ATA_STATUS_ERR | ATA_STATUS_DF)) == 0u;
+        }
+
+        if (clock_now_ns() >= deadline) {
+            return false;
+        }
+
+        __asm__ volatile ("pause");
+    }
 }
 
 static void ata_log_status(const char *prefix) {
@@ -103,6 +117,11 @@ static void ata_log_status(const char *prefix) {
 }
 
 static bool ata_cache_flush(void) {
+    /* Do not overwrite a still-active command on a slow/emulated device. */
+    if (!ata_wait_not_busy()) {
+        return false;
+    }
+
     arch_out8(ATA_PRIMARY_IO + ATA_REG_COMMAND, ATA_CMD_CACHE_FLUSH);
     ata_delay_400ns();
     return ata_wait_flush_complete();
