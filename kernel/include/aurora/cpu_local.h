@@ -28,7 +28,7 @@ struct aurora_cpu_local {
     uint64_t scheduler_context_switches;
 
     /*
-     * Local APIC timer state is private to each logical CPU.  The interrupt
+     * Local APIC timer state is private to each logical CPU. The interrupt
      * vector/callback are system-wide, but mode, calibrated frequency and
      * interrupt accounting must not be shared between independently armed
      * local APIC timers.
@@ -40,8 +40,8 @@ struct aurora_cpu_local {
 
     /*
      * Bootstrap-role identity is CPU-local so interrupt code can distinguish
-     * the BSP from APs without consulting mutable scheduler state.  Keep this
-     * field after the assembly-visible syscall offsets above.
+     * the BSP from APs without consulting mutable scheduler state. APs remain
+     * on their bootstrap context until the explicit scheduler-stack handoff.
      */
     uint32_t bootstrap_cpu;
     uint32_t cpu_local_reserved;
