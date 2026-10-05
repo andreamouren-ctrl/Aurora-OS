@@ -109,7 +109,6 @@ enum aurora_identity_machine_secret_result aurora_identity_machine_secret_load(
     struct aurora_identity_machine_secret *out_secret) {
     struct aurora_identity_machine_secret_record records[
         AURORA_IDENTITY_MACHINE_SECRET_REPLICA_COUNT];
-    bool present[AURORA_IDENTITY_MACHINE_SECRET_REPLICA_COUNT] = { false, false };
     bool valid[AURORA_IDENTITY_MACHINE_SECRET_REPLICA_COUNT] = { false, false };
     uint32_t valid_count = 0u;
     uint32_t present_count = 0u;
@@ -136,7 +135,6 @@ enum aurora_identity_machine_secret_result aurora_identity_machine_secret_load(
             return AURORA_IDENTITY_MACHINE_SECRET_BACKEND_ERROR;
         }
 
-        present[i] = true;
         ++present_count;
         valid[i] = record_valid(&records[i]);
         if (valid[i]) {
