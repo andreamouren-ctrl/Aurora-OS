@@ -6,6 +6,7 @@
 #include <aurora/clock.h>
 #include <aurora/cpu_local.h>
 #include <aurora/interrupts.h>
+#include <aurora/log.h>
 #include <aurora/smp.h>
 #include <aurora/spinlock.h>
 #include <aurora/timer.h>
@@ -20,6 +21,7 @@ static volatile uint32_t expected_acks;
 static volatile uint32_t received_acks;
 static volatile uint32_t last_remote_acks;
 static volatile bool initialized;
+static bool first_remote_success_logged;
 
 static struct interrupt_frame *tlb_shootdown_interrupt(
     struct interrupt_frame *frame
@@ -51,6 +53,7 @@ bool tlb_shootdown_init(void) {
     __atomic_store_n(&expected_acks, 0u, __ATOMIC_RELEASE);
     __atomic_store_n(&received_acks, 0u, __ATOMIC_RELEASE);
     __atomic_store_n(&last_remote_acks, 0u, __ATOMIC_RELEASE);
+    first_remote_success_logged = false;
 
     if (!interrupt_register_handler(
             AURORA_VECTOR_TLB_SHOOTDOWN,
@@ -176,6 +179,13 @@ bool tlb_shootdown_page(
         acknowledgements,
         __ATOMIC_RELEASE
     );
+
+    if (complete && targets != 0u && !first_remote_success_logged) {
+        first_remote_success_logged = true;
+        log_write("[vmm] SMP TLB shootdown remote ACKs: ");
+        log_u64(acknowledgements);
+        log_line("");
+    }
 
     spinlock_unlock_irqrestore(&shootdown_lock, irq);
     return complete;
