@@ -3,8 +3,10 @@
 
 #include <aurora/arch.h>
 #include <aurora/cpu_local.h>
+#include <aurora/panic.h>
 #include <aurora/pmm.h>
 #include <aurora/spinlock.h>
+#include <aurora/tlb_shootdown.h>
 #include <aurora/vmm.h>
 
 #define PTE_PRESENT   (1ull << 0)
@@ -114,6 +116,15 @@ static bool mapping_request_valid(
     return (flags & VMM_FLAG_USER) == 0u || virtual_address < USER_TOP_EXCLUSIVE;
 }
 
+static void publish_tlb_invalidation_or_panic(
+    struct vmm_address_space *space,
+    uint64_t virtual_address
+) {
+    if (!tlb_shootdown_page(space, virtual_address)) {
+        kernel_panic("SMP TLB shootdown failed after PTE publication");
+    }
+}
+
 static bool map_page_locked(
     struct vmm_address_space *space,
     uint64_t virtual_address,
@@ -149,7 +160,7 @@ static bool map_page_locked(
     uint64_t *page_table = table_pointer(table_physical);
     if ((page_table[indices[3]] & PTE_PRESENT) != 0u) return false;
     page_table[indices[3]] = (physical_address & PTE_ADDR_MASK) | make_leaf_flags(flags);
-    if (space == cpu_local_current_space()) arch_invalidate_page(virtual_address);
+    publish_tlb_invalidation_or_panic(space, virtual_address);
     return true;
 }
 
@@ -186,7 +197,7 @@ static bool unmap_page_locked(
     uint64_t *page_table = table_pointer(table_physical);
     if ((page_table[indices[3]] & PTE_PRESENT) == 0u) return false;
     page_table[indices[3]] = 0u;
-    if (space == cpu_local_current_space()) arch_invalidate_page(virtual_address);
+    publish_tlb_invalidation_or_panic(space, virtual_address);
     return true;
 }
 
