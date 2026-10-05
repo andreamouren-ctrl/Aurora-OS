@@ -177,7 +177,7 @@ static enum aurora_identity_machine_secret_load_result posix_load_replica(
 }
 
 static bool sync_directory(const char *directory) {
-    int fd = open(directory, O_RDONLY | O_DIRECTORY);
+    int fd = open(directory, O_RDONLY);
     if (fd < 0) return false;
     bool ok = fsync(fd) == 0;
     if (close(fd) != 0) ok = false;
