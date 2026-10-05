@@ -26,6 +26,7 @@ struct idt_descriptor {
 extern void *isr_stub_table[32];
 extern void isr_stub_timer(void);
 extern void isr_stub_keyboard(void);
+extern void isr_stub_tlb_shootdown(void);
 extern void isr_stub_spurious(void);
 
 static struct idt_entry idt[256];
@@ -97,6 +98,13 @@ bool interrupts_init(void) {
     idt_set_gate(
         AURORA_VECTOR_KEYBOARD,
         isr_stub_keyboard,
+        code_selector,
+        0x8E
+    );
+
+    idt_set_gate(
+        AURORA_VECTOR_TLB_SHOOTDOWN,
+        isr_stub_tlb_shootdown,
         code_selector,
         0x8E
     );

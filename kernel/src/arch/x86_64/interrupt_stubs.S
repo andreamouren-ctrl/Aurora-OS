@@ -65,6 +65,13 @@ isr_stub_keyboard:
     pushq $65
     jmp isr_common
 
+.global isr_stub_tlb_shootdown
+.type isr_stub_tlb_shootdown, @function
+isr_stub_tlb_shootdown:
+    pushq $0
+    pushq $66
+    jmp isr_common
+
 .global isr_stub_spurious
 .type isr_stub_spurious, @function
 isr_stub_spurious:

@@ -3,8 +3,10 @@
 
 #include <aurora/arch.h>
 #include <aurora/cpu_local.h>
+#include <aurora/panic.h>
 #include <aurora/pmm.h>
 #include <aurora/spinlock.h>
+#include <aurora/tlb_shootdown.h>
 #include <aurora/vmm.h>
 
 #define PTE_PRESENT   (1ull << 0)
@@ -114,6 +116,15 @@ static bool mapping_request_valid(
     return (flags & VMM_FLAG_USER) == 0u || virtual_address < USER_TOP_EXCLUSIVE;
 }
 
+static void publish_tlb_invalidation_or_panic(
+    struct vmm_address_space *space,
+    uint64_t virtual_address
+) {
+    if (!tlb_shootdown_page(space, virtual_address)) {
+        kernel_panic("SMP TLB shootdown failed after PTE publication");
+    }
+}
+
 static bool map_page_locked(
     struct vmm_address_space *space,
     uint64_t virtual_address,
@@ -149,7 +160,6 @@ static bool map_page_locked(
     uint64_t *page_table = table_pointer(table_physical);
     if ((page_table[indices[3]] & PTE_PRESENT) != 0u) return false;
     page_table[indices[3]] = (physical_address & PTE_ADDR_MASK) | make_leaf_flags(flags);
-    if (space == cpu_local_current_space()) arch_invalidate_page(virtual_address);
     return true;
 }
 
@@ -162,6 +172,7 @@ bool vmm_map_page_in(
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&vmm_lock);
     bool result = map_page_locked(space, virtual_address, physical_address, flags);
     spinlock_unlock_irqrestore(&vmm_lock, irq);
+    if (result) publish_tlb_invalidation_or_panic(space, virtual_address);
     return result;
 }
 
@@ -186,7 +197,6 @@ static bool unmap_page_locked(
     uint64_t *page_table = table_pointer(table_physical);
     if ((page_table[indices[3]] & PTE_PRESENT) == 0u) return false;
     page_table[indices[3]] = 0u;
-    if (space == cpu_local_current_space()) arch_invalidate_page(virtual_address);
     return true;
 }
 
@@ -194,6 +204,7 @@ bool vmm_unmap_page_in(struct vmm_address_space *space, uint64_t virtual_address
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&vmm_lock);
     bool result = unmap_page_locked(space, virtual_address);
     spinlock_unlock_irqrestore(&vmm_lock, irq);
+    if (result) publish_tlb_invalidation_or_panic(space, virtual_address);
     return result;
 }
 
@@ -251,6 +262,7 @@ bool vmm_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_t 
     bool result = current != NULL &&
         map_page_locked(current, virtual_address, physical_address, flags);
     spinlock_unlock_irqrestore(&vmm_lock, irq);
+    if (result) publish_tlb_invalidation_or_panic(current, virtual_address);
     return result;
 }
 
@@ -259,6 +271,7 @@ bool vmm_unmap_page(uint64_t virtual_address) {
     struct vmm_address_space *current = cpu_local_current_space();
     bool result = current != NULL && unmap_page_locked(current, virtual_address);
     spinlock_unlock_irqrestore(&vmm_lock, irq);
+    if (result) publish_tlb_invalidation_or_panic(current, virtual_address);
     return result;
 }
 
