@@ -38,6 +38,19 @@ enum aurora_identity_record_status {
     AURORA_IDENTITY_RECORD_RECOVERY_REQUIRED
 };
 
+/*
+ * UNASSIGNED exists only at the pre-commit boundary. The persistent Identity
+ * Store atomically promotes the first committed local identity to
+ * ADMINISTRATOR and every later identity to STANDARD_USER. Persisted records
+ * must never contain UNASSIGNED.
+ */
+enum aurora_identity_role {
+    AURORA_IDENTITY_ROLE_UNASSIGNED = 0,
+    AURORA_IDENTITY_ROLE_ADMINISTRATOR,
+    AURORA_IDENTITY_ROLE_STANDARD_USER,
+    AURORA_IDENTITY_ROLE_GUEST
+};
+
 enum aurora_identity_store_result {
     AURORA_IDENTITY_STORE_OK = 0,
     AURORA_IDENTITY_STORE_NOT_FOUND,
@@ -74,6 +87,7 @@ struct aurora_identity_kdf_params {
 struct aurora_identity_record {
     struct aurora_identity_user_id user_id;
     enum aurora_identity_record_status status;
+    enum aurora_identity_role role;
     uint32_t policy_version;
     uint32_t record_version;
 };
@@ -89,6 +103,14 @@ struct aurora_identity_key_record {
     size_t verifier_size;
     enum aurora_identity_record_status status;
     uint32_t failed_attempts;
+
+    /*
+     * Current-service monotonic deadline only. This value is intentionally
+     * volatile and must never be serialized across reboot/service restart,
+     * because Aurora's monotonic clock has a new epoch after boot. Durable
+     * throttling persists failed_attempts and re-arms a fresh deadline in the
+     * new monotonic epoch.
+     */
     uint64_t throttle_until_ms;
 };
 
@@ -176,6 +198,11 @@ struct aurora_identity_store_ops {
         const uint8_t lookup_tag[AURORA_IDENTITY_LOOKUP_TAG_SIZE],
         struct aurora_identity_key_record *out_record);
 
+    /*
+     * failed_attempts is durable security state. throttle_until_ms belongs to
+     * the current monotonic-clock epoch only; a persistent backend may retain
+     * it in memory but must not serialize it across reboot/service restart.
+     */
     bool (*store_failure_state)(
         void *context,
         const struct aurora_identity_user_id *user_id,
@@ -191,6 +218,10 @@ struct aurora_identity_store_ops {
      * On CREATE_ERROR or CREATE_CONFLICT, neither record may become visible.
      * The backend must enforce lookup-tag and identifier uniqueness so a race
      * between a preflight lookup and commit cannot create duplicates.
+     *
+     * The core submits role=UNASSIGNED. The authoritative persistent backend
+     * assigns the bootstrap role inside the same commit: first identity is
+     * ADMINISTRATOR, every later persistent identity is STANDARD_USER.
      */
     enum aurora_identity_store_create_result (*create_identity_with_key)(
         void *context,
