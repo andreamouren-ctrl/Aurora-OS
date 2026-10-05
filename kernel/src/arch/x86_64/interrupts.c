@@ -1,12 +1,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <aurora/apic.h>
 #include <aurora/arch.h>
 #include <aurora/interrupts.h>
 #include <aurora/log.h>
 #include <aurora/panic.h>
 #include <aurora/process.h>
 #include <aurora/scheduler.h>
+#include <aurora/timer.h>
 
 struct idt_entry {
     uint16_t offset_low;
@@ -144,6 +146,24 @@ struct interrupt_frame *interrupt_dispatch(
     uint64_t vector = frame->vector;
 
     if (vector == AURORA_VECTOR_SPURIOUS) {
+        return frame;
+    }
+
+    /*
+     * RESCHEDULE is deliberately only a remote CPU kick.  Do not context-
+     * switch from the IPI frame itself: acknowledge the IPI, arm this CPU's
+     * already validated Local APIC timer for the earliest supported deadline,
+     * and return to the interrupted context.  The normal timer vector then
+     * enters the scheduler/preemption path.  This keeps all context switching
+     * on the single timer path already exercised on BSP and APs.
+     */
+    if (vector == AURORA_VECTOR_RESCHEDULE) {
+        lapic_eoi();
+
+        if (!timer_arm_ns(1u)) {
+            kernel_panic("Could not arm timer from reschedule IPI");
+        }
+
         return frame;
     }
 
