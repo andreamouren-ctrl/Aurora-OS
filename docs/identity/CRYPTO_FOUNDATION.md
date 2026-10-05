@@ -1,7 +1,7 @@
 # Aurora Identity Crypto Foundation
 
 Status: **isolated implementation foundation**
-Version: **0.2**
+Version: **0.3**
 
 ## 1. Purpose
 
@@ -18,21 +18,34 @@ Implemented in `services/identity/`:
 - an Identity random-provider adapter backed by an already-instantiated HMAC-DRBG;
 - an isolated Argon2id verifier provider backed by the pinned official Argon2 reference implementation.
 
+Aurora OS also now has an initial kernel entropy seed foundation. That platform layer is intentionally kept separate from the Identity DRBG until a capability-authorized Ring 3 handoff and final reseed policy exist.
+
 ## 2. Security boundary
 
 ### HMAC-DRBG is not an entropy source
 
 The DRBG expands trusted seed material. It does not create entropy.
 
-Production Aurora Identity must not instantiate or reseed the DRBG until Aurora has a reviewed entropy subsystem that can provide sufficient unpredictable input.
+Production Aurora Identity must not instantiate or reseed the DRBG until Aurora can obtain sufficient unpredictable input from the reviewed kernel seed service through an authorized service path.
 
-The current API therefore requires entropy and nonce bytes explicitly. Tests use deterministic inputs only for known-answer verification.
+The current Identity API therefore still accepts entropy and nonce bytes explicitly. Tests use deterministic inputs only for known-answer verification.
 
-### No blind dependence on CPU random instructions
+### Kernel entropy foundation
 
-This foundation does not treat `RDRAND`, timing jitter, TSC values, device serials, or other convenient machine values as a production entropy source merely because they are available.
+The first kernel seed-service milestone now exists under `kernel/src/security/entropy.c` with an x86_64 backend.
 
-Future platform work must define how Aurora collects, health-checks, combines, and exposes entropy before the Identity Service can label its random provider production-ready.
+Current policy is deliberately conservative:
+
+- `RDSEED` is detected through CPUID and is the only source that can currently make the kernel seed service ready;
+- bounded instruction retries are used;
+- startup and continuous source-health checks run before seed bytes are released;
+- `RDRAND` is detected but remains auxiliary-only;
+- TSC/timing/device identifiers are not counted as trusted entropy;
+- absence of a qualified source does not panic the OS, but secure consumers remain fail-closed.
+
+This is a **kernel entropy seed foundation**, not yet a complete production entropy service. It still lacks multi-source conditioning, VM/hypervisor trust policy, privileged Ring 3 delivery, and operational DRBG reseed wiring.
+
+See `docs/ENTROPY.md` for the platform contract.
 
 ## 3. HMAC-DRBG policy
 
@@ -148,12 +161,14 @@ Host-side tests include:
 - Argon2id adapter derive/verify paths;
 - resource-bound and parameter-version rejection.
 
+The kernel entropy policy has separate host tests for qualified-source startup, source-health failure, fail-closed output clearing, and untrusted-source behavior.
+
 ## 9. Remaining production gates
 
 Before this foundation can be used by the live Aurora Identity Service, Aurora still needs:
 
-1. a reviewed kernel/platform entropy collection subsystem;
-2. secure DRBG initial seeding and periodic reseeding policy;
+1. final qualification/extension of the kernel entropy service beyond the initial RDSEED-only trusted foundation where required by supported hardware/VM policy;
+2. capability-authorized Ring 3 seed delivery plus secure DRBG initial seeding and periodic reseeding policy;
 3. protected provisioning/storage of the persistent lookup HMAC key;
 4. Argon2id parameter calibration for supported Aurora hardware classes;
 5. protected AuroraFS system state;

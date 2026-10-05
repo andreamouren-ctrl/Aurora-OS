@@ -8,7 +8,7 @@ ISO_ROOT := $(BUILD_ROOT)/iso_root
 ISO := build/AuroraOS-$(ARCH).iso
 STORAGE_IMAGE := build/aurora-storage.img
 
-.PHONY: all deps kernel iso storage-image identity-test run-bios run-uefi clean distclean
+.PHONY: all deps kernel iso storage-image identity-test entropy-test run-bios run-uefi clean distclean
 
 all: iso
 
@@ -20,6 +20,9 @@ kernel: deps
 
 identity-test:
 	$(MAKE) -C services/identity test
+
+entropy-test:
+	$(MAKE) -C kernel/tests test
 
 $(LIMINE_DIR)/limine:
 	$(MAKE) -C "$(LIMINE_DIR)"
@@ -71,6 +74,7 @@ run-uefi: iso storage-image
 
 clean:
 	$(MAKE) -C kernel clean
+	$(MAKE) -C kernel/tests clean
 	$(MAKE) -C services/identity clean
 	rm -rf "$(BUILD_ROOT)/iso_root" "$(ISO)"
 
