@@ -17,6 +17,11 @@ uint32_t lapic_id(void);
 
 void lapic_eoi(void);
 
+bool lapic_send_fixed_ipi(
+    uint32_t destination_apic_id,
+    uint8_t vector
+);
+
 bool lapic_timer_tsc_deadline_supported(void);
 
 void lapic_timer_configure_tsc_deadline(
