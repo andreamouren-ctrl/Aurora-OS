@@ -107,6 +107,7 @@ jobs:
           grep -F "[smp] CPUs online: 4" "$SERIAL_LOG"
           grep -F "[smp] CPU-local execution state ready; APs awaiting scheduler release" "$SERIAL_LOG"
           grep -F "[sched] scheduler-owned CPUs: 4" "$SERIAL_LOG"
+          grep -F "[sched] AP local timer preemption CPUs: 3" "$SERIAL_LOG"
 
           if ! grep -F \
             "[storage] AHCI controller PCI" \
