@@ -39,6 +39,9 @@ bool vfs_truncate_file(const char *path, uint64_t size);
 bool vfs_stat(const char *path, struct aurora_vfs_stat *out_stat);
 bool vfs_chmod(const char *path, uint32_t mode);
 bool vfs_chown(const char *path, uint32_t uid, uint32_t gid);
+bool vfs_sync(const char *path);
+bool vfs_fsync(const char *path);
+bool vfs_fdatasync(const char *path);
 
 bool vfs_write_file(
     const char *path,

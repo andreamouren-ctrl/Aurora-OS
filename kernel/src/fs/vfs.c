@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <aurora/block_device.h>
 #include <aurora/fs_mount.h>
 #include <aurora/vfs.h>
 
@@ -86,6 +87,11 @@ static const struct aurora_fs_mount *vfs_resolve_mount(
 static bool vfs_mount_is_writable(const struct aurora_fs_mount *mount) {
     return mount != NULL && mount->driver != NULL &&
         mount->access == AURORA_FS_PROBE_MATCH_READ_WRITE;
+}
+
+static bool vfs_flush_mount_device(const struct aurora_fs_mount *mount) {
+    return mount != NULL && mount->partition.device != NULL &&
+        block_device_flush(mount->partition.device);
 }
 
 bool vfs_init(void) {
@@ -227,6 +233,42 @@ bool vfs_chown(const char *path, uint32_t uid, uint32_t gid) {
     const struct aurora_fs_mount *mount = vfs_resolve_mount(path, &relative_path);
     return vfs_mount_is_writable(mount) && mount->driver->chown != NULL &&
         mount->driver->chown(mount->context, relative_path, uid, gid);
+}
+
+bool vfs_sync(const char *path) {
+    if (!vfs_initialized || path == NULL || path[0] != '/') return false;
+    const char *relative_path = NULL;
+    const struct aurora_fs_mount *mount = vfs_resolve_mount(path, &relative_path);
+    (void)relative_path;
+    if (mount == NULL || mount->driver == NULL) return false;
+    if (mount->driver->sync != NULL) return mount->driver->sync(mount->context);
+    return vfs_flush_mount_device(mount);
+}
+
+bool vfs_fsync(const char *path) {
+    if (!vfs_initialized || !vfs_path_valid(path)) return false;
+    const char *relative_path = NULL;
+    const struct aurora_fs_mount *mount = vfs_resolve_mount(path, &relative_path);
+    if (mount == NULL || mount->driver == NULL) return false;
+    if (mount->driver->fsync != NULL)
+        return mount->driver->fsync(mount->context, relative_path);
+    if (mount->driver->stat == NULL) return false;
+    struct aurora_fs_stat stat;
+    if (!mount->driver->stat(mount->context, relative_path, &stat)) return false;
+    return vfs_flush_mount_device(mount);
+}
+
+bool vfs_fdatasync(const char *path) {
+    if (!vfs_initialized || !vfs_path_valid(path)) return false;
+    const char *relative_path = NULL;
+    const struct aurora_fs_mount *mount = vfs_resolve_mount(path, &relative_path);
+    if (mount == NULL || mount->driver == NULL) return false;
+    if (mount->driver->fdatasync != NULL)
+        return mount->driver->fdatasync(mount->context, relative_path);
+    if (mount->driver->stat == NULL) return false;
+    struct aurora_fs_stat stat;
+    if (!mount->driver->stat(mount->context, relative_path, &stat)) return false;
+    return vfs_flush_mount_device(mount);
 }
 
 bool vfs_write_file(const char *path, const void *data, size_t length) {

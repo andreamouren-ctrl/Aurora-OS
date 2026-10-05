@@ -10,6 +10,7 @@ struct memory_block_context {
     uint8_t *storage;
     size_t size;
     bool flushed;
+    bool fail_flush;
 };
 
 static struct aurora_block_device *registry[AURORA_BLOCK_DEVICE_REGISTRY_MAX];
@@ -202,7 +203,7 @@ static bool memory_flush(struct aurora_block_device *device) {
     struct memory_block_context *context =
         (struct memory_block_context *)device->context;
 
-    if (context == NULL) {
+    if (context == NULL || context->fail_flush) {
         return false;
     }
 
@@ -218,7 +219,8 @@ bool block_device_self_test(void) {
     struct memory_block_context context = {
         .storage = storage,
         .size = sizeof(storage),
-        .flushed = false
+        .flushed = false,
+        .fail_flush = false
     };
 
     struct aurora_block_device device = {
@@ -244,6 +246,13 @@ bool block_device_self_test(void) {
     if (context.flushed || !block_device_flush(&device) || !context.flushed) {
         return false;
     }
+
+    context.fail_flush = true;
+    context.flushed = false;
+    if (block_device_flush(&device) || context.flushed) {
+        return false;
+    }
+    context.fail_flush = false;
 
     if (!block_device_read(&device, 3u, 1u, read_buffer)) {
         return false;

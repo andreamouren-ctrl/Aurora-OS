@@ -127,6 +127,18 @@ typedef bool (*aurora_fs_chown_fn)(
     uint32_t gid
 );
 
+typedef bool (*aurora_fs_sync_fn)(void *context);
+
+typedef bool (*aurora_fs_fsync_fn)(
+    void *context,
+    const char *path
+);
+
+typedef bool (*aurora_fs_fdatasync_fn)(
+    void *context,
+    const char *path
+);
+
 struct aurora_fs_driver {
     const char *name;
     aurora_fs_probe_fn probe;
@@ -142,6 +154,9 @@ struct aurora_fs_driver {
     aurora_fs_truncate_fn truncate;
     aurora_fs_chmod_fn chmod;
     aurora_fs_chown_fn chown;
+    aurora_fs_sync_fn sync;
+    aurora_fs_fsync_fn fsync;
+    aurora_fs_fdatasync_fn fdatasync;
 };
 
 struct aurora_fs_match {
