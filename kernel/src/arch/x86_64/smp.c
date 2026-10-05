@@ -11,6 +11,7 @@
 #include <aurora/scheduler.h>
 #include <aurora/smp.h>
 #include <aurora/syscall.h>
+#include <aurora/timer.h>
 #include <aurora/vmm.h>
 
 static struct aurora_cpu_runtime cpus[
@@ -21,6 +22,8 @@ static uint32_t cpu_count;
 static volatile uint32_t online_count;
 static volatile uint32_t response_count;
 static volatile uint32_t failed_count;
+static volatile uint32_t timer_ready_count;
+static volatile uint32_t timer_prepare_target;
 static volatile uint32_t scheduler_ap_count;
 static volatile bool scheduler_release;
 
@@ -134,10 +137,31 @@ static void ap_entry(
     }
 
     /*
-     * The AP is fully initialized but cannot enter scheduler ownership until
-     * the BSP has initialized the heap/scheduler and assigned this CPU a
-     * dedicated idle thread. Keep interrupts disabled while waiting so no
-     * interrupt path can observe a half-started scheduler state.
+     * Timer preparation is a separate bootstrap phase. The BSP installs the
+     * shared IDT timer handler first, then releases exactly one AP at a time
+     * to calibrate/program its Local APIC timer with IF still clear. This
+     * keeps AP timer calibration out of the scheduler handoff critical path
+     * and makes failures independently observable.
+     */
+    while (__atomic_load_n(&timer_prepare_target, __ATOMIC_ACQUIRE) !=
+           cpu->logical_id) {
+        __asm__ volatile ("pause");
+    }
+
+    if (!timer_init_ap()) {
+        ap_scheduler_fail(cpu);
+    }
+
+    __atomic_fetch_add(
+        &timer_ready_count,
+        1u,
+        __ATOMIC_ACQ_REL
+    );
+
+    /*
+     * The AP is timer-ready but cannot enter scheduler ownership until the
+     * BSP has initialized heap/scheduler and assigned a dedicated idle thread.
+     * Keep interrupts disabled while waiting.
      */
     while (!__atomic_load_n(&scheduler_release, __ATOMIC_ACQUIRE)) {
         __asm__ volatile ("pause");
@@ -174,6 +198,8 @@ bool smp_init(void) {
     online_count = 0;
     response_count = 0;
     failed_count = 0;
+    timer_ready_count = 0;
+    timer_prepare_target = UINT32_MAX;
     scheduler_ap_count = 0;
     scheduler_release = false;
 
@@ -264,6 +290,65 @@ bool smp_init(void) {
     }
 
     return __atomic_load_n(&failed_count, __ATOMIC_ACQUIRE) == 0;
+}
+
+bool smp_prepare_ap_timers(void) {
+    uint32_t expected_ready = 0u;
+
+    for (uint32_t i = 0u; i < cpu_count; ++i) {
+        struct aurora_cpu_runtime *cpu = &cpus[i];
+
+        if (cpu->bootstrap) {
+            continue;
+        }
+
+        if (__atomic_load_n(&cpu->state, __ATOMIC_ACQUIRE) !=
+            AURORA_CPU_ONLINE) {
+            return false;
+        }
+
+        ++expected_ready;
+        __atomic_store_n(
+            &timer_prepare_target,
+            cpu->logical_id,
+            __ATOMIC_RELEASE
+        );
+
+        uint64_t deadline = clock_now_ns() + 250000000ull;
+
+        while (__atomic_load_n(&timer_ready_count, __ATOMIC_ACQUIRE) <
+                   expected_ready &&
+               __atomic_load_n(&failed_count, __ATOMIC_ACQUIRE) == 0u &&
+               clock_now_ns() < deadline) {
+            __asm__ volatile ("pause");
+        }
+
+        if (__atomic_load_n(&timer_ready_count, __ATOMIC_ACQUIRE) !=
+                expected_ready ||
+            __atomic_load_n(&failed_count, __ATOMIC_ACQUIRE) != 0u) {
+            __atomic_store_n(
+                &timer_prepare_target,
+                UINT32_MAX,
+                __ATOMIC_RELEASE
+            );
+            return false;
+        }
+    }
+
+    __atomic_store_n(
+        &timer_prepare_target,
+        UINT32_MAX,
+        __ATOMIC_RELEASE
+    );
+
+    return true;
+}
+
+uint32_t smp_ap_timer_ready_count(void) {
+    return __atomic_load_n(
+        &timer_ready_count,
+        __ATOMIC_ACQUIRE
+    );
 }
 
 void smp_release_scheduler_aps(void) {
