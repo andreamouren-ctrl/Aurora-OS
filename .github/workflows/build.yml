@@ -54,7 +54,7 @@ jobs:
             exit 1
           fi
 
-      - name: BIOS smoke boot
+      - name: BIOS four-CPU smoke boot
         run: |
           set -u
 
@@ -79,7 +79,7 @@ jobs:
           timeout 15s qemu-system-x86_64 \
             -M q35 \
             -m 512M \
-            -smp 1 \
+            -smp 4 \
             -vga std \
             -cdrom build/AuroraOS-x86_64.iso \
             -drive file="$STORAGE_IMAGE",format=raw,if=none,id=aurora_disk \
@@ -101,6 +101,11 @@ jobs:
 
           echo "===== Aurora serial log ====="
           cat "$SERIAL_LOG"
+
+          grep -F "[cpu] bootstrap CPU-local state initialized" "$SERIAL_LOG"
+          grep -F "[smp] CPUs reported: 4" "$SERIAL_LOG"
+          grep -F "[smp] CPUs online: 4" "$SERIAL_LOG"
+          grep -F "[smp] CPU-local execution state ready; AP scheduling parked" "$SERIAL_LOG"
 
           if ! grep -F \
             "[storage] AHCI controller PCI" \
