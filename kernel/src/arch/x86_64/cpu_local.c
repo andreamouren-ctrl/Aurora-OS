@@ -33,6 +33,8 @@ static void wrmsr(uint32_t msr, uint64_t value) {
 static void zero_local(struct aurora_cpu_local *local) {
     uint8_t *bytes = (uint8_t *)local;
     for (size_t i = 0u; i < sizeof(*local); ++i) bytes[i] = 0u;
+    local->scheduler_current_index = UINT32_MAX;
+    local->scheduler_idle_index = UINT32_MAX;
 }
 
 static bool local_configured(const struct aurora_cpu_local *local) {
