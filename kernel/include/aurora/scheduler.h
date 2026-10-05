@@ -39,6 +39,15 @@ aurora_thread_id scheduler_create_user_thread(
     struct aurora_process *process
 );
 
+/*
+ * Returns the scheduler's soft placement target. This is not a hard affinity:
+ * another CPU may execute the thread when stealing work is necessary.
+ */
+bool scheduler_thread_preferred_cpu(
+    aurora_thread_id id,
+    uint32_t *out_logical_id
+);
+
 bool scheduler_start(void);
 
 bool scheduler_thread_finished(
