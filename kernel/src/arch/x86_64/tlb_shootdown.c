@@ -8,6 +8,7 @@
 #include <aurora/interrupts.h>
 #include <aurora/smp.h>
 #include <aurora/spinlock.h>
+#include <aurora/timer.h>
 #include <aurora/tlb_shootdown.h>
 #include <aurora/vmm.h>
 
@@ -71,11 +72,14 @@ static bool cpu_needs_shootdown(
         return false;
     }
 
+    /*
+     * A remote CPU is eligible only after it has taken at least one local
+     * scheduler timer interrupt. At that point it is unquestionably off the
+     * Limine bootstrap stack, IF is live, and a fixed IPI can be acknowledged.
+     */
     if (runtime->state != AURORA_CPU_ONLINE ||
         local->logical_id == current->logical_id ||
-        __atomic_load_n(
-            &local->tlb_shootdown_ready,
-            __ATOMIC_ACQUIRE) == 0u) {
+        timer_interrupt_count_cpu(local->logical_id) == 0u) {
         return false;
     }
 
@@ -83,18 +87,15 @@ static bool cpu_needs_shootdown(
         return true;
     }
 
-    return __atomic_load_n(
-        &local->current_space,
-        __ATOMIC_ACQUIRE
-    ) == space;
+    /* vmm_lock serializes address-space activation against this snapshot. */
+    return local->current_space == space;
 }
 
 bool tlb_shootdown_page(
     struct vmm_address_space *space,
     uint64_t virtual_address
 ) {
-    if (!__atomic_load_n(&initialized, __ATOMIC_ACQUIRE) ||
-        space == NULL ||
+    if (space == NULL ||
         (virtual_address & 0xFFFu) != 0u) {
         return false;
     }
@@ -109,6 +110,12 @@ bool tlb_shootdown_page(
     if (space == vmm_kernel_space() ||
         cpu_local_current_space() == space) {
         arch_invalidate_page(virtual_address);
+    }
+
+    /* Early boot has no remotely schedulable CPUs, so local INVLPG is enough. */
+    if (!__atomic_load_n(&initialized, __ATOMIC_ACQUIRE)) {
+        __atomic_store_n(&last_remote_acks, 0u, __ATOMIC_RELEASE);
+        return true;
     }
 
     aurora_spinlock_irq_state irq =
