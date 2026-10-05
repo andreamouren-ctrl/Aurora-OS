@@ -1,6 +1,7 @@
 #include <stddef.h>
 
 #include <aurora/arch.h>
+#include <aurora/entropy.h>
 
 #define COM1_PORT 0x3F8u
 
@@ -166,6 +167,13 @@ void arch_serial_putc(char c) {
 void arch_early_init(void) {
     __asm__ volatile ("cli; cld");
     enable_nx_if_supported();
+
+    /*
+     * Entropy availability is not a boot prerequisite. The seed service
+     * records a fail-closed unavailable state when no qualified source exists;
+     * security-sensitive consumers must check entropy_ready() before use.
+     */
+    (void)entropy_init();
 }
 
 bool arch_nx_enabled(void) {
