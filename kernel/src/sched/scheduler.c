@@ -342,6 +342,57 @@ bool scheduler_init(void) {
     return true;
 }
 
+bool scheduler_prepare_ap(uint32_t logical_id) {
+    aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
+    bool ok = false;
+
+    if (initialized) {
+        struct aurora_cpu_local *cpu = cpu_local_at(logical_id);
+        if (cpu != NULL &&
+            cpu->scheduler_idle_index >= SCHEDULER_MAX_THREADS &&
+            cpu->scheduler_current_index >= SCHEDULER_MAX_THREADS) {
+            aurora_thread_id idle_id = create_kernel_thread_locked(
+                "idle-ap", idle_thread, NULL, true
+            );
+            if (idle_id != 0u) {
+                for (uint32_t i = 0u; i < SCHEDULER_MAX_THREADS; ++i) {
+                    if (threads[i].id == idle_id) {
+                        cpu->scheduler_idle_index = i;
+                        cpu->scheduler_context_switches = 0u;
+                        ok = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    spinlock_unlock_irqrestore(&scheduler_lock, irq);
+    return ok;
+}
+
+bool scheduler_start_ap(void) {
+    aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
+    struct aurora_cpu_local *cpu = current_cpu_locked();
+    bool ok = false;
+
+    if (initialized && started &&
+        cpu->scheduler_current_index >= SCHEDULER_MAX_THREADS &&
+        cpu->scheduler_idle_index < SCHEDULER_MAX_THREADS) {
+        struct scheduler_thread *idle = &threads[cpu->scheduler_idle_index];
+        if (idle->idle && idle->state == THREAD_RUNNABLE) {
+            idle->state = THREAD_RUNNING;
+            cpu->scheduler_current_index = cpu->scheduler_idle_index;
+            prepare_thread(idle);
+            ok = true;
+        }
+    }
+
+    spinlock_unlock_irqrestore(&scheduler_lock, irq);
+    if (ok) arch_enable_interrupts();
+    return ok;
+}
+
 aurora_thread_id scheduler_create_kernel_thread(
     const char *name,
     kernel_thread_entry entry,
