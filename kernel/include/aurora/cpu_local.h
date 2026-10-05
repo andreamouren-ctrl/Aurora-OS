@@ -37,6 +37,14 @@ struct aurora_cpu_local {
     uint32_t timer_reserved;
     uint64_t timer_lapic_hz;
     uint64_t timer_interrupts;
+
+    /*
+     * Bootstrap-role identity is CPU-local so interrupt code can distinguish
+     * the BSP from APs without consulting mutable scheduler state.  Keep this
+     * field after the assembly-visible syscall offsets above.
+     */
+    uint32_t bootstrap_cpu;
+    uint32_t cpu_local_reserved;
 };
 
 bool cpu_local_init_bootstrap(uint32_t logical_id, uint32_t lapic_id);
