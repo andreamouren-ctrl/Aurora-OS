@@ -143,7 +143,11 @@ static bool detect_amd_extended(
         cores_per_package = (ecx & 0xFFu) + 1u;
     }
 
-    uint32_t logical_per_package = cores_per_package * threads_per_core;
+    uint64_t logical_wide =
+        (uint64_t)cores_per_package * (uint64_t)threads_per_core;
+    if (logical_wide == 0u || logical_wide > UINT32_MAX) return false;
+
+    uint32_t logical_per_package = (uint32_t)logical_wide;
     uint32_t package_shift = ceil_log2_u32(logical_per_package);
     uint32_t thread_bits = ceil_log2_u32(threads_per_core);
 
@@ -181,12 +185,17 @@ static bool detect_legacy(
 
     uint32_t thread_bits = ceil_log2_u32(threads_per_core);
     uint32_t core_bits = ceil_log2_u32(cores_per_package);
+    uint32_t package_shift = thread_bits + core_bits;
 
     out->valid = true;
     out->x2apic_id = apic_id;
     out->thread_id = apic_id & low_mask(thread_bits);
-    out->core_id = (apic_id >> thread_bits) & low_mask(core_bits);
-    out->package_id = apic_id >> (thread_bits + core_bits);
+    out->core_id = thread_bits < 32u
+        ? ((apic_id >> thread_bits) & low_mask(core_bits))
+        : 0u;
+    out->package_id = package_shift < 32u
+        ? (apic_id >> package_shift)
+        : 0u;
     out->threads_per_core = threads_per_core;
     out->cores_per_package = cores_per_package;
     return true;
