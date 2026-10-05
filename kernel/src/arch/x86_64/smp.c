@@ -8,6 +8,7 @@
 #include <aurora/cpu_local.h>
 #include <aurora/interrupts.h>
 #include <aurora/gdt.h>
+#include <aurora/scheduler.h>
 #include <aurora/smp.h>
 #include <aurora/syscall.h>
 #include <aurora/vmm.h>
@@ -20,6 +21,8 @@ static uint32_t cpu_count;
 static volatile uint32_t online_count;
 static volatile uint32_t response_count;
 static volatile uint32_t failed_count;
+static volatile uint32_t scheduler_ap_count;
+static volatile bool scheduler_release;
 
 static void ap_fail(struct aurora_cpu_runtime *cpu) {
     if (cpu != NULL) {
@@ -38,6 +41,24 @@ static void ap_fail(struct aurora_cpu_runtime *cpu) {
 
     __atomic_fetch_add(
         &response_count,
+        1u,
+        __ATOMIC_ACQ_REL
+    );
+
+    arch_halt();
+}
+
+static void ap_scheduler_fail(struct aurora_cpu_runtime *cpu) {
+    if (cpu != NULL) {
+        __atomic_store_n(
+            &cpu->state,
+            AURORA_CPU_FAILED,
+            __ATOMIC_RELEASE
+        );
+    }
+
+    __atomic_fetch_add(
+        &failed_count,
         1u,
         __ATOMIC_ACQ_REL
     );
@@ -113,11 +134,24 @@ static void ap_entry(
     }
 
     /*
-     * AP scheduling remains deliberately disabled. Each AP now has a private
-     * GDT/TSS, CPU-local current address-space state and SYSCALL MSRs, but it
-     * stays parked until the per-CPU scheduler milestone assigns work to it.
+     * The AP is fully initialized but cannot enter scheduler ownership until
+     * the BSP has initialized the heap/scheduler and assigned this CPU a
+     * dedicated idle thread. Keep interrupts disabled while waiting so no
+     * interrupt path can observe a half-started scheduler state.
      */
-    arch_enable_interrupts();
+    while (!__atomic_load_n(&scheduler_release, __ATOMIC_ACQUIRE)) {
+        __asm__ volatile ("pause");
+    }
+
+    if (!scheduler_start_ap()) {
+        ap_scheduler_fail(cpu);
+    }
+
+    __atomic_fetch_add(
+        &scheduler_ap_count,
+        1u,
+        __ATOMIC_ACQ_REL
+    );
 
     for (;;) {
         arch_idle();
@@ -140,6 +174,8 @@ bool smp_init(void) {
     online_count = 0;
     response_count = 0;
     failed_count = 0;
+    scheduler_ap_count = 0;
+    scheduler_release = false;
 
     bool found_bsp = false;
 
@@ -228,6 +264,19 @@ bool smp_init(void) {
     }
 
     return __atomic_load_n(&failed_count, __ATOMIC_ACQUIRE) == 0;
+}
+
+void smp_release_scheduler_aps(void) {
+    __atomic_store_n(&scheduler_release, true, __ATOMIC_RELEASE);
+}
+
+uint32_t smp_scheduler_owned_cpu_count(void) {
+    uint32_t aps = __atomic_load_n(
+        &scheduler_ap_count,
+        __ATOMIC_ACQUIRE
+    );
+
+    return cpu_count == 0u ? 0u : 1u + aps;
 }
 
 uint32_t smp_cpu_count(void) {

@@ -243,7 +243,7 @@ void kmain(void) {
     log_u64(smp_online_cpu_count());
     log_line("");
 
-    log_line("[smp] CPU-local execution state ready; AP scheduling parked");
+    log_line("[smp] CPU-local execution state ready; APs awaiting scheduler release");
 
     boot_ui_stage(
         AURORA_BOOT_STAGE_SMP
@@ -344,6 +344,16 @@ void kmain(void) {
         kernel_panic("Scheduler initialization failed");
     }
 
+    for (uint32_t i = 0u; i < smp_cpu_count(); ++i) {
+        const struct aurora_cpu_runtime *cpu = smp_cpu_at(i);
+        if (cpu == 0 || cpu->bootstrap) continue;
+
+        if (cpu->state != AURORA_CPU_ONLINE ||
+            !scheduler_prepare_ap(cpu->logical_id)) {
+            kernel_panic("Could not prepare AP scheduler idle ownership");
+        }
+    }
+
     scheduler_probe_value = 0;
 
     aurora_thread_id probe_thread =
@@ -362,6 +372,24 @@ void kmain(void) {
     if (!scheduler_start()) {
         kernel_panic("Could not start scheduler");
     }
+
+    smp_release_scheduler_aps();
+
+    uint64_t smp_scheduler_deadline =
+        clock_now_ns() + 250000000ull;
+
+    while (smp_scheduler_owned_cpu_count() != smp_online_cpu_count() &&
+           clock_now_ns() < smp_scheduler_deadline) {
+        arch_idle();
+    }
+
+    if (smp_scheduler_owned_cpu_count() != smp_online_cpu_count()) {
+        kernel_panic("AP scheduler ownership handoff timed out");
+    }
+
+    log_write("[sched] scheduler-owned CPUs: ");
+    log_u64(smp_scheduler_owned_cpu_count());
+    log_line("");
 
     uint64_t scheduler_deadline =
         clock_now_ns() + 250000000ull;

@@ -25,6 +25,9 @@ struct aurora_cpu_runtime {
 
 bool smp_init(void);
 
+void smp_release_scheduler_aps(void);
+uint32_t smp_scheduler_owned_cpu_count(void);
+
 uint32_t smp_cpu_count(void);
 uint32_t smp_online_cpu_count(void);
 
