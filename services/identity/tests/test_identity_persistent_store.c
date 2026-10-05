@@ -21,6 +21,7 @@
 
 static void fill_bytes(uint8_t *buffer, size_t size, uint8_t seed) {
     size_t i;
+
     for (i = 0u; i < size; ++i) {
         buffer[i] = (uint8_t)(seed + (uint8_t)i);
     }
@@ -28,9 +29,11 @@ static void fill_bytes(uint8_t *buffer, size_t size, uint8_t seed) {
 
 static struct aurora_identity_record make_identity(uint8_t seed) {
     struct aurora_identity_record record;
+
     memset(&record, 0, sizeof(record));
     fill_bytes(record.user_id.bytes, sizeof(record.user_id.bytes), seed);
     record.status = AURORA_IDENTITY_RECORD_ACTIVE;
+    record.role = AURORA_IDENTITY_ROLE_UNASSIGNED;
     record.policy_version = 1u;
     record.record_version = 1u;
     return record;
@@ -41,6 +44,7 @@ static struct aurora_identity_key_record make_key(
     uint8_t credential_seed,
     uint8_t lookup_seed) {
     struct aurora_identity_key_record key;
+
     memset(&key, 0, sizeof(key));
     fill_bytes(key.credential_id.bytes, sizeof(key.credential_id.bytes), credential_seed);
     key.user_id = identity->user_id;
@@ -61,15 +65,18 @@ static struct aurora_identity_key_record make_key(
 static bool key_matches(
     const struct aurora_identity_key_record *record,
     const struct aurora_identity_key_record *expected) {
-    return memcmp(record->credential_id.bytes,
-                  expected->credential_id.bytes,
-                  AURORA_IDENTITY_CREDENTIAL_ID_SIZE) == 0 &&
-           memcmp(record->user_id.bytes,
-                  expected->user_id.bytes,
-                  AURORA_IDENTITY_USER_ID_SIZE) == 0 &&
-           memcmp(record->lookup_tag,
-                  expected->lookup_tag,
-                  AURORA_IDENTITY_LOOKUP_TAG_SIZE) == 0 &&
+    return memcmp(
+               record->credential_id.bytes,
+               expected->credential_id.bytes,
+               AURORA_IDENTITY_CREDENTIAL_ID_SIZE) == 0 &&
+           memcmp(
+               record->user_id.bytes,
+               expected->user_id.bytes,
+               AURORA_IDENTITY_USER_ID_SIZE) == 0 &&
+           memcmp(
+               record->lookup_tag,
+               expected->lookup_tag,
+               AURORA_IDENTITY_LOOKUP_TAG_SIZE) == 0 &&
            record->failed_attempts == expected->failed_attempts &&
            record->throttle_until_ms == expected->throttle_until_ms;
 }
@@ -91,11 +98,13 @@ static bool overwrite_with_bad_data(const char *path) {
     if (fd < 0) {
         return false;
     }
+
     written = write(fd, bad, sizeof(bad));
     if (written != (ssize_t)sizeof(bad) || fsync(fd) != 0) {
         (void)close(fd);
         return false;
     }
+
     return close(fd) == 0;
 }
 
@@ -111,6 +120,7 @@ static enum aurora_identity_persistent_io_result failing_read(
     size_t capacity,
     size_t *out_size) {
     struct failing_io *wrapper = (struct failing_io *)context;
+
     return wrapper->inner.read_slot(
         wrapper->inner.context,
         slot,
@@ -125,14 +135,31 @@ static bool failing_write(
     const uint8_t *buffer,
     size_t size) {
     struct failing_io *wrapper = (struct failing_io *)context;
+
     if (wrapper->fail_writes) {
         return false;
     }
+
     return wrapper->inner.write_slot_atomic(
         wrapper->inner.context,
         slot,
         buffer,
         size);
+}
+
+static bool expect_role(
+    const struct aurora_identity_persistent_store *store,
+    const struct aurora_identity_user_id *user_id,
+    enum aurora_identity_role expected_role) {
+    struct aurora_identity_record found;
+
+    memset(&found, 0, sizeof(found));
+    CHECK(aurora_identity_persistent_store_find_identity(
+              store,
+              user_id,
+              &found) == AURORA_IDENTITY_STORE_OK);
+    CHECK(found.role == expected_role);
+    return true;
 }
 
 static bool run_persistence_test(void) {
@@ -148,12 +175,15 @@ static bool run_persistence_test(void) {
     struct aurora_identity_rotation_store_ops rotation_ops;
     struct aurora_identity_record identity1;
     struct aurora_identity_record identity2;
+    struct aurora_identity_record forged_admin;
     struct aurora_identity_key_record key1;
     struct aurora_identity_key_record key2;
+    struct aurora_identity_key_record forged_key;
     struct aurora_identity_key_record rotated;
     struct aurora_identity_key_record found;
     struct stat st;
     uint64_t generation_before_failure;
+    uint64_t generation_before_rearm;
     uint32_t latest_slot;
     enum aurora_identity_persistent_open_result open_result;
 
@@ -170,6 +200,7 @@ static bool run_persistence_test(void) {
     CHECK(open_result == AURORA_IDENTITY_PERSISTENT_OPEN_EMPTY);
     CHECK(aurora_identity_persistent_store_generation(&store) == 0u);
 
+    /* First committed persistent identity becomes administrator atomically. */
     identity1 = make_identity(0x10u);
     key1 = make_key(&identity1, 0x30u, 0x50u);
     core_ops = aurora_identity_persistent_store_core_ops(&store);
@@ -180,9 +211,18 @@ static bool run_persistence_test(void) {
     CHECK(aurora_identity_persistent_store_generation(&store) == 1u);
     CHECK(aurora_identity_persistent_store_identity_count(&store) == 1u);
     CHECK(aurora_identity_persistent_store_key_record_count(&store) == 1u);
+    CHECK(expect_role(
+        &store,
+        &identity1.user_id,
+        AURORA_IDENTITY_ROLE_ADMINISTRATOR));
 
     CHECK(aurora_identity_persistent_store_open(&reopened, &io) ==
           AURORA_IDENTITY_PERSISTENT_OPEN_OK);
+    CHECK(expect_role(
+        &reopened,
+        &identity1.user_id,
+        AURORA_IDENTITY_ROLE_ADMINISTRATOR));
+
     core_ops = aurora_identity_persistent_store_core_ops(&reopened);
     memset(&found, 0, sizeof(found));
     CHECK(core_ops.find_key_record_by_lookup_tag(
@@ -191,12 +231,20 @@ static bool run_persistence_test(void) {
               &found) == AURORA_IDENTITY_STORE_OK);
     CHECK(key_matches(&found, &key1));
 
+    /* failed_attempts is durable; the current monotonic deadline is not. */
     CHECK(core_ops.store_failure_state(
         core_ops.context,
         &identity1.user_id,
         4u,
         123456u));
     CHECK(aurora_identity_persistent_store_generation(&reopened) == 2u);
+    memset(&found, 0, sizeof(found));
+    CHECK(core_ops.find_key_record_by_lookup_tag(
+              core_ops.context,
+              key1.lookup_tag,
+              &found) == AURORA_IDENTITY_STORE_OK);
+    CHECK(found.failed_attempts == 4u);
+    CHECK(found.throttle_until_ms == 123456u);
 
     CHECK(aurora_identity_persistent_store_open(&store, &io) ==
           AURORA_IDENTITY_PERSISTENT_OPEN_OK);
@@ -207,7 +255,23 @@ static bool run_persistence_test(void) {
               key1.lookup_tag,
               &found) == AURORA_IDENTITY_STORE_OK);
     CHECK(found.failed_attempts == 4u);
-    CHECK(found.throttle_until_ms == 123456u);
+    CHECK(found.throttle_until_ms == 0u);
+
+    /* Re-arming the same durable failure count is volatile: no disk generation. */
+    generation_before_rearm = aurora_identity_persistent_store_generation(&store);
+    CHECK(core_ops.store_failure_state(
+        core_ops.context,
+        &identity1.user_id,
+        4u,
+        777u));
+    CHECK(aurora_identity_persistent_store_generation(&store) == generation_before_rearm);
+    memset(&found, 0, sizeof(found));
+    CHECK(core_ops.find_key_record_by_lookup_tag(
+              core_ops.context,
+              key1.lookup_tag,
+              &found) == AURORA_IDENTITY_STORE_OK);
+    CHECK(found.failed_attempts == 4u);
+    CHECK(found.throttle_until_ms == 777u);
 
     rotated = make_key(&identity1, 0x70u, 0x90u);
     rotation_ops = aurora_identity_persistent_store_rotation_ops(&store);
@@ -234,6 +298,7 @@ static bool run_persistence_test(void) {
               identity1.user_id.bytes,
               AURORA_IDENTITY_USER_ID_SIZE) == 0);
 
+    /* Every later persistent identity starts as standard user. */
     identity2 = make_identity(0xb0u);
     key2 = make_key(&identity2, 0xc0u, 0xd0u);
     CHECK(core_ops.create_identity_with_key(
@@ -241,12 +306,28 @@ static bool run_persistence_test(void) {
               &identity2,
               &key2) == AURORA_IDENTITY_STORE_CREATE_OK);
     CHECK(aurora_identity_persistent_store_generation(&reopened) == 4u);
+    CHECK(expect_role(
+        &reopened,
+        &identity2.user_id,
+        AURORA_IDENTITY_ROLE_STANDARD_USER));
+
+    /* A caller cannot self-assign administrator by bypassing the core. */
+    forged_admin = make_identity(0xe0u);
+    forged_admin.role = AURORA_IDENTITY_ROLE_ADMINISTRATOR;
+    forged_key = make_key(&forged_admin, 0x21u, 0x41u);
+    CHECK(core_ops.create_identity_with_key(
+              core_ops.context,
+              &forged_admin,
+              &forged_key) == AURORA_IDENTITY_STORE_CREATE_ERROR);
+    CHECK(aurora_identity_persistent_store_generation(&reopened) == 4u);
+    CHECK(aurora_identity_persistent_store_identity_count(&reopened) == 2u);
 
     CHECK(stat(slot_path[0], &st) == 0);
     CHECK((st.st_mode & 0777) == 0600);
     CHECK(stat(slot_path[1], &st) == 0);
     CHECK((st.st_mode & 0777) == 0600);
 
+    /* A failed durable publication never changes the visible generation/state. */
     {
         struct failing_io wrapper;
         struct aurora_identity_persistent_io_ops failing_ops;
@@ -284,6 +365,14 @@ static bool run_persistence_test(void) {
               &found) == AURORA_IDENTITY_STORE_OK);
     CHECK(found.failed_attempts == 0u);
     CHECK(found.throttle_until_ms == 0u);
+    CHECK(expect_role(
+        &store,
+        &identity1.user_id,
+        AURORA_IDENTITY_ROLE_ADMINISTRATOR));
+    CHECK(expect_role(
+        &store,
+        &identity2.user_id,
+        AURORA_IDENTITY_ROLE_STANDARD_USER));
 
     latest_slot = (uint32_t)(
         aurora_identity_persistent_store_generation(&store) %
@@ -293,6 +382,10 @@ static bool run_persistence_test(void) {
           AURORA_IDENTITY_PERSISTENT_OPEN_OK);
     CHECK(aurora_identity_persistent_store_generation(&reopened) == 3u);
     CHECK(aurora_identity_persistent_store_identity_count(&reopened) == 1u);
+    CHECK(expect_role(
+        &reopened,
+        &identity1.user_id,
+        AURORA_IDENTITY_ROLE_ADMINISTRATOR));
 
     CHECK(overwrite_with_bad_data(slot_path[0]));
     CHECK(overwrite_with_bad_data(slot_path[1]));
