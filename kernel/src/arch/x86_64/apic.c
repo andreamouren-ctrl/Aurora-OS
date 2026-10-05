@@ -18,16 +18,24 @@
 #define LAPIC_REG_TPR           0x080u
 #define LAPIC_REG_EOI           0x0B0u
 #define LAPIC_REG_SVR           0x0F0u
+#define LAPIC_REG_ICR_LOW       0x300u
+#define LAPIC_REG_ICR_HIGH      0x310u
 #define LAPIC_REG_LVT_TIMER     0x320u
 #define LAPIC_REG_INITIAL_COUNT 0x380u
 #define LAPIC_REG_CURRENT_COUNT 0x390u
 #define LAPIC_REG_DIVIDE        0x3E0u
 
+#define LAPIC_ICR_DELIVERY_PENDING (1u << 12)
+#define LAPIC_IPI_SPIN_LIMIT       1000000u
+
 #define X2APIC_MSR_BASE         0x800u
+#define X2APIC_ICR_MSR          0x830u
 
 #define LAPIC_MMIO_VIRTUAL      0xFFFFFFFFB0000000ull
 
 static aurora_spinlock lapic_init_lock =
+    AURORA_SPINLOCK_INIT;
+static aurora_spinlock lapic_ipi_lock =
     AURORA_SPINLOCK_INIT;
 
 static enum lapic_mode current_mode;
@@ -291,6 +299,64 @@ uint32_t lapic_id(void) {
 
 void lapic_eoi(void) {
     lapic_write(LAPIC_REG_EOI, 0);
+}
+
+bool lapic_send_fixed_ipi(
+    uint32_t destination_apic_id,
+    uint8_t vector
+) {
+    if (vector < 32u ||
+        vector == AURORA_VECTOR_SPURIOUS ||
+        current_mode == LAPIC_MODE_NONE) {
+        return false;
+    }
+
+    aurora_spinlock_irq_state irq =
+        spinlock_lock_irqsave(&lapic_ipi_lock);
+    bool ok = true;
+
+    if (current_mode == LAPIC_MODE_X2APIC) {
+        uint64_t icr =
+            ((uint64_t)destination_apic_id << 32) |
+            (uint64_t)vector;
+        wrmsr(X2APIC_ICR_MSR, icr);
+    } else {
+        uint32_t spins = 0u;
+        while ((lapic_read(LAPIC_REG_ICR_LOW) &
+                LAPIC_ICR_DELIVERY_PENDING) != 0u &&
+               spins++ < LAPIC_IPI_SPIN_LIMIT) {
+            __asm__ volatile ("pause");
+        }
+
+        if (spins >= LAPIC_IPI_SPIN_LIMIT) {
+            ok = false;
+        } else if (destination_apic_id > 0xFFu) {
+            ok = false;
+        } else {
+            lapic_write(
+                LAPIC_REG_ICR_HIGH,
+                destination_apic_id << 24
+            );
+            lapic_write(
+                LAPIC_REG_ICR_LOW,
+                (uint32_t)vector
+            );
+
+            spins = 0u;
+            while ((lapic_read(LAPIC_REG_ICR_LOW) &
+                    LAPIC_ICR_DELIVERY_PENDING) != 0u &&
+                   spins++ < LAPIC_IPI_SPIN_LIMIT) {
+                __asm__ volatile ("pause");
+            }
+
+            if (spins >= LAPIC_IPI_SPIN_LIMIT) {
+                ok = false;
+            }
+        }
+    }
+
+    spinlock_unlock_irqrestore(&lapic_ipi_lock, irq);
+    return ok;
 }
 
 bool lapic_timer_tsc_deadline_supported(void) {
