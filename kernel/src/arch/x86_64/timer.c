@@ -179,6 +179,21 @@ bool timer_init(void) {
 }
 
 bool timer_init_ap(void) {
+    struct aurora_cpu_local *cpu = cpu_local_current();
+
+    if (cpu == NULL) {
+        return false;
+    }
+
+    /*
+     * AP timer setup is staged before scheduler release. scheduler_start_ap()
+     * still calls this API defensively; once the current CPU is prepared the
+     * second call must not recalibrate or disturb its already-programmed LVT.
+     */
+    if (cpu->timer_mode != AURORA_TIMER_NONE) {
+        return true;
+    }
+
     return timer_init_current_cpu();
 }
 
