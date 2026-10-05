@@ -7,6 +7,7 @@
 #include <aurora/interrupts.h>
 #include <aurora/smp.h>
 #include <aurora/timer.h>
+#include <aurora/tlb_shootdown.h>
 
 #define LAPIC_DIVIDE_BY_16 0x3u
 #define LAPIC_MIN_ONESHOT_NS 1000000ull
@@ -165,6 +166,15 @@ bool timer_init(void) {
     callback_fn = NULL;
 
     if (!timer_init_current_cpu()) {
+        return false;
+    }
+
+    /*
+     * The shootdown vector is installed in the shared IDT during early
+     * interrupt setup. Register its handler now that the monotonic clock and
+     * SMP CPU inventory both exist, before any AP is released to scheduling.
+     */
+    if (!tlb_shootdown_init()) {
         return false;
     }
 
