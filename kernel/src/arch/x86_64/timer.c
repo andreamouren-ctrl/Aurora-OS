@@ -9,6 +9,7 @@
 
 #define LAPIC_DIVIDE_BY_16 0x3u
 #define LAPIC_MIN_ONESHOT_NS 1000000ull
+#define AP_BOOTSTRAP_QUANTUM_NS 4000000ull
 
 /* The callback is installed once by the scheduler and then read-only. */
 static timer_callback_fn callback_fn;
@@ -27,6 +28,24 @@ static struct interrupt_frame *timer_interrupt(
     }
 
     lapic_eoi();
+
+    /*
+     * APs are timer-capable before they have performed the dedicated idle
+     * stack handoff. During that narrow bootstrap phase the interrupt proves
+     * local preemption delivery, but it must not enter the global context-
+     * switch callback: scheduler_current_index already names the AP idle
+     * thread while the processor is still physically executing on Limine's
+     * AP bootstrap stack. Switching from that mismatched frame corrupts the
+     * scheduler context and can reset the machine.
+     *
+     * Keep the AP quantum periodic here until the next SMP milestone performs
+     * a real scheduler-stack handoff. The BSP continues through the normal
+     * callback path unchanged.
+     */
+    if (cpu != NULL && cpu->bootstrap_cpu == 0u) {
+        (void)timer_arm_ns(AP_BOOTSTRAP_QUANTUM_NS);
+        return frame;
+    }
 
     if (callback_fn != NULL) {
         struct interrupt_frame *next =
