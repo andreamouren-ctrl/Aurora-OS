@@ -1,0 +1,42 @@
+name: Aurora Kernel Entropy Policy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'kernel/include/aurora/entropy.h'
+      - 'kernel/include/aurora/entropy_source.h'
+      - 'kernel/src/security/entropy.c'
+      - 'kernel/src/arch/x86_64/entropy.c'
+      - 'kernel/tests/**'
+      - 'Makefile'
+      - '.github/workflows/entropy.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'kernel/include/aurora/entropy.h'
+      - 'kernel/include/aurora/entropy_source.h'
+      - 'kernel/src/security/entropy.c'
+      - 'kernel/src/arch/x86_64/entropy.c'
+      - 'kernel/tests/**'
+      - 'Makefile'
+      - '.github/workflows/entropy.yml'
+
+jobs:
+  entropy-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        # v6/v7 currently fail before step execution in this repository's Actions environment.
+        uses: actions/checkout@v4
+
+      - name: Install compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang make
+
+      - name: Build and test entropy policy
+        run: make entropy-test CC=clang
