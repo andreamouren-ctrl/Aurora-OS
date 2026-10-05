@@ -19,7 +19,11 @@ static struct interrupt_frame *timer_interrupt(
     struct aurora_cpu_local *cpu = cpu_local_current();
 
     if (cpu != NULL) {
-        ++cpu->timer_interrupts;
+        __atomic_fetch_add(
+            &cpu->timer_interrupts,
+            1ull,
+            __ATOMIC_RELAXED
+        );
     }
 
     lapic_eoi();
@@ -111,7 +115,11 @@ static bool timer_init_current_cpu(void) {
 
     cpu->timer_mode = AURORA_TIMER_NONE;
     cpu->timer_lapic_hz = 0;
-    cpu->timer_interrupts = 0;
+    __atomic_store_n(
+        &cpu->timer_interrupts,
+        0ull,
+        __ATOMIC_RELEASE
+    );
 
     if (lapic_timer_tsc_deadline_supported() &&
         clock_tsc_frequency_hz() != 0) {
@@ -276,10 +284,14 @@ const char *timer_mode_name(void) {
 
 uint64_t timer_interrupt_count(void) {
     struct aurora_cpu_local *cpu = cpu_local_current();
-    return cpu != NULL ? cpu->timer_interrupts : 0u;
+    return cpu != NULL
+        ? __atomic_load_n(&cpu->timer_interrupts, __ATOMIC_ACQUIRE)
+        : 0u;
 }
 
 uint64_t timer_interrupt_count_cpu(uint32_t logical_id) {
     struct aurora_cpu_local *cpu = cpu_local_at(logical_id);
-    return cpu != NULL ? cpu->timer_interrupts : 0u;
+    return cpu != NULL
+        ? __atomic_load_n(&cpu->timer_interrupts, __ATOMIC_ACQUIRE)
+        : 0u;
 }
