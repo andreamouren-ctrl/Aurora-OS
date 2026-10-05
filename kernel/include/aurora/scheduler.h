@@ -16,14 +16,17 @@ typedef void (*kernel_thread_entry)(
 
 bool scheduler_init(void);
 
-/*
- * Prepares CPU-local idle ownership for an AP. scheduler_start_ap() currently
- * initializes AP-local timer/preemption delivery while the AP remains on its
- * bootstrap stack; the explicit idle-stack context handoff is the next SMP
- * milestone.
- */
+/* Prepare a dedicated idle thread pinned to one application processor. */
 bool scheduler_prepare_ap(uint32_t logical_id);
-bool scheduler_start_ap(void);
+
+/*
+ * Marks the current AP's idle thread running, prepares its address space and
+ * local timer, and returns the initial idle interrupt frame. The caller must
+ * count the AP as scheduler-owned and then enter that frame with
+ * interrupt_enter_frame(); returning to the firmware/bootstrap stack is not a
+ * valid scheduler state.
+ */
+struct interrupt_frame *scheduler_start_ap(void);
 
 aurora_thread_id scheduler_create_kernel_thread(
     const char *name,

@@ -17,6 +17,7 @@
 #define SCHEDULER_MAX_THREADS 64u
 #define SCHEDULER_STACK_SIZE  (64u * 1024u)
 #define SCHEDULER_QUANTUM_NS   4000000ull
+#define SCHEDULER_CPU_ANY      UINT32_MAX
 
 enum thread_state {
     THREAD_UNUSED = 0,
@@ -38,6 +39,7 @@ struct scheduler_thread {
     void *stack_base;
     size_t stack_size;
     struct interrupt_frame *saved_frame;
+    uint32_t pinned_cpu;
 };
 
 static struct scheduler_thread threads[SCHEDULER_MAX_THREADS];
@@ -77,6 +79,15 @@ static struct aurora_cpu_local *current_cpu_locked(void) {
     struct aurora_cpu_local *cpu = cpu_local_current();
     if (cpu == NULL) kernel_panic("Scheduler has no CPU-local state");
     return cpu;
+}
+
+static bool thread_allowed_on_cpu_locked(
+    const struct scheduler_thread *thread,
+    const struct aurora_cpu_local *cpu
+) {
+    return thread != NULL && cpu != NULL &&
+        (thread->pinned_cpu == SCHEDULER_CPU_ANY ||
+         thread->pinned_cpu == cpu->logical_id);
 }
 
 static uint64_t thread_kernel_stack_top(const struct scheduler_thread *thread) {
@@ -151,6 +162,7 @@ static aurora_thread_id create_kernel_thread_locked(
     thread->state = THREAD_RUNNABLE;
     thread->idle = idle;
     thread->user = false;
+    thread->pinned_cpu = SCHEDULER_CPU_ANY;
     copy_name(thread->name, name);
     thread->entry = entry;
     thread->argument = argument;
@@ -178,6 +190,7 @@ static aurora_thread_id create_user_thread_locked(
     thread->state = THREAD_RUNNABLE;
     thread->idle = false;
     thread->user = true;
+    thread->pinned_cpu = SCHEDULER_CPU_ANY;
     copy_name(thread->name, name);
     thread->process = process;
     thread->address_space = &process->address_space;
@@ -208,26 +221,36 @@ static uint32_t find_next_thread_locked(struct aurora_cpu_local *cpu) {
     for (uint32_t offset = 1u; offset <= SCHEDULER_MAX_THREADS; ++offset) {
         uint32_t index = (current_index + offset) % SCHEDULER_MAX_THREADS;
         if (index == current_index) continue;
-        if (threads[index].state == THREAD_RUNNABLE && !threads[index].idle)
+        if (threads[index].state == THREAD_RUNNABLE &&
+            !threads[index].idle &&
+            thread_allowed_on_cpu_locked(&threads[index], cpu))
             return index;
     }
 
     if (current_index < SCHEDULER_MAX_THREADS &&
-        threads[current_index].state == THREAD_RUNNABLE)
+        threads[current_index].state == THREAD_RUNNABLE &&
+        thread_allowed_on_cpu_locked(&threads[current_index], cpu))
         return current_index;
 
     uint32_t idle_index = cpu->scheduler_idle_index;
     if (idle_index < SCHEDULER_MAX_THREADS &&
-        threads[idle_index].state == THREAD_RUNNABLE)
+        threads[idle_index].state == THREAD_RUNNABLE &&
+        thread_allowed_on_cpu_locked(&threads[idle_index], cpu))
         return idle_index;
 
     return SCHEDULER_MAX_THREADS;
 }
 
-static bool has_other_useful_runnable_locked(uint32_t active_index) {
+static bool has_other_useful_runnable_locked(
+    struct aurora_cpu_local *cpu,
+    uint32_t active_index
+) {
     for (uint32_t i = 0u; i < SCHEDULER_MAX_THREADS; ++i) {
         if (i == active_index) continue;
-        if (threads[i].state == THREAD_RUNNABLE && !threads[i].idle) return true;
+        if (threads[i].state == THREAD_RUNNABLE &&
+            !threads[i].idle &&
+            thread_allowed_on_cpu_locked(&threads[i], cpu))
+            return true;
     }
     return false;
 }
@@ -264,7 +287,9 @@ static struct interrupt_frame *select_after_current_stops_locked(
     }
 
     prepare_thread(next);
-    if (has_other_useful_runnable_locked(cpu->scheduler_current_index))
+    if (has_other_useful_runnable_locked(
+            cpu,
+            cpu->scheduler_current_index))
         (void)timer_arm_ns(SCHEDULER_QUANTUM_NS);
     else
         timer_cancel();
@@ -313,6 +338,7 @@ bool scheduler_init(void) {
     bootstrap->state = THREAD_RUNNING;
     bootstrap->idle = false;
     bootstrap->user = false;
+    bootstrap->pinned_cpu = cpu->logical_id;
     bootstrap->process = NULL;
     bootstrap->address_space = vmm_kernel_space();
     copy_name(bootstrap->name, "bootstrap");
@@ -327,6 +353,7 @@ bool scheduler_init(void) {
 
     for (uint32_t i = 0u; i < SCHEDULER_MAX_THREADS; ++i) {
         if (threads[i].id == idle_id) {
+            threads[i].pinned_cpu = cpu->logical_id;
             cpu->scheduler_idle_index = i;
             break;
         }
@@ -357,6 +384,7 @@ bool scheduler_prepare_ap(uint32_t logical_id) {
             if (idle_id != 0u) {
                 for (uint32_t i = 0u; i < SCHEDULER_MAX_THREADS; ++i) {
                     if (threads[i].id == idle_id) {
+                        threads[i].pinned_cpu = logical_id;
                         cpu->scheduler_idle_index = i;
                         cpu->scheduler_context_switches = 0u;
                         ok = true;
@@ -371,40 +399,50 @@ bool scheduler_prepare_ap(uint32_t logical_id) {
     return ok;
 }
 
-bool scheduler_start_ap(void) {
-    /*
-     * Timer calibration/programming is per-CPU and can take milliseconds on
-     * xAPIC. Do it before acquiring scheduler_lock so one AP cannot stall all
-     * scheduler state while calibrating its Local APIC timer.
-     */
+struct interrupt_frame *scheduler_start_ap(void) {
     if (!timer_init_ap()) {
-        return false;
+        return NULL;
     }
 
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
     struct aurora_cpu_local *cpu = current_cpu_locked();
-    bool ok = false;
+    struct interrupt_frame *frame = NULL;
 
     if (initialized && started &&
         cpu->scheduler_current_index >= SCHEDULER_MAX_THREADS &&
         cpu->scheduler_idle_index < SCHEDULER_MAX_THREADS) {
         struct scheduler_thread *idle = &threads[cpu->scheduler_idle_index];
-        if (idle->idle && idle->state == THREAD_RUNNABLE) {
+        if (idle->idle &&
+            idle->state == THREAD_RUNNABLE &&
+            idle->pinned_cpu == cpu->logical_id &&
+            idle->saved_frame != NULL) {
             idle->state = THREAD_RUNNING;
             cpu->scheduler_current_index = cpu->scheduler_idle_index;
             prepare_thread(idle);
-            ok = true;
+            frame = idle->saved_frame;
         }
     }
 
     spinlock_unlock_irqrestore(&scheduler_lock, irq);
 
-    if (!ok || !timer_arm_ns(SCHEDULER_QUANTUM_NS)) {
-        return false;
+    if (frame == NULL || !timer_arm_ns(SCHEDULER_QUANTUM_NS)) {
+        if (frame != NULL) {
+            irq = spinlock_lock_irqsave(&scheduler_lock);
+            uint32_t idle_index = cpu->scheduler_idle_index;
+            if (idle_index < SCHEDULER_MAX_THREADS &&
+                cpu->scheduler_current_index == idle_index &&
+                threads[idle_index].idle &&
+                threads[idle_index].state == THREAD_RUNNING) {
+                threads[idle_index].state = THREAD_RUNNABLE;
+                cpu->scheduler_current_index = SCHEDULER_MAX_THREADS;
+            }
+            spinlock_unlock_irqrestore(&scheduler_lock, irq);
+        }
+        timer_cancel();
+        return NULL;
     }
 
-    arch_enable_interrupts();
-    return true;
+    return frame;
 }
 
 aurora_thread_id scheduler_create_kernel_thread(
@@ -440,7 +478,9 @@ bool scheduler_start(void) {
     }
 
     started = true;
-    if (has_other_useful_runnable_locked(cpu->scheduler_current_index) &&
+    if (has_other_useful_runnable_locked(
+            cpu,
+            cpu->scheduler_current_index) &&
         !timer_arm_ns(SCHEDULER_QUANTUM_NS)) {
         started = false;
         spinlock_unlock_irqrestore(&scheduler_lock, irq);

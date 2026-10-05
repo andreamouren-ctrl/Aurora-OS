@@ -34,8 +34,8 @@ struct interrupt_frame {
     uint64_t rflags;
 
     /*
-     * In 64-bit long mode the hardware interrupt frame also carries the
-     * interrupted RSP and SS. IRETQ restores both unconditionally.
+     * In 64-bit long mode Aurora keeps the interrupted RSP/SS slots in every
+     * scheduler frame so the same layout can represent kernel and user work.
      */
     uint64_t rsp;
     uint64_t ss;
@@ -58,5 +58,13 @@ bool interrupt_register_handler(
 struct interrupt_frame *interrupt_dispatch(
     struct interrupt_frame *frame
 );
+
+/*
+ * Restore a scheduler interrupt frame exactly like the common ISR return path.
+ * Used for the first AP bootstrap-stack -> scheduler-stack handoff.
+ */
+void interrupt_enter_frame(
+    struct interrupt_frame *frame
+) __attribute__((noreturn));
 
 #endif
