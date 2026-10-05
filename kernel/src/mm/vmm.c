@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include <aurora/arch.h>
+#include <aurora/cpu_local.h>
 #include <aurora/pmm.h>
 #include <aurora/spinlock.h>
 #include <aurora/vmm.h>
@@ -19,8 +20,6 @@
 #define USER_TOP_EXCLUSIVE 0x0000800000000000ull
 
 static struct vmm_address_space kernel_space;
-/* BSP-only until the dedicated per-CPU execution-state milestone. */
-static struct vmm_address_space *current_space;
 static aurora_spinlock vmm_lock = AURORA_SPINLOCK_INIT;
 
 static uint64_t *table_pointer(uint64_t physical_address) {
@@ -35,8 +34,8 @@ static bool valid_space(const struct vmm_address_space *space) {
 bool vmm_init(void) {
     spinlock_init(&vmm_lock);
     kernel_space.root_physical = arch_read_cr3() & PTE_ADDR_MASK;
-    if (!valid_space(&kernel_space)) return false;
-    current_space = &kernel_space;
+    if (!valid_space(&kernel_space) || cpu_local_current() == NULL) return false;
+    cpu_local_set_current_space(&kernel_space);
     return true;
 }
 
@@ -46,7 +45,7 @@ struct vmm_address_space *vmm_kernel_space(void) {
 
 struct vmm_address_space *vmm_current_space(void) {
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&vmm_lock);
-    struct vmm_address_space *space = current_space;
+    struct vmm_address_space *space = cpu_local_current_space();
     spinlock_unlock_irqrestore(&vmm_lock, irq);
     return space;
 }
@@ -76,10 +75,15 @@ bool vmm_address_space_create(struct vmm_address_space *out) {
 bool vmm_activate(struct vmm_address_space *space) {
     if (!valid_space(space)) return false;
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&vmm_lock);
-    if (current_space != space ||
+    struct vmm_address_space *current = cpu_local_current_space();
+    if (current == NULL) {
+        spinlock_unlock_irqrestore(&vmm_lock, irq);
+        return false;
+    }
+    if (current != space ||
         (arch_read_cr3() & PTE_ADDR_MASK) != space->root_physical)
         arch_write_cr3(space->root_physical);
-    current_space = space;
+    cpu_local_set_current_space(space);
     spinlock_unlock_irqrestore(&vmm_lock, irq);
     return true;
 }
@@ -146,7 +150,7 @@ static bool map_page_locked(
     uint64_t *page_table = table_pointer(table_physical);
     if ((page_table[indices[3]] & PTE_PRESENT) != 0u) return false;
     page_table[indices[3]] = (physical_address & PTE_ADDR_MASK) | make_leaf_flags(flags);
-    if (space == current_space) arch_invalidate_page(virtual_address);
+    if (space == cpu_local_current_space()) arch_invalidate_page(virtual_address);
     return true;
 }
 
@@ -183,7 +187,7 @@ static bool unmap_page_locked(
     uint64_t *page_table = table_pointer(table_physical);
     if ((page_table[indices[3]] & PTE_PRESENT) == 0u) return false;
     page_table[indices[3]] = 0u;
-    if (space == current_space) arch_invalidate_page(virtual_address);
+    if (space == cpu_local_current_space()) arch_invalidate_page(virtual_address);
     return true;
 }
 
@@ -244,21 +248,24 @@ bool vmm_translate_in(
 
 bool vmm_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_t flags) {
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&vmm_lock);
-    bool result = map_page_locked(current_space, virtual_address, physical_address, flags);
+    struct vmm_address_space *space = cpu_local_current_space();
+    bool result = map_page_locked(space, virtual_address, physical_address, flags);
     spinlock_unlock_irqrestore(&vmm_lock, irq);
     return result;
 }
 
 bool vmm_unmap_page(uint64_t virtual_address) {
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&vmm_lock);
-    bool result = unmap_page_locked(current_space, virtual_address);
+    struct vmm_address_space *space = cpu_local_current_space();
+    bool result = unmap_page_locked(space, virtual_address);
     spinlock_unlock_irqrestore(&vmm_lock, irq);
     return result;
 }
 
 bool vmm_translate(uint64_t virtual_address, uint64_t *out_physical_address) {
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&vmm_lock);
-    bool result = translate_locked(current_space, virtual_address, out_physical_address);
+    struct vmm_address_space *space = cpu_local_current_space();
+    bool result = translate_locked(space, virtual_address, out_physical_address);
     spinlock_unlock_irqrestore(&vmm_lock, irq);
     return result;
 }
