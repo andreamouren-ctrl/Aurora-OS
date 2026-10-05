@@ -16,6 +16,9 @@ typedef void (*kernel_thread_entry)(
 
 bool scheduler_init(void);
 
+bool scheduler_prepare_ap(uint32_t logical_id);
+bool scheduler_start_ap(void);
+
 aurora_thread_id scheduler_create_kernel_thread(
     const char *name,
     kernel_thread_entry entry,
