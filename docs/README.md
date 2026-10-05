@@ -13,6 +13,7 @@ This directory contains the canonical project documentation. Documents are group
 ## Security and permissions
 
 - [`APPLICATION_PERMISSIONS.md`](APPLICATION_PERMISSIONS.md) — application permission model.
+- [`PROTECTED_SYSTEM_STATE.md`](PROTECTED_SYSTEM_STATE.md) — capability-gated durable state for trusted system services.
 - [`adr/`](adr/) — architecture decision records that must remain stable historical records unless explicitly superseded by a later ADR.
 
 ## Aurora Identity

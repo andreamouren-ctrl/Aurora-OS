@@ -27,7 +27,8 @@ enum aurora_cap_type {
     AURORA_CAP_CLIPBOARD,
     AURORA_CAP_LOCATION,
     AURORA_CAP_NOTIFICATION,
-    AURORA_CAP_SYSTEM
+    AURORA_CAP_SYSTEM,
+    AURORA_CAP_PROTECTED_STATE
 };
 
 enum aurora_cap_right {

@@ -1,7 +1,7 @@
 # Aurora Identity Machine Secret Provisioning
 
-Status: **isolated implementation foundation**
-Version: **0.1**
+Status: **isolated implementation foundation with kernel Protected System State available**
+Version: **0.2**
 
 ## 1. Purpose
 
@@ -103,13 +103,21 @@ Session Grant keys remain transient and have a separate lifecycle; they are not 
 
 ## 7. Protected System State boundary
 
-AuroraFS/VFS now has the primitives required for a future native adapter, including create, rename, truncate, ownership/mode changes, `fsync`/`fdatasync`, filesystem sync, and AuroraFS v2 ACL support.
+Aurora OS now has the first kernel Protected System State foundation.
 
-However, the final security boundary also requires the Ring 3 Identity Service lifecycle and capability-authorized access path.
+Sensitive system-service namespaces live conceptually under:
 
-The production adapter must ensure that ordinary applications cannot open or modify the machine-secret records simply by knowing their path.
+```text
+/system/.protected/<scope>/
+```
 
-The POSIX adapter in this milestone only proves persistence behavior and owner-only host permissions. It does not claim to be Aurora's final Protected System State implementation.
+and are accessed through the dedicated `AURORA_CAP_PROTECTED_STATE` capability type rather than ordinary application authority. The kernel foundation separates READ, WRITE and CONTROL rights, binds a capability to one exact namespace object, rejects pathname escape attempts, and does not grant TRANSFER authority through the Protected State API.
+
+AuroraFS/VFS already provides create, rename, truncate, ownership/mode changes, `fsync`/`fdatasync`, filesystem sync, and AuroraFS v2 ACL support. The Protected State runtime self-test exercises the capability gate against the mounted `/system` filesystem.
+
+The machine-secret provisioning core is **not yet wired to this namespace**. The next integration step is an Aurora-native machine-secret store adapter that uses the `identity` Protected State capability rather than the host POSIX adapter.
+
+The future Ring 3 Identity Service must receive that namespace capability from trusted service policy; ordinary applications must not receive it.
 
 ## 8. At-rest threat boundary
 
@@ -151,13 +159,15 @@ CI covers:
 - fail-closed behavior when both replicas are corrupt;
 - RNG failure leaving the store unprovisioned.
 
+The kernel Protected State milestone separately verifies typed capability enforcement and mounted AuroraFS persistence semantics.
+
 ## 11. Remaining gates
 
 Before this secret participates in live Aurora login:
 
 1. Identity Service DRBG must be seeded from the kernel entropy service;
-2. Aurora-native Protected System State adapter must replace the host POSIX adapter;
-3. access must be capability-authorized to the Identity Service;
+2. an Aurora-native machine-secret adapter must persist replicas through the `identity` Protected State namespace;
+3. the Ring 3 Identity Service must receive the Protected State capability from trusted system policy;
 4. secure secret-memory lifetime rules must be applied in the final service process;
 5. offline-at-rest hardening policy must be selected;
 6. rotation/recovery policy must be designed before any production root-secret replacement feature exists.

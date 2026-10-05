@@ -2,9 +2,13 @@
 
 #include <aurora/bootstrap_probe.h>
 #include <aurora/input.h>
+#include <aurora/log.h>
 #include <aurora/login_input.h>
 #include <aurora/login_ui.h>
 #include <aurora/nvme.h>
+#include <aurora/panic.h>
+#include <aurora/protected_state.h>
+#include <aurora/vfs.h>
 
 #define AURORA_KEY_MIN_LENGTH 12u
 #define AURORA_KEY_MAX_LENGTH 32u
@@ -88,6 +92,22 @@ static void handle_pressed_key(
     login_ui_set_state(AURORA_LOGIN_IDLE);
 }
 
+static void protected_state_bootstrap_probe(void) {
+    struct aurora_vfs_stat system_stat;
+
+    if (!vfs_stat("/system", &system_stat) ||
+        system_stat.type != AURORA_VFS_NODE_DIRECTORY) {
+        log_line("[protected-state] /system unavailable; runtime self-test skipped");
+        return;
+    }
+
+    if (!protected_state_self_test()) {
+        kernel_panic("Protected system-state capability self-test failed");
+    }
+
+    log_line("[protected-state] capability-gated /system state self-test passed");
+}
+
 void login_input_init(void) {
     /*
      * Temporary M1 bootstrap hook: execute storage contracts before the login
@@ -101,6 +121,8 @@ void login_input_init(void) {
     if (nvme != NULL) {
         bootstrap_storage_probe_device(nvme, "NVMe");
     }
+
+    protected_state_bootstrap_probe();
 
     credential_length = 0u;
 
