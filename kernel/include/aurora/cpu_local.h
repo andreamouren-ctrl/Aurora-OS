@@ -21,11 +21,22 @@ struct aurora_cpu_local {
      * Scheduler execution state is CPU-local even while the runnable-thread
      * table remains globally serialized. Keeping these fields here prevents
      * one CPU from overwriting another CPU's active/idle ownership when AP
-     * scheduling is enabled in the next milestone.
+     * scheduling is enabled.
      */
     uint32_t scheduler_current_index;
     uint32_t scheduler_idle_index;
     uint64_t scheduler_context_switches;
+
+    /*
+     * Local APIC timer state is private to each logical CPU.  The interrupt
+     * vector/callback are system-wide, but mode, calibrated frequency and
+     * interrupt accounting must not be shared between independently armed
+     * local APIC timers.
+     */
+    uint32_t timer_mode;
+    uint32_t timer_reserved;
+    uint64_t timer_lapic_hz;
+    uint64_t timer_interrupts;
 };
 
 bool cpu_local_init_bootstrap(uint32_t logical_id, uint32_t lapic_id);
