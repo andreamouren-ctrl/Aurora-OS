@@ -160,7 +160,6 @@ static bool map_page_locked(
     uint64_t *page_table = table_pointer(table_physical);
     if ((page_table[indices[3]] & PTE_PRESENT) != 0u) return false;
     page_table[indices[3]] = (physical_address & PTE_ADDR_MASK) | make_leaf_flags(flags);
-    publish_tlb_invalidation_or_panic(space, virtual_address);
     return true;
 }
 
@@ -173,6 +172,7 @@ bool vmm_map_page_in(
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&vmm_lock);
     bool result = map_page_locked(space, virtual_address, physical_address, flags);
     spinlock_unlock_irqrestore(&vmm_lock, irq);
+    if (result) publish_tlb_invalidation_or_panic(space, virtual_address);
     return result;
 }
 
@@ -197,7 +197,6 @@ static bool unmap_page_locked(
     uint64_t *page_table = table_pointer(table_physical);
     if ((page_table[indices[3]] & PTE_PRESENT) == 0u) return false;
     page_table[indices[3]] = 0u;
-    publish_tlb_invalidation_or_panic(space, virtual_address);
     return true;
 }
 
@@ -205,6 +204,7 @@ bool vmm_unmap_page_in(struct vmm_address_space *space, uint64_t virtual_address
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&vmm_lock);
     bool result = unmap_page_locked(space, virtual_address);
     spinlock_unlock_irqrestore(&vmm_lock, irq);
+    if (result) publish_tlb_invalidation_or_panic(space, virtual_address);
     return result;
 }
 
@@ -262,6 +262,7 @@ bool vmm_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_t 
     bool result = current != NULL &&
         map_page_locked(current, virtual_address, physical_address, flags);
     spinlock_unlock_irqrestore(&vmm_lock, irq);
+    if (result) publish_tlb_invalidation_or_panic(current, virtual_address);
     return result;
 }
 
@@ -270,6 +271,7 @@ bool vmm_unmap_page(uint64_t virtual_address) {
     struct vmm_address_space *current = cpu_local_current_space();
     bool result = current != NULL && unmap_page_locked(current, virtual_address);
     spinlock_unlock_irqrestore(&vmm_lock, irq);
+    if (result) publish_tlb_invalidation_or_panic(current, virtual_address);
     return result;
 }
 
