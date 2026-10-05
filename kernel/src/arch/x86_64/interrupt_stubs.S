@@ -72,6 +72,17 @@ isr_stub_spurious:
     pushq $255
     jmp isr_common
 
+/*
+ * Restore the exact scheduler frame format used by isr_common.  This is the
+ * one-way bootstrap path used when an AP leaves the Limine-provided stack and
+ * enters its scheduler-owned idle frame for the first time.
+ */
+.global interrupt_enter_frame
+.type interrupt_enter_frame, @function
+interrupt_enter_frame:
+    movq %rdi, %rsp
+    jmp restore_interrupt_frame
+
 .type isr_common, @function
 isr_common:
     cld
@@ -104,6 +115,7 @@ isr_common:
      */
     movq %rax, %rsp
 
+restore_interrupt_frame:
     popq %r15
     popq %r14
     popq %r13
