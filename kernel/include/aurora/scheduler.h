@@ -16,6 +16,12 @@ typedef void (*kernel_thread_entry)(
 
 bool scheduler_init(void);
 
+/*
+ * Prepares CPU-local idle ownership for an AP. scheduler_start_ap() currently
+ * initializes AP-local timer/preemption delivery while the AP remains on its
+ * bootstrap stack; the explicit idle-stack context handoff is the next SMP
+ * milestone.
+ */
 bool scheduler_prepare_ap(uint32_t logical_id);
 bool scheduler_start_ap(void);
 

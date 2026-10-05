@@ -25,6 +25,13 @@ struct aurora_cpu_runtime {
 
 bool smp_init(void);
 
+/*
+ * After the BSP installs the shared timer interrupt handler, prepare every
+ * AP's Local APIC timer one CPU at a time while AP interrupts remain disabled.
+ */
+bool smp_prepare_ap_timers(void);
+uint32_t smp_ap_timer_ready_count(void);
+
 void smp_release_scheduler_aps(void);
 uint32_t smp_scheduler_owned_cpu_count(void);
 

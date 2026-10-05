@@ -58,6 +58,7 @@ bool cpu_local_init_bootstrap(uint32_t logical_id, uint32_t lapic_id_value) {
     local->self = local;
     local->logical_id = logical_id;
     local->lapic_id = lapic_id_value;
+    local->bootstrap_cpu = 1u;
     bootstrap_local = local;
     apic_lookup_enabled = false;
     return cpu_local_activate_current(logical_id);
@@ -73,6 +74,7 @@ bool cpu_local_register(uint32_t logical_id, uint32_t lapic_id_value, bool boots
     }
     local->logical_id = logical_id;
     local->lapic_id = lapic_id_value;
+    local->bootstrap_cpu = bootstrap ? 1u : 0u;
 
     if (bootstrap) bootstrap_local = local;
     return true;
