@@ -282,6 +282,8 @@ static struct interrupt_frame *scheduler_on_timer(struct interrupt_frame *frame)
 }
 
 bool scheduler_init(void) {
+    if (!spinlock_self_test()) return false;
+
     spinlock_init(&scheduler_lock);
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
 
