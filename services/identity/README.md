@@ -1,10 +1,10 @@
 # Aurora Identity Core
 
-Status: **isolated implementation foundation with persistent host store**
+Status: **isolated implementation foundation with persistent host store and crypto foundation**
 
 This directory contains the implementation layer of Aurora Identity that is intentionally **not yet wired into Aurora OS login/session startup**.
 
-The goal is to build and verify the security-sensitive identity logic behind explicit platform interfaces before binding it to the real Ring 3 service lifecycle, protected AuroraFS system state, production cryptography, IPC transport, compositor UI, or Session Manager.
+The goal is to build and verify the security-sensitive identity logic behind explicit platform interfaces before binding it to the real Ring 3 service lifecycle, protected AuroraFS system state, production entropy, IPC transport, compositor UI, or Session Manager.
 
 ## Implemented foundations
 
@@ -24,7 +24,11 @@ The isolated layer now implements:
 - atomic Aurora Key rotation while keeping stable `user_id` unchanged;
 - one-time bounded session-grant core;
 - a versioned dual-slot persistent store with close/reopen tests, rollback to the previous valid generation, corruption detection, and POSIX durable publication;
-- explicit interfaces for crypto, secure randomness, storage, and monotonic time;
+- SHA-256 and HMAC-SHA256 primitives;
+- constant-time byte comparison helper;
+- HMAC-DRBG with explicit instantiate/reseed/generate lifecycle;
+- domain-separated HMAC tags for Aurora Key lookup and Session Grant tokens;
+- an Identity random-provider adapter backed by an already-instantiated HMAC-DRBG;
 - secret-buffer clearing helpers and deterministic host tests.
 
 ## Transactional identity creation and bootstrap role
@@ -78,17 +82,23 @@ The persistent backend stores `failed_attempts` but **does not serialize `thrott
 
 This preserves throttling across reboot without comparing timestamps from unrelated monotonic-clock epochs.
 
-## Credential lookup tag
+## Crypto foundation
 
-Aurora's default login intentionally has no public username field. The service therefore needs a way to locate the candidate credential record before running its expensive verifier.
+The crypto foundation now provides SHA-256, HMAC-SHA256, a constant-time comparison helper, and HMAC-DRBG.
 
-The core exposes `derive_lookup_tag()` as a crypto-provider operation. A production provider must derive an **opaque keyed lookup tag** from the normalized Aurora Key using a protected machine/service secret and a reviewed PRF construction. A plain deterministic hash is not acceptable because a copied database would otherwise provide a cheap offline guessing oracle.
+The DRBG is deliberately **not** an entropy source. Production use requires Aurora to supply reviewed unpredictable entropy and nonce material before instantiation/reseed. Deterministic seeds exist only in tests.
 
-The exact production primitive is intentionally not implemented here.
+The provider derives the Aurora Key lookup tag as a domain-separated HMAC-SHA256 value under a dedicated protected lookup key. A copied database therefore does not expose the plain deterministic hash oracle that the original design explicitly prohibited.
+
+The provider also uses a separate key and domain for transient Session Grant token tags. Key reuse between these protocols is forbidden.
+
+The lookup HMAC key must remain stable across reboot so existing lookup tags remain reproducible. Provisioning, protected persistence, rotation, and migration of that key belong to future Protected System State work.
+
+See `docs/identity/CRYPTO_FOUNDATION.md` for the complete boundary and remaining gates.
 
 ## Test providers and persistence adapter
 
-The deterministic crypto/RNG/time providers under `tests/` are test-only. They are not suitable for production authentication.
+The deterministic test inputs/providers under `tests/` are validation-only. They are not suitable for production authentication or DRBG seeding.
 
 `persistent_store_posix.c` is a host adapter used to prove real close/reopen durability in CI. It writes owner-only slot files, fsyncs complete images, atomically renames them into place, and fsyncs the parent directory. It is **not** the final AuroraFS protected-system-state adapter.
 
@@ -107,15 +117,19 @@ Tests cover, among other cases:
 - volatile throttle re-arm without another disk generation;
 - durable-write failure rollback;
 - newest-slot corruption fallback;
-- fail-closed behavior when no valid snapshot remains.
+- fail-closed behavior when no valid snapshot remains;
+- SHA-256 and HMAC-SHA256 known-answer vectors;
+- deterministic HMAC-DRBG known-answer output;
+- domain-separated lookup/session-tag vectors;
+- provider-backed random generation and state clearing.
 
 ## Not implemented yet
 
 This layer still deliberately does not provide:
 
 - production Argon2id implementation/provider;
-- production keyed lookup-tag PRF;
-- production CSPRNG;
+- reviewed Aurora kernel/platform entropy collection and DRBG seeding path;
+- protected provisioning/storage/rotation of the persistent lookup HMAC key;
 - protected AuroraFS system-state namespace/capability;
 - authenticated/encrypted database-at-rest protection;
 - Aurora-native durable slot adapter;
@@ -149,7 +163,9 @@ The host build uses ordinary C11 and has no dependency on the kernel. This is in
 The isolated Identity implementation should only be connected to the real Aurora OS login path after at least:
 
 1. protected service-owned durable system state exists;
-2. Aurora has reviewed production CSPRNG, Argon2id, and keyed lookup-tag providers;
-3. an AuroraFS durable-slot adapter preserves the store's atomic publication contract;
-4. the Ring 3 Identity Service lifecycle and capability-authorized IPC transport exist;
-5. the Session Manager can consume non-replayable session grants and bootstrap the correct profile/session context.
+2. Aurora has a reviewed production entropy source and secure DRBG seeding/reseeding path;
+3. Argon2id is implemented and calibrated for Aurora hardware targets;
+4. persistent lookup-HMAC key provisioning/rotation exists;
+5. an AuroraFS durable-slot adapter preserves the store's atomic publication contract;
+6. the Ring 3 Identity Service lifecycle and capability-authorized IPC transport exist;
+7. the Session Manager can consume non-replayable session grants and bootstrap the correct profile/session context.
