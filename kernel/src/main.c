@@ -27,12 +27,15 @@
 #include <aurora/smp.h>
 #include <aurora/syscall.h>
 #include <aurora/timer.h>
+#include <aurora/user_ipc_probe.h>
 #include <aurora/user_probe.h>
 #include <aurora/usercopy.h>
 #include <aurora/version.h>
 #include <aurora/vmm.h>
 
 static volatile uint64_t scheduler_probe_value;
+static struct aurora_ipc_channel ring3_ipc_probe_channel;
+static struct aurora_cap_table ring3_ipc_kernel_caps;
 
 static const char *lapic_mode_name(void) {
     switch (lapic_current_mode()) {
@@ -534,6 +537,109 @@ void kmain(void) {
     log_line("[ring3] isolated user process reached SYSCALL");
     log_line("[ring3] SYSRET returned to Ring 3 and EXIT switched back safely");
     log_line("[ring3] private CR3 + user stack + kernel stack path passed");
+
+    ipc_channel_init(&ring3_ipc_probe_channel);
+    cap_table_init(&ring3_ipc_kernel_caps);
+
+    struct aurora_ipc_endpoint *ring3_endpoint =
+        ipc_channel_endpoint(&ring3_ipc_probe_channel, 0u);
+    struct aurora_ipc_endpoint *kernel_endpoint =
+        ipc_channel_endpoint(&ring3_ipc_probe_channel, 1u);
+
+    if (ring3_endpoint == NULL || kernel_endpoint == NULL) {
+        kernel_panic("Could not create Ring 3 IPC probe channel");
+    }
+
+    struct aurora_process *ipc_process =
+        process_create_image(
+            "ring3-ipc-probe",
+            user_ipc_probe_image(),
+            user_ipc_probe_image_size()
+        );
+
+    if (ipc_process == NULL) {
+        kernel_panic("Could not create Ring 3 IPC probe process");
+    }
+
+    aurora_cap_handle ipc_handle = cap_grant(
+        &ipc_process->capabilities,
+        ring3_endpoint,
+        AURORA_CAP_IPC_ENDPOINT,
+        AURORA_RIGHT_READ | AURORA_RIGHT_WRITE
+    );
+
+    if (ipc_handle == AURORA_CAP_INVALID) {
+        kernel_panic("Could not grant Ring 3 IPC endpoint capability");
+    }
+
+    uint64_t ipc_handle_value = (uint64_t)ipc_handle;
+    uint64_t ipc_handle_address = ipc_process->user_stack_top - 8ull;
+
+    if (!copy_to_user(
+            ipc_process,
+            ipc_handle_address,
+            &ipc_handle_value,
+            sizeof(ipc_handle_value))) {
+        kernel_panic("Could not publish Ring 3 IPC endpoint handle");
+    }
+
+    static const uint8_t ipc_probe_payload[] = {
+        'A', 'U', 'R', 'O', 'R', 'A', '-', 'R',
+        'I', 'N', 'G', '3', '-', 'I', 'P', 'C'
+    };
+
+    if (!ipc_send(
+            kernel_endpoint,
+            NULL,
+            ipc_probe_payload,
+            (uint32_t)sizeof(ipc_probe_payload),
+            NULL,
+            0u)) {
+        kernel_panic("Could not queue Ring 3 IPC probe message");
+    }
+
+    aurora_thread_id ipc_thread =
+        scheduler_create_user_thread(
+            "ring3-ipc-probe-main",
+            ipc_process
+        );
+
+    if (ipc_thread == 0u) {
+        kernel_panic("Could not create Ring 3 IPC probe thread");
+    }
+
+    uint64_t ipc_deadline = clock_now_ns() + 500000000ull;
+
+    while ((process_bootstrap_signal(ipc_process) != AURORA_USER_IPC_PROBE_MAGIC ||
+            !scheduler_thread_finished(ipc_thread)) &&
+           clock_now_ns() < ipc_deadline) {
+        arch_idle();
+    }
+
+    if (process_bootstrap_signal(ipc_process) != AURORA_USER_IPC_PROBE_MAGIC ||
+        !scheduler_thread_finished(ipc_thread) ||
+        process_state(ipc_process) != AURORA_PROCESS_EXITED) {
+        kernel_panic("Ring 3 IPC syscall probe timed out");
+    }
+
+    struct aurora_ipc_received ipc_echo;
+
+    if (!ipc_receive(
+            kernel_endpoint,
+            &ring3_ipc_kernel_caps,
+            &ipc_echo) ||
+        ipc_echo.length != sizeof(ipc_probe_payload) ||
+        ipc_echo.capability_count != 0u) {
+        kernel_panic("Ring 3 IPC syscall echo metadata mismatch");
+    }
+
+    for (uint32_t i = 0u; i < ipc_echo.length; ++i) {
+        if (ipc_echo.data[i] != ipc_probe_payload[i]) {
+            kernel_panic("Ring 3 IPC syscall echo payload mismatch");
+        }
+    }
+
+    log_line("[ring3-ipc] capability-gated send/receive syscall round-trip passed");
 
     boot_ui_stage(
         AURORA_BOOT_STAGE_USERSPACE

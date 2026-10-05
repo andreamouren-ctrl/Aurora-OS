@@ -3,6 +3,10 @@
 
 #include <aurora/capability.h>
 
+static bool cap_type_valid(enum aurora_cap_type type) {
+    return type > AURORA_CAP_NONE && type < AURORA_CAP_TYPE_COUNT;
+}
+
 static aurora_cap_handle make_handle(
     uint32_t slot,
     uint32_t generation
@@ -96,7 +100,7 @@ aurora_cap_handle cap_grant(
 ) {
     if (table == NULL ||
         object == NULL ||
-        type == AURORA_CAP_NONE) {
+        !cap_type_valid(type)) {
         return AURORA_CAP_INVALID;
     }
 
@@ -151,7 +155,8 @@ bool cap_lookup(
     struct aurora_capability_view *out
 ) {
     if (table == NULL ||
-        out == NULL) {
+        out == NULL ||
+        (expected_type != AURORA_CAP_NONE && !cap_type_valid(expected_type))) {
         return false;
     }
 
@@ -172,10 +177,15 @@ bool cap_lookup(
     struct aurora_cap_entry *entry =
         &table->entries[slot];
 
+    bool entry_type_valid =
+        entry->type > (uint16_t)AURORA_CAP_NONE &&
+        entry->type < (uint16_t)AURORA_CAP_TYPE_COUNT;
+
     bool valid =
         entry->occupied &&
         entry->generation == generation &&
         entry->object != NULL &&
+        entry_type_valid &&
         (expected_type == AURORA_CAP_NONE ||
          entry->type == (uint16_t)expected_type) &&
         (entry->rights & required_rights) ==
@@ -346,6 +356,8 @@ aurora_cap_handle cap_delegate(
         source->generation !=
             source_generation ||
         source->object == NULL ||
+        source->type <= (uint16_t)AURORA_CAP_NONE ||
+        source->type >= (uint16_t)AURORA_CAP_TYPE_COUNT ||
         (source->rights &
          AURORA_RIGHT_TRANSFER) == 0 ||
         (delegated_rights &
@@ -417,6 +429,14 @@ bool capability_self_test(void) {
 
     cap_table_init(&source);
     cap_table_init(&target);
+
+    if (cap_grant(
+            &source,
+            &dummy_device,
+            AURORA_CAP_TYPE_COUNT,
+            AURORA_RIGHT_READ) != AURORA_CAP_INVALID) {
+        return false;
+    }
 
     aurora_cap_handle source_handle =
         cap_grant(

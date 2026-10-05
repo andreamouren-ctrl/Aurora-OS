@@ -9,6 +9,7 @@ This directory contains the canonical project documentation. Documents are group
 - [`ROADMAP.md`](ROADMAP.md) — implementation and verification roadmap.
 - [`KERNEL_MODEL.md`](KERNEL_MODEL.md) — current kernel model and responsibility split.
 - [`SYSCALL_ABI.md`](SYSCALL_ABI.md) — syscall ABI direction.
+- [`RING3_IPC_SYSCALLS.md`](RING3_IPC_SYSCALLS.md) — capability-checked Ring 3 IPC send/receive ABI and runtime probe.
 
 ## Security and permissions
 
