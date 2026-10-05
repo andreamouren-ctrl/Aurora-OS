@@ -7,6 +7,7 @@
 #include <aurora/boot_ui.h>
 #include <aurora/clock.h>
 #include <aurora/capability.h>
+#include <aurora/cpu_local.h>
 #include <aurora/framebuffer.h>
 #include <aurora/gdt.h>
 #include <aurora/heap.h>
@@ -95,20 +96,11 @@ void kmain(void) {
     log_u64(memory.free_pages);
     log_line("");
 
-    if (!vmm_init()) {
-        kernel_panic("Virtual memory manager initialization failed");
-    }
-
-    log_line("[vmm] current x86_64 page tables attached");
-
-    boot_ui_stage(
-        AURORA_BOOT_STAGE_MEMORY
-    );
-
     uint64_t boot_cpu_count =
         boot_smp_cpu_count();
 
     uint32_t bsp_slot = 0;
+    uint32_t bsp_lapic_id = 0;
     bool bsp_found = false;
 
     for (uint64_t i = 0;
@@ -119,13 +111,32 @@ void kmain(void) {
         if (boot_smp_cpu_at(i, &cpu) &&
             cpu.bootstrap) {
             bsp_slot = (uint32_t)i;
+            bsp_lapic_id = cpu.lapic_id;
             bsp_found = true;
             break;
         }
     }
 
     if (!bsp_found ||
-        !gdt_init_bsp(bsp_slot)) {
+        !cpu_local_init_bootstrap(
+            bsp_slot,
+            bsp_lapic_id)) {
+        kernel_panic("Bootstrap CPU-local initialization failed");
+    }
+
+    log_line("[cpu] bootstrap CPU-local state initialized");
+
+    if (!vmm_init()) {
+        kernel_panic("Virtual memory manager initialization failed");
+    }
+
+    log_line("[vmm] current x86_64 page tables attached");
+
+    boot_ui_stage(
+        AURORA_BOOT_STAGE_MEMORY
+    );
+
+    if (!gdt_init_bsp(bsp_slot)) {
         kernel_panic("Aurora GDT/TSS initialization failed");
     }
 
@@ -231,6 +242,8 @@ void kmain(void) {
     log_write("[smp] CPUs online: ");
     log_u64(smp_online_cpu_count());
     log_line("");
+
+    log_line("[smp] CPU-local execution state ready; AP scheduling parked");
 
     boot_ui_stage(
         AURORA_BOOT_STAGE_SMP
