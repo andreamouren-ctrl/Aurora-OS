@@ -391,6 +391,43 @@ void kmain(void) {
     log_u64(smp_scheduler_owned_cpu_count());
     log_line("");
 
+    uint32_t expected_ap_timer_cpus =
+        smp_online_cpu_count() > 0u
+            ? smp_online_cpu_count() - 1u
+            : 0u;
+    uint32_t ap_timer_cpus = 0u;
+    uint64_t ap_timer_deadline =
+        clock_now_ns() + 250000000ull;
+
+    do {
+        ap_timer_cpus = 0u;
+
+        for (uint32_t i = 0u; i < smp_cpu_count(); ++i) {
+            const struct aurora_cpu_runtime *cpu = smp_cpu_at(i);
+            if (cpu == 0 || cpu->bootstrap || cpu->state != AURORA_CPU_ONLINE) {
+                continue;
+            }
+
+            if (timer_interrupt_count_cpu(cpu->logical_id) > 0u) {
+                ++ap_timer_cpus;
+            }
+        }
+
+        if (ap_timer_cpus == expected_ap_timer_cpus) {
+            break;
+        }
+
+        arch_idle();
+    } while (clock_now_ns() < ap_timer_deadline);
+
+    if (ap_timer_cpus != expected_ap_timer_cpus) {
+        kernel_panic("AP Local APIC timer preemption probe timed out");
+    }
+
+    log_write("[sched] AP local timer preemption CPUs: ");
+    log_u64(ap_timer_cpus);
+    log_line("");
+
     uint64_t scheduler_deadline =
         clock_now_ns() + 250000000ull;
 
