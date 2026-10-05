@@ -372,6 +372,15 @@ bool scheduler_prepare_ap(uint32_t logical_id) {
 }
 
 bool scheduler_start_ap(void) {
+    /*
+     * Timer calibration/programming is per-CPU and can take milliseconds on
+     * xAPIC. Do it before acquiring scheduler_lock so one AP cannot stall all
+     * scheduler state while calibrating its Local APIC timer.
+     */
+    if (!timer_init_ap()) {
+        return false;
+    }
+
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
     struct aurora_cpu_local *cpu = current_cpu_locked();
     bool ok = false;
@@ -389,8 +398,13 @@ bool scheduler_start_ap(void) {
     }
 
     spinlock_unlock_irqrestore(&scheduler_lock, irq);
-    if (ok) arch_enable_interrupts();
-    return ok;
+
+    if (!ok || !timer_arm_ns(SCHEDULER_QUANTUM_NS)) {
+        return false;
+    }
+
+    arch_enable_interrupts();
+    return true;
 }
 
 aurora_thread_id scheduler_create_kernel_thread(
