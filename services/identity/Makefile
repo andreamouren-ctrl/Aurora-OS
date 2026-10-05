@@ -18,6 +18,8 @@ PERSISTENT_STORE_POSIX_OBJECT := $(BUILD_DIR)/persistent_store_posix.o
 CRYPTO_FOUNDATION_OBJECT := $(BUILD_DIR)/crypto_foundation.o
 CRYPTO_PROVIDER_OBJECT := $(BUILD_DIR)/crypto_provider.o
 ARGON2ID_PROVIDER_OBJECT := $(BUILD_DIR)/argon2id_provider.o
+MACHINE_SECRET_OBJECT := $(BUILD_DIR)/machine_secret.o
+MACHINE_SECRET_POSIX_OBJECT := $(BUILD_DIR)/machine_secret_posix.o
 ARGON2_REF_ARGON2_OBJECT := $(BUILD_DIR)/argon2_ref_argon2.o
 ARGON2_REF_CORE_OBJECT := $(BUILD_DIR)/argon2_ref_core.o
 ARGON2_REF_REF_OBJECT := $(BUILD_DIR)/argon2_ref_ref.o
@@ -32,12 +34,13 @@ SESSION_GRANT_TEST_BINARY := $(BUILD_DIR)/identity-session-grant-tests
 PERSISTENT_STORE_TEST_BINARY := $(BUILD_DIR)/identity-persistent-store-tests
 CRYPTO_FOUNDATION_TEST_BINARY := $(BUILD_DIR)/identity-crypto-foundation-tests
 ARGON2ID_PROVIDER_TEST_BINARY := $(BUILD_DIR)/identity-argon2id-provider-tests
+MACHINE_SECRET_TEST_BINARY := $(BUILD_DIR)/identity-machine-secret-tests
 
 .PHONY: all test clean
 
 all: test
 
-test: $(CORE_TEST_BINARY) $(CREATION_TEST_BINARY) $(ROTATION_TEST_BINARY) $(SESSION_GRANT_TEST_BINARY) $(PERSISTENT_STORE_TEST_BINARY) $(CRYPTO_FOUNDATION_TEST_BINARY) $(ARGON2ID_PROVIDER_TEST_BINARY)
+test: $(CORE_TEST_BINARY) $(CREATION_TEST_BINARY) $(ROTATION_TEST_BINARY) $(SESSION_GRANT_TEST_BINARY) $(PERSISTENT_STORE_TEST_BINARY) $(CRYPTO_FOUNDATION_TEST_BINARY) $(ARGON2ID_PROVIDER_TEST_BINARY) $(MACHINE_SECRET_TEST_BINARY)
 	$(CORE_TEST_BINARY)
 	$(CREATION_TEST_BINARY)
 	$(ROTATION_TEST_BINARY)
@@ -45,6 +48,7 @@ test: $(CORE_TEST_BINARY) $(CREATION_TEST_BINARY) $(ROTATION_TEST_BINARY) $(SESS
 	$(PERSISTENT_STORE_TEST_BINARY)
 	$(CRYPTO_FOUNDATION_TEST_BINARY)
 	$(ARGON2ID_PROVIDER_TEST_BINARY)
+	$(MACHINE_SECRET_TEST_BINARY)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -72,6 +76,12 @@ $(CRYPTO_PROVIDER_OBJECT): src/crypto_provider.c include/aurora/identity/crypto_
 
 $(ARGON2ID_PROVIDER_OBJECT): src/argon2id_provider.c include/aurora/identity/argon2id_provider.h include/aurora/identity/crypto_provider.h include/aurora/identity/crypto_foundation.h include/aurora/identity/core.h $(ARGON2_VENDOR_INCLUDE)/argon2.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) -I$(ARGON2_VENDOR_INCLUDE) $(CFLAGS) -c src/argon2id_provider.c -o $@
+
+$(MACHINE_SECRET_OBJECT): src/machine_secret.c include/aurora/identity/machine_secret.h include/aurora/identity/core.h include/aurora/identity/crypto_foundation.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/machine_secret.c -o $@
+
+$(MACHINE_SECRET_POSIX_OBJECT): src/machine_secret_posix.c include/aurora/identity/machine_secret_posix.h include/aurora/identity/machine_secret.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/machine_secret_posix.c -o $@
 
 $(ARGON2_REF_ARGON2_OBJECT): $(ARGON2_VENDOR_SRC)/argon2.c $(ARGON2_VENDOR_INCLUDE)/argon2.h | $(BUILD_DIR)
 	$(CC) $(ARGON2_VENDOR_CPPFLAGS) $(ARGON2_VENDOR_CFLAGS) -c $(ARGON2_VENDOR_SRC)/argon2.c -o $@
@@ -108,6 +118,9 @@ $(CRYPTO_FOUNDATION_TEST_BINARY): tests/test_identity_crypto_foundation.c $(CRYP
 
 $(ARGON2ID_PROVIDER_TEST_BINARY): tests/test_identity_argon2id_provider.c $(ARGON2ID_PROVIDER_OBJECT) $(CRYPTO_FOUNDATION_OBJECT) $(CRYPTO_PROVIDER_OBJECT) $(ARGON2_REF_OBJECTS) include/aurora/identity/argon2id_provider.h
 	$(CC) $(CPPFLAGS) -I$(ARGON2_VENDOR_INCLUDE) $(CFLAGS) tests/test_identity_argon2id_provider.c $(ARGON2ID_PROVIDER_OBJECT) $(CRYPTO_FOUNDATION_OBJECT) $(CRYPTO_PROVIDER_OBJECT) $(ARGON2_REF_OBJECTS) -o $@
+
+$(MACHINE_SECRET_TEST_BINARY): tests/test_identity_machine_secret.c $(MACHINE_SECRET_OBJECT) $(MACHINE_SECRET_POSIX_OBJECT) $(CRYPTO_FOUNDATION_OBJECT) include/aurora/identity/machine_secret.h include/aurora/identity/machine_secret_posix.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_identity_machine_secret.c $(MACHINE_SECRET_OBJECT) $(MACHINE_SECRET_POSIX_OBJECT) $(CRYPTO_FOUNDATION_OBJECT) -o $@
 
 clean:
 	rm -rf $(BUILD_DIR)
