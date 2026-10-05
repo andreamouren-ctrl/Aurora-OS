@@ -68,7 +68,7 @@ run-uefi: iso storage-image
 		-m 512M \
 		-drive if=pflash,format=raw,readonly=on,file="$(OVMF_CODE)" \
 		-cdrom "$(ISO)" \
-		-drive file="$STORAGE_IMAGE",format=raw,if=none,id=aurora_disk \
+		-drive file="$(STORAGE_IMAGE)",format=raw,if=none,id=aurora_disk \
 		-device ide-hd,drive=aurora_disk \
 		-serial stdio
 
