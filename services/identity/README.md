@@ -1,10 +1,10 @@
 # Aurora Identity Core
 
-Status: **isolated implementation foundation with persistent host store and crypto foundation**
+Status: **isolated implementation foundation with persistent host store, crypto foundation, and machine-secret provisioning**
 
 This directory contains the implementation layer of Aurora Identity that is intentionally **not yet wired into Aurora OS login/session startup**.
 
-The goal is to build and verify the security-sensitive identity logic behind explicit platform interfaces before binding it to the real Ring 3 service lifecycle, protected AuroraFS system state, production entropy, IPC transport, compositor UI, or Session Manager.
+The goal is to build and verify the security-sensitive identity logic behind explicit platform interfaces before binding it to the real Ring 3 service lifecycle, protected AuroraFS system state, IPC transport, compositor UI, or Session Manager.
 
 ## Implemented foundations
 
@@ -31,6 +31,9 @@ The isolated layer now implements:
 - an Identity random-provider adapter backed by an already-instantiated HMAC-DRBG;
 - a bounded Argon2id verifier provider backed by the pinned official Argon2 reference implementation;
 - RFC 9106 Argon2id known-answer validation;
+- create-once 256-bit machine Identity root-secret provisioning;
+- redundant machine-secret replicas with fail-closed corruption/conflict handling;
+- domain-separated derivation of the persistent Aurora Key lookup-HMAC key from the machine root secret;
 - secret-buffer clearing helpers and deterministic host tests.
 
 ## Transactional identity creation and bootstrap role
@@ -82,64 +85,80 @@ A monotonic timestamp belongs to one boot/service clock epoch and therefore must
 
 The persistent backend stores `failed_attempts` but **does not serialize `throttle_until_ms`**. After reopen, the authentication core sees the durable escalation level and re-arms one penalty in the new monotonic epoch before another verifier attempt is allowed. Re-arming the same failure count changes only volatile memory and does not create another disk generation.
 
-This preserves throttling across reboot without comparing timestamps from unrelated monotonic-clock epochs.
-
 ## Crypto foundation
 
 The crypto foundation provides SHA-256, HMAC-SHA256, a constant-time comparison helper, HMAC-DRBG, and the isolated Argon2id verifier provider.
 
-The DRBG is deliberately **not** an entropy source. Production use requires Aurora to supply reviewed unpredictable entropy and nonce material before instantiation/reseed. Deterministic seeds exist only in tests.
+Aurora OS now also has a kernel entropy seed foundation that qualifies RDSEED with startup/continuous health checks and fails closed when a trusted seed source is unavailable. The Identity service still needs its future Ring 3 handoff and reseed lifecycle before live production use.
 
-The provider derives the Aurora Key lookup tag as a domain-separated HMAC-SHA256 value under a dedicated protected lookup key. A copied database therefore does not expose the plain deterministic hash oracle that the original design explicitly prohibited.
+The provider derives the Aurora Key lookup tag as a domain-separated HMAC-SHA256 value under a dedicated protected lookup key. A copied identity database therefore does not expose the plain deterministic hash oracle that the original design explicitly prohibited.
 
-The provider also uses a separate key and domain for transient Session Grant token tags. Key reuse between these protocols is forbidden.
+For verifier derivation/checking, Aurora pins `P-H-C/phc-winner-argon2` at commit `f57e61e19229e23c4445b85494dbf7c07de721cb` and wraps it behind `aurora_identity_crypto_ops`. Stored KDF metadata is checked against explicit memory/time/parallelism/salt/verifier bounds before Argon2 work is allowed.
 
-For verifier derivation/checking, Aurora pins `P-H-C/phc-winner-argon2` at commit `f57e61e19229e23c4445b85494dbf7c07de721cb` and wraps it behind `aurora_identity_crypto_ops`. Stored KDF metadata is checked against explicit memory/time/parallelism/salt/verifier bounds before Argon2 work is allowed. Unsupported parameter versions fail closed.
+See `docs/identity/CRYPTO_FOUNDATION.md`, `docs/identity/ARGON2ID_PROVIDER.md`, and `docs/ENTROPY.md`.
 
-The lookup HMAC key must remain stable across reboot so existing lookup tags remain reproducible. Provisioning, protected persistence, rotation, and migration of that key belong to future Protected System State work.
+## Machine Identity root secret
 
-See `docs/identity/CRYPTO_FOUNDATION.md` and `docs/identity/ARGON2ID_PROVIDER.md` for the complete boundaries and remaining gates.
+`machine_secret.c` implements create-once provisioning of a 256-bit root secret. Normal startup follows a strict rule:
 
-## Test providers and persistence adapter
+```text
+no secret replicas -> provision once
+valid replica      -> load existing secret
+corrupt replicas   -> fail closed
+conflicting valid replicas -> fail closed
+```
+
+Corruption never causes automatic regeneration. Replacing the root secret without a coordinated lookup-tag migration would make existing Aurora Key records unreachable.
+
+The root secret derives the persistent lookup key as:
+
+```text
+HMAC-SHA256(machine_root_secret, "AURORA.IDENTITY.LOOKUP-KEY.V1")
+```
+
+The POSIX adapter validates create-once durability, owner-only permissions, close/reopen stability, and replica recovery. It is not the final Aurora Protected System State adapter and does not claim hardware sealing or offline-disk confidentiality.
+
+See `docs/identity/MACHINE_SECRET_PROVISIONING.md`.
+
+## Test providers and persistence adapters
 
 The deterministic test inputs/providers under `tests/` are validation-only. They are not suitable for production authentication or DRBG seeding.
 
-`persistent_store_posix.c` is a host adapter used to prove real close/reopen durability in CI. It writes owner-only slot files, fsyncs complete images, atomically renames them into place, and fsyncs the parent directory. It is **not** the final AuroraFS protected-system-state adapter.
+`persistent_store_posix.c` proves real Identity database close/reopen durability in CI.
+
+`machine_secret_posix.c` proves create-once machine-secret publication with owner-only files, file `fsync`, atomic no-clobber publication, and directory `fsync`.
+
+Neither POSIX adapter is the final AuroraFS protected-system-state adapter.
 
 Tests cover, among other cases:
 
-- successful identity + first credential publication;
-- immediate authentication;
+- successful identity + first credential publication and immediate authentication;
 - duplicate/race rejection and no partial publication;
-- random/verifier/backend failure handling;
 - Aurora Key rotation atomicity;
 - session-grant issue/consume behavior;
-- first identity becoming administrator;
-- later identity becoming standard user;
-- rejection of caller-forged administrator role;
-- durable failure-count persistence with non-persistent monotonic deadline;
-- volatile throttle re-arm without another disk generation;
-- durable-write failure rollback;
-- newest-slot corruption fallback;
-- fail-closed behavior when no valid snapshot remains;
-- SHA-256 and HMAC-SHA256 known-answer vectors;
-- deterministic HMAC-DRBG known-answer output;
-- domain-separated lookup/session-tag vectors;
-- provider-backed random generation and state clearing;
-- RFC 9106 Argon2id v=19 vector;
-- Argon2id provider derive/verify success and mismatch paths;
-- rejection of unsupported or resource-excessive KDF metadata.
+- first identity becoming administrator and later identities becoming standard users;
+- reboot-safe throttling;
+- persistent-store corruption fallback/fail-closed behavior;
+- SHA-256/HMAC/HMAC-DRBG known-answer validation;
+- RFC 9106 Argon2id v=19 validation;
+- Argon2id resource-bound and parameter-version rejection;
+- first machine-secret provisioning and close/reopen stability;
+- stable lookup-key derivation across reopen;
+- proof that an existing machine secret does not invoke RNG again;
+- recovery from one damaged machine-secret replica;
+- fail-closed handling when no valid machine-secret replica remains;
+- RNG failure leaving machine-secret state unprovisioned.
 
 ## Not implemented yet
 
 This layer still deliberately does not provide:
 
-- reviewed Aurora kernel/platform entropy collection and DRBG seeding path;
+- Ring 3 handoff from the kernel entropy seed service into the Identity DRBG lifecycle;
 - calibrated production Argon2id creation parameters for Aurora hardware classes;
-- protected provisioning/storage/rotation of the persistent lookup HMAC key;
-- protected AuroraFS system-state namespace/capability;
-- authenticated/encrypted database-at-rest protection;
-- Aurora-native durable slot adapter;
+- Aurora-native Protected System State adapter for the machine secret and Identity database;
+- capability-authorized machine-secret access restricted to the Identity Service;
+- hardware sealing/encrypted-at-rest protection against an offline raw-disk attacker;
+- safe machine-root-secret rotation/migration;
 - Ring 3 Aurora Identity Service lifecycle;
 - capability-authorized Identity IPC transport;
 - production Session Manager/profile bootstrap;
@@ -169,16 +188,16 @@ or directly:
 make -C services/identity test
 ```
 
-The host build uses ordinary C11 and has no dependency on the kernel. Aurora-owned code is compiled with strict warning-as-error flags. The pinned Argon2 reference source is built separately with `ARGON2_NO_THREADS` for the isolated host validation path.
+Aurora-owned host code is compiled as strict C11 with warning-as-error flags. The pinned Argon2 reference source is built separately with `ARGON2_NO_THREADS` for the isolated validation path.
 
 ## Integration gate
 
 The isolated Identity implementation should only be connected to the real Aurora OS login path after at least:
 
-1. protected service-owned durable system state exists;
-2. Aurora has a reviewed production entropy source and secure DRBG seeding/reseeding path;
-3. Argon2id parameters are calibrated for Aurora hardware targets and bound into production policy;
-4. persistent lookup-HMAC key provisioning/rotation exists;
-5. an AuroraFS durable-slot adapter preserves the store's atomic publication contract;
+1. a protected service-owned AuroraFS system-state namespace/capability exists;
+2. the Ring 3 Identity Service can obtain seed material through a capability-authorized entropy handoff and run the DRBG reseed lifecycle;
+3. the machine root secret is provisioned through an Aurora-native protected-state adapter;
+4. Argon2id parameters are calibrated for Aurora hardware targets and bound into production policy;
+5. the Identity database uses the Aurora-native durable adapter;
 6. the Ring 3 Identity Service lifecycle and capability-authorized IPC transport exist;
 7. the Session Manager can consume non-replayable session grants and bootstrap the correct profile/session context.
