@@ -3,22 +3,24 @@
 
 #include <aurora/apic.h>
 #include <aurora/clock.h>
+#include <aurora/cpu_local.h>
 #include <aurora/interrupts.h>
 #include <aurora/timer.h>
 
 #define LAPIC_DIVIDE_BY_16 0x3u
 #define LAPIC_MIN_ONESHOT_NS 1000000ull
 
-static enum aurora_timer_mode active_mode;
-
-static uint64_t lapic_timer_hz;
-static volatile uint64_t interrupt_count;
+/* The callback is installed once by the scheduler and then read-only. */
 static timer_callback_fn callback_fn;
 
 static struct interrupt_frame *timer_interrupt(
     struct interrupt_frame *frame
 ) {
-    ++interrupt_count;
+    struct aurora_cpu_local *cpu = cpu_local_current();
+
+    if (cpu != NULL) {
+        ++cpu->timer_interrupts;
+    }
 
     lapic_eoi();
 
@@ -34,7 +36,13 @@ static struct interrupt_frame *timer_interrupt(
     return frame;
 }
 
-static bool calibrate_lapic_oneshot(void) {
+static bool calibrate_lapic_oneshot(
+    struct aurora_cpu_local *cpu
+) {
+    if (cpu == NULL) {
+        return false;
+    }
+
     lapic_timer_configure_oneshot(
         AURORA_VECTOR_TIMER,
         true,
@@ -74,12 +82,12 @@ static bool calibrate_lapic_oneshot(void) {
         (__uint128_t)elapsed_ticks *
         1000000000ull;
 
-    lapic_timer_hz =
+    cpu->timer_lapic_hz =
         (uint64_t)(
             scaled / elapsed_ns
         );
 
-    if (lapic_timer_hz == 0) {
+    if (cpu->timer_lapic_hz == 0) {
         return false;
     }
 
@@ -94,15 +102,16 @@ static bool calibrate_lapic_oneshot(void) {
     return true;
 }
 
-bool timer_init(void) {
-    if (!interrupt_register_handler(
-            AURORA_VECTOR_TIMER,
-            timer_interrupt)) {
+static bool timer_init_current_cpu(void) {
+    struct aurora_cpu_local *cpu = cpu_local_current();
+
+    if (cpu == NULL) {
         return false;
     }
 
-    interrupt_count = 0;
-    callback_fn = NULL;
+    cpu->timer_mode = AURORA_TIMER_NONE;
+    cpu->timer_lapic_hz = 0;
+    cpu->timer_interrupts = 0;
 
     if (lapic_timer_tsc_deadline_supported() &&
         clock_tsc_frequency_hz() != 0) {
@@ -112,31 +121,52 @@ bool timer_init(void) {
 
         lapic_timer_set_tsc_deadline(0);
 
-        active_mode =
+        cpu->timer_mode =
             AURORA_TIMER_TSC_DEADLINE;
 
         return true;
     }
 
-    if (!calibrate_lapic_oneshot()) {
-        active_mode =
+    if (!calibrate_lapic_oneshot(cpu)) {
+        cpu->timer_mode =
             AURORA_TIMER_NONE;
 
         return false;
     }
 
-    active_mode =
+    cpu->timer_mode =
         AURORA_TIMER_LAPIC_ONESHOT;
 
     return true;
 }
 
+bool timer_init(void) {
+    if (!interrupt_register_handler(
+            AURORA_VECTOR_TIMER,
+            timer_interrupt)) {
+        return false;
+    }
+
+    callback_fn = NULL;
+    return timer_init_current_cpu();
+}
+
+bool timer_init_ap(void) {
+    return timer_init_current_cpu();
+}
+
 bool timer_arm_ns(uint64_t delay_ns) {
+    struct aurora_cpu_local *cpu = cpu_local_current();
+
+    if (cpu == NULL) {
+        return false;
+    }
+
     if (delay_ns == 0) {
         delay_ns = 1;
     }
 
-    if (active_mode ==
+    if (cpu->timer_mode ==
         AURORA_TIMER_TSC_DEADLINE) {
         uint64_t tsc_hz =
             clock_tsc_frequency_hz();
@@ -165,27 +195,15 @@ bool timer_arm_ns(uint64_t delay_ns) {
         return true;
     }
 
-    if (active_mode ==
+    if (cpu->timer_mode ==
         AURORA_TIMER_LAPIC_ONESHOT) {
-        /*
-         * Aurora currently uses very short deadlines only as scheduler
-         * wake-up kicks. On xAPIC one-shot hardware (and especially QEMU's
-         * i440fx/q35 emulation), sub-millisecond deadlines can expire during
-         * the MMIO programming path and leave the bootstrap CPU executing HLT
-         * with no interrupt pending. Clamp those wake-ups in time, rather
-         * than to an arbitrary fixed tick count, so the behavior stays stable
-         * across different calibrated LAPIC frequencies.
-         *
-         * Normal deadlines are unchanged: the scheduler quantum is 4 ms and
-         * the timer bootstrap probe already requests 1 ms.
-         */
         if (delay_ns < LAPIC_MIN_ONESHOT_NS) {
             delay_ns = LAPIC_MIN_ONESHOT_NS;
         }
 
         __uint128_t scaled =
             (__uint128_t)delay_ns *
-            lapic_timer_hz;
+            cpu->timer_lapic_hz;
 
         uint64_t ticks =
             (uint64_t)(
@@ -211,11 +229,17 @@ bool timer_arm_ns(uint64_t delay_ns) {
 }
 
 void timer_cancel(void) {
-    if (active_mode ==
+    struct aurora_cpu_local *cpu = cpu_local_current();
+
+    if (cpu == NULL) {
+        return;
+    }
+
+    if (cpu->timer_mode ==
         AURORA_TIMER_TSC_DEADLINE) {
         lapic_timer_set_tsc_deadline(0);
     } else if (
-        active_mode ==
+        cpu->timer_mode ==
         AURORA_TIMER_LAPIC_ONESHOT) {
         lapic_timer_set_initial_count(0);
     }
@@ -228,11 +252,17 @@ void timer_set_callback(
 }
 
 enum aurora_timer_mode timer_mode(void) {
-    return active_mode;
+    struct aurora_cpu_local *cpu = cpu_local_current();
+
+    if (cpu == NULL) {
+        return AURORA_TIMER_NONE;
+    }
+
+    return (enum aurora_timer_mode)cpu->timer_mode;
 }
 
 const char *timer_mode_name(void) {
-    switch (active_mode) {
+    switch (timer_mode()) {
         case AURORA_TIMER_TSC_DEADLINE:
             return "TSC deadline";
 
@@ -245,5 +275,11 @@ const char *timer_mode_name(void) {
 }
 
 uint64_t timer_interrupt_count(void) {
-    return interrupt_count;
+    struct aurora_cpu_local *cpu = cpu_local_current();
+    return cpu != NULL ? cpu->timer_interrupts : 0u;
+}
+
+uint64_t timer_interrupt_count_cpu(uint32_t logical_id) {
+    struct aurora_cpu_local *cpu = cpu_local_at(logical_id);
+    return cpu != NULL ? cpu->timer_interrupts : 0u;
 }
