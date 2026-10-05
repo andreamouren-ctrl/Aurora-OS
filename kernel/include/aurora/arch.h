@@ -18,6 +18,9 @@ struct aurora_arch_hardening arch_enable_hardening(void);
 
 void arch_enable_interrupts(void);
 void arch_disable_interrupts(void);
+bool arch_interrupts_enabled(void);
+uint64_t arch_irq_save(void);
+void arch_irq_restore(uint64_t state);
 void arch_idle(void);
 
 void arch_halt(void) __attribute__((noreturn));
