@@ -279,6 +279,37 @@ struct aurora_identity_auth_result aurora_identity_authenticate_key(
         goto cleanup;
     }
 
+    /*
+     * A persistent backend restores failed_attempts but deliberately clears
+     * the monotonic deadline when a new service/boot clock epoch begins.
+     * Re-arm the penalty exactly once in the new epoch before allowing another
+     * verifier attempt. A nonzero expired deadline means this epoch already
+     * served the persisted penalty and must not be re-armed repeatedly.
+     */
+    if (record.throttle_until_ms == 0u &&
+        record.failed_attempts > core->throttle_policy.free_failures) {
+        uint64_t persisted_delay_ms = aurora_identity_compute_throttle_delay_ms(
+            &core->throttle_policy,
+            record.failed_attempts);
+
+        if (persisted_delay_ms != 0u) {
+            uint64_t rearmed_until_ms = saturating_add_u64(now_ms, persisted_delay_ms);
+
+            if (!core->store.store_failure_state(
+                    core->store.context,
+                    &record.user_id,
+                    record.failed_attempts,
+                    rearmed_until_ms)) {
+                result.result = AURORA_IDENTITY_BACKEND_ERROR;
+                goto cleanup;
+            }
+
+            result.result = AURORA_IDENTITY_THROTTLED;
+            result.retry_after_ms = persisted_delay_ms;
+            goto cleanup;
+        }
+    }
+
     if (!core->crypto.verify_key(
             core->crypto.context,
             normalized_key.bytes,
@@ -414,6 +445,7 @@ struct aurora_identity_create_result aurora_identity_create_with_key(
     }
 
     identity.status = AURORA_IDENTITY_RECORD_ACTIVE;
+    identity.role = AURORA_IDENTITY_ROLE_UNASSIGNED;
     identity.policy_version = core->creation_policy.policy_version;
     identity.record_version = core->creation_policy.identity_record_version;
 
