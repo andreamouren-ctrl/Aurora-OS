@@ -18,7 +18,11 @@ typedef struct interrupt_frame *(
     struct interrupt_frame *frame
 );
 
+/* Initializes the shared timer interrupt handler and the BSP local timer. */
 bool timer_init(void);
+
+/* Initializes only the current AP's Local APIC timer state. */
+bool timer_init_ap(void);
 
 bool timer_arm_ns(uint64_t delay_ns);
 void timer_cancel(void);
@@ -30,6 +34,8 @@ void timer_set_callback(
 enum aurora_timer_mode timer_mode(void);
 const char *timer_mode_name(void);
 
+/* Interrupts delivered to the current logical CPU. */
 uint64_t timer_interrupt_count(void);
+uint64_t timer_interrupt_count_cpu(uint32_t logical_id);
 
 #endif
