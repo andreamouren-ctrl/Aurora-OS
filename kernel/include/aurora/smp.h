@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <aurora/cpu_topology.h>
+
 #define AURORA_MAX_SMP_CPUS 256u
 
 enum aurora_cpu_state {
@@ -21,6 +23,7 @@ struct aurora_cpu_runtime {
     bool bootstrap;
 
     volatile enum aurora_cpu_state state;
+    struct aurora_cpu_topology topology;
 };
 
 bool smp_init(void);
@@ -37,6 +40,9 @@ uint32_t smp_scheduler_owned_cpu_count(void);
 
 uint32_t smp_cpu_count(void);
 uint32_t smp_online_cpu_count(void);
+uint32_t smp_package_count(void);
+uint32_t smp_physical_core_count(void);
+uint32_t smp_max_threads_per_core(void);
 
 const struct aurora_cpu_runtime *smp_cpu_at(
     uint32_t index
