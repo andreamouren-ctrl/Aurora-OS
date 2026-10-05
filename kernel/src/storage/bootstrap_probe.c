@@ -129,11 +129,18 @@ static void verify_aurora_fs_v2_mount(const struct aurora_partition *system_part
         kernel_panic("AuroraFS v2 common filesystem mount failed");
     }
 
+    static const char probe_path[] = "/system/aurora.boot-probe";
     static const uint8_t expected[] = "AURORA-FS-V2-PERSIST";
-    if (!verify_vfs_file(
-            "/system/aurora.boot-probe", expected, sizeof(expected) - 1u)) {
+    if (!verify_vfs_file(probe_path, expected, sizeof(expected) - 1u)) {
         kernel_panic("AuroraFS v2 VFS persistent file verification failed");
     }
+
+    if (!vfs_fdatasync(probe_path) ||
+        !vfs_fsync(probe_path) ||
+        !vfs_sync("/system")) {
+        kernel_panic("AuroraFS v2 explicit durability sync verification failed");
+    }
+    log_line("[vfs] AuroraFS v2 fdatasync/fsync/sync flush path verified on persistent /system file");
 
     verify_aurora_fs_v2_metadata_persistence();
 
