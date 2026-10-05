@@ -9,6 +9,7 @@
 #include <aurora/panic.h>
 #include <aurora/process.h>
 #include <aurora/scheduler.h>
+#include <aurora/smp.h>
 #include <aurora/spinlock.h>
 #include <aurora/syscall.h>
 #include <aurora/timer.h>
@@ -40,6 +41,7 @@ struct scheduler_thread {
     size_t stack_size;
     struct interrupt_frame *saved_frame;
     uint32_t pinned_cpu;
+    uint32_t preferred_cpu;
 };
 
 static struct scheduler_thread threads[SCHEDULER_MAX_THREADS];
@@ -81,6 +83,97 @@ static struct aurora_cpu_local *current_cpu_locked(void) {
     return cpu;
 }
 
+static const struct aurora_cpu_runtime *runtime_cpu_locked(uint32_t logical_id) {
+    for (uint32_t i = 0u; i < smp_cpu_count(); ++i) {
+        const struct aurora_cpu_runtime *cpu = smp_cpu_at(i);
+        if (cpu != NULL && cpu->logical_id == logical_id) return cpu;
+    }
+    return NULL;
+}
+
+static bool same_physical_core_locked(
+    uint32_t first_logical_id,
+    uint32_t second_logical_id
+) {
+    const struct aurora_cpu_runtime *first = runtime_cpu_locked(first_logical_id);
+    const struct aurora_cpu_runtime *second = runtime_cpu_locked(second_logical_id);
+
+    return first != NULL && second != NULL &&
+        first->topology.valid && second->topology.valid &&
+        first->topology.package_id == second->topology.package_id &&
+        first->topology.core_id == second->topology.core_id;
+}
+
+static uint32_t thread_assignment_cpu_locked(
+    const struct scheduler_thread *thread
+) {
+    if (thread == NULL) return SCHEDULER_CPU_ANY;
+    if (thread->pinned_cpu != SCHEDULER_CPU_ANY) return thread->pinned_cpu;
+    return thread->preferred_cpu;
+}
+
+static bool thread_counts_for_load_locked(const struct scheduler_thread *thread) {
+    return thread != NULL && !thread->idle &&
+        thread->state != THREAD_UNUSED &&
+        thread->state != THREAD_TERMINATED;
+}
+
+static uint32_t logical_load_locked(uint32_t logical_id) {
+    uint32_t load = 0u;
+    for (uint32_t i = 0u; i < SCHEDULER_MAX_THREADS; ++i) {
+        if (!thread_counts_for_load_locked(&threads[i])) continue;
+        if (thread_assignment_cpu_locked(&threads[i]) == logical_id) ++load;
+    }
+    return load;
+}
+
+static uint32_t physical_core_load_locked(uint32_t logical_id) {
+    uint32_t load = 0u;
+    for (uint32_t i = 0u; i < SCHEDULER_MAX_THREADS; ++i) {
+        if (!thread_counts_for_load_locked(&threads[i])) continue;
+        uint32_t assigned = thread_assignment_cpu_locked(&threads[i]);
+        if (assigned == SCHEDULER_CPU_ANY) continue;
+        if (same_physical_core_locked(logical_id, assigned)) ++load;
+    }
+    return load;
+}
+
+static uint32_t choose_preferred_cpu_locked(void) {
+    uint32_t best_cpu = SCHEDULER_CPU_ANY;
+    uint32_t best_core_load = UINT32_MAX;
+    uint32_t best_logical_load = UINT32_MAX;
+    uint32_t best_thread_id = UINT32_MAX;
+
+    for (uint32_t i = 0u; i < smp_cpu_count(); ++i) {
+        const struct aurora_cpu_runtime *cpu = smp_cpu_at(i);
+        if (cpu == NULL || cpu->state != AURORA_CPU_ONLINE ||
+            !cpu->topology.valid) {
+            continue;
+        }
+
+        uint32_t core_load = physical_core_load_locked(cpu->logical_id);
+        uint32_t logical_load = logical_load_locked(cpu->logical_id);
+        uint32_t thread_id = cpu->topology.thread_id;
+
+        bool better = best_cpu == SCHEDULER_CPU_ANY ||
+            core_load < best_core_load ||
+            (core_load == best_core_load && logical_load < best_logical_load) ||
+            (core_load == best_core_load && logical_load == best_logical_load &&
+             thread_id < best_thread_id) ||
+            (core_load == best_core_load && logical_load == best_logical_load &&
+             thread_id == best_thread_id && cpu->logical_id < best_cpu);
+
+        if (better) {
+            best_cpu = cpu->logical_id;
+            best_core_load = core_load;
+            best_logical_load = logical_load;
+            best_thread_id = thread_id;
+        }
+    }
+
+    return best_cpu;
+}
+
 static bool thread_allowed_on_cpu_locked(
     const struct scheduler_thread *thread,
     const struct aurora_cpu_local *cpu
@@ -88,6 +181,15 @@ static bool thread_allowed_on_cpu_locked(
     return thread != NULL && cpu != NULL &&
         (thread->pinned_cpu == SCHEDULER_CPU_ANY ||
          thread->pinned_cpu == cpu->logical_id);
+}
+
+static bool thread_prefers_cpu_locked(
+    const struct scheduler_thread *thread,
+    const struct aurora_cpu_local *cpu
+) {
+    return thread != NULL && cpu != NULL &&
+        (thread->preferred_cpu == SCHEDULER_CPU_ANY ||
+         thread->preferred_cpu == cpu->logical_id);
 }
 
 static uint64_t thread_kernel_stack_top(const struct scheduler_thread *thread) {
@@ -163,6 +265,7 @@ static aurora_thread_id create_kernel_thread_locked(
     thread->idle = idle;
     thread->user = false;
     thread->pinned_cpu = SCHEDULER_CPU_ANY;
+    thread->preferred_cpu = idle ? SCHEDULER_CPU_ANY : choose_preferred_cpu_locked();
     copy_name(thread->name, name);
     thread->entry = entry;
     thread->argument = argument;
@@ -170,6 +273,7 @@ static aurora_thread_id create_kernel_thread_locked(
     thread->address_space = vmm_kernel_space();
     thread->saved_frame = build_kernel_frame(thread);
 
+    if (!idle && thread->preferred_cpu == SCHEDULER_CPU_ANY) return 0u;
     if (started && !idle) (void)timer_arm_ns(1u);
     return thread->id;
 }
@@ -191,11 +295,13 @@ static aurora_thread_id create_user_thread_locked(
     thread->idle = false;
     thread->user = true;
     thread->pinned_cpu = SCHEDULER_CPU_ANY;
+    thread->preferred_cpu = choose_preferred_cpu_locked();
     copy_name(thread->name, name);
     thread->process = process;
     thread->address_space = &process->address_space;
     thread->saved_frame = build_user_frame(thread, process);
 
+    if (thread->preferred_cpu == SCHEDULER_CPU_ANY) return 0u;
     if (started) (void)timer_arm_ns(1u);
     return thread->id;
 }
@@ -216,17 +322,43 @@ static void thread_trampoline(struct scheduler_thread *thread) {
     for (;;) arch_idle();
 }
 
-static uint32_t find_next_thread_locked(struct aurora_cpu_local *cpu) {
+static uint32_t find_preferred_thread_locked(struct aurora_cpu_local *cpu) {
     uint32_t current_index = cpu->scheduler_current_index;
     for (uint32_t offset = 1u; offset <= SCHEDULER_MAX_THREADS; ++offset) {
         uint32_t index = (current_index + offset) % SCHEDULER_MAX_THREADS;
         if (index == current_index) continue;
         if (threads[index].state == THREAD_RUNNABLE &&
             !threads[index].idle &&
-            thread_allowed_on_cpu_locked(&threads[index], cpu))
+            thread_allowed_on_cpu_locked(&threads[index], cpu) &&
+            thread_prefers_cpu_locked(&threads[index], cpu)) {
             return index;
+        }
     }
+    return SCHEDULER_MAX_THREADS;
+}
 
+static uint32_t find_stealable_thread_locked(struct aurora_cpu_local *cpu) {
+    uint32_t current_index = cpu->scheduler_current_index;
+    for (uint32_t offset = 1u; offset <= SCHEDULER_MAX_THREADS; ++offset) {
+        uint32_t index = (current_index + offset) % SCHEDULER_MAX_THREADS;
+        if (index == current_index) continue;
+        if (threads[index].state == THREAD_RUNNABLE &&
+            !threads[index].idle &&
+            thread_allowed_on_cpu_locked(&threads[index], cpu)) {
+            return index;
+        }
+    }
+    return SCHEDULER_MAX_THREADS;
+}
+
+static uint32_t find_next_thread_locked(struct aurora_cpu_local *cpu) {
+    uint32_t preferred = find_preferred_thread_locked(cpu);
+    if (preferred != SCHEDULER_MAX_THREADS) return preferred;
+
+    uint32_t stealable = find_stealable_thread_locked(cpu);
+    if (stealable != SCHEDULER_MAX_THREADS) return stealable;
+
+    uint32_t current_index = cpu->scheduler_current_index;
     if (current_index < SCHEDULER_MAX_THREADS &&
         threads[current_index].state == THREAD_RUNNABLE &&
         thread_allowed_on_cpu_locked(&threads[current_index], cpu))
@@ -339,6 +471,7 @@ bool scheduler_init(void) {
     bootstrap->idle = false;
     bootstrap->user = false;
     bootstrap->pinned_cpu = cpu->logical_id;
+    bootstrap->preferred_cpu = cpu->logical_id;
     bootstrap->process = NULL;
     bootstrap->address_space = vmm_kernel_space();
     copy_name(bootstrap->name, "bootstrap");
@@ -354,6 +487,7 @@ bool scheduler_init(void) {
     for (uint32_t i = 0u; i < SCHEDULER_MAX_THREADS; ++i) {
         if (threads[i].id == idle_id) {
             threads[i].pinned_cpu = cpu->logical_id;
+            threads[i].preferred_cpu = cpu->logical_id;
             cpu->scheduler_idle_index = i;
             break;
         }
@@ -385,6 +519,7 @@ bool scheduler_prepare_ap(uint32_t logical_id) {
                 for (uint32_t i = 0u; i < SCHEDULER_MAX_THREADS; ++i) {
                     if (threads[i].id == idle_id) {
                         threads[i].pinned_cpu = logical_id;
+                        threads[i].preferred_cpu = logical_id;
                         cpu->scheduler_idle_index = i;
                         cpu->scheduler_context_switches = 0u;
                         ok = true;
@@ -467,6 +602,20 @@ aurora_thread_id scheduler_create_user_thread(
     if (initialized) id = create_user_thread_locked(name, process);
     spinlock_unlock_irqrestore(&scheduler_lock, irq);
     return id;
+}
+
+bool scheduler_thread_preferred_cpu(
+    aurora_thread_id id,
+    uint32_t *out_logical_id
+) {
+    if (out_logical_id == NULL) return false;
+
+    aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
+    struct scheduler_thread *thread = find_thread_locked(id);
+    bool ok = thread != NULL && thread->preferred_cpu != SCHEDULER_CPU_ANY;
+    if (ok) *out_logical_id = thread->preferred_cpu;
+    spinlock_unlock_irqrestore(&scheduler_lock, irq);
+    return ok;
 }
 
 bool scheduler_start(void) {
