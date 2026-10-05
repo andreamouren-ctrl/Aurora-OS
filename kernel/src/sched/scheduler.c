@@ -1,11 +1,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <aurora/apic.h>
 #include <aurora/arch.h>
 #include <aurora/cpu_local.h>
 #include <aurora/gdt.h>
 #include <aurora/heap.h>
 #include <aurora/interrupts.h>
+#include <aurora/log.h>
 #include <aurora/panic.h>
 #include <aurora/process.h>
 #include <aurora/scheduler.h>
@@ -48,6 +50,8 @@ static struct scheduler_thread threads[SCHEDULER_MAX_THREADS];
 static aurora_thread_id next_id;
 static bool initialized;
 static bool started;
+static volatile uint64_t reschedule_ipi_received;
+static bool reschedule_ipi_send_logged;
 static aurora_spinlock scheduler_lock = AURORA_SPINLOCK_INIT;
 
 static void copy_name(char destination[32], const char *source) {
@@ -83,7 +87,7 @@ static struct aurora_cpu_local *current_cpu_locked(void) {
     return cpu;
 }
 
-static const struct aurora_cpu_runtime *runtime_cpu_locked(uint32_t logical_id) {
+static const struct aurora_cpu_runtime *runtime_cpu(uint32_t logical_id) {
     for (uint32_t i = 0u; i < smp_cpu_count(); ++i) {
         const struct aurora_cpu_runtime *cpu = smp_cpu_at(i);
         if (cpu != NULL && cpu->logical_id == logical_id) return cpu;
@@ -95,8 +99,8 @@ static bool same_physical_core_locked(
     uint32_t first_logical_id,
     uint32_t second_logical_id
 ) {
-    const struct aurora_cpu_runtime *first = runtime_cpu_locked(first_logical_id);
-    const struct aurora_cpu_runtime *second = runtime_cpu_locked(second_logical_id);
+    const struct aurora_cpu_runtime *first = runtime_cpu(first_logical_id);
+    const struct aurora_cpu_runtime *second = runtime_cpu(second_logical_id);
 
     return first != NULL && second != NULL &&
         first->topology.valid && second->topology.valid &&
@@ -274,7 +278,6 @@ static aurora_thread_id create_kernel_thread_locked(
     thread->saved_frame = build_kernel_frame(thread);
 
     if (!idle && thread->preferred_cpu == SCHEDULER_CPU_ANY) return 0u;
-    if (started && !idle) (void)timer_arm_ns(1u);
     return thread->id;
 }
 
@@ -302,7 +305,6 @@ static aurora_thread_id create_user_thread_locked(
     thread->saved_frame = build_user_frame(thread, process);
 
     if (thread->preferred_cpu == SCHEDULER_CPU_ANY) return 0u;
-    if (started) (void)timer_arm_ns(1u);
     return thread->id;
 }
 
@@ -448,6 +450,54 @@ static struct interrupt_frame *scheduler_on_timer(struct interrupt_frame *frame)
     return next;
 }
 
+static struct interrupt_frame *scheduler_on_reschedule_ipi(
+    struct interrupt_frame *frame
+) {
+    __atomic_fetch_add(
+        &reschedule_ipi_received,
+        1ull,
+        __ATOMIC_RELAXED
+    );
+
+    lapic_eoi();
+    return scheduler_on_timer(frame);
+}
+
+static void wake_preferred_cpu(uint32_t logical_id) {
+    struct aurora_cpu_local *current = cpu_local_current();
+
+    if (current == NULL || logical_id == SCHEDULER_CPU_ANY ||
+        logical_id == current->logical_id) {
+        (void)timer_arm_ns(1u);
+        return;
+    }
+
+    struct aurora_cpu_local *target_local = cpu_local_at(logical_id);
+    const struct aurora_cpu_runtime *target = runtime_cpu(logical_id);
+
+    bool target_owned = target_local != NULL &&
+        target_local->scheduler_current_index < SCHEDULER_MAX_THREADS;
+
+    if (target_owned && target != NULL &&
+        target->state == AURORA_CPU_ONLINE &&
+        lapic_send_ipi(target->lapic_id, AURORA_VECTOR_RESCHEDULE)) {
+        if (!__atomic_exchange_n(
+                &reschedule_ipi_send_logged,
+                true,
+                __ATOMIC_ACQ_REL)) {
+            log_line("[sched] targeted reschedule IPI sent");
+        }
+        return;
+    }
+
+    /*
+     * Early boot or an APIC delivery failure must not strand runnable work.
+     * Re-arm the local CPU so normal global-queue work stealing remains the
+     * conservative fallback.
+     */
+    (void)timer_arm_ns(1u);
+}
+
 bool scheduler_init(void) {
     if (!spinlock_self_test()) return false;
 
@@ -464,6 +514,8 @@ bool scheduler_init(void) {
     next_id = 1u;
     initialized = false;
     started = false;
+    __atomic_store_n(&reschedule_ipi_received, 0ull, __ATOMIC_RELEASE);
+    __atomic_store_n(&reschedule_ipi_send_logged, false, __ATOMIC_RELEASE);
 
     struct scheduler_thread *bootstrap = &threads[0];
     bootstrap->id = next_id++;
@@ -492,7 +544,10 @@ bool scheduler_init(void) {
             break;
         }
     }
-    if (cpu->scheduler_idle_index == SCHEDULER_MAX_THREADS) {
+    if (cpu->scheduler_idle_index == SCHEDULER_MAX_THREADS ||
+        !interrupt_register_handler(
+            AURORA_VECTOR_RESCHEDULE,
+            scheduler_on_reschedule_ipi)) {
         spinlock_unlock_irqrestore(&scheduler_lock, irq);
         return false;
     }
@@ -587,9 +642,19 @@ aurora_thread_id scheduler_create_kernel_thread(
 ) {
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
     aurora_thread_id id = 0u;
-    if (initialized)
+    uint32_t preferred_cpu = SCHEDULER_CPU_ANY;
+    bool wake = false;
+
+    if (initialized) {
         id = create_kernel_thread_locked(name, entry, argument, false);
+        struct scheduler_thread *thread = find_thread_locked(id);
+        if (thread != NULL) preferred_cpu = thread->preferred_cpu;
+        wake = id != 0u && started;
+    }
+
     spinlock_unlock_irqrestore(&scheduler_lock, irq);
+
+    if (wake) wake_preferred_cpu(preferred_cpu);
     return id;
 }
 
@@ -599,8 +664,19 @@ aurora_thread_id scheduler_create_user_thread(
 ) {
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
     aurora_thread_id id = 0u;
-    if (initialized) id = create_user_thread_locked(name, process);
+    uint32_t preferred_cpu = SCHEDULER_CPU_ANY;
+    bool wake = false;
+
+    if (initialized) {
+        id = create_user_thread_locked(name, process);
+        struct scheduler_thread *thread = find_thread_locked(id);
+        if (thread != NULL) preferred_cpu = thread->preferred_cpu;
+        wake = id != 0u && started;
+    }
+
     spinlock_unlock_irqrestore(&scheduler_lock, irq);
+
+    if (wake) wake_preferred_cpu(preferred_cpu);
     return id;
 }
 
