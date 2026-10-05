@@ -18,10 +18,15 @@
 #define LAPIC_REG_TPR           0x080u
 #define LAPIC_REG_EOI           0x0B0u
 #define LAPIC_REG_SVR           0x0F0u
+#define LAPIC_REG_ICR_LOW       0x300u
+#define LAPIC_REG_ICR_HIGH      0x310u
 #define LAPIC_REG_LVT_TIMER     0x320u
 #define LAPIC_REG_INITIAL_COUNT 0x380u
 #define LAPIC_REG_CURRENT_COUNT 0x390u
 #define LAPIC_REG_DIVIDE        0x3E0u
+
+#define LAPIC_ICR_DELIVERY_STATUS (1u << 12)
+#define LAPIC_IPI_WAIT_LIMIT      1000000u
 
 #define X2APIC_MSR_BASE         0x800u
 
@@ -291,6 +296,71 @@ uint32_t lapic_id(void) {
 
 void lapic_eoi(void) {
     lapic_write(LAPIC_REG_EOI, 0);
+}
+
+static bool lapic_wait_ipi_idle(void) {
+    for (uint32_t i = 0u; i < LAPIC_IPI_WAIT_LIMIT; ++i) {
+        uint32_t icr_low;
+
+        if (current_mode == LAPIC_MODE_X2APIC) {
+            icr_low = (uint32_t)rdmsr(
+                x2apic_msr_for_offset(LAPIC_REG_ICR_LOW)
+            );
+        } else if (current_mode == LAPIC_MODE_XAPIC) {
+            icr_low = lapic_read(LAPIC_REG_ICR_LOW);
+        } else {
+            return false;
+        }
+
+        if ((icr_low & LAPIC_ICR_DELIVERY_STATUS) == 0u) {
+            return true;
+        }
+
+        __asm__ volatile ("pause");
+    }
+
+    return false;
+}
+
+bool lapic_send_ipi(
+    uint32_t destination_lapic_id,
+    uint8_t vector
+) {
+    if (vector < 32u || vector == AURORA_VECTOR_SPURIOUS) {
+        return false;
+    }
+
+    if (!lapic_wait_ipi_idle()) {
+        return false;
+    }
+
+    if (current_mode == LAPIC_MODE_X2APIC) {
+        uint64_t icr =
+            ((uint64_t)destination_lapic_id << 32) |
+            (uint64_t)vector;
+
+        wrmsr(
+            x2apic_msr_for_offset(LAPIC_REG_ICR_LOW),
+            icr
+        );
+    } else if (current_mode == LAPIC_MODE_XAPIC) {
+        if (destination_lapic_id > 0xFFu) {
+            return false;
+        }
+
+        lapic_write(
+            LAPIC_REG_ICR_HIGH,
+            destination_lapic_id << 24
+        );
+        lapic_write(
+            LAPIC_REG_ICR_LOW,
+            (uint32_t)vector
+        );
+    } else {
+        return false;
+    }
+
+    return lapic_wait_ipi_idle();
 }
 
 bool lapic_timer_tsc_deadline_supported(void) {
