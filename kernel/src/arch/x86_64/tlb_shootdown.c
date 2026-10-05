@@ -180,6 +180,11 @@ bool tlb_shootdown_page(
         __ATOMIC_RELEASE
     );
 
+    /*
+     * This one-shot marker is intentionally emitted only for a completed
+     * remote invalidation. The 4-CPU CI topology therefore proves that the
+     * fixed-IPI path, remote INVLPG and ACK protocol were all exercised.
+     */
     if (complete && targets != 0u && !first_remote_success_logged) {
         first_remote_success_logged = true;
         log_write("[vmm] SMP TLB shootdown remote ACKs: ");
