@@ -4,9 +4,14 @@
 #include <string.h>
 
 #define AURORA_IDENTITY_STORE_HEADER_SIZE 40u
-#define AURORA_IDENTITY_STORE_IDENTITY_DISK_SIZE 28u
-#define AURORA_IDENTITY_STORE_KEY_DISK_SIZE 204u
+#define AURORA_IDENTITY_STORE_IDENTITY_DISK_SIZE 32u
+#define AURORA_IDENTITY_STORE_KEY_DISK_SIZE 196u
 
+/*
+ * Keep the legacy format magic stable and version the on-disk contract through
+ * the explicit schema field. This lets schema-v1 snapshots fail as
+ * UNSUPPORTED_SCHEMA instead of being mistaken for random corruption.
+ */
 static const uint8_t aurora_identity_store_magic[8] = {
     (uint8_t)'A', (uint8_t)'I', (uint8_t)'D', (uint8_t)'B',
     (uint8_t)'V', (uint8_t)'1', 0u, 0u
@@ -20,26 +25,32 @@ enum image_decode_result {
 
 static bool bytes_equal(const uint8_t *a, const uint8_t *b, size_t size) {
     size_t i;
+
     if (a == NULL || b == NULL) {
         return false;
     }
+
     for (i = 0u; i < size; ++i) {
         if (a[i] != b[i]) {
             return false;
         }
     }
+
     return true;
 }
 
 static bool bytes_are_zero(const uint8_t *bytes, size_t size) {
     uint8_t aggregate = 0u;
     size_t i;
+
     if (bytes == NULL) {
         return true;
     }
+
     for (i = 0u; i < size; ++i) {
         aggregate |= bytes[i];
     }
+
     return aggregate == 0u;
 }
 
@@ -52,6 +63,7 @@ static void put_u32_le(uint8_t *buffer, size_t offset, uint32_t value) {
 
 static void put_u64_le(uint8_t *buffer, size_t offset, uint64_t value) {
     uint32_t i;
+
     for (i = 0u; i < 8u; ++i) {
         buffer[offset + i] = (uint8_t)((value >> (i * 8u)) & 0xffu);
     }
@@ -67,9 +79,11 @@ static uint32_t get_u32_le(const uint8_t *buffer, size_t offset) {
 static uint64_t get_u64_le(const uint8_t *buffer, size_t offset) {
     uint64_t value = 0u;
     uint32_t i;
+
     for (i = 0u; i < 8u; ++i) {
         value |= ((uint64_t)buffer[offset + i]) << (i * 8u);
     }
+
     return value;
 }
 
@@ -84,6 +98,7 @@ static uint32_t crc32_update(uint32_t crc, const uint8_t *buffer, size_t size) {
             crc = (crc >> 1u) ^ (0xedb88320u & mask);
         }
     }
+
     return crc;
 }
 
@@ -106,13 +121,21 @@ static bool status_is_valid(uint32_t value) {
     return value <= (uint32_t)AURORA_IDENTITY_RECORD_RECOVERY_REQUIRED;
 }
 
+static bool persisted_role_is_valid(uint32_t value) {
+    return value == (uint32_t)AURORA_IDENTITY_ROLE_ADMINISTRATOR ||
+           value == (uint32_t)AURORA_IDENTITY_ROLE_STANDARD_USER ||
+           value == (uint32_t)AURORA_IDENTITY_ROLE_GUEST;
+}
+
 static bool identity_exists(
     const struct aurora_identity_persistent_state *state,
     const struct aurora_identity_user_id *user_id) {
     size_t i;
+
     if (state == NULL || user_id == NULL) {
         return false;
     }
+
     for (i = 0u; i < state->identity_count; ++i) {
         if (bytes_equal(
                 state->identities[i].user_id.bytes,
@@ -121,6 +144,7 @@ static bool identity_exists(
             return true;
         }
     }
+
     return false;
 }
 
@@ -139,6 +163,7 @@ static bool state_is_valid(const struct aurora_identity_persistent_state *state)
 
         if (bytes_are_zero(identity->user_id.bytes, AURORA_IDENTITY_USER_ID_SIZE) ||
             !status_is_valid((uint32_t)identity->status) ||
+            !persisted_role_is_valid((uint32_t)identity->role) ||
             identity->policy_version == 0u ||
             identity->record_version == 0u) {
             return false;
@@ -181,11 +206,8 @@ static bool state_is_valid(const struct aurora_identity_persistent_state *state)
             if (bytes_equal(
                     key->credential_id.bytes,
                     other->credential_id.bytes,
-                    AURORA_IDENTITY_CREDENTIAL_ID_SIZE)) {
-                return false;
-            }
-
-            if (bytes_equal(
+                    AURORA_IDENTITY_CREDENTIAL_ID_SIZE) ||
+                bytes_equal(
                     key->lookup_tag,
                     other->lookup_tag,
                     AURORA_IDENTITY_LOOKUP_TAG_SIZE)) {
@@ -253,6 +275,8 @@ static bool encode_state(
         offset += AURORA_IDENTITY_USER_ID_SIZE;
         put_u32_le(buffer, offset, (uint32_t)identity->status);
         offset += 4u;
+        put_u32_le(buffer, offset, (uint32_t)identity->role);
+        offset += 4u;
         put_u32_le(buffer, offset, identity->policy_version);
         offset += 4u;
         put_u32_le(buffer, offset, identity->record_version);
@@ -297,8 +321,8 @@ static bool encode_state(
         offset += 4u;
         put_u32_le(buffer, offset, key->failed_attempts);
         offset += 4u;
-        put_u64_le(buffer, offset, key->throttle_until_ms);
-        offset += 8u;
+
+        /* throttle_until_ms is intentionally not serialized. */
     }
 
     if (offset != size) {
@@ -384,6 +408,7 @@ static enum image_decode_result decode_state(
     for (i = 0u; i < decoded.identity_count; ++i) {
         struct aurora_identity_record *identity = &decoded.identities[i];
         uint32_t status;
+        uint32_t role;
 
         memcpy(identity->user_id.bytes, buffer + offset, AURORA_IDENTITY_USER_ID_SIZE);
         offset += AURORA_IDENTITY_USER_ID_SIZE;
@@ -394,6 +419,13 @@ static enum image_decode_result decode_state(
             return IMAGE_DECODE_CORRUPT;
         }
         identity->status = (enum aurora_identity_record_status)status;
+
+        role = get_u32_le(buffer, offset);
+        offset += 4u;
+        if (!persisted_role_is_valid(role)) {
+            return IMAGE_DECODE_CORRUPT;
+        }
+        identity->role = (enum aurora_identity_role)role;
 
         identity->policy_version = get_u32_le(buffer, offset);
         offset += 4u;
@@ -430,7 +462,7 @@ static enum image_decode_result decode_state(
 
         salt_size = get_u32_le(buffer, offset);
         offset += 4u;
-        if (salt_size > AURORA_IDENTITY_SALT_MAX_SIZE) {
+        if (salt_size == 0u || salt_size > AURORA_IDENTITY_SALT_MAX_SIZE) {
             return IMAGE_DECODE_CORRUPT;
         }
         key->salt_size = (size_t)salt_size;
@@ -439,7 +471,7 @@ static enum image_decode_result decode_state(
 
         verifier_size = get_u32_le(buffer, offset);
         offset += 4u;
-        if (verifier_size > AURORA_IDENTITY_VERIFIER_MAX_SIZE) {
+        if (verifier_size == 0u || verifier_size > AURORA_IDENTITY_VERIFIER_MAX_SIZE) {
             return IMAGE_DECODE_CORRUPT;
         }
         key->verifier_size = (size_t)verifier_size;
@@ -455,8 +487,7 @@ static enum image_decode_result decode_state(
 
         key->failed_attempts = get_u32_le(buffer, offset);
         offset += 4u;
-        key->throttle_until_ms = get_u64_le(buffer, offset);
-        offset += 8u;
+        key->throttle_until_ms = 0u;
     }
 
     if (offset != size || !state_is_valid(&decoded)) {
@@ -592,6 +623,7 @@ uint64_t aurora_identity_persistent_store_generation(
     if (store == NULL || !store->opened) {
         return 0u;
     }
+
     return store->state.generation;
 }
 
@@ -600,6 +632,7 @@ size_t aurora_identity_persistent_store_identity_count(
     if (store == NULL || !store->opened) {
         return 0u;
     }
+
     return store->state.identity_count;
 }
 
@@ -608,6 +641,7 @@ size_t aurora_identity_persistent_store_key_record_count(
     if (store == NULL || !store->opened) {
         return 0u;
     }
+
     return store->state.key_record_count;
 }
 
@@ -666,23 +700,22 @@ static bool update_failure_state(
     uint64_t throttle_until_ms) {
     struct aurora_identity_persistent_state staged;
     size_t i;
+    size_t match_index = 0u;
     size_t matches = 0u;
 
     if (store == NULL || user_id == NULL || !store->opened) {
         return false;
     }
 
-    staged = store->state;
-    for (i = 0u; i < staged.key_record_count; ++i) {
-        struct aurora_identity_key_record *key = &staged.key_records[i];
+    for (i = 0u; i < store->state.key_record_count; ++i) {
+        const struct aurora_identity_key_record *key = &store->state.key_records[i];
 
         if (key->status == AURORA_IDENTITY_RECORD_ACTIVE &&
             bytes_equal(
                 key->user_id.bytes,
                 user_id->bytes,
                 AURORA_IDENTITY_USER_ID_SIZE)) {
-            key->failed_attempts = failed_attempts;
-            key->throttle_until_ms = throttle_until_ms;
+            match_index = i;
             ++matches;
         }
     }
@@ -691,6 +724,19 @@ static bool update_failure_state(
         return false;
     }
 
+    /*
+     * Re-arming a deadline after reboot changes only volatile state. Avoid a
+     * pointless disk generation/write when the durable failed-attempt count is
+     * unchanged.
+     */
+    if (store->state.key_records[match_index].failed_attempts == failed_attempts) {
+        store->state.key_records[match_index].throttle_until_ms = throttle_until_ms;
+        return true;
+    }
+
+    staged = store->state;
+    staged.key_records[match_index].failed_attempts = failed_attempts;
+    staged.key_records[match_index].throttle_until_ms = throttle_until_ms;
     return commit_state(store, &staged);
 }
 
@@ -729,10 +775,15 @@ static bool key_id_conflicts(
     bool ignore_index) {
     size_t i;
 
+    if (state == NULL || credential_id == NULL) {
+        return true;
+    }
+
     for (i = 0u; i < state->key_record_count; ++i) {
         if (ignore_index && i == ignored_index) {
             continue;
         }
+
         if (bytes_equal(
                 state->key_records[i].credential_id.bytes,
                 credential_id->bytes,
@@ -740,6 +791,7 @@ static bool key_id_conflicts(
             return true;
         }
     }
+
     return false;
 }
 
@@ -750,10 +802,15 @@ static bool lookup_tag_conflicts(
     bool ignore_index) {
     size_t i;
 
+    if (state == NULL || lookup_tag == NULL) {
+        return true;
+    }
+
     for (i = 0u; i < state->key_record_count; ++i) {
         if (ignore_index && i == ignored_index) {
             continue;
         }
+
         if (bytes_equal(
                 state->key_records[i].lookup_tag,
                 lookup_tag,
@@ -761,6 +818,7 @@ static bool lookup_tag_conflicts(
             return true;
         }
     }
+
     return false;
 }
 
@@ -771,6 +829,7 @@ static enum aurora_identity_store_create_result persistent_create_identity_with_
     struct aurora_identity_persistent_store *store =
         (struct aurora_identity_persistent_store *)context;
     struct aurora_identity_persistent_state staged;
+    struct aurora_identity_record committed_identity;
 
     if (store == NULL || identity == NULL || key_record == NULL || !store->opened) {
         return AURORA_IDENTITY_STORE_CREATE_ERROR;
@@ -785,7 +844,12 @@ static enum aurora_identity_store_create_result persistent_create_identity_with_
         !bytes_equal(
             identity->user_id.bytes,
             key_record->user_id.bytes,
-            AURORA_IDENTITY_USER_ID_SIZE)) {
+            AURORA_IDENTITY_USER_ID_SIZE) ||
+        identity->role != AURORA_IDENTITY_ROLE_UNASSIGNED ||
+        identity->status != AURORA_IDENTITY_RECORD_ACTIVE ||
+        key_record->status != AURORA_IDENTITY_RECORD_ACTIVE ||
+        key_record->failed_attempts != 0u ||
+        key_record->throttle_until_ms != 0u) {
         return AURORA_IDENTITY_STORE_CREATE_ERROR;
     }
 
@@ -798,7 +862,13 @@ static enum aurora_identity_store_create_result persistent_create_identity_with_
     }
 
     staged = store->state;
-    staged.identities[staged.identity_count++] = *identity;
+    committed_identity = *identity;
+    committed_identity.role =
+        staged.identity_count == 0u
+            ? AURORA_IDENTITY_ROLE_ADMINISTRATOR
+            : AURORA_IDENTITY_ROLE_STANDARD_USER;
+
+    staged.identities[staged.identity_count++] = committed_identity;
     staged.key_records[staged.key_record_count++] = *key_record;
 
     if (!state_is_valid(&staged) || !commit_state(store, &staged)) {
@@ -831,14 +901,18 @@ static enum aurora_identity_rotation_store_result persistent_replace_key_credent
             AURORA_IDENTITY_USER_ID_SIZE) ||
         bytes_are_zero(
             replacement->credential_id.bytes,
-            AURORA_IDENTITY_CREDENTIAL_ID_SIZE)) {
+            AURORA_IDENTITY_CREDENTIAL_ID_SIZE) ||
+        replacement->status != AURORA_IDENTITY_RECORD_ACTIVE ||
+        replacement->failed_attempts != 0u ||
+        replacement->throttle_until_ms != 0u) {
         return AURORA_IDENTITY_ROTATION_STORE_ERROR;
     }
 
     for (i = 0u; i < store->state.key_record_count; ++i) {
         const struct aurora_identity_key_record *key = &store->state.key_records[i];
 
-        if (bytes_equal(
+        if (key->status == AURORA_IDENTITY_RECORD_ACTIVE &&
+            bytes_equal(
                 key->credential_id.bytes,
                 current_credential_id->bytes,
                 AURORA_IDENTITY_CREDENTIAL_ID_SIZE) &&
