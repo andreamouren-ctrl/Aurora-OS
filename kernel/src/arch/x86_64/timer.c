@@ -5,6 +5,7 @@
 #include <aurora/clock.h>
 #include <aurora/cpu_local.h>
 #include <aurora/interrupts.h>
+#include <aurora/smp.h>
 #include <aurora/timer.h>
 
 #define LAPIC_DIVIDE_BY_16 0x3u
@@ -175,7 +176,18 @@ bool timer_init(void) {
     }
 
     callback_fn = NULL;
-    return timer_init_current_cpu();
+
+    if (!timer_init_current_cpu()) {
+        return false;
+    }
+
+    /*
+     * smp_init() has already brought APs online with IF clear. Prepare their
+     * Local APIC timers now, after the shared timer vector is installed and
+     * before heap/scheduler startup. smp_prepare_ap_timers() serializes that
+     * calibration one AP at a time.
+     */
+    return smp_prepare_ap_timers();
 }
 
 bool timer_init_ap(void) {
