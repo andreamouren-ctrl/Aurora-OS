@@ -18,14 +18,13 @@ typedef struct interrupt_frame *(
     struct interrupt_frame *frame
 );
 
-/* Initializes the shared timer interrupt handler and the BSP local timer. */
+/*
+ * Installs the shared timer interrupt handler, initializes the BSP timer and
+ * stages every online AP Local APIC timer while AP interrupts are still off.
+ */
 bool timer_init(void);
 
-/*
- * Initializes only the current AP's Local APIC timer state. AP bootstrap
- * ticks remain on the bootstrap context until the dedicated scheduler-stack
- * handoff milestone enables full AP context switching.
- */
+/* Initializes only the current AP's already-staged Local APIC timer state. */
 bool timer_init_ap(void);
 
 bool timer_arm_ns(uint64_t delay_ns);
