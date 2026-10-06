@@ -57,6 +57,12 @@ int memcmp(const void *left, const void *right, size_t length) {
     return 0;
 }
 
+size_t strlen(const char *string) {
+    size_t length = 0u;
+    while (string[length] != '\0') ++length;
+    return length;
+}
+
 void *malloc(size_t size) {
     if (size == 0u ||
         (uint64_t)size > AURORA_SYS_USER_MEMORY_MAX_ALLOCATION_BYTES) {
