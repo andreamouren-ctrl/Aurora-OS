@@ -1,0 +1,42 @@
+#ifndef AURORA_SYSCALL_ABI_H
+#define AURORA_SYSCALL_ABI_H
+
+#include <stdint.h>
+
+#define AURORA_SYS_IPC_PAYLOAD_MAX 256u
+#define AURORA_SYS_IPC_CAPS_MAX 4u
+#define AURORA_SYS_PROTECTED_STATE_NAME_MAX 64u
+#define AURORA_SYS_PROTECTED_STATE_IO_MAX 8192u
+#define AURORA_SYS_ENTROPY_SEED_MAX 64u
+
+#define AURORA_SYS_RESULT_ERROR UINT64_MAX
+#define AURORA_SYS_RESULT_NOT_FOUND (UINT64_MAX - 1ull)
+#define AURORA_SYS_RESULT_EXISTS (UINT64_MAX - 2ull)
+
+enum aurora_syscall_number {
+    AURORA_SYS_BOOTSTRAP_SIGNAL = 0,
+    AURORA_SYS_CLOCK_NS = 1,
+    AURORA_SYS_CAP_CHECK = 2,
+    AURORA_SYS_EXIT = 3,
+    AURORA_SYS_IPC_SEND = 4,
+    AURORA_SYS_IPC_RECEIVE = 5,
+    AURORA_SYS_PROTECTED_STATE_READ = 6,
+    AURORA_SYS_PROTECTED_STATE_CREATE_ONCE = 7,
+    AURORA_SYS_IPC_WAIT = 8,
+    AURORA_SYS_ENTROPY_SEED = 9,
+    AURORA_SYS_PROTECTED_STATE_REPLACE_DURABLE = 10
+};
+
+struct aurora_sys_ipc_transfer {
+    uint64_t handle;
+    uint64_t rights;
+};
+
+struct aurora_sys_ipc_received {
+    uint32_t length;
+    uint32_t capability_count;
+    uint8_t data[AURORA_SYS_IPC_PAYLOAD_MAX];
+    uint64_t capabilities[AURORA_SYS_IPC_CAPS_MAX];
+};
+
+#endif
