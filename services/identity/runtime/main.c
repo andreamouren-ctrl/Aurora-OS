@@ -1,8 +1,12 @@
+#include "protected_state_transport.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include <aurora/capability_abi.h>
+#include <aurora/identity/persistent_store.h>
+#include <aurora/identity/persistent_store_protected_state.h>
 #include <aurora/identity_service_protocol.h>
 #include <aurora/service_abi.h>
 #include <aurora/syscall_abi.h>
@@ -14,6 +18,10 @@
 
 void *malloc(size_t size);
 void free(void *pointer);
+
+static struct identity_runtime_protected_state_context protected_state_context;
+static struct aurora_identity_persistent_protected_state_store protected_state_store;
+static struct aurora_identity_persistent_store persistent_store;
 
 static void secure_zero(void *buffer, size_t size) {
     volatile uint8_t *bytes = (volatile uint8_t *)buffer;
@@ -194,6 +202,31 @@ static bool validate_authority(
     return true;
 }
 
+static bool open_persistent_store(uint64_t protected_state_handle) {
+    struct aurora_identity_protected_state_transport_ops transport;
+    if (!identity_runtime_protected_state_transport_init(
+            &protected_state_context,
+            protected_state_handle,
+            &transport) ||
+        !aurora_identity_persistent_protected_state_store_init(
+            &protected_state_store,
+            &transport)) {
+        secure_zero(&transport, sizeof(transport));
+        return false;
+    }
+
+    struct aurora_identity_persistent_io_ops io =
+        aurora_identity_persistent_protected_state_io_ops(&protected_state_store);
+    enum aurora_identity_persistent_open_result result =
+        aurora_identity_persistent_store_open(&persistent_store, &io);
+
+    secure_zero(&io, sizeof(io));
+    secure_zero(&transport, sizeof(transport));
+
+    return result == AURORA_IDENTITY_PERSISTENT_OPEN_OK ||
+        result == AURORA_IDENTITY_PERSISTENT_OPEN_EMPTY;
+}
+
 static bool seed_runtime(uint64_t entropy_handle) {
     uint8_t seed[IDENTITY_RUNTIME_SEED_SIZE];
     secure_zero(seed, sizeof(seed));
@@ -286,6 +319,8 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
         !validate_authority(startup)) {
         return 1;
     }
+
+    if (!open_persistent_store(startup->protected_state)) return 1;
 
     /*
      * Service startup is allowed when the platform currently has no qualified
