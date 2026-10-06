@@ -1,0 +1,34 @@
+#ifndef AURORA_IDENTITY_CLIENT_H
+#define AURORA_IDENTITY_CLIENT_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+enum aurora_identity_client_state {
+    AURORA_IDENTITY_CLIENT_UNINITIALIZED = 0,
+    AURORA_IDENTITY_CLIENT_READY,
+    AURORA_IDENTITY_CLIENT_AUTHENTICATING,
+    AURORA_IDENTITY_CLIENT_AUTH_FAILED,
+    AURORA_IDENTITY_CLIENT_THROTTLED,
+    AURORA_IDENTITY_CLIENT_VERIFIED,
+    AURORA_IDENTITY_CLIENT_UNAVAILABLE,
+    AURORA_IDENTITY_CLIENT_ERROR
+};
+
+bool identity_client_init(void);
+
+bool identity_client_begin_key_auth(
+    const char *key,
+    size_t key_length
+);
+
+void identity_client_pump(void);
+
+void identity_client_reset_result(void);
+
+enum aurora_identity_client_state identity_client_state(void);
+
+uint64_t identity_client_retry_after_ms(void);
+
+#endif
