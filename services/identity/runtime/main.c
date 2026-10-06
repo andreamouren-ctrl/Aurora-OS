@@ -5,13 +5,18 @@
 #include <stdint.h>
 
 #include <aurora/capability_abi.h>
+#include <aurora/identity/crypto_foundation.h>
+#include <aurora/identity/crypto_provider.h>
+#include <aurora/identity/machine_secret.h>
+#include <aurora/identity/machine_secret_protected_state.h>
 #include <aurora/identity/persistent_store.h>
 #include <aurora/identity/persistent_store_protected_state.h>
 #include <aurora/identity_service_protocol.h>
 #include <aurora/service_abi.h>
 #include <aurora/syscall_abi.h>
 
-#define IDENTITY_RUNTIME_SEED_SIZE 32u
+#define IDENTITY_RUNTIME_DRBG_ENTROPY_SIZE 32u
+#define IDENTITY_RUNTIME_DRBG_NONCE_SIZE 16u
 #define IDENTITY_RUNTIME_MEMORY_PROBE_SIZE (1024u * 1024u)
 #define IDENTITY_RUNTIME_REAP_PROBE_SIZE (256u * 1024u)
 #define IDENTITY_RUNTIME_PAGE_SIZE 4096u
@@ -19,10 +24,22 @@
 void *malloc(size_t size);
 void free(void *pointer);
 
+static const uint8_t identity_runtime_drbg_personalization[] =
+    "AURORA.IDENTITY.RUNTIME.HMAC-DRBG.V1";
+static const uint8_t identity_runtime_session_grant_key_domain[] =
+    "AURORA.IDENTITY.SESSION-GRANT-KEY.V1";
+
 struct identity_runtime_persistent_context {
     struct identity_runtime_protected_state_context transport_context;
     struct aurora_identity_persistent_protected_state_store protected_state_store;
     struct aurora_identity_persistent_store persistent_store;
+    struct aurora_identity_machine_secret_protected_state_store machine_secret_store;
+    struct aurora_identity_machine_secret machine_secret;
+    struct aurora_identity_hmac_drbg drbg;
+    struct aurora_identity_hmac_provider hmac_provider;
+    bool machine_secret_ready;
+    bool drbg_ready;
+    bool hmac_provider_ready;
 };
 
 static void secure_zero(void *buffer, size_t size) {
@@ -218,6 +235,9 @@ static bool open_persistent_store(
             &transport) ||
         !aurora_identity_persistent_protected_state_store_init(
             &context->protected_state_store,
+            &transport) ||
+        !aurora_identity_machine_secret_protected_state_store_init(
+            &context->machine_secret_store,
             &transport)) {
         secure_zero(&transport, sizeof(transport));
         return false;
@@ -238,27 +258,181 @@ static bool open_persistent_store(
         result == AURORA_IDENTITY_PERSISTENT_OPEN_EMPTY;
 }
 
+static bool entropy_fill_random(
+    void *context,
+    uint8_t *buffer,
+    size_t size
+) {
+    uint64_t entropy_handle = (uint64_t)(uintptr_t)context;
+
+    if (buffer == NULL || size == 0u || size > AURORA_SYS_ENTROPY_SEED_MAX) {
+        return false;
+    }
+
+    return aurora_syscall3(
+        AURORA_SYS_ENTROPY_SEED,
+        entropy_handle,
+        (uint64_t)(uintptr_t)buffer,
+        size
+    ) == 0u;
+}
+
+static bool initialize_machine_secret(
+    uint64_t entropy_handle,
+    struct identity_runtime_persistent_context *context
+) {
+    struct aurora_identity_machine_secret_store_ops store;
+    struct aurora_identity_machine_secret_core core;
+    enum aurora_identity_machine_secret_result result;
+
+    if (context == NULL) return false;
+
+    secure_zero(&store, sizeof(store));
+    secure_zero(&core, sizeof(core));
+    context->machine_secret_ready = false;
+    aurora_identity_machine_secret_clear(&context->machine_secret);
+
+    store = aurora_identity_machine_secret_protected_state_store_ops(
+        &context->machine_secret_store);
+    result = aurora_identity_machine_secret_load(
+        &store,
+        &context->machine_secret);
+
+    if (result == AURORA_IDENTITY_MACHINE_SECRET_OK) {
+        context->machine_secret_ready = true;
+        secure_zero(&store, sizeof(store));
+        return true;
+    }
+
+    if (result != AURORA_IDENTITY_MACHINE_SECRET_NOT_PROVISIONED) {
+        secure_zero(&store, sizeof(store));
+        return false;
+    }
+
+    core.store = store;
+    core.random.context = (void *)(uintptr_t)entropy_handle;
+    core.random.fill_random = entropy_fill_random;
+    result = aurora_identity_machine_secret_load_or_provision(
+        &core,
+        &context->machine_secret);
+
+    secure_zero(&core, sizeof(core));
+    secure_zero(&store, sizeof(store));
+
+    if (result == AURORA_IDENTITY_MACHINE_SECRET_OK) {
+        context->machine_secret_ready = true;
+        return true;
+    }
+
+    if (result == AURORA_IDENTITY_MACHINE_SECRET_RANDOM_ERROR) {
+        aurora_identity_machine_secret_clear(&context->machine_secret);
+        return true;
+    }
+
+    aurora_identity_machine_secret_clear(&context->machine_secret);
+    return false;
+}
+
+static bool initialize_drbg(
+    uint64_t entropy_handle,
+    struct identity_runtime_persistent_context *context
+) {
+    uint8_t seed_material[
+        IDENTITY_RUNTIME_DRBG_ENTROPY_SIZE + IDENTITY_RUNTIME_DRBG_NONCE_SIZE];
+    bool instantiated;
+
+    if (context == NULL) return false;
+
+    context->drbg_ready = false;
+    aurora_identity_hmac_drbg_clear(&context->drbg);
+    secure_zero(seed_material, sizeof(seed_material));
+
+    if (!entropy_fill_random(
+            (void *)(uintptr_t)entropy_handle,
+            seed_material,
+            sizeof(seed_material))) {
+        secure_zero(seed_material, sizeof(seed_material));
+        return true;
+    }
+
+    instantiated = aurora_identity_hmac_drbg_instantiate(
+        &context->drbg,
+        seed_material,
+        IDENTITY_RUNTIME_DRBG_ENTROPY_SIZE,
+        seed_material + IDENTITY_RUNTIME_DRBG_ENTROPY_SIZE,
+        IDENTITY_RUNTIME_DRBG_NONCE_SIZE,
+        identity_runtime_drbg_personalization,
+        sizeof(identity_runtime_drbg_personalization) - 1u);
+
+    secure_zero(seed_material, sizeof(seed_material));
+    if (!instantiated) {
+        aurora_identity_hmac_drbg_clear(&context->drbg);
+        return false;
+    }
+
+    context->drbg_ready = true;
+    return true;
+}
+
+static bool initialize_hmac_provider(
+    struct identity_runtime_persistent_context *context
+) {
+    uint8_t lookup_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE];
+    uint8_t session_grant_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE];
+    bool initialized;
+
+    if (context == NULL) return false;
+
+    context->hmac_provider_ready = false;
+    aurora_identity_hmac_provider_clear(&context->hmac_provider);
+    secure_zero(lookup_key, sizeof(lookup_key));
+    secure_zero(session_grant_key, sizeof(session_grant_key));
+
+    if (!context->machine_secret_ready || !context->drbg_ready) {
+        return true;
+    }
+
+    if (!aurora_identity_machine_secret_derive_lookup_key(
+            &context->machine_secret,
+            lookup_key) ||
+        !aurora_identity_hmac_sha256(
+            context->machine_secret.bytes,
+            sizeof(context->machine_secret.bytes),
+            identity_runtime_session_grant_key_domain,
+            sizeof(identity_runtime_session_grant_key_domain) - 1u,
+            session_grant_key)) {
+        secure_zero(lookup_key, sizeof(lookup_key));
+        secure_zero(session_grant_key, sizeof(session_grant_key));
+        return false;
+    }
+
+    initialized = aurora_identity_hmac_provider_init(
+        &context->hmac_provider,
+        lookup_key,
+        session_grant_key,
+        &context->drbg);
+
+    secure_zero(lookup_key, sizeof(lookup_key));
+    secure_zero(session_grant_key, sizeof(session_grant_key));
+
+    if (!initialized) {
+        aurora_identity_hmac_provider_clear(&context->hmac_provider);
+        return false;
+    }
+
+    context->hmac_provider_ready = true;
+    return true;
+}
+
 static void release_persistent_context(
     struct identity_runtime_persistent_context *context
 ) {
     if (context == NULL) return;
+    aurora_identity_hmac_provider_clear(&context->hmac_provider);
+    aurora_identity_hmac_drbg_clear(&context->drbg);
+    aurora_identity_machine_secret_clear(&context->machine_secret);
     secure_zero(context, sizeof(*context));
     free(context);
-}
-
-static bool seed_runtime(uint64_t entropy_handle) {
-    uint8_t seed[IDENTITY_RUNTIME_SEED_SIZE];
-    secure_zero(seed, sizeof(seed));
-
-    bool ok = aurora_syscall3(
-        AURORA_SYS_ENTROPY_SEED,
-        entropy_handle,
-        (uint64_t)(uintptr_t)seed,
-        sizeof(seed)
-    ) == 0u;
-
-    secure_zero(seed, sizeof(seed));
-    return ok;
 }
 
 static bool probe_user_memory(void) {
@@ -352,23 +526,26 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
 
     if (!open_persistent_store(
             startup->protected_state,
-            persistent_context)) {
+            persistent_context) ||
+        !initialize_machine_secret(
+            startup->entropy_seed,
+            persistent_context) ||
+        !initialize_drbg(
+            startup->entropy_seed,
+            persistent_context) ||
+        !initialize_hmac_provider(persistent_context)) {
         release_persistent_context(persistent_context);
         return 1;
     }
 
     /*
      * Service startup is allowed when the platform currently has no qualified
-     * entropy source. Existing-record authentication can remain available in
-     * that state. Operations that require fresh randomness (new identities,
-     * salts, session grants, recovery material) must remain fail-closed until
-     * the real Identity DRBG has been successfully instantiated/reseeded.
-     *
-     * This foundation probes the seed path when available and always clears
-     * the temporary seed. The next integration step will persist the DRBG
-     * readiness state and enforce it at each random-producing operation.
+     * entropy source. Existing protected state is still opened fail-closed,
+     * while random-producing operations remain unavailable when drbg_ready is
+     * false. The HMAC provider becomes ready only after both the stable machine
+     * secret and the live DRBG are available, so lookup/session keys are never
+     * fabricated from volatile process state.
      */
-    (void)seed_runtime(startup->entropy_seed);
 
     if (!probe_user_memory()) {
         release_persistent_context(persistent_context);
