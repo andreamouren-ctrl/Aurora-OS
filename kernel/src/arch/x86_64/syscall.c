@@ -7,6 +7,7 @@
 #include <aurora/entropy.h>
 #include <aurora/gdt.h>
 #include <aurora/ipc.h>
+#include <aurora/pmm.h>
 #include <aurora/process.h>
 #include <aurora/protected_state_syscall.h>
 #include <aurora/scheduler.h>
@@ -27,6 +28,10 @@ _Static_assert(AURORA_SYS_IPC_CAPS_MAX == AURORA_IPC_CAPS_MAX,
     "syscall and kernel IPC capability limits must match");
 _Static_assert(AURORA_SYS_ENTROPY_SEED_MAX <= AURORA_ENTROPY_MAX_SEED_REQUEST,
     "Ring 3 entropy syscall limit must fit kernel entropy request limit");
+_Static_assert(
+    AURORA_SYS_USER_MEMORY_MAX_ALLOCATION_BYTES ==
+        (uint64_t)AURORA_PROCESS_ANON_MAX_RANGE_PAGES * AURORA_PAGE_SIZE,
+    "Ring 3 anonymous allocation limit must match process range limit");
 
 extern void x86_64_syscall_entry(void);
 
@@ -277,6 +282,28 @@ static uint64_t dispatch_entropy_seed(
     return copied ? 0ull : AURORA_SYS_RESULT_ERROR;
 }
 
+static uint64_t dispatch_user_memory_alloc(
+    struct aurora_process *process,
+    uint64_t size
+) {
+    uint64_t address = 0u;
+    if (process == NULL || size == 0u ||
+        size > AURORA_SYS_USER_MEMORY_MAX_ALLOCATION_BYTES ||
+        !process_user_memory_allocate(process, size, &address)) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+    return address;
+}
+
+static uint64_t dispatch_user_memory_free(
+    struct aurora_process *process,
+    uint64_t address
+) {
+    return process_user_memory_free(process, address)
+        ? 0ull
+        : AURORA_SYS_RESULT_ERROR;
+}
+
 struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
     struct aurora_process *process = scheduler_current_process();
     if (process == NULL) return scheduler_terminate_current();
@@ -360,6 +387,12 @@ struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
             frame->rax = protected_state_syscall_replace_durable(
                 process, frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8
             );
+            break;
+        case AURORA_SYS_USER_MEMORY_ALLOC:
+            frame->rax = dispatch_user_memory_alloc(process, frame->rdi);
+            break;
+        case AURORA_SYS_USER_MEMORY_FREE:
+            frame->rax = dispatch_user_memory_free(process, frame->rdi);
             break;
         default:
             frame->rax = AURORA_SYS_RESULT_ERROR;

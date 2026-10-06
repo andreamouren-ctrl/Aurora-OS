@@ -8,6 +8,12 @@
 #include <aurora/syscall_abi.h>
 
 #define IDENTITY_RUNTIME_SEED_SIZE 32u
+#define IDENTITY_RUNTIME_MEMORY_PROBE_SIZE (1024u * 1024u)
+#define IDENTITY_RUNTIME_REAP_PROBE_SIZE (256u * 1024u)
+#define IDENTITY_RUNTIME_PAGE_SIZE 4096u
+
+void *malloc(size_t size);
+void free(void *pointer);
 
 static void secure_zero(void *buffer, size_t size) {
     volatile uint8_t *bytes = (volatile uint8_t *)buffer;
@@ -203,6 +209,52 @@ static bool seed_runtime(uint64_t entropy_handle) {
     return ok;
 }
 
+static bool probe_user_memory(void) {
+    volatile uint8_t *memory =
+        (volatile uint8_t *)malloc(IDENTITY_RUNTIME_MEMORY_PROBE_SIZE);
+    if (memory == NULL) return false;
+
+    for (size_t offset = 0u;
+         offset < IDENTITY_RUNTIME_MEMORY_PROBE_SIZE;
+         offset += IDENTITY_RUNTIME_PAGE_SIZE) {
+        if (memory[offset] != 0u) {
+            free((void *)(uintptr_t)memory);
+            return false;
+        }
+        memory[offset] = (uint8_t)(0xA5u ^ (uint8_t)(offset >> 12));
+    }
+
+    for (size_t offset = 0u;
+         offset < IDENTITY_RUNTIME_MEMORY_PROBE_SIZE;
+         offset += IDENTITY_RUNTIME_PAGE_SIZE) {
+        uint8_t expected = (uint8_t)(0xA5u ^ (uint8_t)(offset >> 12));
+        if (memory[offset] != expected) {
+            free((void *)(uintptr_t)memory);
+            return false;
+        }
+    }
+
+    free((void *)(uintptr_t)memory);
+
+    /*
+     * Keep one mapping alive deliberately. The service-supervisor PMM baseline
+     * check must prove that process_reap() scrubs and reclaims it after exit or
+     * restart, even when userspace never calls free().
+     */
+    volatile uint8_t *reap_probe =
+        (volatile uint8_t *)malloc(IDENTITY_RUNTIME_REAP_PROBE_SIZE);
+    if (reap_probe == NULL) return false;
+
+    for (size_t offset = 0u;
+         offset < IDENTITY_RUNTIME_REAP_PROBE_SIZE;
+         offset += IDENTITY_RUNTIME_PAGE_SIZE) {
+        if (reap_probe[offset] != 0u) return false;
+        reap_probe[offset] = 0x5Au;
+    }
+
+    return true;
+}
+
 static bool message_is_valid(
     const struct aurora_sys_ipc_received *received,
     struct aurora_identity_service_message *out
@@ -247,6 +299,8 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
      * readiness state and enforce it at each random-producing operation.
      */
     (void)seed_runtime(startup->entropy_seed);
+
+    if (!probe_user_memory()) return 1;
 
     if (!send_message(
             startup->ipc_endpoint,
