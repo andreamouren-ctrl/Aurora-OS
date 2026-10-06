@@ -12,6 +12,9 @@ enum aurora_identity_client_state {
     AURORA_IDENTITY_CLIENT_AUTH_FAILED,
     AURORA_IDENTITY_CLIENT_THROTTLED,
     AURORA_IDENTITY_CLIENT_VERIFIED,
+    AURORA_IDENTITY_CLIENT_CREATING,
+    AURORA_IDENTITY_CLIENT_CREATED,
+    AURORA_IDENTITY_CLIENT_CREATE_EXISTS,
     AURORA_IDENTITY_CLIENT_UNAVAILABLE,
     AURORA_IDENTITY_CLIENT_ERROR
 };
@@ -19,6 +22,11 @@ enum aurora_identity_client_state {
 bool identity_client_init(void);
 
 bool identity_client_begin_key_auth(
+    const char *key,
+    size_t key_length
+);
+
+bool identity_client_begin_create(
     const char *key,
     size_t key_length
 );
