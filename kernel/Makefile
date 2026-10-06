@@ -13,6 +13,13 @@ BOOT_ASSET := assets/boot/aurora_boot.idx8
 BOOT_ASSET_TOOL := $(ROOT)/scripts/prepare-boot-asset.py
 BOOT_ASSET_OBJ := $(BUILD_DIR)/src/ui/boot_asset.o
 
+IDENTITY_BACKGROUND_SOURCES := $(sort $(wildcard assets/identity/background/part*.b64))
+IDENTITY_MARK_SOURCES := $(sort $(wildcard assets/identity/mark/part*.b64))
+IDENTITY_BACKGROUND := assets/identity/aurora_identity_background.png
+IDENTITY_MARK := assets/identity/aurora_mark.png
+IDENTITY_ASSET_TOOL := $(ROOT)/scripts/prepare-identity-assets.py
+IDENTITY_ASSET_OBJ := $(BUILD_DIR)/src/ui/identity_asset.o
+
 IDENTITY_RUNTIME_DIR := $(ROOT)/services/identity/runtime
 IDENTITY_RUNTIME_BIN := $(ROOT)/build/$(ARCH)/identity-runtime/identity-service.bin
 IDENTITY_RUNTIME_OBJ := $(BUILD_DIR)/identity-service.bin.o
@@ -77,6 +84,19 @@ $(BOOT_ASSET): $(BOOT_ASSET_SOURCES) $(BOOT_ASSET_TOOL)
 
 $(BOOT_ASSET_OBJ): $(BOOT_ASSET)
 
+$(IDENTITY_BACKGROUND): $(IDENTITY_BACKGROUND_SOURCES) $(IDENTITY_MARK_SOURCES) $(IDENTITY_ASSET_TOOL)
+	@test -n "$(IDENTITY_BACKGROUND_SOURCES)" || (echo "No Identity background asset chunks found" >&2; exit 1)
+	@test -n "$(IDENTITY_MARK_SOURCES)" || (echo "No Identity mark asset chunks found" >&2; exit 1)
+	$(PYTHON) "$(IDENTITY_ASSET_TOOL)" \
+		--background-input $(IDENTITY_BACKGROUND_SOURCES) \
+		--mark-input $(IDENTITY_MARK_SOURCES) \
+		--background-output "$(IDENTITY_BACKGROUND)" \
+		--mark-output "$(IDENTITY_MARK)"
+
+$(IDENTITY_MARK): $(IDENTITY_BACKGROUND)
+
+$(IDENTITY_ASSET_OBJ): $(IDENTITY_BACKGROUND) $(IDENTITY_MARK)
+
 $(IDENTITY_RUNTIME_BIN):
 	$(MAKE) -C "$(IDENTITY_RUNTIME_DIR)" ARCH=$(ARCH)
 
@@ -101,4 +121,5 @@ $(BUILD_DIR)/%.o: %.S
 
 clean:
 	$(MAKE) -C "$(IDENTITY_RUNTIME_DIR)" ARCH=$(ARCH) clean
-	rm -rf "$(ROOT)/build/$(ARCH)/kernel" "$(OUTPUT)" "$(BOOT_ASSET)"
+	rm -rf "$(ROOT)/build/$(ARCH)/kernel" "$(OUTPUT)" "$(BOOT_ASSET)" \
+		"$(IDENTITY_BACKGROUND)" "$(IDENTITY_MARK)"
