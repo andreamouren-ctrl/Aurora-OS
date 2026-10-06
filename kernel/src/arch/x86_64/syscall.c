@@ -4,6 +4,7 @@
 #include <aurora/capability.h>
 #include <aurora/clock.h>
 #include <aurora/cpu_local.h>
+#include <aurora/entropy.h>
 #include <aurora/gdt.h>
 #include <aurora/ipc.h>
 #include <aurora/process.h>
@@ -24,8 +25,19 @@ _Static_assert(AURORA_SYS_IPC_PAYLOAD_MAX == AURORA_IPC_PAYLOAD_MAX,
     "syscall and kernel IPC payload limits must match");
 _Static_assert(AURORA_SYS_IPC_CAPS_MAX == AURORA_IPC_CAPS_MAX,
     "syscall and kernel IPC capability limits must match");
+_Static_assert(AURORA_SYS_ENTROPY_SEED_MAX <= AURORA_ENTROPY_MAX_SEED_REQUEST,
+    "Ring 3 entropy syscall limit must fit kernel entropy request limit");
 
 extern void x86_64_syscall_entry(void);
+
+static void secure_zero_bytes(void *buffer, size_t size) {
+    volatile uint8_t *bytes = (volatile uint8_t *)buffer;
+    if (buffer == NULL) return;
+    while (size != 0u) {
+        *bytes++ = 0u;
+        --size;
+    }
+}
 
 static void cpuid(
     uint32_t leaf,
@@ -242,6 +254,37 @@ static uint64_t dispatch_ipc_receive(
         : AURORA_SYS_RESULT_ERROR;
 }
 
+static uint64_t dispatch_entropy_seed(
+    struct aurora_process *process,
+    uint64_t entropy_handle,
+    uint64_t user_output,
+    uint64_t length
+) {
+    uint8_t seed[AURORA_SYS_ENTROPY_SEED_MAX] = {0};
+    struct aurora_capability_view view;
+
+    if (process == NULL || user_output == 0u || length == 0u ||
+        length > AURORA_SYS_ENTROPY_SEED_MAX ||
+        !cap_lookup(
+            &process->capabilities,
+            (aurora_cap_handle)entropy_handle,
+            AURORA_CAP_ENTROPY,
+            AURORA_RIGHT_READ,
+            &view)) {
+        secure_zero_bytes(seed, sizeof(seed));
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    if (!entropy_fill_seed(seed, (size_t)length)) {
+        secure_zero_bytes(seed, sizeof(seed));
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    bool copied = copy_to_user(process, user_output, seed, (size_t)length);
+    secure_zero_bytes(seed, sizeof(seed));
+    return copied ? 0ull : AURORA_SYS_RESULT_ERROR;
+}
+
 struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
     struct aurora_process *process = scheduler_current_process();
     if (process == NULL) return scheduler_terminate_current();
@@ -335,6 +378,14 @@ struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
             if (next != NULL) return next;
             break;
         }
+        case AURORA_SYS_ENTROPY_SEED:
+            frame->rax = dispatch_entropy_seed(
+                process,
+                frame->rdi,
+                frame->rsi,
+                frame->rdx
+            );
+            break;
         default:
             frame->rax = AURORA_SYS_RESULT_ERROR;
             break;

@@ -11,6 +11,7 @@
 #define SERVICE_BOOTSTRAP_TEST_TIMEOUT_NS 500000000ull
 
 static struct aurora_trusted_service identity_probe_service;
+static uint64_t entropy_seed_authority;
 
 static void clear_bytes(void *buffer, size_t size) {
     uint8_t *bytes = buffer;
@@ -98,11 +99,23 @@ bool service_bootstrap_start_trusted(
 
     if (service->protected_state_handle == AURORA_CAP_INVALID) return false;
 
+    if (manifest->grant_entropy_seed) {
+        entropy_seed_authority = 0x4155524F5241454Eull;
+        service->entropy_seed_handle = cap_grant(
+            &service->process->capabilities,
+            &entropy_seed_authority,
+            AURORA_CAP_ENTROPY,
+            AURORA_RIGHT_READ
+        );
+        if (service->entropy_seed_handle == AURORA_CAP_INVALID) return false;
+    }
+
     struct aurora_service_startup_block startup;
     clear_bytes(&startup, sizeof(startup));
     startup.abi_version = AURORA_SERVICE_STARTUP_ABI_VERSION;
     startup.ipc_endpoint = service->service_endpoint_handle;
     startup.protected_state = service->protected_state_handle;
+    startup.entropy_seed = service->entropy_seed_handle;
 
     if (sizeof(startup) > AURORA_SERVICE_STARTUP_STACK_OFFSET ||
         service->process->user_stack_top < AURORA_SERVICE_STARTUP_STACK_OFFSET) {
@@ -263,7 +276,8 @@ bool service_bootstrap_self_test(void) {
         .image = identity_service_probe_image(),
         .image_size = identity_service_probe_image_size(),
         .protected_state_scope = "identity",
-        .protected_state_rights = AURORA_RIGHT_READ | AURORA_RIGHT_WRITE
+        .protected_state_rights = AURORA_RIGHT_READ | AURORA_RIGHT_WRITE,
+        .grant_entropy_seed = true
     };
 
     if (!service_bootstrap_start_trusted(&manifest, &identity_probe_service)) {
@@ -291,6 +305,27 @@ bool service_bootstrap_self_test(void) {
             &identity_probe_service.process->capabilities,
             identity_probe_service.protected_state_handle,
             AURORA_CAP_PROTECTED_STATE,
+            AURORA_RIGHT_TRANSFER,
+            &view)) {
+        return false;
+    }
+
+    if (!cap_lookup(
+            &identity_probe_service.process->capabilities,
+            identity_probe_service.entropy_seed_handle,
+            AURORA_CAP_ENTROPY,
+            AURORA_RIGHT_READ,
+            &view) ||
+        cap_lookup(
+            &identity_probe_service.process->capabilities,
+            identity_probe_service.entropy_seed_handle,
+            AURORA_CAP_ENTROPY,
+            AURORA_RIGHT_WRITE,
+            &view) ||
+        cap_lookup(
+            &identity_probe_service.process->capabilities,
+            identity_probe_service.entropy_seed_handle,
+            AURORA_CAP_ENTROPY,
             AURORA_RIGHT_TRANSFER,
             &view)) {
         return false;
