@@ -9,6 +9,7 @@
 #include <aurora/panic.h>
 #include <aurora/protected_state.h>
 #include <aurora/protected_state_user_probe.h>
+#include <aurora/service_bootstrap.h>
 #include <aurora/vfs.h>
 
 #define AURORA_KEY_MIN_LENGTH 12u
@@ -69,10 +70,10 @@ static void handle_pressed_key(
         login_ui_set_state(AURORA_LOGIN_AUTHENTICATING);
 
         /*
-         * The persistent Aurora Identity Service does not exist yet. Do not
-         * fabricate an account lookup or verifier result in kernel space.
-         * Wipe the submitted secret and return to the existing safe error
-         * state until the real user-space verifier is introduced.
+         * The production Aurora Identity Service is not connected to the login
+         * surface yet. Do not fabricate an account lookup or verifier result in
+         * kernel space. Wipe the submitted secret and keep the bootstrap login
+         * fail-closed until the real service protocol is wired in.
          */
         clear_credential();
         login_ui_set_state(AURORA_LOGIN_ERROR);
@@ -113,13 +114,19 @@ static void protected_state_bootstrap_probe(void) {
     }
 
     log_line("[ring3-protected-state] capability-gated record syscall probe passed");
+
+    if (!service_bootstrap_self_test()) {
+        kernel_panic("Trusted Ring 3 Identity service bootstrap self-test failed");
+    }
+
+    log_line("[service] trusted Ring 3 Identity bootstrap + least-privilege capability assignment passed");
 }
 
 void login_input_init(void) {
     /*
-     * Temporary M1 bootstrap hook: execute storage contracts before the login
-     * surface starts accepting credentials. This probe will move out of the
-     * UI path once Aurora has a dedicated service/bootstrap manager.
+     * Temporary M1 bootstrap hook: execute storage and trusted-service contracts
+     * before the login surface starts accepting credentials. This policy moves
+     * out of the UI path when Aurora gains the production Service Manager.
      */
     bootstrap_storage_probe();
     nvme_bootstrap_probe();
