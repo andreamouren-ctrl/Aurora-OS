@@ -11,7 +11,7 @@
 #include <aurora/protected_state.h>
 #include <aurora/scheduler.h>
 
-#define AURORA_SERVICE_STARTUP_ABI_VERSION 1u
+#define AURORA_SERVICE_STARTUP_ABI_VERSION 2u
 #define AURORA_SERVICE_STARTUP_STACK_OFFSET 64u
 
 struct aurora_service_startup_block {
@@ -19,6 +19,7 @@ struct aurora_service_startup_block {
     uint32_t flags;
     aurora_cap_handle ipc_endpoint;
     aurora_cap_handle protected_state;
+    aurora_cap_handle entropy_seed;
 };
 
 struct aurora_trusted_service_manifest {
@@ -27,6 +28,7 @@ struct aurora_trusted_service_manifest {
     size_t image_size;
     const char *protected_state_scope;
     uint64_t protected_state_rights;
+    bool grant_entropy_seed;
 };
 
 struct aurora_trusted_service {
@@ -42,6 +44,7 @@ struct aurora_trusted_service {
 
     aurora_cap_handle service_endpoint_handle;
     aurora_cap_handle protected_state_handle;
+    aurora_cap_handle entropy_seed_handle;
 
     bool started;
 };
@@ -49,9 +52,10 @@ struct aurora_trusted_service {
 /*
  * Bootstrap one explicitly trusted Ring 3 service.
  *
- * The service receives a process-local IPC endpoint and, when requested by the
- * manifest, one non-transferable Protected System State capability. Ordinary
- * user processes are not granted either authority by this API implicitly.
+ * The service receives a process-local IPC endpoint, one non-transferable
+ * Protected System State capability, and optionally one read-only entropy-seed
+ * capability. Ordinary user processes are not granted these authorities by
+ * this API implicitly.
  */
 bool service_bootstrap_start_trusted(
     const struct aurora_trusted_service_manifest *manifest,
