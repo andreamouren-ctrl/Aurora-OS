@@ -1,6 +1,8 @@
 #include <stddef.h>
 
 #include <aurora/bootstrap_probe.h>
+#include <aurora/entropy.h>
+#include <aurora/entropy_ring3_probe.h>
 #include <aurora/input.h>
 #include <aurora/ipc_wait_probe.h>
 #include <aurora/log.h>
@@ -150,6 +152,15 @@ void login_input_init(void) {
     }
 
     log_line("[ring3-ipc] blocking wait/wakeup syscall probe passed");
+
+    if (entropy_ready()) {
+        if (!entropy_ring3_self_test()) {
+            kernel_panic("Ring 3 entropy seed syscall self-test failed");
+        }
+        log_line("[ring3-entropy] capability-gated trusted seed syscall probe passed");
+    } else {
+        log_line("[ring3-entropy] trusted seed unavailable; capability probe skipped");
+    }
 
     protected_state_bootstrap_probe();
 
