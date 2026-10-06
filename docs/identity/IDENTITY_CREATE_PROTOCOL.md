@@ -51,6 +51,19 @@ The persistent store is authoritative for bootstrap role assignment:
 
 The GUI and kernel client MUST NOT choose or override the persistent role.
 
+## Bootstrap creation boundary
+
+The current pre-authentication CREATE authority exists only for first-user setup.
+
+Before invoking the generic creation core, the production Identity runtime checks the persistent identity count:
+
+- `identity_count == 0`: bootstrap CREATE may proceed;
+- `identity_count >= 1`: the pre-authentication CREATE path fails closed with `POLICY_DENIED`.
+
+This check is enforced by the Identity Service runtime, not by the login GUI. Possession of an IPC endpoint or an `AURORA_CAP_IDENTITY_CREATE` request capability therefore cannot bypass post-bootstrap account-creation policy.
+
+Additional persistent users require a future authenticated machine-policy / Administrator authorization path with purpose-bound re-authentication. That path is deliberately separate from first-user bootstrap and may still call the generic Identity creation core after its stronger authorization checks.
+
 ## Randomness and degraded boot
 
 Identity creation requires cryptographically secure random generation for identifiers, salt, and verifier creation. If the DRBG or other creation prerequisites are unavailable, creation fails closed with `SERVICE_UNAVAILABLE`.
