@@ -2,6 +2,7 @@
 
 #include <aurora/bootstrap_probe.h>
 #include <aurora/input.h>
+#include <aurora/ipc_wait_probe.h>
 #include <aurora/log.h>
 #include <aurora/login_input.h>
 #include <aurora/login_ui.h>
@@ -135,6 +136,12 @@ void login_input_init(void) {
     if (nvme != NULL) {
         bootstrap_storage_probe_device(nvme, "NVMe");
     }
+
+    if (!ipc_wait_ring3_self_test()) {
+        kernel_panic("Ring 3 IPC blocking wait/wakeup self-test failed");
+    }
+
+    log_line("[ring3-ipc] blocking wait/wakeup syscall probe passed");
 
     protected_state_bootstrap_probe();
 
