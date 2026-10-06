@@ -79,3 +79,14 @@ void free(void *pointer) {
         (uint64_t)(uintptr_t)pointer
     );
 }
+
+void *calloc(size_t count, size_t size) {
+    if (count == 0u || size == 0u || count > SIZE_MAX / size) return NULL;
+
+    size_t total = count * size;
+    void *memory = malloc(total);
+    if (memory == NULL) return NULL;
+
+    memset(memory, 0, total);
+    return memory;
+}
