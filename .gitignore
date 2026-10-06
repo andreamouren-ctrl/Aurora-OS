@@ -13,6 +13,10 @@ dist/
 # Generated boot assets
 kernel/assets/boot/aurora_boot.idx8
 
+# Reconstructed full-quality Identity assets
+kernel/assets/identity/aurora_identity_background.png
+kernel/assets/identity/aurora_mark.png
+
 # Downloaded dependencies
 third_party/
 
