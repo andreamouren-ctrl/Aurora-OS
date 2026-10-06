@@ -11,6 +11,7 @@ ARGON2_VENDOR_CPPFLAGS := -DARGON2_NO_THREADS -I$(ARGON2_VENDOR_INCLUDE) -I$(ARG
 ARGON2_VENDOR_CFLAGS := -std=c11 -O2
 
 CORE_OBJECT := $(BUILD_DIR)/core.o
+CREATION_ACCESS_POLICY_OBJECT := $(BUILD_DIR)/creation_access_policy.o
 ROTATION_OBJECT := $(BUILD_DIR)/rotation.o
 SESSION_GRANT_OBJECT := $(BUILD_DIR)/session_grant.o
 SESSION_GRANT_MEMORY_OBJECT := $(BUILD_DIR)/session_grant_memory.o
@@ -33,6 +34,7 @@ ARGON2_REF_OBJECTS := $(ARGON2_REF_ARGON2_OBJECT) $(ARGON2_REF_CORE_OBJECT) $(AR
 
 CORE_TEST_BINARY := $(BUILD_DIR)/identity-core-tests
 CREATION_TEST_BINARY := $(BUILD_DIR)/identity-creation-tests
+CREATION_ACCESS_POLICY_TEST_BINARY := $(BUILD_DIR)/identity-creation-access-policy-tests
 ROTATION_TEST_BINARY := $(BUILD_DIR)/identity-rotation-tests
 SESSION_GRANT_TEST_BINARY := $(BUILD_DIR)/identity-session-grant-tests
 SESSION_GRANT_MEMORY_TEST_BINARY := $(BUILD_DIR)/identity-session-grant-memory-tests
@@ -47,9 +49,10 @@ MACHINE_SECRET_PROTECTED_STATE_TEST_BINARY := $(BUILD_DIR)/identity-machine-secr
 
 all: test
 
-test: $(CORE_TEST_BINARY) $(CREATION_TEST_BINARY) $(ROTATION_TEST_BINARY) $(SESSION_GRANT_TEST_BINARY) $(SESSION_GRANT_MEMORY_TEST_BINARY) $(PERSISTENT_STORE_TEST_BINARY) $(PERSISTENT_STORE_PROTECTED_STATE_TEST_BINARY) $(CRYPTO_FOUNDATION_TEST_BINARY) $(ARGON2ID_PROVIDER_TEST_BINARY) $(MACHINE_SECRET_TEST_BINARY) $(MACHINE_SECRET_PROTECTED_STATE_TEST_BINARY)
+test: $(CORE_TEST_BINARY) $(CREATION_TEST_BINARY) $(CREATION_ACCESS_POLICY_TEST_BINARY) $(ROTATION_TEST_BINARY) $(SESSION_GRANT_TEST_BINARY) $(SESSION_GRANT_MEMORY_TEST_BINARY) $(PERSISTENT_STORE_TEST_BINARY) $(PERSISTENT_STORE_PROTECTED_STATE_TEST_BINARY) $(CRYPTO_FOUNDATION_TEST_BINARY) $(ARGON2ID_PROVIDER_TEST_BINARY) $(MACHINE_SECRET_TEST_BINARY) $(MACHINE_SECRET_PROTECTED_STATE_TEST_BINARY)
 	$(CORE_TEST_BINARY)
 	$(CREATION_TEST_BINARY)
+	$(CREATION_ACCESS_POLICY_TEST_BINARY)
 	$(ROTATION_TEST_BINARY)
 	$(SESSION_GRANT_TEST_BINARY)
 	$(SESSION_GRANT_MEMORY_TEST_BINARY)
@@ -65,6 +68,9 @@ $(BUILD_DIR):
 
 $(CORE_OBJECT): src/core.c include/aurora/identity/core.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/core.c -o $@
+
+$(CREATION_ACCESS_POLICY_OBJECT): src/creation_access_policy.c include/aurora/identity/creation_access_policy.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/creation_access_policy.c -o $@
 
 $(ROTATION_OBJECT): src/rotation.c include/aurora/identity/rotation.h include/aurora/identity/core.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/rotation.c -o $@
@@ -125,6 +131,9 @@ $(CORE_TEST_BINARY): tests/test_identity_core.c $(CORE_OBJECT) include/aurora/id
 
 $(CREATION_TEST_BINARY): tests/test_identity_creation.c $(CORE_OBJECT) include/aurora/identity/core.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_identity_creation.c $(CORE_OBJECT) -o $@
+
+$(CREATION_ACCESS_POLICY_TEST_BINARY): tests/test_identity_creation_access_policy.c $(CREATION_ACCESS_POLICY_OBJECT) include/aurora/identity/creation_access_policy.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_identity_creation_access_policy.c $(CREATION_ACCESS_POLICY_OBJECT) -o $@
 
 $(ROTATION_TEST_BINARY): tests/test_identity_rotation.c $(CORE_OBJECT) $(ROTATION_OBJECT) include/aurora/identity/core.h include/aurora/identity/rotation.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_identity_rotation.c $(CORE_OBJECT) $(ROTATION_OBJECT) -o $@
