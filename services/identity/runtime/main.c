@@ -18,6 +18,7 @@
 #define IDENTITY_RUNTIME_DRBG_NONCE_SIZE 16u
 #define IDENTITY_RUNTIME_DRBG_SEED_MATERIAL_SIZE \
     (IDENTITY_RUNTIME_DRBG_ENTROPY_SIZE + IDENTITY_RUNTIME_DRBG_NONCE_SIZE)
+#define IDENTITY_RUNTIME_LOOKUP_KEY_SIZE 32u
 #define IDENTITY_RUNTIME_MEMORY_PROBE_SIZE (1024u * 1024u)
 #define IDENTITY_RUNTIME_REAP_PROBE_SIZE (256u * 1024u)
 #define IDENTITY_RUNTIME_PAGE_SIZE 4096u
@@ -35,8 +36,10 @@ struct identity_runtime_persistent_context {
     struct aurora_identity_machine_secret_protected_state_store machine_secret_store;
     struct aurora_identity_hmac_drbg drbg;
     struct aurora_identity_machine_secret machine_secret;
+    uint8_t lookup_key[IDENTITY_RUNTIME_LOOKUP_KEY_SIZE];
     bool drbg_ready;
     bool machine_secret_ready;
+    bool lookup_key_ready;
 };
 
 static void secure_zero(void *buffer, size_t size) {
@@ -377,10 +380,34 @@ static bool initialize_machine_secret(
     return true;
 }
 
+static bool initialize_lookup_key(
+    struct identity_runtime_persistent_context *context
+) {
+    if (context == NULL) return false;
+
+    secure_zero(context->lookup_key, sizeof(context->lookup_key));
+    context->lookup_key_ready = false;
+
+    if (!context->machine_secret_ready) {
+        return true;
+    }
+
+    if (!aurora_identity_machine_secret_derive_lookup_key(
+            &context->machine_secret,
+            context->lookup_key)) {
+        secure_zero(context->lookup_key, sizeof(context->lookup_key));
+        return false;
+    }
+
+    context->lookup_key_ready = true;
+    return true;
+}
+
 static void release_persistent_context(
     struct identity_runtime_persistent_context *context
 ) {
     if (context == NULL) return;
+    secure_zero(context->lookup_key, sizeof(context->lookup_key));
     aurora_identity_machine_secret_clear(&context->machine_secret);
     aurora_identity_hmac_drbg_clear(&context->drbg);
     secure_zero(context, sizeof(*context));
@@ -500,7 +527,8 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
      * from the live DRBG. Restart therefore reconstructs the exact same root
      * secret from Protected State rather than changing stable Identity lookup.
      */
-    if (!initialize_machine_secret(persistent_context)) {
+    if (!initialize_machine_secret(persistent_context) ||
+        !initialize_lookup_key(persistent_context)) {
         release_persistent_context(persistent_context);
         return 1;
     }
