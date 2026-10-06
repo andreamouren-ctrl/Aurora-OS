@@ -5,16 +5,25 @@
 #include <stdint.h>
 
 #include <aurora/capability_abi.h>
+#include <aurora/identity/crypto_foundation.h>
+#include <aurora/identity/machine_secret.h>
+#include <aurora/identity/machine_secret_protected_state.h>
 #include <aurora/identity/persistent_store.h>
 #include <aurora/identity/persistent_store_protected_state.h>
 #include <aurora/identity_service_protocol.h>
 #include <aurora/service_abi.h>
 #include <aurora/syscall_abi.h>
 
-#define IDENTITY_RUNTIME_SEED_SIZE 32u
+#define IDENTITY_RUNTIME_DRBG_ENTROPY_SIZE 32u
+#define IDENTITY_RUNTIME_DRBG_NONCE_SIZE 16u
+#define IDENTITY_RUNTIME_DRBG_SEED_MATERIAL_SIZE \
+    (IDENTITY_RUNTIME_DRBG_ENTROPY_SIZE + IDENTITY_RUNTIME_DRBG_NONCE_SIZE)
 #define IDENTITY_RUNTIME_MEMORY_PROBE_SIZE (1024u * 1024u)
 #define IDENTITY_RUNTIME_REAP_PROBE_SIZE (256u * 1024u)
 #define IDENTITY_RUNTIME_PAGE_SIZE 4096u
+
+static const uint8_t identity_runtime_drbg_personalization[] =
+    "AURORA.IDENTITY.RING3.DRBG.V1";
 
 void *malloc(size_t size);
 void free(void *pointer);
@@ -23,6 +32,11 @@ struct identity_runtime_persistent_context {
     struct identity_runtime_protected_state_context transport_context;
     struct aurora_identity_persistent_protected_state_store protected_state_store;
     struct aurora_identity_persistent_store persistent_store;
+    struct aurora_identity_machine_secret_protected_state_store machine_secret_store;
+    struct aurora_identity_hmac_drbg drbg;
+    struct aurora_identity_machine_secret machine_secret;
+    bool drbg_ready;
+    bool machine_secret_ready;
 };
 
 static void secure_zero(void *buffer, size_t size) {
@@ -204,7 +218,7 @@ static bool validate_authority(
     return true;
 }
 
-static bool open_persistent_store(
+static bool open_protected_state(
     uint64_t protected_state_handle,
     struct identity_runtime_persistent_context *context
 ) {
@@ -218,6 +232,9 @@ static bool open_persistent_store(
             &transport) ||
         !aurora_identity_persistent_protected_state_store_init(
             &context->protected_state_store,
+            &transport) ||
+        !aurora_identity_machine_secret_protected_state_store_init(
+            &context->machine_secret_store,
             &transport)) {
         secure_zero(&transport, sizeof(transport));
         return false;
@@ -238,27 +255,136 @@ static bool open_persistent_store(
         result == AURORA_IDENTITY_PERSISTENT_OPEN_EMPTY;
 }
 
+static bool instantiate_runtime_drbg(
+    uint64_t entropy_handle,
+    struct identity_runtime_persistent_context *context
+) {
+    uint8_t seed_material[IDENTITY_RUNTIME_DRBG_SEED_MATERIAL_SIZE];
+    if (context == NULL) return false;
+
+    secure_zero(seed_material, sizeof(seed_material));
+    aurora_identity_hmac_drbg_clear(&context->drbg);
+    context->drbg_ready = false;
+
+    bool seeded = aurora_syscall3(
+        AURORA_SYS_ENTROPY_SEED,
+        entropy_handle,
+        (uint64_t)(uintptr_t)seed_material,
+        sizeof(seed_material)
+    ) == 0u;
+
+    if (seeded) {
+        context->drbg_ready = aurora_identity_hmac_drbg_instantiate(
+            &context->drbg,
+            seed_material,
+            IDENTITY_RUNTIME_DRBG_ENTROPY_SIZE,
+            seed_material + IDENTITY_RUNTIME_DRBG_ENTROPY_SIZE,
+            IDENTITY_RUNTIME_DRBG_NONCE_SIZE,
+            identity_runtime_drbg_personalization,
+            sizeof(identity_runtime_drbg_personalization) - 1u);
+    }
+
+    secure_zero(seed_material, sizeof(seed_material));
+    return context->drbg_ready;
+}
+
+static bool runtime_random_fill(
+    void *opaque,
+    uint8_t *buffer,
+    size_t size
+) {
+    struct identity_runtime_persistent_context *context = opaque;
+    if (context == NULL || !context->drbg_ready ||
+        (buffer == NULL && size != 0u)) {
+        return false;
+    }
+
+    size_t offset = 0u;
+    while (offset < size) {
+        size_t remaining = size - offset;
+        size_t request = remaining > AURORA_IDENTITY_HMAC_DRBG_MAX_REQUEST_SIZE
+            ? AURORA_IDENTITY_HMAC_DRBG_MAX_REQUEST_SIZE
+            : remaining;
+        if (!aurora_identity_hmac_drbg_generate(
+                &context->drbg,
+                buffer + offset,
+                request,
+                NULL,
+                0u)) {
+            return false;
+        }
+        offset += request;
+    }
+
+    return true;
+}
+
+static bool initialize_machine_secret(
+    struct identity_runtime_persistent_context *context
+) {
+    if (context == NULL) return false;
+
+    struct aurora_identity_machine_secret_store_ops store =
+        aurora_identity_machine_secret_protected_state_store_ops(
+            &context->machine_secret_store);
+
+    enum aurora_identity_machine_secret_result result =
+        aurora_identity_machine_secret_load(
+            &store,
+            &context->machine_secret);
+
+    if (result == AURORA_IDENTITY_MACHINE_SECRET_OK) {
+        context->machine_secret_ready = true;
+        secure_zero(&store, sizeof(store));
+        return true;
+    }
+
+    if (result != AURORA_IDENTITY_MACHINE_SECRET_NOT_PROVISIONED) {
+        secure_zero(&store, sizeof(store));
+        return false;
+    }
+
+    /*
+     * A machine with no qualified seed source may still run the service in a
+     * degraded state so existing non-random operations remain diagnosable.
+     * It must not fabricate a root secret. First provisioning waits for the
+     * reviewed DRBG to be instantiated from AURORA_CAP_ENTROPY.
+     */
+    if (!context->drbg_ready) {
+        secure_zero(&store, sizeof(store));
+        return true;
+    }
+
+    struct aurora_identity_machine_secret_core core;
+    secure_zero(&core, sizeof(core));
+    core.random.context = context;
+    core.random.fill_random = runtime_random_fill;
+    core.store = store;
+
+    result = aurora_identity_machine_secret_load_or_provision(
+        &core,
+        &context->machine_secret);
+
+    secure_zero(&core, sizeof(core));
+    secure_zero(&store, sizeof(store));
+
+    if (result != AURORA_IDENTITY_MACHINE_SECRET_OK) {
+        aurora_identity_machine_secret_clear(&context->machine_secret);
+        return false;
+    }
+
+    context->machine_secret_ready = true;
+    return true;
+}
+
 static void release_persistent_context(
     struct identity_runtime_persistent_context *context
 ) {
     if (context == NULL) return;
+    aurora_identity_machine_secret_clear(&context->machine_secret);
+    aurora_identity_hmac_drbg_clear(&context->drbg);
     secure_zero(context, sizeof(*context));
     free(context);
-}
-
-static bool seed_runtime(uint64_t entropy_handle) {
-    uint8_t seed[IDENTITY_RUNTIME_SEED_SIZE];
-    secure_zero(seed, sizeof(seed));
-
-    bool ok = aurora_syscall3(
-        AURORA_SYS_ENTROPY_SEED,
-        entropy_handle,
-        (uint64_t)(uintptr_t)seed,
-        sizeof(seed)
-    ) == 0u;
-
-    secure_zero(seed, sizeof(seed));
-    return ok;
 }
 
 static bool probe_user_memory(void) {
@@ -350,7 +476,7 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
     if (persistent_context == NULL) return 1;
     secure_zero(persistent_context, sizeof(*persistent_context));
 
-    if (!open_persistent_store(
+    if (!open_protected_state(
             startup->protected_state,
             persistent_context)) {
         release_persistent_context(persistent_context);
@@ -358,17 +484,26 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
     }
 
     /*
-     * Service startup is allowed when the platform currently has no qualified
-     * entropy source. Existing-record authentication can remain available in
-     * that state. Operations that require fresh randomness (new identities,
-     * salts, session grants, recovery material) must remain fail-closed until
-     * the real Identity DRBG has been successfully instantiated/reseeded.
-     *
-     * This foundation probes the seed path when available and always clears
-     * the temporary seed. The next integration step will persist the DRBG
-     * readiness state and enforce it at each random-producing operation.
+     * The entropy capability is a seed authority, not the runtime RNG itself.
+     * Seed material is copied once into userspace, used to instantiate the
+     * reviewed HMAC-DRBG, and immediately zeroized. If no qualified platform
+     * seed is available, the service may stay alive but all random-producing
+     * operations remain unavailable.
      */
-    (void)seed_runtime(startup->entropy_seed);
+    (void)instantiate_runtime_drbg(
+        startup->entropy_seed,
+        persistent_context);
+
+    /*
+     * Corrupt/conflicting Machine Root Secret state is fatal and never repaired
+     * or regenerated. Only the all-absent state may be provisioned, and only
+     * from the live DRBG. Restart therefore reconstructs the exact same root
+     * secret from Protected State rather than changing stable Identity lookup.
+     */
+    if (!initialize_machine_secret(persistent_context)) {
+        release_persistent_context(persistent_context);
+        return 1;
+    }
 
     if (!probe_user_memory()) {
         release_persistent_context(persistent_context);
