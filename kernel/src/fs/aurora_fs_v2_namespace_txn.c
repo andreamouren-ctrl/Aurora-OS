@@ -340,6 +340,29 @@ static bool find_record(
     return false;
 }
 
+static bool find_inode_by_object_id(
+    struct aurora_block_device *device,
+    const struct aurora_fs_v2_format_geometry *geometry,
+    uint64_t object_id,
+    uint64_t *out_inode_index,
+    struct v2ns_inode_disk *out_inode
+) {
+    uint64_t capacity;
+    if (device == NULL || geometry == NULL || object_id == 0u ||
+        out_inode_index == NULL || out_inode == NULL ||
+        !mul_u64(geometry->inode_blocks, V2NS_INODES_PER_BLOCK, &capacity)) return false;
+    for (uint64_t i = 0u; i < capacity; ++i) {
+        struct v2ns_inode_disk inode;
+        if (!read_inode(device, geometry, i, &inode)) return false;
+        if (inode.object_id == object_id) {
+            *out_inode_index = i;
+            *out_inode = inode;
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool finish_transaction(
     struct aurora_fs_v2_allocator *allocator,
     const struct aurora_fs_v2_format_geometry *geometry,
@@ -419,41 +442,122 @@ bool aurora_fs_v2_rename_child_txn(
         !name_valid(old_name, NULL) || !name_valid(new_name, NULL)) return false;
 
     struct v2ns_inode_disk parent;
-    uint64_t index;
-    struct v2ns_directory_record_disk before;
+    uint64_t source_index;
+    struct v2ns_directory_record_disk source;
     if (!read_inode(allocator->device, geometry, parent_inode_index, &parent) ||
         parent.object_id == 0u || parent.type != AURORA_FS_V2_OBJECT_DIRECTORY ||
         parent.extent_tree_root != 0u ||
-        !find_record(allocator->device, geometry, &parent, old_name, &index, &before))
+        (parent.size % V2NS_DIRECTORY_RECORD_SIZE) != 0u ||
+        !find_record(allocator->device, geometry, &parent, old_name, &source_index, &source))
         return false;
-    if (record_name_equals(&before, new_name)) return true;
-    if (find_record(allocator->device, geometry, &parent, new_name, NULL, NULL)) return false;
+    if (record_name_equals(&source, new_name)) return true;
 
-    struct v2ns_directory_record_disk after;
-    if (!make_record(&after, before.object_id, before.type, new_name)) return false;
+    uint64_t target_index;
+    struct v2ns_directory_record_disk target;
+    if (!find_record(
+            allocator->device, geometry, &parent, new_name, &target_index, &target)) {
+        struct v2ns_directory_record_disk after;
+        if (!make_record(&after, source.object_id, source.type, new_name)) return false;
+
+        struct aurora_fs_v2_txn_record txn;
+        zero_bytes(&txn, sizeof(txn));
+        txn.state = AURORA_FS_V2_TXN_PREPARED;
+        txn.operation = AURORA_FS_V2_TXN_OP_RENAME;
+        txn.sequence = next_sequence();
+        txn.inode_index = parent_inode_index;
+        txn.parent_inode_index = parent_inode_index;
+        txn.child_object_id = source.object_id;
+        txn.old_size = parent.size;
+        txn.new_size = parent.size;
+        txn.namespace_slot_count = 1u;
+        txn.namespace_slots[0].record_index = source_index;
+        copy_bytes(txn.namespace_slots[0].before, &source, sizeof(source));
+        copy_bytes(txn.namespace_slots[0].after, &after, sizeof(after));
+
+        if (!aurora_fs_v2_txn_prepare(
+                allocator->device, geometry->base_bytes, &txn)) return false;
+        if (!aurora_fs_v2_rename_child(
+                allocator, geometry, parent_inode_index, old_name, new_name)) {
+            (void)recover_after_failure(allocator, geometry);
+            return false;
+        }
+        return finish_transaction(allocator, geometry, txn.sequence);
+    }
+
+    uint64_t count = parent.size / V2NS_DIRECTORY_RECORD_SIZE;
+    if (count < 2u || source_index != count - 1u || source_index == target_index ||
+        source.type != (uint32_t)AURORA_FS_V2_OBJECT_FILE ||
+        target.type != (uint32_t)AURORA_FS_V2_OBJECT_FILE) return false;
+
+    uint64_t target_inode_index;
+    struct v2ns_inode_disk target_inode;
+    if (!find_inode_by_object_id(
+            allocator->device, geometry, target.object_id,
+            &target_inode_index, &target_inode) ||
+        target_inode.parent_object_id != parent.object_id ||
+        target_inode.type != (uint32_t)AURORA_FS_V2_OBJECT_FILE ||
+        target_inode.extent_tree_root != 0u ||
+        target_inode.extent_count > AURORA_FS_V2_INLINE_EXTENT_COUNT) return false;
+
+    struct v2ns_directory_record_disk target_after;
+    struct v2ns_directory_record_disk zero_record;
+    if (!make_record(&target_after, source.object_id, source.type, new_name)) return false;
+    zero_bytes(&zero_record, sizeof(zero_record));
 
     struct aurora_fs_v2_txn_record txn;
     zero_bytes(&txn, sizeof(txn));
     txn.state = AURORA_FS_V2_TXN_PREPARED;
-    txn.operation = AURORA_FS_V2_TXN_OP_RENAME;
+    txn.operation = AURORA_FS_V2_TXN_OP_REMOVE;
     txn.sequence = next_sequence();
     txn.inode_index = parent_inode_index;
     txn.parent_inode_index = parent_inode_index;
-    txn.child_object_id = before.object_id;
+    txn.child_inode_index = target_inode_index;
+    txn.child_object_id = target_inode.object_id;
     txn.old_size = parent.size;
-    txn.new_size = parent.size;
-    txn.namespace_slot_count = 1u;
-    txn.namespace_slots[0].record_index = index;
-    copy_bytes(txn.namespace_slots[0].before, &before, sizeof(before));
-    copy_bytes(txn.namespace_slots[0].after, &after, sizeof(after));
+    txn.new_size = parent.size - V2NS_DIRECTORY_RECORD_SIZE;
+    txn.namespace_slot_count = 2u;
+    txn.namespace_slots[0].record_index = target_index;
+    copy_bytes(txn.namespace_slots[0].before, &target, sizeof(target));
+    copy_bytes(txn.namespace_slots[0].after, &target_after, sizeof(target_after));
+    txn.namespace_slots[1].record_index = source_index;
+    copy_bytes(txn.namespace_slots[1].before, &source, sizeof(source));
+    copy_bytes(txn.namespace_slots[1].after, &zero_record, sizeof(zero_record));
+
+    txn.cleanup_range_count = target_inode.extent_count;
+    for (uint32_t i = 0u; i < target_inode.extent_count; ++i) {
+        txn.cleanup_ranges[i].first_block = target_inode.extents[i].physical_block;
+        txn.cleanup_ranges[i].block_count = target_inode.extents[i].block_count;
+    }
 
     if (!aurora_fs_v2_txn_prepare(allocator->device, geometry->base_bytes, &txn)) return false;
-    if (!aurora_fs_v2_rename_child(
-            allocator, geometry, parent_inode_index, old_name, new_name)) {
+
+    if (!write_slot(allocator->device, geometry, &parent, target_index, &target_after)) {
         (void)recover_after_failure(allocator, geometry);
         return false;
     }
-    return finish_transaction(allocator, geometry, txn.sequence);
+    if (!write_slot(allocator->device, geometry, &parent, source_index, &zero_record)) {
+        (void)recover_after_failure(allocator, geometry);
+        return false;
+    }
+
+    parent.size = txn.new_size;
+    parent.generation++;
+    if (!write_inode(allocator->device, geometry, parent_inode_index, &parent) ||
+        !clear_inode(allocator->device, geometry, target_inode_index)) {
+        (void)recover_after_failure(allocator, geometry);
+        return false;
+    }
+
+    if (!aurora_fs_v2_txn_mark_committed(
+            allocator->device, geometry->base_bytes, txn.sequence)) return false;
+    for (uint32_t i = 0u; i < txn.cleanup_range_count; ++i) {
+        if (txn.cleanup_ranges[i].block_count != 0u &&
+            !aurora_fs_v2_allocator_free_range(
+                allocator, txn.cleanup_ranges[i].first_block,
+                txn.cleanup_ranges[i].block_count)) return false;
+    }
+    return aurora_fs_v2_txn_clear(
+        allocator->device, geometry->base_bytes, txn.sequence);
 }
 
 bool aurora_fs_v2_remove_child_txn(
