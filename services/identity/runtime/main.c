@@ -231,9 +231,24 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
 
     if (startup->abi_version != AURORA_SERVICE_STARTUP_ABI_VERSION ||
         startup->flags != 0u ||
-        !validate_authority(startup) ||
-        !seed_runtime(startup->entropy_seed) ||
-        !send_message(
+        !validate_authority(startup)) {
+        return 1;
+    }
+
+    /*
+     * Service startup is allowed when the platform currently has no qualified
+     * entropy source. Existing-record authentication can remain available in
+     * that state. Operations that require fresh randomness (new identities,
+     * salts, session grants, recovery material) must remain fail-closed until
+     * the real Identity DRBG has been successfully instantiated/reseeded.
+     *
+     * This foundation probes the seed path when available and always clears
+     * the temporary seed. The next integration step will persist the DRBG
+     * readiness state and enforce it at each random-producing operation.
+     */
+    (void)seed_runtime(startup->entropy_seed);
+
+    if (!send_message(
             startup->ipc_endpoint,
             AURORA_IDENTITY_SERVICE_READY,
             0u)) {
