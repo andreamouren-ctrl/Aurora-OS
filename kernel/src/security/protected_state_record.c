@@ -102,6 +102,31 @@ static bool cleanup_staging(const char *path) {
     return vfs_remove(path);
 }
 
+static bool prepare_staging(
+    const char *staging,
+    const void *data,
+    size_t length
+) {
+    struct aurora_vfs_stat stat;
+    enum aurora_vfs_lookup_result lookup = vfs_stat_result(staging, &stat);
+    if (lookup == AURORA_VFS_LOOKUP_FOUND) {
+        if (!vfs_remove(staging)) return false;
+    } else if (lookup != AURORA_VFS_LOOKUP_NOT_FOUND) {
+        return false;
+    }
+
+    if (!vfs_create_file(staging)) return false;
+    if (!vfs_chown(staging, 0u, 0u) ||
+        !vfs_chmod(staging, PROTECTED_STATE_RECORD_FILE_MODE) ||
+        !vfs_write_file(staging, data, length) ||
+        !vfs_fdatasync(staging) ||
+        !vfs_fsync(staging)) {
+        (void)cleanup_staging(staging);
+        return false;
+    }
+    return true;
+}
+
 enum aurora_protected_state_read_result protected_state_read_record(
     struct aurora_cap_table *table,
     aurora_cap_handle handle,
@@ -167,11 +192,6 @@ protected_state_create_record_once_durable(
         return AURORA_PROTECTED_STATE_CREATE_ONCE_ERROR;
     }
 
-    /*
-     * Aurora does not yet have a sleeping kernel mutex. Publication is rare,
-     * so a concurrent publisher fails fast instead of spinning a CPU while
-     * another core performs storage I/O. The caller may retry.
-     */
     if (!spinlock_try_lock(&record_publish_lock)) {
         return AURORA_PROTECTED_STATE_CREATE_ONCE_ERROR;
     }
@@ -183,25 +203,8 @@ protected_state_create_record_once_durable(
     }
     if (target_lookup != AURORA_VFS_LOOKUP_NOT_FOUND) goto out;
 
-    /* A pre-publication crash may leave only the hidden staging inode. */
-    enum aurora_vfs_lookup_result staging_lookup = vfs_stat_result(staging, &stat);
-    if (staging_lookup == AURORA_VFS_LOOKUP_FOUND) {
-        if (!vfs_remove(staging)) goto out;
-    } else if (staging_lookup != AURORA_VFS_LOOKUP_NOT_FOUND) {
-        goto out;
-    }
+    if (!prepare_staging(staging, data, length)) goto out;
 
-    if (!vfs_create_file(staging)) goto out;
-    if (!vfs_chown(staging, 0u, 0u) ||
-        !vfs_chmod(staging, PROTECTED_STATE_RECORD_FILE_MODE) ||
-        !vfs_write_file(staging, data, length) ||
-        !vfs_fdatasync(staging) ||
-        !vfs_fsync(staging)) {
-        (void)cleanup_staging(staging);
-        goto out;
-    }
-
-    /* Catch a target created through another privileged kernel path. */
     target_lookup = vfs_stat_result(target, &stat);
     if (target_lookup == AURORA_VFS_LOOKUP_FOUND) {
         (void)cleanup_staging(staging);
@@ -213,11 +216,6 @@ protected_state_create_record_once_durable(
         goto out;
     }
 
-    /*
-     * AuroraFS v2 same-directory rename is namespace-transaction backed. A
-     * crash during this publication is recovered to either the staging name
-     * or the complete target name; partial target contents are never exposed.
-     */
     if (!vfs_rename(staging, target)) {
         enum aurora_vfs_lookup_result after = vfs_stat_result(target, &stat);
         (void)cleanup_staging(staging);
@@ -228,8 +226,68 @@ protected_state_create_record_once_durable(
     }
 
     if (!vfs_fsync(target) || !vfs_sync(state->root)) goto out;
-
     result = AURORA_PROTECTED_STATE_CREATE_ONCE_OK;
+
+out:
+    spinlock_unlock(&record_publish_lock);
+    return result;
+}
+
+enum aurora_protected_state_replace_result
+protected_state_replace_record_durable(
+    struct aurora_cap_table *table,
+    aurora_cap_handle handle,
+    struct aurora_protected_state_namespace *state,
+    const char *relative_path,
+    const void *data,
+    size_t length
+) {
+    char target[AURORA_VFS_PATH_MAX];
+    char staging_name[AURORA_VFS_PATH_MAX];
+    char staging[AURORA_VFS_PATH_MAX];
+    struct aurora_vfs_stat stat;
+    enum aurora_protected_state_replace_result result =
+        AURORA_PROTECTED_STATE_REPLACE_ERROR;
+
+    if (!authorize_record(table, handle, state, AURORA_RIGHT_WRITE) ||
+        data == NULL || length == 0u ||
+        length > AURORA_PROTECTED_STATE_RECORD_MAX ||
+        !build_record_path(state, relative_path, target) ||
+        !build_staging_name(relative_path, staging_name) ||
+        !build_record_path(state, staging_name, staging)) {
+        return AURORA_PROTECTED_STATE_REPLACE_ERROR;
+    }
+
+    if (!spinlock_try_lock(&record_publish_lock)) {
+        return AURORA_PROTECTED_STATE_REPLACE_ERROR;
+    }
+
+    if (!prepare_staging(staging, data, length)) goto out;
+
+    enum aurora_vfs_lookup_result target_lookup = vfs_stat_result(target, &stat);
+    if (target_lookup == AURORA_VFS_LOOKUP_FOUND) {
+        if (!vfs_remove(target) || !vfs_sync(state->root)) {
+            (void)cleanup_staging(staging);
+            goto out;
+        }
+    } else if (target_lookup != AURORA_VFS_LOOKUP_NOT_FOUND) {
+        (void)cleanup_staging(staging);
+        goto out;
+    }
+
+    /*
+     * The complete replacement has already been flushed. If publication fails
+     * after the stale target was removed, the target remains absent rather
+     * than exposing partial bytes. The Identity dual-slot protocol keeps the
+     * other slot authoritative throughout this operation.
+     */
+    if (!vfs_rename(staging, target)) {
+        (void)cleanup_staging(staging);
+        goto out;
+    }
+
+    if (!vfs_fsync(target) || !vfs_sync(state->root)) goto out;
+    result = AURORA_PROTECTED_STATE_REPLACE_OK;
 
 out:
     spinlock_unlock(&record_publish_lock);

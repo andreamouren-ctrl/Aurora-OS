@@ -33,6 +33,11 @@ enum aurora_protected_state_create_once_result {
     AURORA_PROTECTED_STATE_CREATE_ONCE_ERROR
 };
 
+enum aurora_protected_state_replace_result {
+    AURORA_PROTECTED_STATE_REPLACE_OK = 0,
+    AURORA_PROTECTED_STATE_REPLACE_ERROR
+};
+
 bool protected_state_namespace_init(
     struct aurora_protected_state_namespace *state,
     const char *scope
@@ -127,6 +132,24 @@ bool protected_state_fsync(
  */
 enum aurora_protected_state_create_once_result
 protected_state_create_record_once_durable(
+    struct aurora_cap_table *table,
+    aurora_cap_handle handle,
+    struct aurora_protected_state_namespace *state,
+    const char *relative_path,
+    const void *data,
+    size_t length
+);
+
+/*
+ * Publish a complete replaceable record for redundancy protocols such as the
+ * Aurora Identity dual-slot database. The new bytes are fully staged/flushed
+ * before the previous target is removed. A crash/failure may leave either the
+ * previous complete record, the new complete record, or no target record; it
+ * must never expose partially written target contents. Callers must keep an
+ * independent authoritative replica while replacing this stale slot.
+ */
+enum aurora_protected_state_replace_result
+protected_state_replace_record_durable(
     struct aurora_cap_table *table,
     aurora_cap_handle handle,
     struct aurora_protected_state_namespace *state,

@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include <aurora/capability.h>
+#include <aurora/heap.h>
 #include <aurora/process.h>
 #include <aurora/protected_state.h>
 #include <aurora/protected_state_syscall.h>
@@ -21,6 +22,12 @@ static void secure_zero(void *buffer, size_t length) {
     volatile uint8_t *bytes = buffer;
     if (buffer == NULL) return;
     for (size_t i = 0u; i < length; ++i) bytes[i] = 0u;
+}
+
+static void release_sensitive_buffer(uint8_t *buffer, size_t size) {
+    if (buffer == NULL) return;
+    secure_zero(buffer, size);
+    (void)kheap_free_sized(buffer, size);
 }
 
 static bool copy_record_name(
@@ -78,7 +85,6 @@ uint64_t protected_state_syscall_read(
     uint64_t capacity
 ) {
     char name[AURORA_SYS_PROTECTED_STATE_NAME_MAX + 1u];
-    uint8_t buffer[AURORA_SYS_PROTECTED_STATE_IO_MAX];
     size_t length = 0u;
     uint64_t result = AURORA_SYS_RESULT_ERROR;
 
@@ -91,6 +97,9 @@ uint64_t protected_state_syscall_read(
     struct aurora_protected_state_namespace *state =
         lookup_namespace(process, handle, AURORA_RIGHT_READ);
     if (state == NULL) return AURORA_SYS_RESULT_ERROR;
+
+    uint8_t *buffer = kheap_alloc((size_t)capacity, 16u);
+    if (buffer == NULL) return AURORA_SYS_RESULT_ERROR;
 
     enum aurora_protected_state_read_result read_result =
         protected_state_read_record(
@@ -107,7 +116,7 @@ uint64_t protected_state_syscall_read(
         goto out;
     }
     if (read_result != AURORA_PROTECTED_STATE_READ_OK ||
-        length > AURORA_SYS_PROTECTED_STATE_IO_MAX) {
+        length > (size_t)capacity) {
         goto out;
     }
 
@@ -119,7 +128,7 @@ uint64_t protected_state_syscall_read(
     result = (uint64_t)length;
 
 out:
-    secure_zero(buffer, sizeof(buffer));
+    release_sensitive_buffer(buffer, (size_t)capacity);
     return result;
 }
 
@@ -132,7 +141,6 @@ uint64_t protected_state_syscall_create_once(
     uint64_t length
 ) {
     char name[AURORA_SYS_PROTECTED_STATE_NAME_MAX + 1u];
-    uint8_t buffer[AURORA_SYS_PROTECTED_STATE_IO_MAX];
     uint64_t result = AURORA_SYS_RESULT_ERROR;
 
     if (length == 0u || length > AURORA_SYS_PROTECTED_STATE_IO_MAX ||
@@ -144,6 +152,9 @@ uint64_t protected_state_syscall_create_once(
     struct aurora_protected_state_namespace *state =
         lookup_namespace(process, handle, AURORA_RIGHT_WRITE);
     if (state == NULL) return AURORA_SYS_RESULT_ERROR;
+
+    uint8_t *buffer = kheap_alloc((size_t)length, 16u);
+    if (buffer == NULL) return AURORA_SYS_RESULT_ERROR;
 
     if (!copy_from_user(
             process,
@@ -169,6 +180,53 @@ uint64_t protected_state_syscall_create_once(
     }
 
 out:
-    secure_zero(buffer, sizeof(buffer));
+    release_sensitive_buffer(buffer, (size_t)length);
+    return result;
+}
+
+uint64_t protected_state_syscall_replace_durable(
+    struct aurora_process *process,
+    uint64_t handle,
+    uint64_t user_name,
+    uint64_t name_length,
+    uint64_t user_data,
+    uint64_t length
+) {
+    char name[AURORA_SYS_PROTECTED_STATE_NAME_MAX + 1u];
+    uint64_t result = AURORA_SYS_RESULT_ERROR;
+
+    if (length == 0u || length > AURORA_SYS_PROTECTED_STATE_IO_MAX ||
+        user_data == 0u ||
+        !copy_record_name(process, user_name, name_length, name)) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    struct aurora_protected_state_namespace *state =
+        lookup_namespace(process, handle, AURORA_RIGHT_WRITE);
+    if (state == NULL) return AURORA_SYS_RESULT_ERROR;
+
+    uint8_t *buffer = kheap_alloc((size_t)length, 16u);
+    if (buffer == NULL) return AURORA_SYS_RESULT_ERROR;
+
+    if (!copy_from_user(
+            process,
+            buffer,
+            user_data,
+            (size_t)length)) {
+        goto out;
+    }
+
+    if (protected_state_replace_record_durable(
+            &process->capabilities,
+            (aurora_cap_handle)handle,
+            state,
+            name,
+            buffer,
+            (size_t)length) == AURORA_PROTECTED_STATE_REPLACE_OK) {
+        result = 0u;
+    }
+
+out:
+    release_sensitive_buffer(buffer, (size_t)length);
     return result;
 }
