@@ -1,0 +1,97 @@
+name: Aurora Identity Entropy Handoff
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  entropy-ring3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            lld \
+            make \
+            xorriso \
+            curl \
+            git \
+            binutils \
+            python3 \
+            qemu-system-x86
+
+      - name: Build kernel and ISO
+        run: make iso
+
+      - name: Ring 3 entropy handoff smoke
+        run: |
+          set -eu
+
+          SERIAL_LOG=build/qemu-entropy-serial.log
+          DEBUG_LOG=build/qemu-entropy-debug.log
+          STORAGE_IMAGE=build/aurora-entropy-storage.img
+
+          rm -f "$SERIAL_LOG" "$DEBUG_LOG" "$STORAGE_IMAGE"
+          truncate -s 16M "$STORAGE_IMAGE"
+
+          python3 - "$STORAGE_IMAGE" <<'PY'
+          import sys
+          path = sys.argv[1]
+          signature = b"AURORA-AHCI-RW-TEST-V1"
+          with open(path, "r+b") as f:
+              f.seek(-512, 2)
+              sector = bytearray(512)
+              sector[:len(signature)] = signature
+              f.write(sector)
+          PY
+
+          set +e
+          timeout 15s qemu-system-x86_64 \
+            -M q35 \
+            -cpu max \
+            -m 512M \
+            -smp 4,sockets=1,cores=2,threads=2 \
+            -vga std \
+            -cdrom build/AuroraOS-x86_64.iso \
+            -drive file="$STORAGE_IMAGE",format=raw,if=none,id=aurora_disk \
+            -device ide-hd,drive=aurora_disk \
+            -serial file:"$SERIAL_LOG" \
+            -d int,cpu_reset \
+            -D "$DEBUG_LOG" \
+            -display none \
+            -no-reboot \
+            -no-shutdown
+          STATUS=$?
+          set -e
+
+          if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ]; then
+            echo "QEMU exited unexpectedly with status $STATUS" >&2
+            exit "$STATUS"
+          fi
+
+          echo "===== Aurora entropy serial log ====="
+          cat "$SERIAL_LOG"
+
+          grep -F "[ring3-entropy] capability-gated trusted seed syscall probe passed" "$SERIAL_LOG"
+          grep -F "[identity-service] long-lived blocking IPC request loop passed" "$SERIAL_LOG"
+          grep -F "[service-supervisor] bounded Identity restart + fresh capability bootstrap passed" "$SERIAL_LOG"
+          grep -F "[kernel] M1 user-space bootstrap reached successfully" "$SERIAL_LOG"
+
+      - name: Upload entropy smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aurora-Identity-Entropy-Handoff
+          path: |
+            build/qemu-entropy-serial.log
+            build/qemu-entropy-debug.log
