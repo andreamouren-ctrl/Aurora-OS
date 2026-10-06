@@ -34,6 +34,18 @@ struct aurora_identity_protected_state_transport_ops {
         const char *name,
         const uint8_t *buffer,
         size_t size);
+
+    /*
+     * Publish one complete mutable record. A failed call must never expose a
+     * partially written record. Redundant callers may tolerate the target
+     * being absent after an interrupted replacement and recover from another
+     * independently valid replica/slot.
+     */
+    bool (*replace_record_durable)(
+        void *context,
+        const char *name,
+        const uint8_t *buffer,
+        size_t size);
 };
 
 struct aurora_identity_machine_secret_protected_state_store {
