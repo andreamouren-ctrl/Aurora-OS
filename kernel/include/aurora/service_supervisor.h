@@ -58,12 +58,18 @@ bool service_supervisor_step(
     struct aurora_service_supervisor *supervisor
 );
 
+bool service_supervisor_send(
+    struct aurora_service_supervisor *supervisor,
+    const void *data,
+    uint32_t length
+);
+
 bool service_supervisor_receive(
     struct aurora_service_supervisor *supervisor,
     struct aurora_ipc_received *out
 );
 
-/* Runtime proof for bounded trusted Identity service restart. */
+/* Runtime proof for long-lived Identity IPC plus bounded service restart. */
 bool service_supervisor_self_test(void);
 
 #endif
