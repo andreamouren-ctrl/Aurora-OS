@@ -49,7 +49,6 @@ LDFLAGS := \
     -fuse-ld=lld \
     -nostdlib \
     -static \
-    -no-pie \
     -Wl,--build-id=none \
     -Wl,--gc-sections \
     -Wl,-z,max-page-size=0x1000 \
@@ -72,7 +71,7 @@ $(ENTRY_OBJECT): entry.S | $(BUILD_DIR)
 	$(CC) $(ASMFLAGS) -c entry.S -o $@
 
 $(ELF): $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) linker.ld
-	$(CC) $(CFLAGS) $(LDFLAGS) $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) -o $@
+	$(CC) $(LDFLAGS) $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) -o $@
 
 $(BIN): $(ELF)
 	$(OBJCOPY) -O binary $< $@
