@@ -13,6 +13,7 @@ ARGON2_VENDOR_CFLAGS := -std=c11 -O2
 CORE_OBJECT := $(BUILD_DIR)/core.o
 ROTATION_OBJECT := $(BUILD_DIR)/rotation.o
 SESSION_GRANT_OBJECT := $(BUILD_DIR)/session_grant.o
+SESSION_GRANT_MEMORY_OBJECT := $(BUILD_DIR)/session_grant_memory.o
 PERSISTENT_STORE_OBJECT := $(BUILD_DIR)/persistent_store.o
 PERSISTENT_STORE_POSIX_OBJECT := $(BUILD_DIR)/persistent_store_posix.o
 PERSISTENT_STORE_PROTECTED_STATE_OBJECT := $(BUILD_DIR)/persistent_store_protected_state.o
@@ -34,6 +35,7 @@ CORE_TEST_BINARY := $(BUILD_DIR)/identity-core-tests
 CREATION_TEST_BINARY := $(BUILD_DIR)/identity-creation-tests
 ROTATION_TEST_BINARY := $(BUILD_DIR)/identity-rotation-tests
 SESSION_GRANT_TEST_BINARY := $(BUILD_DIR)/identity-session-grant-tests
+SESSION_GRANT_MEMORY_TEST_BINARY := $(BUILD_DIR)/identity-session-grant-memory-tests
 PERSISTENT_STORE_TEST_BINARY := $(BUILD_DIR)/identity-persistent-store-tests
 PERSISTENT_STORE_PROTECTED_STATE_TEST_BINARY := $(BUILD_DIR)/identity-persistent-store-protected-state-tests
 CRYPTO_FOUNDATION_TEST_BINARY := $(BUILD_DIR)/identity-crypto-foundation-tests
@@ -45,11 +47,12 @@ MACHINE_SECRET_PROTECTED_STATE_TEST_BINARY := $(BUILD_DIR)/identity-machine-secr
 
 all: test
 
-test: $(CORE_TEST_BINARY) $(CREATION_TEST_BINARY) $(ROTATION_TEST_BINARY) $(SESSION_GRANT_TEST_BINARY) $(PERSISTENT_STORE_TEST_BINARY) $(PERSISTENT_STORE_PROTECTED_STATE_TEST_BINARY) $(CRYPTO_FOUNDATION_TEST_BINARY) $(ARGON2ID_PROVIDER_TEST_BINARY) $(MACHINE_SECRET_TEST_BINARY) $(MACHINE_SECRET_PROTECTED_STATE_TEST_BINARY)
+test: $(CORE_TEST_BINARY) $(CREATION_TEST_BINARY) $(ROTATION_TEST_BINARY) $(SESSION_GRANT_TEST_BINARY) $(SESSION_GRANT_MEMORY_TEST_BINARY) $(PERSISTENT_STORE_TEST_BINARY) $(PERSISTENT_STORE_PROTECTED_STATE_TEST_BINARY) $(CRYPTO_FOUNDATION_TEST_BINARY) $(ARGON2ID_PROVIDER_TEST_BINARY) $(MACHINE_SECRET_TEST_BINARY) $(MACHINE_SECRET_PROTECTED_STATE_TEST_BINARY)
 	$(CORE_TEST_BINARY)
 	$(CREATION_TEST_BINARY)
 	$(ROTATION_TEST_BINARY)
 	$(SESSION_GRANT_TEST_BINARY)
+	$(SESSION_GRANT_MEMORY_TEST_BINARY)
 	$(PERSISTENT_STORE_TEST_BINARY)
 	$(PERSISTENT_STORE_PROTECTED_STATE_TEST_BINARY)
 	$(CRYPTO_FOUNDATION_TEST_BINARY)
@@ -68,6 +71,9 @@ $(ROTATION_OBJECT): src/rotation.c include/aurora/identity/rotation.h include/au
 
 $(SESSION_GRANT_OBJECT): src/session_grant.c include/aurora/identity/session_grant.h include/aurora/identity/core.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/session_grant.c -o $@
+
+$(SESSION_GRANT_MEMORY_OBJECT): src/session_grant_memory.c include/aurora/identity/session_grant_memory.h include/aurora/identity/session_grant.h include/aurora/identity/core.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/session_grant_memory.c -o $@
 
 $(PERSISTENT_STORE_OBJECT): src/persistent_store.c include/aurora/identity/persistent_store.h include/aurora/identity/core.h include/aurora/identity/rotation.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/persistent_store.c -o $@
@@ -125,6 +131,9 @@ $(ROTATION_TEST_BINARY): tests/test_identity_rotation.c $(CORE_OBJECT) $(ROTATIO
 
 $(SESSION_GRANT_TEST_BINARY): tests/test_identity_session_grant.c $(CORE_OBJECT) $(SESSION_GRANT_OBJECT) include/aurora/identity/core.h include/aurora/identity/session_grant.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_identity_session_grant.c $(CORE_OBJECT) $(SESSION_GRANT_OBJECT) -o $@
+
+$(SESSION_GRANT_MEMORY_TEST_BINARY): tests/test_identity_session_grant_memory.c $(CORE_OBJECT) $(SESSION_GRANT_MEMORY_OBJECT) include/aurora/identity/core.h include/aurora/identity/session_grant.h include/aurora/identity/session_grant_memory.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_identity_session_grant_memory.c $(CORE_OBJECT) $(SESSION_GRANT_MEMORY_OBJECT) -o $@
 
 $(PERSISTENT_STORE_TEST_BINARY): tests/test_identity_persistent_store.c $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_POSIX_OBJECT) include/aurora/identity/persistent_store.h include/aurora/identity/persistent_store_posix.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_identity_persistent_store.c $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_POSIX_OBJECT) -o $@
