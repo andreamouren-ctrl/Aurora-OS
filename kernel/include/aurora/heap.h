@@ -11,4 +11,14 @@ void *kheap_alloc(
     size_t alignment
 );
 
+/*
+ * Returns an exact previously allocated virtual range to the kernel heap
+ * reuse list. Backing pages remain mapped: this bounds repeated allocation
+ * growth without pretending that the bootstrap heap is a general allocator.
+ */
+bool kheap_free_sized(
+    void *address,
+    size_t size
+);
+
 #endif

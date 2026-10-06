@@ -17,7 +17,15 @@ typedef uint32_t aurora_process_id;
 enum aurora_process_state {
     AURORA_PROCESS_RUNNING = 0,
     AURORA_PROCESS_EXITED,
-    AURORA_PROCESS_FAULTED
+    AURORA_PROCESS_FAULTED,
+    AURORA_PROCESS_REAPED
+};
+
+struct aurora_process_result {
+    aurora_process_id id;
+    enum aurora_process_state terminal_state;
+    int64_t exit_code;
+    uint64_t fault_vector;
 };
 
 struct aurora_process {
@@ -29,6 +37,9 @@ struct aurora_process {
 
     uint64_t entry_point;
     uint64_t user_stack_top;
+    size_t image_page_count;
+    uint32_t stack_page_count;
+    volatile uint32_t live_threads;
 
     volatile enum aurora_process_state state;
     volatile int64_t exit_code;
@@ -64,6 +75,32 @@ void process_mark_faulted(
 
 enum aurora_process_state process_state(
     const struct aurora_process *process
+);
+
+bool process_thread_attach(
+    struct aurora_process *process
+);
+
+bool process_thread_detach(
+    struct aurora_process *process
+);
+
+uint32_t process_live_thread_count(
+    const struct aurora_process *process
+);
+
+/*
+ * Reclaims a terminal process's owned user frames plus private page tables.
+ * It is valid only after all scheduler thread references have been detached.
+ */
+bool process_reap(
+    struct aurora_process *process,
+    struct aurora_process_result *out_result
+);
+
+/* Frees the small process object after successful process_reap(). */
+bool process_release(
+    struct aurora_process *process
 );
 
 #endif
