@@ -21,6 +21,11 @@ static struct kheap_free_range free_ranges[KHEAP_MAX_FREE_RANGES];
 static uint32_t free_range_count;
 static aurora_spinlock heap_lock = AURORA_SPINLOCK_INIT;
 
+static void clear_bytes(void *address, size_t length) {
+    uint8_t *bytes = address;
+    for (size_t i = 0u; i < length; ++i) bytes[i] = 0u;
+}
+
 static bool is_power_of_two(size_t value) {
     return value != 0u && (value & (value - 1u)) == 0u;
 }
@@ -44,6 +49,14 @@ static bool ensure_mapped_locked(uint64_t end) {
     while (mapped_end < target) {
         uint64_t page = pmm_alloc_page();
         if (page == 0u) return false;
+
+        /*
+         * Kernel-heap allocations may hold credentials, capability metadata,
+         * syscall frames, or kernel stacks. Scrub physical backing before the
+         * page becomes reachable through the heap mapping so first use never
+         * observes stale PMM contents.
+         */
+        clear_bytes(pmm_phys_to_virt(page), (size_t)AURORA_PAGE_SIZE);
 
         if (!vmm_map_page(mapped_end, page, VMM_FLAG_WRITE)) {
             pmm_free_page(page);
@@ -133,6 +146,7 @@ void *kheap_alloc(size_t size, size_t alignment) {
 
     void *reused = alloc_from_free_locked(size, alignment);
     if (reused != NULL) {
+        /* Reusable ranges are scrubbed by kheap_free_sized() before publish. */
         spinlock_unlock_irqrestore(&heap_lock, irq);
         return reused;
     }
@@ -175,6 +189,11 @@ bool kheap_free_sized(void *address, size_t size) {
         }
     }
 
+    /*
+     * Validate first, then scrub while the range is still exclusively owned by
+     * this caller. Only after the wipe is it published to the reuse list.
+     */
+    clear_bytes(address, size);
     bool ok = insert_free_range_locked(start, end);
     spinlock_unlock_irqrestore(&heap_lock, irq);
     return ok;
