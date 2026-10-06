@@ -59,6 +59,15 @@ bool scheduler_thread_blocked(
     aurora_thread_id id
 );
 
+/*
+ * Reclaims a terminated non-idle thread after no CPU is executing its slot.
+ * The thread's kernel stack is returned to the kernel heap and user-process
+ * live-thread accounting is detached before the slot becomes reusable.
+ */
+bool scheduler_reap_thread(
+    aurora_thread_id id
+);
+
 aurora_thread_id scheduler_current_thread_id(void);
 
 struct aurora_process *scheduler_current_process(void);
