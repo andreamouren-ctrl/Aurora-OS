@@ -131,6 +131,7 @@ bool aurora_identity_argon2id_provider_derive_key_verifier(
     size_t verifier_size) {
     struct aurora_identity_argon2id_provider *provider =
         (struct aurora_identity_argon2id_provider *)context;
+    argon2_context argon_context;
     int result;
 
     if (provider == NULL || !provider->initialized || normalized_key == NULL ||
@@ -141,16 +142,22 @@ bool aurora_identity_argon2id_provider_derive_key_verifier(
         return false;
     }
 
-    result = argon2id_hash_raw(
-        kdf->time_cost,
-        kdf->memory_kib,
-        kdf->parallelism,
-        normalized_key,
-        normalized_key_length,
-        salt,
-        salt_size,
-        out_verifier,
-        verifier_size);
+    memset(&argon_context, 0, sizeof(argon_context));
+    argon_context.out = out_verifier;
+    argon_context.outlen = (uint32_t)verifier_size;
+    argon_context.pwd = (uint8_t *)(uintptr_t)normalized_key;
+    argon_context.pwdlen = (uint32_t)normalized_key_length;
+    argon_context.salt = (uint8_t *)(uintptr_t)salt;
+    argon_context.saltlen = (uint32_t)salt_size;
+    argon_context.t_cost = kdf->time_cost;
+    argon_context.m_cost = kdf->memory_kib;
+    argon_context.lanes = kdf->parallelism;
+    argon_context.threads = kdf->parallelism;
+    argon_context.version = AURORA_IDENTITY_ARGON2_VERSION_13;
+    argon_context.flags = ARGON2_DEFAULT_FLAGS;
+
+    result = argon2id_ctx(&argon_context);
+    secure_zero(&argon_context, sizeof(argon_context));
 
     if (result != ARGON2_OK) {
         secure_zero(out_verifier, verifier_size);
