@@ -58,12 +58,19 @@ bool service_bootstrap_start_trusted(
     struct aurora_trusted_service *service
 );
 
+/* Send one data-only IPC message from the bootstrap/supervisor side. */
+bool service_bootstrap_send(
+    struct aurora_trusted_service *service,
+    const void *data,
+    uint32_t length
+);
+
 bool service_bootstrap_receive(
     struct aurora_trusted_service *service,
     struct aurora_ipc_received *out
 );
 
-/* Runtime proof for the first trusted Identity Service bootstrap contract. */
+/* Runtime proof for the first trusted long-lived Identity service contract. */
 bool service_bootstrap_self_test(void);
 
 #endif
