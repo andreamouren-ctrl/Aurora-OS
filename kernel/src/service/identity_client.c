@@ -19,6 +19,7 @@ static uint64_t current_request_id;
 static uint64_t next_request_id = UINT64_C(0x4C4F47494E000001);
 static uint64_t retry_after_ms;
 static uint64_t auth_authority_object;
+static uint64_t create_authority_object;
 
 static void clear_bytes(void *buffer, size_t size) {
     uint8_t *bytes = (uint8_t *)buffer;
@@ -62,10 +63,10 @@ static bool wait_ready(void) {
     return false;
 }
 
-static bool send_query(void) {
+static bool send_query(uint32_t type) {
     const struct aurora_identity_service_message query = {
         .version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION,
-        .type = AURORA_IDENTITY_SERVICE_QUERY_AUTH,
+        .type = type,
         .request_id = current_request_id
     };
     return service_supervisor_send(
@@ -116,6 +117,48 @@ static void apply_auth_result(
     }
 }
 
+static void apply_create_result(
+    const struct aurora_identity_service_create_result *result
+) {
+    if (result == NULL || result->header.request_id != current_request_id) {
+        client_state = AURORA_IDENTITY_CLIENT_ERROR;
+        return;
+    }
+
+    switch (result->state) {
+        case AURORA_IDENTITY_SERVICE_CREATE_STATE_SUCCESS:
+            /*
+             * User and credential identifiers intentionally stay inside this
+             * transient reply object. Creation does not establish a session;
+             * a future Session Manager must perform the next authority step.
+             */
+            client_state = AURORA_IDENTITY_CLIENT_CREATED;
+            return;
+
+        case AURORA_IDENTITY_SERVICE_CREATE_STATE_ALREADY_EXISTS:
+            client_state = AURORA_IDENTITY_CLIENT_CREATE_EXISTS;
+            return;
+
+        case AURORA_IDENTITY_SERVICE_CREATE_STATE_SERVICE_ERROR:
+            client_state =
+                result->public_error ==
+                    AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE
+                ? AURORA_IDENTITY_CLIENT_UNAVAILABLE
+                : AURORA_IDENTITY_CLIENT_ERROR;
+            return;
+
+        default:
+            client_state = AURORA_IDENTITY_CLIENT_ERROR;
+            return;
+    }
+}
+
+static uint64_t allocate_request_id(void) {
+    uint64_t request_id = next_request_id++;
+    if (request_id == 0u) request_id = next_request_id++;
+    return request_id;
+}
+
 bool identity_client_init(void) {
     const struct aurora_trusted_service_manifest manifest = {
         .name = "identity-service",
@@ -158,8 +201,7 @@ bool identity_client_begin_key_auth(
 
     struct aurora_identity_service_begin_key_auth request;
     clear_bytes(&request, sizeof(request));
-    current_request_id = next_request_id++;
-    if (current_request_id == 0u) current_request_id = next_request_id++;
+    current_request_id = allocate_request_id();
 
     request.header.version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION;
     request.header.type = AURORA_IDENTITY_SERVICE_BEGIN_KEY_AUTH;
@@ -207,6 +249,67 @@ bool identity_client_begin_key_auth(
     return true;
 }
 
+bool identity_client_begin_create(
+    const char *key,
+    size_t key_length
+) {
+    if (key == NULL || key_length == 0u ||
+        key_length > AURORA_IDENTITY_SERVICE_KEY_MAX_LEN ||
+        client_state != AURORA_IDENTITY_CLIENT_READY ||
+        identity_supervisor.state != AURORA_SERVICE_SUPERVISOR_RUNNING) {
+        return false;
+    }
+
+    struct aurora_identity_service_begin_create request;
+    clear_bytes(&request, sizeof(request));
+    current_request_id = allocate_request_id();
+
+    request.header.version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION;
+    request.header.type = AURORA_IDENTITY_SERVICE_BEGIN_CREATE;
+    request.header.request_id = current_request_id;
+    request.key_length = (uint32_t)key_length;
+    for (size_t i = 0u; i < key_length; ++i) request.key[i] = key[i];
+
+    create_authority_object ^= current_request_id | 1u;
+    aurora_cap_handle authority = cap_grant(
+        &identity_supervisor.service.supervisor_caps,
+        &create_authority_object,
+        AURORA_CAP_IDENTITY_CREATE,
+        AURORA_RIGHT_CONTROL | AURORA_RIGHT_TRANSFER);
+    if (authority == AURORA_CAP_INVALID) {
+        clear_bytes(&request, sizeof(request));
+        current_request_id = 0u;
+        client_state = AURORA_IDENTITY_CLIENT_ERROR;
+        return false;
+    }
+
+    const struct aurora_ipc_transfer transfer = {
+        .handle = authority,
+        .rights = AURORA_RIGHT_CONTROL
+    };
+    bool sent = ipc_send(
+        identity_supervisor.service.supervisor_endpoint,
+        &identity_supervisor.service.supervisor_caps,
+        &request,
+        (uint32_t)sizeof(request),
+        &transfer,
+        1u);
+    bool revoked = cap_revoke(
+        &identity_supervisor.service.supervisor_caps,
+        authority);
+    clear_bytes(&request, sizeof(request));
+
+    if (!sent || !revoked) {
+        current_request_id = 0u;
+        client_state = AURORA_IDENTITY_CLIENT_ERROR;
+        return false;
+    }
+
+    retry_after_ms = 0u;
+    client_state = AURORA_IDENTITY_CLIENT_CREATING;
+    return true;
+}
+
 void identity_client_pump(void) {
     if (client_state == AURORA_IDENTITY_CLIENT_UNINITIALIZED) return;
 
@@ -216,13 +319,17 @@ void identity_client_pump(void) {
     }
 
     if (identity_supervisor.state != AURORA_SERVICE_SUPERVISOR_RUNNING) {
-        if (client_state == AURORA_IDENTITY_CLIENT_AUTHENTICATING) {
+        if (client_state == AURORA_IDENTITY_CLIENT_AUTHENTICATING ||
+            client_state == AURORA_IDENTITY_CLIENT_CREATING) {
             client_state = AURORA_IDENTITY_CLIENT_UNAVAILABLE;
         }
         return;
     }
 
-    if (client_state != AURORA_IDENTITY_CLIENT_AUTHENTICATING) return;
+    if (client_state != AURORA_IDENTITY_CLIENT_AUTHENTICATING &&
+        client_state != AURORA_IDENTITY_CLIENT_CREATING) {
+        return;
+    }
 
     struct aurora_ipc_received received;
     clear_bytes(&received, sizeof(received));
@@ -241,19 +348,28 @@ void identity_client_pump(void) {
             ((uint8_t *)&message)[i] = received.data[i];
         }
 
+        uint32_t pending_type =
+            client_state == AURORA_IDENTITY_CLIENT_AUTHENTICATING
+                ? AURORA_IDENTITY_SERVICE_AUTH_PENDING
+                : AURORA_IDENTITY_SERVICE_CREATE_PENDING;
+        uint32_t query_type =
+            client_state == AURORA_IDENTITY_CLIENT_AUTHENTICATING
+                ? AURORA_IDENTITY_SERVICE_QUERY_AUTH
+                : AURORA_IDENTITY_SERVICE_QUERY_CREATE;
         bool pending =
             message.version == AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION &&
-            message.type == AURORA_IDENTITY_SERVICE_AUTH_PENDING &&
+            message.type == pending_type &&
             message.request_id == current_request_id;
         clear_bytes(&received, sizeof(received));
 
-        if (!pending || !send_query()) {
+        if (!pending || !send_query(query_type)) {
             client_state = AURORA_IDENTITY_CLIENT_ERROR;
         }
         return;
     }
 
-    if (received.length == sizeof(struct aurora_identity_service_auth_result)) {
+    if (client_state == AURORA_IDENTITY_CLIENT_AUTHENTICATING &&
+        received.length == sizeof(struct aurora_identity_service_auth_result)) {
         struct aurora_identity_service_auth_result result;
         clear_bytes(&result, sizeof(result));
         for (size_t i = 0u; i < sizeof(result); ++i) {
@@ -261,6 +377,20 @@ void identity_client_pump(void) {
         }
         clear_bytes(&received, sizeof(received));
         apply_auth_result(&result);
+        clear_bytes(&result, sizeof(result));
+        current_request_id = 0u;
+        return;
+    }
+
+    if (client_state == AURORA_IDENTITY_CLIENT_CREATING &&
+        received.length == sizeof(struct aurora_identity_service_create_result)) {
+        struct aurora_identity_service_create_result result;
+        clear_bytes(&result, sizeof(result));
+        for (size_t i = 0u; i < sizeof(result); ++i) {
+            ((uint8_t *)&result)[i] = received.data[i];
+        }
+        clear_bytes(&received, sizeof(received));
+        apply_create_result(&result);
         clear_bytes(&result, sizeof(result));
         current_request_id = 0u;
         return;
@@ -274,6 +404,8 @@ void identity_client_reset_result(void) {
     if (client_state == AURORA_IDENTITY_CLIENT_AUTH_FAILED ||
         client_state == AURORA_IDENTITY_CLIENT_THROTTLED ||
         client_state == AURORA_IDENTITY_CLIENT_VERIFIED ||
+        client_state == AURORA_IDENTITY_CLIENT_CREATED ||
+        client_state == AURORA_IDENTITY_CLIENT_CREATE_EXISTS ||
         client_state == AURORA_IDENTITY_CLIENT_ERROR) {
         retry_after_ms = 0u;
         current_request_id = 0u;
