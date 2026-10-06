@@ -8,6 +8,7 @@
 #include <aurora/nvme.h>
 #include <aurora/panic.h>
 #include <aurora/protected_state.h>
+#include <aurora/protected_state_user_probe.h>
 #include <aurora/vfs.h>
 
 #define AURORA_KEY_MIN_LENGTH 12u
@@ -106,6 +107,12 @@ static void protected_state_bootstrap_probe(void) {
     }
 
     log_line("[protected-state] capability-gated /system state self-test passed");
+
+    if (!protected_state_ring3_self_test()) {
+        kernel_panic("Ring 3 Protected State syscall self-test failed");
+    }
+
+    log_line("[ring3-protected-state] capability-gated record syscall probe passed");
 }
 
 void login_input_init(void) {

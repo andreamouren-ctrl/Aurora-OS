@@ -7,6 +7,7 @@
 #include <aurora/gdt.h>
 #include <aurora/ipc.h>
 #include <aurora/process.h>
+#include <aurora/protected_state_syscall.h>
 #include <aurora/scheduler.h>
 #include <aurora/syscall.h>
 #include <aurora/usercopy.h>
@@ -282,6 +283,26 @@ struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
                 process,
                 frame->rdi,
                 frame->rsi
+            );
+            break;
+        case AURORA_SYS_PROTECTED_STATE_READ:
+            frame->rax = protected_state_syscall_read(
+                process,
+                frame->rdi,
+                frame->rsi,
+                frame->rdx,
+                frame->r10,
+                frame->r8
+            );
+            break;
+        case AURORA_SYS_PROTECTED_STATE_CREATE_ONCE:
+            frame->rax = protected_state_syscall_create_once(
+                process,
+                frame->rdi,
+                frame->rsi,
+                frame->rdx,
+                frame->r10,
+                frame->r8
             );
             break;
         default:
