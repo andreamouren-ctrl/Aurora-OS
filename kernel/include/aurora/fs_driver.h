@@ -25,6 +25,17 @@ enum aurora_fs_entry_type {
     AURORA_FS_ENTRY_SPECIAL
 };
 
+/*
+ * Security-sensitive callers must distinguish a clean absence from an
+ * unreadable or inconsistent namespace. Legacy boolean stat callbacks cannot
+ * make that distinction and are therefore treated conservatively by VFS.
+ */
+enum aurora_fs_lookup_result {
+    AURORA_FS_LOOKUP_ERROR = 0,
+    AURORA_FS_LOOKUP_NOT_FOUND,
+    AURORA_FS_LOOKUP_FOUND
+};
+
 struct aurora_fs_stat {
     enum aurora_fs_entry_type type;
     uint64_t size;
@@ -61,6 +72,12 @@ typedef bool (*aurora_fs_mount_fn)(
 typedef void (*aurora_fs_unmount_fn)(void *context);
 
 typedef bool (*aurora_fs_stat_fn)(
+    void *context,
+    const char *path,
+    struct aurora_fs_stat *out_stat
+);
+
+typedef enum aurora_fs_lookup_result (*aurora_fs_stat_result_fn)(
     void *context,
     const char *path,
     struct aurora_fs_stat *out_stat
@@ -145,6 +162,7 @@ struct aurora_fs_driver {
     aurora_fs_mount_fn mount;
     aurora_fs_unmount_fn unmount;
     aurora_fs_stat_fn stat;
+    aurora_fs_stat_result_fn stat_result;
     aurora_fs_readdir_fn readdir;
     aurora_fs_read_fn read;
     aurora_fs_write_fn write;

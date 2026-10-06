@@ -76,6 +76,14 @@ static enum aurora_vfs_node_type vfs_node_type_from_fs(enum aurora_fs_entry_type
     return AURORA_VFS_NODE_NONE;
 }
 
+static enum aurora_vfs_lookup_result vfs_lookup_from_fs(
+    enum aurora_fs_lookup_result result
+) {
+    if (result == AURORA_FS_LOOKUP_FOUND) return AURORA_VFS_LOOKUP_FOUND;
+    if (result == AURORA_FS_LOOKUP_NOT_FOUND) return AURORA_VFS_LOOKUP_NOT_FOUND;
+    return AURORA_VFS_LOOKUP_ERROR;
+}
+
 static const struct aurora_fs_mount *vfs_resolve_mount(
     const char *path,
     const char **out_relative_path
@@ -180,17 +188,36 @@ bool vfs_truncate_file(const char *path, uint64_t size) {
     return true;
 }
 
-bool vfs_stat(const char *path, struct aurora_vfs_stat *out_stat) {
-    if (!vfs_initialized || path == NULL || out_stat == NULL) return false;
+enum aurora_vfs_lookup_result vfs_stat_result(
+    const char *path,
+    struct aurora_vfs_stat *out_stat
+) {
+    if (!vfs_initialized || path == NULL || out_stat == NULL || path[0] != '/')
+        return AURORA_VFS_LOOKUP_ERROR;
+
     vfs_zero(out_stat, sizeof(*out_stat));
     const char *relative_path = NULL;
     const struct aurora_fs_mount *mount = vfs_resolve_mount(path, &relative_path);
     if (mount != NULL) {
-        if (mount->driver == NULL || mount->driver->stat == NULL) return false;
+        if (mount->driver == NULL) return AURORA_VFS_LOOKUP_ERROR;
+
         struct aurora_fs_stat mounted_stat;
-        if (!mount->driver->stat(mount->context, relative_path, &mounted_stat)) return false;
+        enum aurora_vfs_lookup_result result;
+        if (mount->driver->stat_result != NULL) {
+            result = vfs_lookup_from_fs(
+                mount->driver->stat_result(mount->context, relative_path, &mounted_stat));
+        } else if (mount->driver->stat != NULL) {
+            result = mount->driver->stat(mount->context, relative_path, &mounted_stat)
+                ? AURORA_VFS_LOOKUP_FOUND
+                : AURORA_VFS_LOOKUP_ERROR;
+        } else {
+            return AURORA_VFS_LOOKUP_ERROR;
+        }
+
+        if (result != AURORA_VFS_LOOKUP_FOUND) return result;
+
         enum aurora_vfs_node_type node_type = vfs_node_type_from_fs(mounted_stat.type);
-        if (node_type == AURORA_VFS_NODE_NONE) return false;
+        if (node_type == AURORA_VFS_NODE_NONE) return AURORA_VFS_LOOKUP_ERROR;
         out_stat->type = node_type;
         out_stat->size = mounted_stat.size;
         out_stat->allocated_size = mounted_stat.allocated_size;
@@ -203,20 +230,27 @@ bool vfs_stat(const char *path, struct aurora_vfs_stat *out_stat) {
         out_stat->gid = mounted_stat.gid;
         out_stat->mode = mounted_stat.mode;
         out_stat->link_count = mounted_stat.link_count;
-        return true;
+        return AURORA_VFS_LOOKUP_FOUND;
     }
+
     if (vfs_paths_equal(path, "/")) {
         out_stat->type = AURORA_VFS_NODE_DIRECTORY;
         out_stat->link_count = 1u;
-        return true;
+        return AURORA_VFS_LOOKUP_FOUND;
     }
+
+    if (!vfs_path_valid(path)) return AURORA_VFS_LOOKUP_ERROR;
     struct bootstrap_vfs_file *file = vfs_find_file(path);
-    if (file == NULL) return false;
+    if (file == NULL) return AURORA_VFS_LOOKUP_NOT_FOUND;
     out_stat->type = AURORA_VFS_NODE_FILE;
     out_stat->size = (uint64_t)file->size;
     out_stat->allocated_size = (uint64_t)file->size;
     out_stat->link_count = 1u;
-    return true;
+    return AURORA_VFS_LOOKUP_FOUND;
+}
+
+bool vfs_stat(const char *path, struct aurora_vfs_stat *out_stat) {
+    return vfs_stat_result(path, out_stat) == AURORA_VFS_LOOKUP_FOUND;
 }
 
 bool vfs_chmod(const char *path, uint32_t mode) {
@@ -319,7 +353,8 @@ bool vfs_self_test(void) {
         vfs_remove(probe_path);
         return false;
     }
-    if (!vfs_rename(probe_path, renamed_path) || vfs_stat(probe_path, &stat)) {
+    if (!vfs_rename(probe_path, renamed_path) ||
+        vfs_stat_result(probe_path, &stat) != AURORA_VFS_LOOKUP_NOT_FOUND) {
         vfs_remove(probe_path);
         vfs_remove(renamed_path);
         return false;

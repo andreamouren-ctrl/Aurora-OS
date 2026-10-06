@@ -15,6 +15,12 @@ enum aurora_vfs_node_type {
     AURORA_VFS_NODE_FILE
 };
 
+enum aurora_vfs_lookup_result {
+    AURORA_VFS_LOOKUP_ERROR = 0,
+    AURORA_VFS_LOOKUP_NOT_FOUND,
+    AURORA_VFS_LOOKUP_FOUND
+};
+
 struct aurora_vfs_stat {
     enum aurora_vfs_node_type type;
     uint64_t size;
@@ -36,6 +42,12 @@ bool vfs_create_directory(const char *path);
 bool vfs_remove(const char *path);
 bool vfs_rename(const char *old_path, const char *new_path);
 bool vfs_truncate_file(const char *path, uint64_t size);
+
+enum aurora_vfs_lookup_result vfs_stat_result(
+    const char *path,
+    struct aurora_vfs_stat *out_stat
+);
+
 bool vfs_stat(const char *path, struct aurora_vfs_stat *out_stat);
 bool vfs_chmod(const char *path, uint32_t mode);
 bool vfs_chown(const char *path, uint32_t uid, uint32_t gid);

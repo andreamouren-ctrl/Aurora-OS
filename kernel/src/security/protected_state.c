@@ -89,10 +89,13 @@ static bool build_path(
 
 static bool ensure_directory(const char *path) {
     struct aurora_vfs_stat stat;
+    enum aurora_vfs_lookup_result result = vfs_stat_result(path, &stat);
 
-    if (vfs_stat(path, &stat)) {
+    if (result == AURORA_VFS_LOOKUP_FOUND) {
         if (stat.type != AURORA_VFS_NODE_DIRECTORY) return false;
-    } else if (!vfs_create_directory(path)) {
+    } else if (result == AURORA_VFS_LOOKUP_NOT_FOUND) {
+        if (!vfs_create_directory(path)) return false;
+    } else {
         return false;
     }
 

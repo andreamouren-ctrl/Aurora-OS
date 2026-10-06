@@ -251,42 +251,70 @@ static bool copy_component(
     return true;
 }
 
-static bool resolve_path(
+static enum aurora_fs_lookup_result resolve_path_result(
     struct v2d_context *context,
     const char *path,
     uint64_t *out_inode_index,
     struct v2d_inode_disk *out_inode
 ) {
-    if (context == NULL || path == NULL || path[0] != '/' || out_inode_index == NULL) return false;
+    if (context == NULL || path == NULL || path[0] != '/' || out_inode_index == NULL)
+        return AURORA_FS_LOOKUP_ERROR;
+
     struct v2d_inode_disk current;
     if (!read_inode(context, 0u, &current) || current.object_id != 1u ||
-        current.type != AURORA_FS_V2_OBJECT_DIRECTORY) return false;
+        current.type != AURORA_FS_V2_OBJECT_DIRECTORY) {
+        return AURORA_FS_LOOKUP_ERROR;
+    }
+
     uint64_t current_index = 0u;
     size_t offset = 0u;
     while (path[offset] == '/') ++offset;
     if (path[offset] == '\0') {
         *out_inode_index = current_index;
         if (out_inode != NULL) *out_inode = current;
-        return true;
+        return AURORA_FS_LOOKUP_FOUND;
     }
+
     offset = 0u;
     for (;;) {
         char component[V2D_DIRECTORY_NAME_MAX + 1u];
         bool last;
         if (!copy_component(path, &offset, component, &last) ||
-            current.type != AURORA_FS_V2_OBJECT_DIRECTORY) return false;
+            current.type != AURORA_FS_V2_OBJECT_DIRECTORY) {
+            return AURORA_FS_LOOKUP_ERROR;
+        }
+
         struct aurora_fs_v2_directory_entry entry;
-        if (!aurora_fs_v2_directory_lookup_entry(
+        enum aurora_fs_v2_lookup_result lookup =
+            aurora_fs_v2_directory_lookup_entry_result(
                 &context->allocator, &context->geometry, current_index,
-                component, &entry)) return false;
+                component, &entry);
+        if (lookup == AURORA_FS_V2_LOOKUP_NOT_FOUND)
+            return AURORA_FS_LOOKUP_NOT_FOUND;
+        if (lookup != AURORA_FS_V2_LOOKUP_FOUND)
+            return AURORA_FS_LOOKUP_ERROR;
+
         if (!find_inode_by_object(context, entry.object_id, &current_index, &current) ||
-            current.type != (uint32_t)entry.type) return false;
+            current.type != (uint32_t)entry.type) {
+            return AURORA_FS_LOOKUP_ERROR;
+        }
+
         if (last) {
             *out_inode_index = current_index;
             if (out_inode != NULL) *out_inode = current;
-            return true;
+            return AURORA_FS_LOOKUP_FOUND;
         }
     }
+}
+
+static bool resolve_path(
+    struct v2d_context *context,
+    const char *path,
+    uint64_t *out_inode_index,
+    struct v2d_inode_disk *out_inode
+) {
+    return resolve_path_result(context, path, out_inode_index, out_inode) ==
+        AURORA_FS_LOOKUP_FOUND;
 }
 
 static bool resolve_parent(
@@ -399,16 +427,29 @@ static enum aurora_fs_entry_type map_type(uint32_t type) {
     return AURORA_FS_ENTRY_UNKNOWN;
 }
 
-static bool v2d_stat(void *opaque, const char *path, struct aurora_fs_stat *out_stat) {
+static enum aurora_fs_lookup_result v2d_stat_result(
+    void *opaque,
+    const char *path,
+    struct aurora_fs_stat *out_stat
+) {
     struct v2d_context *context = opaque;
     uint64_t inode_index;
     struct v2d_inode_disk inode;
     struct aurora_fs_v2_metadata metadata;
-    if (out_stat == NULL || !resolve_path(context, path, &inode_index, &inode) ||
-        !aurora_fs_v2_metadata_read(
-            &context->view, &context->geometry, inode_index, &metadata)) return false;
+    if (out_stat == NULL) return AURORA_FS_LOOKUP_ERROR;
+
+    enum aurora_fs_lookup_result lookup =
+        resolve_path_result(context, path, &inode_index, &inode);
+    if (lookup != AURORA_FS_LOOKUP_FOUND) return lookup;
+
+    if (!aurora_fs_v2_metadata_read(
+            &context->view, &context->geometry, inode_index, &metadata)) {
+        return AURORA_FS_LOOKUP_ERROR;
+    }
+
     zero_bytes(out_stat, sizeof(*out_stat));
     out_stat->type = map_type(inode.type);
+    if (out_stat->type == AURORA_FS_ENTRY_UNKNOWN) return AURORA_FS_LOOKUP_ERROR;
     out_stat->size = inode.size;
     out_stat->allocated_size = inode.allocated_bytes;
     out_stat->created_time_ns = metadata.created_time_ns;
@@ -420,7 +461,11 @@ static bool v2d_stat(void *opaque, const char *path, struct aurora_fs_stat *out_
     out_stat->gid = metadata.gid;
     out_stat->mode = metadata.mode;
     out_stat->link_count = metadata.link_count;
-    return out_stat->type != AURORA_FS_ENTRY_UNKNOWN;
+    return AURORA_FS_LOOKUP_FOUND;
+}
+
+static bool v2d_stat(void *opaque, const char *path, struct aurora_fs_stat *out_stat) {
+    return v2d_stat_result(opaque, path, out_stat) == AURORA_FS_LOOKUP_FOUND;
 }
 
 static bool v2d_readdir(
@@ -515,7 +560,9 @@ static bool v2d_create(void *opaque, const char *path, enum aurora_fs_entry_type
     uint64_t object_id;
     struct v2d_inode_disk existing;
     uint64_t existing_index;
-    if (resolve_path(context, path, &existing_index, &existing)) return false;
+    enum aurora_fs_lookup_result existing_result =
+        resolve_path_result(context, path, &existing_index, &existing);
+    if (existing_result != AURORA_FS_LOOKUP_NOT_FOUND) return false;
     if (!resolve_parent(context, path, &parent_inode, name) ||
         !find_free_inode_and_object(context, &child_inode, &object_id)) return false;
     return aurora_fs_v2_create_child_txn(
@@ -541,6 +588,11 @@ static bool v2d_rename(void *opaque, const char *old_path, const char *new_path)
     uint64_t new_parent;
     char old_name[V2D_DIRECTORY_NAME_MAX + 1u];
     char new_name[V2D_DIRECTORY_NAME_MAX + 1u];
+    struct v2d_inode_disk existing;
+    uint64_t existing_index;
+    enum aurora_fs_lookup_result new_result =
+        resolve_path_result(context, new_path, &existing_index, &existing);
+    if (new_result != AURORA_FS_LOOKUP_NOT_FOUND) return false;
     if (!resolve_parent(context, old_path, &old_parent, old_name) ||
         !resolve_parent(context, new_path, &new_parent, new_name) ||
         old_parent != new_parent) return false;
@@ -592,6 +644,7 @@ static const struct aurora_fs_driver v2d_driver = {
     .mount = v2d_mount,
     .unmount = v2d_unmount,
     .stat = v2d_stat,
+    .stat_result = v2d_stat_result,
     .readdir = v2d_readdir,
     .read = v2d_read,
     .write = v2d_write,

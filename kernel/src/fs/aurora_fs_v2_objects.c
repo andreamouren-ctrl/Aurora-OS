@@ -302,7 +302,7 @@ bool aurora_fs_v2_object_init(
     return write_inode(device, geometry, inode_index, &inode);
 }
 
-bool aurora_fs_v2_directory_lookup_entry(
+enum aurora_fs_v2_lookup_result aurora_fs_v2_directory_lookup_entry_result(
     struct aurora_fs_v2_allocator *allocator,
     const struct aurora_fs_v2_format_geometry *geometry,
     uint64_t directory_inode_index,
@@ -310,12 +310,14 @@ bool aurora_fs_v2_directory_lookup_entry(
     struct aurora_fs_v2_directory_entry *out_entry
 ) {
     if (allocator == NULL || allocator->device == NULL || name == NULL || out_entry == NULL)
-        return false;
+        return AURORA_FS_V2_LOOKUP_ERROR;
 
     struct v2o_inode_disk inode;
     if (!read_inode(allocator->device, geometry, directory_inode_index, &inode) ||
         inode.object_id == 0u || inode.type != AURORA_FS_V2_OBJECT_DIRECTORY ||
-        (inode.size % V2O_DIRECTORY_RECORD_SIZE) != 0u) return false;
+        (inode.size % V2O_DIRECTORY_RECORD_SIZE) != 0u) {
+        return AURORA_FS_V2_LOOKUP_ERROR;
+    }
 
     uint64_t record_count = inode.size / V2O_DIRECTORY_RECORD_SIZE;
     uint64_t current_block = UINT64_MAX;
@@ -328,31 +330,47 @@ bool aurora_fs_v2_directory_lookup_entry(
         if (inode.extent_tree_root != 0u) {
             uint64_t contiguous;
             if (!aurora_fs_v2_extent_tree_lookup_unified(
-                    allocator, inode.extent_tree_root, logical, &physical, &contiguous))
-                return false;
+                    allocator, inode.extent_tree_root, logical, &physical, &contiguous)) {
+                return AURORA_FS_V2_LOOKUP_ERROR;
+            }
         } else if (!resolve_inline_block(&inode, logical, &physical)) {
-            return false;
+            return AURORA_FS_V2_LOOKUP_ERROR;
         }
 
         if (physical != current_block) {
             if (!read_fs_block(allocator->device, geometry, physical, v2o_directory_block))
-                return false;
+                return AURORA_FS_V2_LOOKUP_ERROR;
             current_block = physical;
         }
 
         struct v2o_directory_record_disk *record =
             (struct v2o_directory_record_disk *)(v2o_directory_block + within);
-        if (record->object_id == 0u || !object_type_valid((enum aurora_fs_v2_object_type)record->type) ||
+        if (record->object_id == 0u ||
+            !object_type_valid((enum aurora_fs_v2_object_type)record->type) ||
             record->name_length == 0u || record->name_length > V2O_DIRECTORY_NAME_MAX ||
-            record->checksum != directory_record_checksum(record)) return false;
+            record->checksum != directory_record_checksum(record)) {
+            return AURORA_FS_V2_LOOKUP_ERROR;
+        }
 
         if (record_name_equals(record, name)) {
             out_entry->object_id = record->object_id;
             out_entry->type = (enum aurora_fs_v2_object_type)record->type;
-            return true;
+            return AURORA_FS_V2_LOOKUP_FOUND;
         }
     }
-    return false;
+    return AURORA_FS_V2_LOOKUP_NOT_FOUND;
+}
+
+bool aurora_fs_v2_directory_lookup_entry(
+    struct aurora_fs_v2_allocator *allocator,
+    const struct aurora_fs_v2_format_geometry *geometry,
+    uint64_t directory_inode_index,
+    const char *name,
+    struct aurora_fs_v2_directory_entry *out_entry
+) {
+    return aurora_fs_v2_directory_lookup_entry_result(
+        allocator, geometry, directory_inode_index, name, out_entry) ==
+        AURORA_FS_V2_LOOKUP_FOUND;
 }
 
 bool aurora_fs_v2_directory_append_entry(
@@ -370,8 +388,10 @@ bool aurora_fs_v2_directory_append_entry(
     if (!set_record(&candidate, child_object_id, child_type, name)) return false;
 
     struct aurora_fs_v2_directory_entry duplicate;
-    if (aurora_fs_v2_directory_lookup_entry(
-            allocator, geometry, directory_inode_index, name, &duplicate)) return false;
+    enum aurora_fs_v2_lookup_result duplicate_result =
+        aurora_fs_v2_directory_lookup_entry_result(
+            allocator, geometry, directory_inode_index, name, &duplicate);
+    if (duplicate_result != AURORA_FS_V2_LOOKUP_NOT_FOUND) return false;
 
     struct v2o_inode_disk inode;
     if (!read_inode(allocator->device, geometry, directory_inode_index, &inode) ||
@@ -562,6 +582,9 @@ static bool run_create_mkdir_test(uint32_t block_size) {
     if (!aurora_fs_v2_directory_lookup_entry(
             &reopened, &geometry, 1u, "note.txt", &entry) ||
         entry.object_id != 4u || entry.type != AURORA_FS_V2_OBJECT_FILE) return false;
+    if (aurora_fs_v2_directory_lookup_entry_result(
+            &reopened, &geometry, 0u, "missing", &entry) !=
+        AURORA_FS_V2_LOOKUP_NOT_FOUND) return false;
 
     struct v2o_inode_disk docs;
     struct v2o_inode_disk note;
