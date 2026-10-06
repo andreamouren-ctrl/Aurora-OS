@@ -4,6 +4,7 @@
 #include <aurora/entropy.h>
 #include <aurora/entropy_ring3_probe.h>
 #include <aurora/identity_auth_probe.h>
+#include <aurora/identity_client.h>
 #include <aurora/input.h>
 #include <aurora/ipc_wait_probe.h>
 #include <aurora/log.h>
@@ -46,11 +47,61 @@ static char key_to_normalized_character(
     return '\0';
 }
 
+static void synchronize_identity_state(void) {
+    identity_client_pump();
+
+    switch (identity_client_state()) {
+        case AURORA_IDENTITY_CLIENT_AUTH_FAILED:
+            clear_credential();
+            login_ui_set_state(AURORA_LOGIN_ERROR);
+            identity_client_reset_result();
+            return;
+
+        case AURORA_IDENTITY_CLIENT_THROTTLED:
+            clear_credential();
+            login_ui_set_state(AURORA_LOGIN_THROTTLED);
+            identity_client_reset_result();
+            return;
+
+        case AURORA_IDENTITY_CLIENT_VERIFIED:
+            clear_credential();
+            /*
+             * Identity verification succeeded, but Aurora does not yet have the
+             * Session Manager that consumes the opaque grant and establishes a
+             * desktop session. Keep the surface in its authenticating state
+             * rather than pretending that kernel UI code can create a session.
+             */
+            login_ui_set_state(AURORA_LOGIN_AUTHENTICATING);
+            return;
+
+        case AURORA_IDENTITY_CLIENT_UNAVAILABLE:
+        case AURORA_IDENTITY_CLIENT_ERROR:
+            clear_credential();
+            login_ui_set_state(AURORA_LOGIN_ERROR);
+            return;
+
+        case AURORA_IDENTITY_CLIENT_AUTHENTICATING:
+            login_ui_set_state(AURORA_LOGIN_AUTHENTICATING);
+            return;
+
+        case AURORA_IDENTITY_CLIENT_READY:
+        case AURORA_IDENTITY_CLIENT_UNINITIALIZED:
+        default:
+            return;
+    }
+}
+
 static void handle_pressed_key(
     enum aurora_key_code key
 ) {
+    if (identity_client_state() == AURORA_IDENTITY_CLIENT_AUTHENTICATING ||
+        identity_client_state() == AURORA_IDENTITY_CLIENT_VERIFIED) {
+        return;
+    }
+
     if (key == AURORA_KEY_ESCAPE) {
         clear_credential();
+        identity_client_reset_result();
         login_ui_set_state(AURORA_LOGIN_IDLE);
         return;
     }
@@ -62,6 +113,7 @@ static void handle_pressed_key(
             login_ui_set_masked_length(credential_length);
         }
 
+        identity_client_reset_result();
         login_ui_set_state(AURORA_LOGIN_IDLE);
         return;
     }
@@ -72,16 +124,16 @@ static void handle_pressed_key(
             return;
         }
 
-        login_ui_set_state(AURORA_LOGIN_AUTHENTICATING);
+        if (!identity_client_begin_key_auth(
+                credential_buffer,
+                credential_length)) {
+            clear_credential();
+            login_ui_set_state(AURORA_LOGIN_ERROR);
+            return;
+        }
 
-        /*
-         * The production Aurora Identity Service protocol now has a validated
-         * Ring 3 key-auth path, but the framebuffer login surface does not yet
-         * own a production client endpoint/authority lifecycle. Keep the UI
-         * fail-closed until the Session Manager client is wired in.
-         */
         clear_credential();
-        login_ui_set_state(AURORA_LOGIN_ERROR);
+        login_ui_set_state(AURORA_LOGIN_AUTHENTICATING);
         return;
     }
 
@@ -92,6 +144,7 @@ static void handle_pressed_key(
         return;
     }
 
+    identity_client_reset_result();
     credential_buffer[credential_length++] = normalized;
     credential_buffer[credential_length] = '\0';
 
@@ -131,7 +184,7 @@ static void protected_state_bootstrap_probe(void) {
         kernel_panic("Ring 3 Identity key-auth protocol self-test failed");
     }
 
-    log_line("[identity-auth] capability-authorized BEGIN/QUERY/CANCEL protocol passed");
+    log_line("[identity-auth] capability-authorized key-auth protocol + degraded fail-closed path passed");
 
     if (!service_supervisor_self_test()) {
         kernel_panic("Trusted Ring 3 service supervisor restart self-test failed");
@@ -178,10 +231,19 @@ void login_input_init(void) {
     }
 
     login_ui_set_masked_length(0u);
-    login_ui_set_state(AURORA_LOGIN_IDLE);
+
+    if (identity_client_init()) {
+        log_line("[identity-client] production Ring 3 Identity service connected to login input");
+        login_ui_set_state(AURORA_LOGIN_IDLE);
+    } else {
+        log_line("[identity-client] Identity service unavailable; login remains fail-closed");
+        login_ui_set_state(AURORA_LOGIN_ERROR);
+    }
 }
 
 void login_input_pump(void) {
+    synchronize_identity_state();
+
     struct aurora_input_event event;
 
     while (input_poll_event(&event)) {
