@@ -172,3 +172,48 @@ out:
     secure_zero(buffer, sizeof(buffer));
     return result;
 }
+
+uint64_t protected_state_syscall_replace(
+    struct aurora_process *process,
+    uint64_t handle,
+    uint64_t user_name,
+    uint64_t name_length,
+    uint64_t user_data,
+    uint64_t length
+) {
+    char name[AURORA_SYS_PROTECTED_STATE_NAME_MAX + 1u];
+    uint8_t buffer[AURORA_SYS_PROTECTED_STATE_IO_MAX];
+    uint64_t result = AURORA_SYS_RESULT_ERROR;
+
+    if (length == 0u || length > AURORA_SYS_PROTECTED_STATE_IO_MAX ||
+        user_data == 0u ||
+        !copy_record_name(process, user_name, name_length, name)) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    struct aurora_protected_state_namespace *state =
+        lookup_namespace(process, handle, AURORA_RIGHT_WRITE);
+    if (state == NULL) return AURORA_SYS_RESULT_ERROR;
+
+    if (!copy_from_user(
+            process,
+            buffer,
+            user_data,
+            (size_t)length)) {
+        goto out;
+    }
+
+    if (protected_state_replace_record_durable(
+            &process->capabilities,
+            (aurora_cap_handle)handle,
+            state,
+            name,
+            buffer,
+            (size_t)length)) {
+        result = 0u;
+    }
+
+out:
+    secure_zero(buffer, sizeof(buffer));
+    return result;
+}
