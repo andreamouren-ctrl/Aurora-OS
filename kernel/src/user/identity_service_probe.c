@@ -18,6 +18,12 @@ _Static_assert(
     "Identity service protocol message must remain 16 bytes"
 );
 
+_Static_assert(
+    sizeof(struct aurora_identity_service_status_response) ==
+        AURORA_IDENTITY_SERVICE_STATUS_RESPONSE_SIZE,
+    "Identity service STATUS response must remain 24 bytes"
+);
+
 const uint8_t *identity_service_probe_image(void) {
     return _binary_identity_service_bin_start;
 }
