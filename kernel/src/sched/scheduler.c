@@ -86,6 +86,17 @@ static struct aurora_cpu_local *current_cpu_locked(void) {
     return cpu;
 }
 
+static bool thread_slot_active_on_cpu_locked(uint32_t slot) {
+    if (slot >= SCHEDULER_MAX_THREADS) return false;
+
+    for (uint32_t logical_id = 0u; logical_id < AURORA_MAX_SMP_CPUS; ++logical_id) {
+        struct aurora_cpu_local *cpu = cpu_local_at(logical_id);
+        if (cpu != NULL && cpu->scheduler_current_index == slot) return true;
+    }
+
+    return false;
+}
+
 static const struct aurora_cpu_runtime *runtime_cpu_locked(uint32_t logical_id) {
     for (uint32_t i = 0u; i < smp_cpu_count(); ++i) {
         const struct aurora_cpu_runtime *cpu = smp_cpu_at(i);
@@ -296,6 +307,9 @@ static aurora_thread_id create_kernel_thread_locked(
     uint32_t slot = find_free_slot_locked();
     if (slot == SCHEDULER_MAX_THREADS) return 0u;
 
+    uint32_t preferred_cpu = idle ? SCHEDULER_CPU_ANY : choose_preferred_cpu_locked();
+    if (!idle && preferred_cpu == SCHEDULER_CPU_ANY) return 0u;
+
     struct scheduler_thread *thread = &threads[slot];
     clear_bytes(thread, sizeof(*thread));
     if (!allocate_thread_stack(thread)) return 0u;
@@ -305,7 +319,7 @@ static aurora_thread_id create_kernel_thread_locked(
     thread->idle = idle;
     thread->user = false;
     thread->pinned_cpu = SCHEDULER_CPU_ANY;
-    thread->preferred_cpu = idle ? SCHEDULER_CPU_ANY : choose_preferred_cpu_locked();
+    thread->preferred_cpu = preferred_cpu;
     copy_name(thread->name, name);
     thread->entry = entry;
     thread->argument = argument;
@@ -313,7 +327,6 @@ static aurora_thread_id create_kernel_thread_locked(
     thread->address_space = vmm_kernel_space();
     thread->saved_frame = build_kernel_frame(thread);
 
-    if (!idle && thread->preferred_cpu == SCHEDULER_CPU_ANY) return 0u;
     if (started && !idle) (void)timer_arm_ns(1u);
     return thread->id;
 }
@@ -322,26 +335,33 @@ static aurora_thread_id create_user_thread_locked(
     const char *name,
     struct aurora_process *process
 ) {
-    if (process == NULL) return 0u;
+    if (process == NULL || process_state(process) != AURORA_PROCESS_RUNNING) return 0u;
     uint32_t slot = find_free_slot_locked();
     if (slot == SCHEDULER_MAX_THREADS) return 0u;
 
+    uint32_t preferred_cpu = choose_preferred_cpu_locked();
+    if (preferred_cpu == SCHEDULER_CPU_ANY) return 0u;
+    if (!process_thread_attach(process)) return 0u;
+
     struct scheduler_thread *thread = &threads[slot];
     clear_bytes(thread, sizeof(*thread));
-    if (!allocate_thread_stack(thread)) return 0u;
+    if (!allocate_thread_stack(thread)) {
+        (void)process_thread_detach(process);
+        clear_bytes(thread, sizeof(*thread));
+        return 0u;
+    }
 
     thread->id = next_id++;
     thread->state = THREAD_RUNNABLE;
     thread->idle = false;
     thread->user = true;
     thread->pinned_cpu = SCHEDULER_CPU_ANY;
-    thread->preferred_cpu = choose_preferred_cpu_locked();
+    thread->preferred_cpu = preferred_cpu;
     copy_name(thread->name, name);
     thread->process = process;
     thread->address_space = &process->address_space;
     thread->saved_frame = build_user_frame(thread, process);
 
-    if (thread->preferred_cpu == SCHEDULER_CPU_ANY) return 0u;
     if (started) (void)timer_arm_ns(1u);
     return thread->id;
 }
@@ -695,6 +715,44 @@ bool scheduler_thread_blocked(aurora_thread_id id) {
     bool blocked = thread != NULL && thread->state == THREAD_BLOCKED;
     spinlock_unlock_irqrestore(&scheduler_lock, irq);
     return blocked;
+}
+
+bool scheduler_reap_thread(aurora_thread_id id) {
+    aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
+    struct scheduler_thread *thread = find_thread_locked(id);
+
+    if (thread == NULL || thread->state != THREAD_TERMINATED || thread->idle) {
+        spinlock_unlock_irqrestore(&scheduler_lock, irq);
+        return false;
+    }
+
+    uint32_t slot = (uint32_t)(thread - threads);
+    if (thread_slot_active_on_cpu_locked(slot) ||
+        thread->stack_base == NULL ||
+        thread->stack_size != SCHEDULER_STACK_SIZE) {
+        spinlock_unlock_irqrestore(&scheduler_lock, irq);
+        return false;
+    }
+
+    struct aurora_process *process = thread->process;
+    bool user = thread->user;
+    if (user && (process == NULL || process_live_thread_count(process) == 0u)) {
+        spinlock_unlock_irqrestore(&scheduler_lock, irq);
+        return false;
+    }
+
+    if (!kheap_free_sized(thread->stack_base, thread->stack_size)) {
+        spinlock_unlock_irqrestore(&scheduler_lock, irq);
+        return false;
+    }
+
+    if (user && !process_thread_detach(process)) {
+        kernel_panic("Scheduler/process thread accounting diverged during reap");
+    }
+
+    clear_bytes(thread, sizeof(*thread));
+    spinlock_unlock_irqrestore(&scheduler_lock, irq);
+    return true;
 }
 
 aurora_thread_id scheduler_current_thread_id(void) {
