@@ -98,14 +98,11 @@ bool syscall_init(void) {
     uint64_t efer = rdmsr(IA32_EFER);
     wrmsr(IA32_EFER, efer | EFER_SCE);
 
-    /* SYSCALL loads CS=0x08/SS=0x10; SYSRET derives user selectors. */
     uint64_t star =
         ((uint64_t)AURORA_KERNEL_CODE_SELECTOR << 32) |
         ((uint64_t)AURORA_KERNEL_DATA_SELECTOR << 48);
     wrmsr(IA32_STAR, star);
     wrmsr(IA32_LSTAR, (uint64_t)(uintptr_t)x86_64_syscall_entry);
-
-    /* IF, TF and DF are cleared on kernel entry. */
     wrmsr(IA32_FMASK, (1ull << 8) | (1ull << 9) | (1ull << 10));
     return true;
 }
@@ -226,11 +223,6 @@ static uint64_t dispatch_ipc_receive(
         lookup_ipc_endpoint(process, endpoint_handle, AURORA_RIGHT_READ);
     if (endpoint == NULL) return AURORA_SYS_RESULT_ERROR;
 
-    /*
-     * Preflight the complete destination before consuming the queued message.
-     * Aurora currently has no Ring 3 unmap syscall, so the mapping cannot be
-     * invalidated between this check and the final copy in the same syscall.
-     */
     if (!copy_to_user(process, user_output, &output, sizeof(output))) {
         return AURORA_SYS_RESULT_ERROR;
     }
@@ -313,39 +305,20 @@ struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
             return scheduler_terminate_current();
         case AURORA_SYS_IPC_SEND:
             frame->rax = dispatch_ipc_send(
-                process,
-                frame->rdi,
-                frame->rsi,
-                frame->rdx,
-                frame->r10,
-                frame->r8
+                process, frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8
             );
             break;
         case AURORA_SYS_IPC_RECEIVE:
-            frame->rax = dispatch_ipc_receive(
-                process,
-                frame->rdi,
-                frame->rsi
-            );
+            frame->rax = dispatch_ipc_receive(process, frame->rdi, frame->rsi);
             break;
         case AURORA_SYS_PROTECTED_STATE_READ:
             frame->rax = protected_state_syscall_read(
-                process,
-                frame->rdi,
-                frame->rsi,
-                frame->rdx,
-                frame->r10,
-                frame->r8
+                process, frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8
             );
             break;
         case AURORA_SYS_PROTECTED_STATE_CREATE_ONCE:
             frame->rax = protected_state_syscall_create_once(
-                process,
-                frame->rdi,
-                frame->rsi,
-                frame->rdx,
-                frame->r10,
-                frame->r8
+                process, frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8
             );
             break;
         case AURORA_SYS_IPC_WAIT: {
@@ -380,10 +353,12 @@ struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
         }
         case AURORA_SYS_ENTROPY_SEED:
             frame->rax = dispatch_entropy_seed(
-                process,
-                frame->rdi,
-                frame->rsi,
-                frame->rdx
+                process, frame->rdi, frame->rsi, frame->rdx
+            );
+            break;
+        case AURORA_SYS_PROTECTED_STATE_REPLACE_DURABLE:
+            frame->rax = protected_state_syscall_replace_durable(
+                process, frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8
             );
             break;
         default:
