@@ -141,12 +141,15 @@ protected_state_create_record_once_durable(
 );
 
 /*
- * Publish a complete replaceable record for redundancy protocols such as the
- * Aurora Identity dual-slot database. The new bytes are fully staged/flushed
- * before the previous target is removed. A crash/failure may leave either the
- * previous complete record, the new complete record, or no target record; it
- * must never expose partially written target contents. Callers must keep an
- * independent authoritative replica while replacing this stale slot.
+ * Publish a complete mutable record for redundancy protocols such as the
+ * Aurora Identity dual-slot database. New bytes are written to a hidden
+ * same-directory staging file and fully flushed before publication. If a
+ * target already exists, AuroraFS v2 journals the namespace replacement and
+ * superseded inode cleanup as one recoverable transaction. After crash/reboot
+ * the target therefore resolves to either the previous complete record or the
+ * new complete record, never a partial record and never an absence introduced
+ * by replacement. Ambiguous lookup or unsupported filesystem semantics fail
+ * closed.
  */
 enum aurora_protected_state_replace_result
 protected_state_replace_record_durable(

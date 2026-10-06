@@ -266,7 +266,7 @@ protected_state_replace_record_durable(
 
     enum aurora_vfs_lookup_result target_lookup = vfs_stat_result(target, &stat);
     if (target_lookup == AURORA_VFS_LOOKUP_FOUND) {
-        if (!vfs_remove(target) || !vfs_sync(state->root)) {
+        if (stat.type != AURORA_VFS_NODE_FILE) {
             (void)cleanup_staging(staging);
             goto out;
         }
@@ -276,10 +276,12 @@ protected_state_replace_record_durable(
     }
 
     /*
-     * The complete replacement has already been flushed. If publication fails
-     * after the stale target was removed, the target remains absent rather
-     * than exposing partial bytes. The Identity dual-slot protocol keeps the
-     * other slot authoritative throughout this operation.
+     * AuroraFS v2 handles an existing same-directory target as a journaled
+     * replace. The complete staging inode is durable before namespace
+     * publication, so recovery resolves the target name to either the old
+     * complete inode or the new complete inode, never to absence or partial
+     * bytes. When the target is absent this remains an ordinary recoverable
+     * same-directory rename.
      */
     if (!vfs_rename(staging, target)) {
         (void)cleanup_staging(staging);
