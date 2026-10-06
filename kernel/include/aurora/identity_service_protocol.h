@@ -3,10 +3,12 @@
 
 #include <stdint.h>
 
-#define AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION 2u
+#define AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION 3u
 #define AURORA_IDENTITY_SERVICE_MESSAGE_SIZE 16u
 #define AURORA_IDENTITY_SERVICE_KEY_MAX_LEN 32u
 #define AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE 32u
+#define AURORA_IDENTITY_SERVICE_USER_ID_SIZE 16u
+#define AURORA_IDENTITY_SERVICE_CREDENTIAL_ID_SIZE 16u
 
 enum aurora_identity_service_message_type {
     AURORA_IDENTITY_SERVICE_READY = 1,
@@ -22,6 +24,13 @@ enum aurora_identity_service_message_type {
     AURORA_IDENTITY_SERVICE_CANCEL_AUTH = 20,
     AURORA_IDENTITY_SERVICE_AUTH_CANCELLED = 21,
 
+    AURORA_IDENTITY_SERVICE_BEGIN_CREATE = 32,
+    AURORA_IDENTITY_SERVICE_CREATE_PENDING = 33,
+    AURORA_IDENTITY_SERVICE_QUERY_CREATE = 34,
+    AURORA_IDENTITY_SERVICE_CREATE_RESULT = 35,
+    AURORA_IDENTITY_SERVICE_CANCEL_CREATE = 36,
+    AURORA_IDENTITY_SERVICE_CREATE_CANCELLED = 37,
+
     AURORA_IDENTITY_SERVICE_ERROR = 255
 };
 
@@ -33,6 +42,14 @@ enum aurora_identity_service_auth_state {
     AURORA_IDENTITY_SERVICE_AUTH_STATE_SUCCESS,
     AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
     AURORA_IDENTITY_SERVICE_AUTH_STATE_CANCELLED
+};
+
+enum aurora_identity_service_create_state {
+    AURORA_IDENTITY_SERVICE_CREATE_STATE_PENDING = 1,
+    AURORA_IDENTITY_SERVICE_CREATE_STATE_SUCCESS,
+    AURORA_IDENTITY_SERVICE_CREATE_STATE_ALREADY_EXISTS,
+    AURORA_IDENTITY_SERVICE_CREATE_STATE_SERVICE_ERROR,
+    AURORA_IDENTITY_SERVICE_CREATE_STATE_CANCELLED
 };
 
 enum aurora_identity_service_public_error {
@@ -68,6 +85,21 @@ struct aurora_identity_service_auth_result {
     uint32_t public_error;
     uint64_t retry_after_ms;
     uint8_t session_grant[AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE];
+};
+
+struct aurora_identity_service_begin_create {
+    struct aurora_identity_service_message header;
+    uint32_t key_length;
+    uint32_t reserved;
+    char key[AURORA_IDENTITY_SERVICE_KEY_MAX_LEN];
+};
+
+struct aurora_identity_service_create_result {
+    struct aurora_identity_service_message header;
+    uint32_t state;
+    uint32_t public_error;
+    uint8_t user_id[AURORA_IDENTITY_SERVICE_USER_ID_SIZE];
+    uint8_t credential_id[AURORA_IDENTITY_SERVICE_CREDENTIAL_ID_SIZE];
 };
 
 #endif
