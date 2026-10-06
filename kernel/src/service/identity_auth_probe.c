@@ -78,31 +78,48 @@ static bool wait_message(
     return bytes_equal(received.data, &expected, sizeof(expected));
 }
 
-static bool wait_auth_failed(
-    struct aurora_trusted_service *service,
-    uint64_t request_id
+static bool decode_auth_result(
+    const struct aurora_ipc_received *received,
+    struct aurora_identity_service_auth_result *out
 ) {
-    struct aurora_ipc_received received;
-    clear_bytes(&received, sizeof(received));
-    if (!wait_receive(service, &received) ||
-        received.length != sizeof(struct aurora_identity_service_auth_result) ||
-        received.capability_count != 0u) {
+    if (received == NULL || out == NULL ||
+        received->length != sizeof(*out) ||
+        received->capability_count != 0u) {
         return false;
     }
 
-    struct aurora_identity_service_auth_result result;
-    clear_bytes(&result, sizeof(result));
-    for (size_t i = 0u; i < sizeof(result); ++i) {
-        ((uint8_t *)&result)[i] = received.data[i];
+    clear_bytes(out, sizeof(*out));
+    for (size_t i = 0u; i < sizeof(*out); ++i) {
+        ((uint8_t *)out)[i] = received->data[i];
     }
 
-    return result.header.version == AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION &&
-        result.header.type == AURORA_IDENTITY_SERVICE_AUTH_RESULT &&
-        result.header.request_id == request_id &&
-        result.state == AURORA_IDENTITY_SERVICE_AUTH_STATE_FAILED &&
-        result.public_error == AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_AUTH_FAILED &&
-        result.retry_after_ms == 0u &&
-        all_zero(result.session_grant, sizeof(result.session_grant));
+    return out->header.version == AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION &&
+        out->header.type == AURORA_IDENTITY_SERVICE_AUTH_RESULT;
+}
+
+static bool auth_result_is_failed(
+    const struct aurora_identity_service_auth_result *result,
+    uint64_t request_id
+) {
+    return result != NULL &&
+        result->header.request_id == request_id &&
+        result->state == AURORA_IDENTITY_SERVICE_AUTH_STATE_FAILED &&
+        result->public_error == AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_AUTH_FAILED &&
+        result->retry_after_ms == 0u &&
+        all_zero(result->session_grant, sizeof(result->session_grant));
+}
+
+static bool auth_result_is_unavailable(
+    const struct aurora_identity_service_auth_result *result,
+    uint64_t request_id
+) {
+    return result != NULL &&
+        result->header.request_id == request_id &&
+        result->state == AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR &&
+        result->public_error ==
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE &&
+        result->retry_after_ms == 0u &&
+        all_zero(result->session_grant, sizeof(result->session_grant));
 }
 
 static bool send_auth_begin(
@@ -172,6 +189,72 @@ static bool wait_finished(struct aurora_trusted_service *service) {
     return scheduler_thread_finished(service->thread);
 }
 
+static bool run_operational_auth_path(
+    struct aurora_trusted_service *service,
+    uint64_t query_request_id,
+    const char *unknown_key,
+    size_t unknown_key_length
+) {
+    if (!send_control_message(
+            service,
+            AURORA_IDENTITY_SERVICE_QUERY_AUTH,
+            query_request_id)) {
+        return false;
+    }
+
+    struct aurora_ipc_received received;
+    struct aurora_identity_service_auth_result result;
+    clear_bytes(&received, sizeof(received));
+    clear_bytes(&result, sizeof(result));
+    if (!wait_receive(service, &received) ||
+        !decode_auth_result(&received, &result) ||
+        !auth_result_is_failed(&result, query_request_id)) {
+        return false;
+    }
+
+    const uint64_t cancel_request_id = UINT64_C(0x4155544800000002);
+    return send_auth_begin(
+            service,
+            cancel_request_id,
+            unknown_key,
+            unknown_key_length) &&
+        wait_message(
+            service,
+            AURORA_IDENTITY_SERVICE_AUTH_PENDING,
+            cancel_request_id) &&
+        send_control_message(
+            service,
+            AURORA_IDENTITY_SERVICE_CANCEL_AUTH,
+            cancel_request_id) &&
+        wait_message(
+            service,
+            AURORA_IDENTITY_SERVICE_AUTH_CANCELLED,
+            cancel_request_id);
+}
+
+static bool run_degraded_auth_path(
+    struct aurora_trusted_service *service,
+    const char *unknown_key,
+    size_t unknown_key_length
+) {
+    const uint64_t second_request_id = UINT64_C(0x4155544800000003);
+    if (!send_auth_begin(
+            service,
+            second_request_id,
+            unknown_key,
+            unknown_key_length)) {
+        return false;
+    }
+
+    struct aurora_ipc_received received;
+    struct aurora_identity_service_auth_result result;
+    clear_bytes(&received, sizeof(received));
+    clear_bytes(&result, sizeof(result));
+    return wait_receive(service, &received) &&
+        decode_auth_result(&received, &result) &&
+        auth_result_is_unavailable(&result, second_request_id);
+}
+
 bool identity_auth_ring3_self_test(void) {
     static struct aurora_trusted_service service;
     const struct aurora_trusted_service_manifest manifest = {
@@ -190,44 +273,51 @@ bool identity_auth_ring3_self_test(void) {
     }
 
     static const char unknown_key[] = "AUR7K4PN9Q2XM6D";
+    const size_t unknown_key_length = sizeof(unknown_key) - 1u;
     const uint64_t query_request_id = UINT64_C(0x4155544800000001);
     if (!send_auth_begin(
             &service,
             query_request_id,
             unknown_key,
-            sizeof(unknown_key) - 1u) ||
-        !wait_message(
-            &service,
-            AURORA_IDENTITY_SERVICE_AUTH_PENDING,
-            query_request_id) ||
-        !send_control_message(
-            &service,
-            AURORA_IDENTITY_SERVICE_QUERY_AUTH,
-            query_request_id) ||
-        !wait_auth_failed(&service, query_request_id)) {
+            unknown_key_length)) {
         return false;
     }
 
-    const uint64_t cancel_request_id = UINT64_C(0x4155544800000002);
-    if (!send_auth_begin(
-            &service,
-            cancel_request_id,
-            unknown_key,
-            sizeof(unknown_key) - 1u) ||
-        !wait_message(
-            &service,
-            AURORA_IDENTITY_SERVICE_AUTH_PENDING,
-            cancel_request_id) ||
-        !send_control_message(
-            &service,
-            AURORA_IDENTITY_SERVICE_CANCEL_AUTH,
-            cancel_request_id) ||
-        !wait_message(
-            &service,
-            AURORA_IDENTITY_SERVICE_AUTH_CANCELLED,
-            cancel_request_id)) {
+    struct aurora_ipc_received first_reply;
+    clear_bytes(&first_reply, sizeof(first_reply));
+    if (!wait_receive(&service, &first_reply) ||
+        first_reply.capability_count != 0u) {
         return false;
     }
+
+    bool path_ok = false;
+    if (first_reply.length == AURORA_IDENTITY_SERVICE_MESSAGE_SIZE) {
+        const struct aurora_identity_service_message pending = {
+            .version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION,
+            .type = AURORA_IDENTITY_SERVICE_AUTH_PENDING,
+            .request_id = query_request_id
+        };
+        if (bytes_equal(first_reply.data, &pending, sizeof(pending))) {
+            path_ok = run_operational_auth_path(
+                &service,
+                query_request_id,
+                unknown_key,
+                unknown_key_length);
+        }
+    } else if (first_reply.length ==
+               sizeof(struct aurora_identity_service_auth_result)) {
+        struct aurora_identity_service_auth_result result;
+        clear_bytes(&result, sizeof(result));
+        if (decode_auth_result(&first_reply, &result) &&
+            auth_result_is_unavailable(&result, query_request_id)) {
+            path_ok = run_degraded_auth_path(
+                &service,
+                unknown_key,
+                unknown_key_length);
+        }
+    }
+
+    if (!path_ok) return false;
 
     const uint64_t shutdown_request_id = UINT64_C(0x4155544853485554);
     if (!send_control_message(
