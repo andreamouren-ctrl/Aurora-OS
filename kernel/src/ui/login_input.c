@@ -5,6 +5,7 @@
 #include <aurora/entropy_ring3_probe.h>
 #include <aurora/identity_auth_probe.h>
 #include <aurora/identity_client.h>
+#include <aurora/identity_create_probe.h>
 #include <aurora/input.h>
 #include <aurora/ipc_wait_probe.h>
 #include <aurora/log.h>
@@ -185,6 +186,12 @@ static void protected_state_bootstrap_probe(void) {
     }
 
     log_line("[identity-auth] capability-authorized key-auth protocol + degraded fail-closed path passed");
+
+    if (!identity_create_ring3_self_test()) {
+        kernel_panic("Ring 3 Identity create protocol self-test failed");
+    }
+
+    log_line("[identity-create] capability-authorized create/cancel + degraded fail-closed path passed");
 
     if (!service_supervisor_self_test()) {
         kernel_panic("Trusted Ring 3 service supervisor restart self-test failed");
