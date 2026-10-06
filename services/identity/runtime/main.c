@@ -13,6 +13,8 @@
 #include <aurora/identity/machine_secret_protected_state.h>
 #include <aurora/identity/persistent_store.h>
 #include <aurora/identity/persistent_store_protected_state.h>
+#include <aurora/identity/session_grant.h>
+#include <aurora/identity/session_grant_memory.h>
 #include <aurora/identity_service_protocol.h>
 #include <aurora/service_abi.h>
 #include <aurora/syscall_abi.h>
@@ -22,6 +24,7 @@
 #define IDENTITY_RUNTIME_MEMORY_PROBE_SIZE (1024u * 1024u)
 #define IDENTITY_RUNTIME_REAP_PROBE_SIZE (256u * 1024u)
 #define IDENTITY_RUNTIME_PAGE_SIZE 4096u
+#define IDENTITY_RUNTIME_SESSION_GRANT_TTL_MS UINT64_C(30000)
 
 void *malloc(size_t size);
 void free(void *pointer);
@@ -30,6 +33,13 @@ static const uint8_t identity_runtime_drbg_personalization[] =
     "AURORA.IDENTITY.RUNTIME.HMAC-DRBG.V1";
 static const uint8_t identity_runtime_session_grant_key_domain[] =
     "AURORA.IDENTITY.SESSION-GRANT-KEY.V1";
+
+struct identity_runtime_auth_job {
+    bool occupied;
+    uint64_t request_id;
+    char key[AURORA_IDENTITY_SERVICE_KEY_MAX_LEN];
+    size_t key_length;
+};
 
 struct identity_runtime_persistent_context {
     struct identity_runtime_protected_state_context transport_context;
@@ -41,11 +51,15 @@ struct identity_runtime_persistent_context {
     struct aurora_identity_hmac_provider hmac_provider;
     struct aurora_identity_argon2id_provider argon2id_provider;
     struct aurora_identity_core identity_core;
+    struct aurora_identity_session_grant_memory_store session_grant_store;
+    struct aurora_identity_session_grant_core session_grant_core;
+    struct identity_runtime_auth_job auth_job;
     bool machine_secret_ready;
     bool drbg_ready;
     bool hmac_provider_ready;
     bool argon2id_provider_ready;
     bool identity_core_ready;
+    bool session_grant_ready;
 };
 
 static void secure_zero(void *buffer, size_t size) {
@@ -57,16 +71,33 @@ static void secure_zero(void *buffer, size_t size) {
     }
 }
 
+static void copy_bytes(void *destination, const void *source, size_t size) {
+    uint8_t *dst = (uint8_t *)destination;
+    const uint8_t *src = (const uint8_t *)source;
+    if (destination == NULL || source == NULL) return;
+    for (size_t i = 0u; i < size; ++i) dst[i] = src[i];
+}
+
 static uint64_t aurora_syscall0(uint64_t number) {
     register uint64_t rax __asm__("rax") = number;
-
     __asm__ volatile (
         "syscall"
         : "+a"(rax)
         :
         : "rcx", "r11", "memory"
     );
+    return rax;
+}
 
+static uint64_t aurora_syscall1(uint64_t number, uint64_t a1) {
+    register uint64_t rax __asm__("rax") = number;
+    register uint64_t rdi __asm__("rdi") = a1;
+    __asm__ volatile (
+        "syscall"
+        : "+a"(rax)
+        : "D"(rdi)
+        : "rcx", "r11", "memory"
+    );
     return rax;
 }
 
@@ -74,14 +105,12 @@ static uint64_t aurora_syscall2(uint64_t number, uint64_t a1, uint64_t a2) {
     register uint64_t rax __asm__("rax") = number;
     register uint64_t rdi __asm__("rdi") = a1;
     register uint64_t rsi __asm__("rsi") = a2;
-
     __asm__ volatile (
         "syscall"
         : "+a"(rax)
         : "D"(rdi), "S"(rsi)
         : "rcx", "r11", "memory"
     );
-
     return rax;
 }
 
@@ -95,14 +124,12 @@ static uint64_t aurora_syscall3(
     register uint64_t rdi __asm__("rdi") = a1;
     register uint64_t rsi __asm__("rsi") = a2;
     register uint64_t rdx __asm__("rdx") = a3;
-
     __asm__ volatile (
         "syscall"
         : "+a"(rax)
         : "D"(rdi), "S"(rsi), "d"(rdx)
         : "rcx", "r11", "memory"
     );
-
     return rax;
 }
 
@@ -120,14 +147,12 @@ static uint64_t aurora_syscall5(
     register uint64_t rdx __asm__("rdx") = a3;
     register uint64_t r10 __asm__("r10") = a4;
     register uint64_t r8 __asm__("r8") = a5;
-
     __asm__ volatile (
         "syscall"
         : "+a"(rax)
         : "D"(rdi), "S"(rsi), "d"(rdx), "r"(r10), "r"(r8)
         : "rcx", "r11", "memory"
     );
-
     return rax;
 }
 
@@ -144,6 +169,41 @@ static bool capability_has(
     ) == 1u;
 }
 
+static bool revoke_capability(uint64_t handle) {
+    return handle != 0u &&
+        aurora_syscall1(AURORA_SYS_CAP_REVOKE, handle) == 0u;
+}
+
+static void revoke_received_capabilities(
+    const struct aurora_sys_ipc_received *received
+) {
+    if (received == NULL) return;
+    for (uint32_t i = 0u;
+         i < received->capability_count && i < AURORA_SYS_IPC_CAPS_MAX;
+         ++i) {
+        (void)revoke_capability(received->capabilities[i]);
+    }
+}
+
+static bool send_payload(
+    uint64_t endpoint,
+    const void *payload,
+    size_t payload_size
+) {
+    if (payload == NULL || payload_size == 0u ||
+        payload_size > AURORA_SYS_IPC_PAYLOAD_MAX) {
+        return false;
+    }
+    return aurora_syscall5(
+        AURORA_SYS_IPC_SEND,
+        endpoint,
+        (uint64_t)(uintptr_t)payload,
+        payload_size,
+        0u,
+        0u
+    ) == 0u;
+}
+
 static bool send_message(
     uint64_t endpoint,
     uint32_t type,
@@ -153,15 +213,34 @@ static bool send_message(
     message.version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION;
     message.type = type;
     message.request_id = request_id;
+    return send_payload(endpoint, &message, sizeof(message));
+}
 
-    return aurora_syscall5(
-        AURORA_SYS_IPC_SEND,
-        endpoint,
-        (uint64_t)(uintptr_t)&message,
-        sizeof(message),
-        0u,
-        0u
-    ) == 0u;
+static bool send_auth_result(
+    uint64_t endpoint,
+    uint64_t request_id,
+    uint32_t state,
+    uint32_t public_error,
+    uint64_t retry_after_ms,
+    const uint8_t *session_grant
+) {
+    struct aurora_identity_service_auth_result result;
+    secure_zero(&result, sizeof(result));
+    result.header.version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION;
+    result.header.type = AURORA_IDENTITY_SERVICE_AUTH_RESULT;
+    result.header.request_id = request_id;
+    result.state = state;
+    result.public_error = public_error;
+    result.retry_after_ms = retry_after_ms;
+    if (session_grant != NULL) {
+        copy_bytes(
+            result.session_grant,
+            session_grant,
+            AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE);
+    }
+    bool sent = send_payload(endpoint, &result, sizeof(result));
+    secure_zero(&result, sizeof(result));
+    return sent;
 }
 
 static bool receive_message(
@@ -170,7 +249,6 @@ static bool receive_message(
 ) {
     if (received == NULL) return false;
     secure_zero(received, sizeof(*received));
-
     return aurora_syscall2(
         AURORA_SYS_IPC_RECEIVE,
         endpoint,
@@ -179,11 +257,7 @@ static bool receive_message(
 }
 
 static bool wait_for_message(uint64_t endpoint) {
-    return aurora_syscall2(
-        AURORA_SYS_IPC_WAIT,
-        endpoint,
-        0u
-    ) == 0u;
+    return aurora_syscall2(AURORA_SYS_IPC_WAIT, endpoint, 0u) == 0u;
 }
 
 static bool validate_authority(
@@ -272,7 +346,6 @@ static bool open_persistent_store(
 
     secure_zero(&io, sizeof(io));
     secure_zero(&transport, sizeof(transport));
-
     return result == AURORA_IDENTITY_PERSISTENT_OPEN_OK ||
         result == AURORA_IDENTITY_PERSISTENT_OPEN_EMPTY;
 }
@@ -283,11 +356,9 @@ static bool entropy_fill_random(
     size_t size
 ) {
     uint64_t entropy_handle = (uint64_t)(uintptr_t)context;
-
     if (buffer == NULL || size == 0u || size > AURORA_SYS_ENTROPY_SEED_MAX) {
         return false;
     }
-
     return aurora_syscall3(
         AURORA_SYS_ENTROPY_SEED,
         entropy_handle,
@@ -312,7 +383,6 @@ static bool initialize_machine_secret(
     enum aurora_identity_machine_secret_result result;
 
     if (context == NULL) return false;
-
     secure_zero(&store, sizeof(store));
     secure_zero(&core, sizeof(core));
     context->machine_secret_ready = false;
@@ -329,7 +399,6 @@ static bool initialize_machine_secret(
         secure_zero(&store, sizeof(store));
         return true;
     }
-
     if (result != AURORA_IDENTITY_MACHINE_SECRET_NOT_PROVISIONED) {
         secure_zero(&store, sizeof(store));
         return false;
@@ -344,17 +413,14 @@ static bool initialize_machine_secret(
 
     secure_zero(&core, sizeof(core));
     secure_zero(&store, sizeof(store));
-
     if (result == AURORA_IDENTITY_MACHINE_SECRET_OK) {
         context->machine_secret_ready = true;
         return true;
     }
-
     if (result == AURORA_IDENTITY_MACHINE_SECRET_RANDOM_ERROR) {
         aurora_identity_machine_secret_clear(&context->machine_secret);
         return true;
     }
-
     aurora_identity_machine_secret_clear(&context->machine_secret);
     return false;
 }
@@ -368,7 +434,6 @@ static bool initialize_drbg(
     bool instantiated;
 
     if (context == NULL) return false;
-
     context->drbg_ready = false;
     aurora_identity_hmac_drbg_clear(&context->drbg);
     secure_zero(seed_material, sizeof(seed_material));
@@ -395,7 +460,6 @@ static bool initialize_drbg(
         aurora_identity_hmac_drbg_clear(&context->drbg);
         return false;
     }
-
     context->drbg_ready = true;
     return true;
 }
@@ -409,15 +473,12 @@ static bool initialize_hmac_provider(
     bool initialized;
 
     if (context == NULL) return false;
-
     context->hmac_provider_ready = false;
     aurora_identity_hmac_provider_clear(&context->hmac_provider);
     secure_zero(lookup_key, sizeof(lookup_key));
     secure_zero(session_grant_key, sizeof(session_grant_key));
 
-    if (!context->machine_secret_ready) {
-        return true;
-    }
+    if (!context->machine_secret_ready) return true;
 
     if (!aurora_identity_machine_secret_derive_lookup_key(
             &context->machine_secret,
@@ -442,12 +503,10 @@ static bool initialize_hmac_provider(
 
     secure_zero(lookup_key, sizeof(lookup_key));
     secure_zero(session_grant_key, sizeof(session_grant_key));
-
     if (!initialized) {
         aurora_identity_hmac_provider_clear(&context->hmac_provider);
         return false;
     }
-
     context->hmac_provider_ready = true;
     return true;
 }
@@ -456,15 +515,11 @@ static bool initialize_argon2id_provider(
     struct identity_runtime_persistent_context *context
 ) {
     struct aurora_identity_argon2id_limits limits;
-
     if (context == NULL) return false;
 
     context->argon2id_provider_ready = false;
     aurora_identity_argon2id_provider_clear(&context->argon2id_provider);
-
-    if (!context->hmac_provider_ready) {
-        return true;
-    }
+    if (!context->hmac_provider_ready) return true;
 
     secure_zero(&limits, sizeof(limits));
     limits.minimum_memory_kib = 8u;
@@ -485,7 +540,6 @@ static bool initialize_argon2id_provider(
         secure_zero(&limits, sizeof(limits));
         return false;
     }
-
     secure_zero(&limits, sizeof(limits));
     context->argon2id_provider_ready = true;
     return true;
@@ -495,13 +549,9 @@ static bool initialize_identity_core(
     struct identity_runtime_persistent_context *context
 ) {
     if (context == NULL) return false;
-
     context->identity_core_ready = false;
     secure_zero(&context->identity_core, sizeof(context->identity_core));
-
-    if (!context->argon2id_provider_ready) {
-        return true;
-    }
+    if (!context->argon2id_provider_ready) return true;
 
     context->identity_core.crypto =
         aurora_identity_argon2id_provider_crypto_ops(&context->argon2id_provider);
@@ -511,11 +561,9 @@ static bool initialize_identity_core(
         aurora_identity_persistent_store_core_ops(&context->persistent_store);
     context->identity_core.clock.context = NULL;
     context->identity_core.clock.monotonic_ms = runtime_monotonic_ms;
-
     context->identity_core.throttle_policy.free_failures = 2u;
     context->identity_core.throttle_policy.initial_delay_ms = 1000u;
     context->identity_core.throttle_policy.maximum_delay_ms = 8000u;
-
     context->identity_core.creation_policy.kdf.algorithm =
         AURORA_IDENTITY_KDF_ARGON2ID;
     context->identity_core.creation_policy.kdf.parameters_version =
@@ -527,15 +575,46 @@ static bool initialize_identity_core(
     context->identity_core.creation_policy.verifier_size = 32u;
     context->identity_core.creation_policy.identity_record_version = 1u;
     context->identity_core.creation_policy.policy_version = 1u;
-
     context->identity_core_ready = true;
     return true;
+}
+
+static bool initialize_session_grants(
+    struct identity_runtime_persistent_context *context
+) {
+    if (context == NULL) return false;
+    context->session_grant_ready = false;
+    secure_zero(&context->session_grant_core, sizeof(context->session_grant_core));
+    aurora_identity_session_grant_memory_init(&context->session_grant_store);
+
+    if (!context->hmac_provider_ready || !context->drbg_ready) return true;
+
+    context->session_grant_core.random =
+        aurora_identity_hmac_provider_random_ops(&context->hmac_provider);
+    context->session_grant_core.clock.context = NULL;
+    context->session_grant_core.clock.monotonic_ms = runtime_monotonic_ms;
+    context->session_grant_core.crypto =
+        aurora_identity_hmac_provider_session_grant_crypto_ops(
+            &context->hmac_provider);
+    context->session_grant_core.store =
+        aurora_identity_session_grant_memory_ops(&context->session_grant_store);
+    context->session_grant_core.policy.ttl_ms =
+        IDENTITY_RUNTIME_SESSION_GRANT_TTL_MS;
+    context->session_grant_ready = true;
+    return true;
+}
+
+static void clear_auth_job(struct identity_runtime_auth_job *job) {
+    if (job != NULL) secure_zero(job, sizeof(*job));
 }
 
 static void release_persistent_context(
     struct identity_runtime_persistent_context *context
 ) {
     if (context == NULL) return;
+    clear_auth_job(&context->auth_job);
+    aurora_identity_session_grant_memory_clear(&context->session_grant_store);
+    secure_zero(&context->session_grant_core, sizeof(context->session_grant_core));
     secure_zero(&context->identity_core, sizeof(context->identity_core));
     aurora_identity_argon2id_provider_clear(&context->argon2id_provider);
     aurora_identity_hmac_provider_clear(&context->hmac_provider);
@@ -559,7 +638,6 @@ static bool probe_user_memory(void) {
         }
         memory[offset] = (uint8_t)(0xA5u ^ (uint8_t)(offset >> 12));
     }
-
     for (size_t offset = 0u;
          offset < IDENTITY_RUNTIME_MEMORY_PROBE_SIZE;
          offset += IDENTITY_RUNTIME_PAGE_SIZE) {
@@ -569,45 +647,292 @@ static bool probe_user_memory(void) {
             return false;
         }
     }
-
     free((void *)(uintptr_t)memory);
 
-    /*
-     * Keep one mapping alive deliberately. The service-supervisor PMM baseline
-     * check must prove that process_reap() scrubs and reclaims it after exit or
-     * restart, even when userspace never calls free().
-     */
     volatile uint8_t *reap_probe =
         (volatile uint8_t *)malloc(IDENTITY_RUNTIME_REAP_PROBE_SIZE);
     if (reap_probe == NULL) return false;
-
     for (size_t offset = 0u;
          offset < IDENTITY_RUNTIME_REAP_PROBE_SIZE;
          offset += IDENTITY_RUNTIME_PAGE_SIZE) {
         if (reap_probe[offset] != 0u) return false;
         reap_probe[offset] = 0x5Au;
     }
-
     return true;
 }
 
-static bool message_is_valid(
+static bool read_header(
     const struct aurora_sys_ipc_received *received,
     struct aurora_identity_service_message *out
 ) {
     if (received == NULL || out == NULL ||
-        received->length != AURORA_IDENTITY_SERVICE_MESSAGE_SIZE ||
-        received->capability_count != 0u) {
+        received->length < sizeof(*out)) {
         return false;
     }
+    copy_bytes(out, received->data, sizeof(*out));
+    return out->version == AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION;
+}
 
-    const uint8_t *source = received->data;
-    uint8_t *destination = (uint8_t *)out;
-    for (size_t i = 0u; i < sizeof(*out); ++i) {
-        destination[i] = source[i];
+static bool data_only_message_is_valid(
+    const struct aurora_sys_ipc_received *received,
+    const struct aurora_identity_service_message *header
+) {
+    return received != NULL && header != NULL &&
+        received->length == AURORA_IDENTITY_SERVICE_MESSAGE_SIZE &&
+        received->capability_count == 0u;
+}
+
+static bool auth_authority_is_valid(uint64_t handle) {
+    return handle != 0u &&
+        capability_has(handle, AURORA_CAP_IDENTITY_AUTH, AURORA_RIGHT_CONTROL) &&
+        !capability_has(handle, AURORA_CAP_IDENTITY_AUTH, AURORA_RIGHT_TRANSFER);
+}
+
+static bool handle_begin_key_auth(
+    uint64_t endpoint,
+    const struct aurora_sys_ipc_received *received,
+    struct identity_runtime_persistent_context *context
+) {
+    struct aurora_identity_service_begin_key_auth request;
+    secure_zero(&request, sizeof(request));
+
+    if (received == NULL || context == NULL ||
+        received->length != sizeof(request) ||
+        received->capability_count != 1u) {
+        revoke_received_capabilities(received);
+        return send_auth_result(
+            endpoint,
+            0u,
+            AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST,
+            0u,
+            NULL);
     }
 
-    return out->version == AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION;
+    copy_bytes(&request, received->data, sizeof(request));
+    uint64_t authority = received->capabilities[0];
+    bool authorized = auth_authority_is_valid(authority);
+    bool revoked = revoke_capability(authority);
+
+    if (!authorized || !revoked) {
+        uint64_t request_id = request.header.request_id;
+        secure_zero(&request, sizeof(request));
+        return send_auth_result(
+            endpoint,
+            request_id,
+            AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_UNAUTHORIZED,
+            0u,
+            NULL);
+    }
+
+    if (request.header.version != AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION ||
+        request.header.type != AURORA_IDENTITY_SERVICE_BEGIN_KEY_AUTH ||
+        request.header.request_id == 0u ||
+        request.reserved != 0u ||
+        request.key_length == 0u ||
+        request.key_length > AURORA_IDENTITY_SERVICE_KEY_MAX_LEN) {
+        uint64_t request_id = request.header.request_id;
+        secure_zero(&request, sizeof(request));
+        return send_auth_result(
+            endpoint,
+            request_id,
+            AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST,
+            0u,
+            NULL);
+    }
+
+    if (!context->identity_core_ready) {
+        uint64_t request_id = request.header.request_id;
+        secure_zero(&request, sizeof(request));
+        return send_auth_result(
+            endpoint,
+            request_id,
+            AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE,
+            0u,
+            NULL);
+    }
+
+    if (context->auth_job.occupied) {
+        uint64_t request_id = request.header.request_id;
+        secure_zero(&request, sizeof(request));
+        return send_auth_result(
+            endpoint,
+            request_id,
+            AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_BUSY,
+            0u,
+            NULL);
+    }
+
+    clear_auth_job(&context->auth_job);
+    context->auth_job.occupied = true;
+    context->auth_job.request_id = request.header.request_id;
+    context->auth_job.key_length = request.key_length;
+    copy_bytes(
+        context->auth_job.key,
+        request.key,
+        context->auth_job.key_length);
+    uint64_t request_id = request.header.request_id;
+    secure_zero(&request, sizeof(request));
+    return send_message(endpoint, AURORA_IDENTITY_SERVICE_AUTH_PENDING, request_id);
+}
+
+static bool execute_auth_job(
+    uint64_t endpoint,
+    struct identity_runtime_persistent_context *context
+) {
+    struct identity_runtime_auth_job *job = &context->auth_job;
+    struct aurora_identity_auth_result auth = aurora_identity_authenticate_key(
+        &context->identity_core,
+        job->key,
+        job->key_length);
+
+    secure_zero(job->key, sizeof(job->key));
+    job->key_length = 0u;
+
+    if (auth.result == AURORA_IDENTITY_OK) {
+        if (!context->session_grant_ready) {
+            secure_zero(&auth, sizeof(auth));
+            return send_auth_result(
+                endpoint,
+                job->request_id,
+                AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
+                AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE,
+                0u,
+                NULL);
+        }
+
+        struct aurora_identity_session_grant_issue_result grant =
+            aurora_identity_session_grant_issue(
+                &context->session_grant_core,
+                &auth.user_id);
+        secure_zero(&auth, sizeof(auth));
+
+        if (grant.result == AURORA_IDENTITY_SESSION_GRANT_OK) {
+            bool sent = send_auth_result(
+                endpoint,
+                job->request_id,
+                AURORA_IDENTITY_SERVICE_AUTH_STATE_SUCCESS,
+                AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE,
+                0u,
+                grant.token.bytes);
+            secure_zero(&grant, sizeof(grant));
+            return sent;
+        }
+
+        uint32_t public_error =
+            grant.result == AURORA_IDENTITY_SESSION_GRANT_BACKEND_ERROR
+                ? AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE
+                : AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INTERNAL_FAILURE;
+        if (grant.result == AURORA_IDENTITY_SESSION_GRANT_RANDOM_ERROR) {
+            public_error = AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE;
+        }
+        secure_zero(&grant, sizeof(grant));
+        return send_auth_result(
+            endpoint,
+            job->request_id,
+            AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
+            public_error,
+            0u,
+            NULL);
+    }
+
+    if (auth.result == AURORA_IDENTITY_THROTTLED) {
+        uint64_t retry_after_ms = auth.retry_after_ms;
+        secure_zero(&auth, sizeof(auth));
+        return send_auth_result(
+            endpoint,
+            job->request_id,
+            AURORA_IDENTITY_SERVICE_AUTH_STATE_THROTTLED,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_THROTTLED,
+            retry_after_ms,
+            NULL);
+    }
+
+    if (auth.result == AURORA_IDENTITY_BACKEND_ERROR) {
+        secure_zero(&auth, sizeof(auth));
+        return send_auth_result(
+            endpoint,
+            job->request_id,
+            AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE,
+            0u,
+            NULL);
+    }
+
+    if (auth.result == AURORA_IDENTITY_CRYPTO_ERROR ||
+        auth.result == AURORA_IDENTITY_POLICY_ERROR ||
+        auth.result == AURORA_IDENTITY_RANDOM_ERROR) {
+        secure_zero(&auth, sizeof(auth));
+        return send_auth_result(
+            endpoint,
+            job->request_id,
+            AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INTERNAL_FAILURE,
+            0u,
+            NULL);
+    }
+
+    secure_zero(&auth, sizeof(auth));
+    return send_auth_result(
+        endpoint,
+        job->request_id,
+        AURORA_IDENTITY_SERVICE_AUTH_STATE_FAILED,
+        AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_AUTH_FAILED,
+        0u,
+        NULL);
+}
+
+static bool handle_query_auth(
+    uint64_t endpoint,
+    const struct aurora_identity_service_message *request,
+    struct identity_runtime_persistent_context *context
+) {
+    if (request == NULL || context == NULL ||
+        request->request_id == 0u ||
+        !context->auth_job.occupied ||
+        context->auth_job.request_id != request->request_id) {
+        return send_auth_result(
+            endpoint,
+            request == NULL ? 0u : request->request_id,
+            AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST,
+            0u,
+            NULL);
+    }
+
+    bool sent = execute_auth_job(endpoint, context);
+    clear_auth_job(&context->auth_job);
+    return sent;
+}
+
+static bool handle_cancel_auth(
+    uint64_t endpoint,
+    const struct aurora_identity_service_message *request,
+    struct identity_runtime_persistent_context *context
+) {
+    if (request == NULL || context == NULL ||
+        request->request_id == 0u ||
+        !context->auth_job.occupied ||
+        context->auth_job.request_id != request->request_id) {
+        return send_auth_result(
+            endpoint,
+            request == NULL ? 0u : request->request_id,
+            AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST,
+            0u,
+            NULL);
+    }
+
+    uint64_t request_id = context->auth_job.request_id;
+    clear_auth_job(&context->auth_job);
+    return send_message(
+        endpoint,
+        AURORA_IDENTITY_SERVICE_AUTH_CANCELLED,
+        request_id);
 }
 
 int64_t identity_runtime_main(uint64_t initial_rsp) {
@@ -623,11 +948,6 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
         return 1;
     }
 
-    /*
-     * Flat service image pages are executable and intentionally not writable.
-     * Long-lived mutable Identity state therefore belongs in process-owned
-     * anonymous RW memory, not in .data/.bss inside the RX image.
-     */
     struct identity_runtime_persistent_context *persistent_context =
         (struct identity_runtime_persistent_context *)malloc(
             sizeof(struct identity_runtime_persistent_context));
@@ -645,20 +965,17 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
             persistent_context) ||
         !initialize_hmac_provider(persistent_context) ||
         !initialize_argon2id_provider(persistent_context) ||
-        !initialize_identity_core(persistent_context)) {
+        !initialize_identity_core(persistent_context) ||
+        !initialize_session_grants(persistent_context)) {
         release_persistent_context(persistent_context);
         return 1;
     }
 
-    /*
-     * Existing-record authentication remains cryptographically available when
-     * protected Machine Secret state exists even if this boot has no qualified
-     * fresh entropy. In that mode the HMAC/Argon2/core chain is live, while the
-     * provider's random operation fails closed; identity creation, salt/ID
-     * generation and future session-grant issuance therefore cannot fabricate
-     * randomness. A first boot with no Machine Secret and no entropy remains a
-     * valid degraded startup but has no operational Identity core yet.
-     */
+    /* Entropy is bootstrap-only. DRBG state is process-owned after this point. */
+    if (!revoke_capability(startup->entropy_seed)) {
+        release_persistent_context(persistent_context);
+        return 1;
+    }
 
     if (!probe_user_memory()) {
         release_persistent_context(persistent_context);
@@ -684,11 +1001,57 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
         }
 
         secure_zero(&request, sizeof(request));
-        if (!message_is_valid(&received, &request)) {
+        if (!read_header(&received, &request)) {
+            revoke_received_capabilities(&received);
             if (!send_message(
                     startup->ipc_endpoint,
                     AURORA_IDENTITY_SERVICE_ERROR,
                     0u)) {
+                release_persistent_context(persistent_context);
+                return 1;
+            }
+            continue;
+        }
+
+        if (request.type == AURORA_IDENTITY_SERVICE_BEGIN_KEY_AUTH) {
+            if (!handle_begin_key_auth(
+                    startup->ipc_endpoint,
+                    &received,
+                    persistent_context)) {
+                release_persistent_context(persistent_context);
+                return 1;
+            }
+            continue;
+        }
+
+        if (!data_only_message_is_valid(&received, &request)) {
+            revoke_received_capabilities(&received);
+            if (!send_message(
+                    startup->ipc_endpoint,
+                    AURORA_IDENTITY_SERVICE_ERROR,
+                    request.request_id)) {
+                release_persistent_context(persistent_context);
+                return 1;
+            }
+            continue;
+        }
+
+        if (request.type == AURORA_IDENTITY_SERVICE_QUERY_AUTH) {
+            if (!handle_query_auth(
+                    startup->ipc_endpoint,
+                    &request,
+                    persistent_context)) {
+                release_persistent_context(persistent_context);
+                return 1;
+            }
+            continue;
+        }
+
+        if (request.type == AURORA_IDENTITY_SERVICE_CANCEL_AUTH) {
+            if (!handle_cancel_auth(
+                    startup->ipc_endpoint,
+                    &request,
+                    persistent_context)) {
                 release_persistent_context(persistent_context);
                 return 1;
             }
