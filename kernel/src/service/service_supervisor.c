@@ -15,6 +15,16 @@ static void clear_bytes(void *buffer, size_t size) {
     for (size_t i = 0u; i < size; ++i) bytes[i] = 0u;
 }
 
+static bool bytes_equal(const void *left, const void *right, size_t length) {
+    const uint8_t *a = left;
+    const uint8_t *b = right;
+    if (left == NULL || right == NULL) return false;
+    for (size_t i = 0u; i < length; ++i) {
+        if (a[i] != b[i]) return false;
+    }
+    return true;
+}
+
 static bool supervisor_manifest_valid(
     const struct aurora_trusted_service_manifest *manifest
 ) {
@@ -141,6 +151,19 @@ bool service_supervisor_step(struct aurora_service_supervisor *supervisor) {
     return start_instance(supervisor);
 }
 
+bool service_supervisor_send(
+    struct aurora_service_supervisor *supervisor,
+    const void *data,
+    uint32_t length
+) {
+    if (supervisor == NULL ||
+        supervisor->state != AURORA_SERVICE_SUPERVISOR_RUNNING) {
+        return false;
+    }
+
+    return service_bootstrap_send(&supervisor->service, data, length);
+}
+
 bool service_supervisor_receive(
     struct aurora_service_supervisor *supervisor,
     struct aurora_ipc_received *out
@@ -196,34 +219,79 @@ static bool verify_identity_instance_authority(
     );
 }
 
-static bool wait_for_identity_ready(struct aurora_service_supervisor *supervisor) {
-    const uint8_t *expected = identity_service_ready_payload();
-    uint64_t deadline = clock_now_ns() + SERVICE_SUPERVISOR_TEST_TIMEOUT_NS;
+static bool identity_message_matches(
+    const struct aurora_ipc_received *received,
+    uint32_t type,
+    uint64_t request_id
+) {
+    if (received == NULL ||
+        received->length != AURORA_IDENTITY_SERVICE_MESSAGE_SIZE ||
+        received->capability_count != 0u) {
+        return false;
+    }
 
+    const struct aurora_identity_service_message expected = {
+        .version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION,
+        .type = type,
+        .request_id = request_id
+    };
+
+    return bytes_equal(received->data, &expected, sizeof(expected));
+}
+
+static bool send_identity_message(
+    struct aurora_service_supervisor *supervisor,
+    uint32_t type,
+    uint64_t request_id
+) {
+    const struct aurora_identity_service_message message = {
+        .version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION,
+        .type = type,
+        .request_id = request_id
+    };
+
+    return service_supervisor_send(supervisor, &message, sizeof(message));
+}
+
+static bool wait_for_identity_message(
+    struct aurora_service_supervisor *supervisor,
+    uint32_t type,
+    uint64_t request_id
+) {
+    if (supervisor == NULL) return false;
+
+    uint64_t deadline = clock_now_ns() + SERVICE_SUPERVISOR_TEST_TIMEOUT_NS;
     while (clock_now_ns() < deadline) {
         struct aurora_ipc_received received;
         if (service_supervisor_receive(supervisor, &received)) {
-            if (received.length != AURORA_IDENTITY_SERVICE_READY_SIZE ||
-                received.capability_count != 0u) {
-                return false;
-            }
-
-            for (uint32_t i = 0u; i < received.length; ++i) {
-                if (received.data[i] != expected[i]) return false;
-            }
-            return true;
+            return identity_message_matches(&received, type, request_id);
         }
 
         if (supervisor->service.thread != 0u &&
             scheduler_thread_finished(supervisor->service.thread)) {
-            /* The READY message should already be queued; retry receive once. */
-            continue;
+            return false;
         }
 
         arch_idle();
     }
 
     return false;
+}
+
+static bool wait_for_identity_blocked(
+    struct aurora_service_supervisor *supervisor
+) {
+    if (supervisor == NULL || supervisor->service.thread == 0u) return false;
+
+    uint64_t deadline = clock_now_ns() + SERVICE_SUPERVISOR_TEST_TIMEOUT_NS;
+    while (!scheduler_thread_blocked(supervisor->service.thread) &&
+           !scheduler_thread_finished(supervisor->service.thread) &&
+           clock_now_ns() < deadline) {
+        arch_idle();
+    }
+
+    return scheduler_thread_blocked(supervisor->service.thread) &&
+        !scheduler_thread_finished(supervisor->service.thread);
 }
 
 static bool wait_for_terminal(struct aurora_service_supervisor *supervisor) {
@@ -236,6 +304,36 @@ static bool wait_for_terminal(struct aurora_service_supervisor *supervisor) {
     }
 
     return scheduler_thread_finished(supervisor->service.thread);
+}
+
+static bool exercise_identity_request_loop(
+    struct aurora_service_supervisor *supervisor,
+    uint64_t ping_request_id,
+    uint64_t shutdown_request_id
+) {
+    return wait_for_identity_message(
+            supervisor,
+            AURORA_IDENTITY_SERVICE_READY,
+            0u) &&
+        wait_for_identity_blocked(supervisor) &&
+        send_identity_message(
+            supervisor,
+            AURORA_IDENTITY_SERVICE_PING,
+            ping_request_id) &&
+        wait_for_identity_message(
+            supervisor,
+            AURORA_IDENTITY_SERVICE_PONG,
+            ping_request_id) &&
+        wait_for_identity_blocked(supervisor) &&
+        send_identity_message(
+            supervisor,
+            AURORA_IDENTITY_SERVICE_SHUTDOWN,
+            shutdown_request_id) &&
+        wait_for_identity_message(
+            supervisor,
+            AURORA_IDENTITY_SERVICE_SHUTDOWN_ACK,
+            shutdown_request_id) &&
+        wait_for_terminal(supervisor);
 }
 
 bool service_supervisor_self_test(void) {
@@ -266,7 +364,10 @@ bool service_supervisor_self_test(void) {
     }
 
     aurora_process_id first_process_id = supervisor.service.process->id;
-    if (!wait_for_identity_ready(&supervisor) || !wait_for_terminal(&supervisor)) {
+    if (!exercise_identity_request_loop(
+            &supervisor,
+            0x53555050494E4701ull,
+            0x5355505348555401ull)) {
         return false;
     }
 
@@ -285,7 +386,10 @@ bool service_supervisor_self_test(void) {
     }
 
     aurora_process_id second_process_id = supervisor.service.process->id;
-    if (!wait_for_identity_ready(&supervisor) || !wait_for_terminal(&supervisor)) {
+    if (!exercise_identity_request_loop(
+            &supervisor,
+            0x53555050494E4702ull,
+            0x5355505348555402ull)) {
         return false;
     }
 
