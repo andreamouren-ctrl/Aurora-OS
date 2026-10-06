@@ -350,7 +350,19 @@ static const char *login_status_text(void) {
             return "VERIFYING AURORA KEY...";
 
         case AURORA_LOGIN_UNKNOWN_IDENTITY:
-            return "USER NOT FOUND";
+            return "AURORA KEY NOT ACCEPTED";
+
+        case AURORA_LOGIN_CREATE_ENTRY:
+            return "FIRST-USER CREATION";
+
+        case AURORA_LOGIN_CREATING:
+            return "CREATING AURORA IDENTITY...";
+
+        case AURORA_LOGIN_CREATED:
+            return "IDENTITY CREATED - SIGN IN WITH YOUR KEY";
+
+        case AURORA_LOGIN_CREATE_DENIED:
+            return "PROFILE CREATION IS NOT AVAILABLE";
 
         case AURORA_LOGIN_ERROR:
             return "AURORA KEY NOT ACCEPTED";
@@ -361,6 +373,30 @@ static const char *login_status_text(void) {
         case AURORA_LOGIN_IDLE:
         default:
             return "LOCAL OFFLINE ACCESS";
+    }
+}
+
+static const char *login_prompt_text(void) {
+    return login_state == AURORA_LOGIN_CREATE_ENTRY ||
+           login_state == AURORA_LOGIN_CREATING
+        ? "ENTER A NEW AURORA KEY"
+        : "ENTER YOUR AURORA KEY";
+}
+
+static const char *login_instruction_text(void) {
+    switch (login_state) {
+        case AURORA_LOGIN_CREATE_ENTRY:
+            return "PRESS ENTER TO CREATE - ESC TO CANCEL";
+
+        case AURORA_LOGIN_CREATED:
+        case AURORA_LOGIN_CREATE_DENIED:
+            return "PRESS ENTER TO RETURN TO SIGN IN";
+
+        case AURORA_LOGIN_UNKNOWN_IDENTITY:
+            return "";
+
+        default:
+            return "PRESS ENTER TO CONTINUE";
     }
 }
 
@@ -396,21 +432,21 @@ static void login_draw_unknown_identity_dialog(void) {
 
     login_draw_text_centered(
         y + height * 20u / 100u,
-        "CREATE A NEW AURORA PROFILE",
+        "AURORA KEY NOT ACCEPTED",
         normal_scale,
         text
     );
 
     login_draw_text_centered(
         y + height * 44u / 100u,
-        "WITH THIS KEY?",
+        "CREATE A NEW AURORA PROFILE?",
         normal_scale,
         dim
     );
 
     login_draw_text_centered(
         y + height * 69u / 100u,
-        "CREATE     CANCEL",
+        "ENTER CREATE     ESC CANCEL",
         normal_scale,
         border
     );
@@ -454,7 +490,7 @@ void login_ui_render(void) {
 
     login_draw_text_centered(
         login_fb.height * 42u / 100u,
-        "ENTER YOUR AURORA KEY",
+        login_prompt_text(),
         text_scale,
         muted
     );
@@ -490,7 +526,8 @@ void login_ui_render(void) {
         field_width,
         field_height,
         2u,
-        login_state == AURORA_LOGIN_AUTHENTICATING
+        login_state == AURORA_LOGIN_AUTHENTICATING ||
+        login_state == AURORA_LOGIN_CREATING
             ? field_border_active
             : field_border
     );
@@ -516,7 +553,7 @@ void login_ui_render(void) {
     login_draw_text_centered(
         field_y + field_height +
             (login_fb.height >= 900u ? 34u : 24u),
-        "PRESS ENTER TO CONTINUE",
+        login_instruction_text(),
         1u,
         muted
     );
@@ -526,9 +563,12 @@ void login_ui_render(void) {
         login_status_text(),
         1u,
         login_state == AURORA_LOGIN_ERROR ||
-        login_state == AURORA_LOGIN_THROTTLED
+        login_state == AURORA_LOGIN_THROTTLED ||
+        login_state == AURORA_LOGIN_CREATE_DENIED
             ? login_rgb(255, 137, 175)
-            : muted
+            : login_state == AURORA_LOGIN_CREATED
+                ? login_rgb(125, 236, 192)
+                : muted
     );
 
     login_draw_text_centered(
