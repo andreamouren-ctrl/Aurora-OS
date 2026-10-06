@@ -37,6 +37,7 @@ struct identity_runtime_persistent_context {
     struct aurora_identity_hmac_drbg drbg;
     struct aurora_identity_machine_secret machine_secret;
     uint8_t lookup_key[IDENTITY_RUNTIME_LOOKUP_KEY_SIZE];
+    bool persistent_store_ready;
     bool drbg_ready;
     bool machine_secret_ready;
     bool lookup_key_ready;
@@ -145,6 +146,45 @@ static bool send_message(
     ) == 0u;
 }
 
+static bool send_status_response(
+    uint64_t endpoint,
+    uint64_t request_id,
+    const struct identity_runtime_persistent_context *context
+) {
+    if (context == NULL) return false;
+
+    struct aurora_identity_service_status_response response;
+    response.version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION;
+    response.type = AURORA_IDENTITY_SERVICE_STATUS_RESPONSE;
+    response.request_id = request_id;
+    response.flags = 0u;
+
+    if (context->persistent_store_ready) {
+        response.flags |= AURORA_IDENTITY_SERVICE_STATUS_PERSISTENT_STORE_READY;
+    }
+    if (context->drbg_ready) {
+        response.flags |= AURORA_IDENTITY_SERVICE_STATUS_DRBG_READY;
+    }
+    if (context->machine_secret_ready) {
+        response.flags |= AURORA_IDENTITY_SERVICE_STATUS_MACHINE_SECRET_READY;
+    }
+    if (context->lookup_key_ready) {
+        response.flags |= AURORA_IDENTITY_SERVICE_STATUS_LOOKUP_KEY_READY;
+    }
+
+    bool sent = aurora_syscall5(
+        AURORA_SYS_IPC_SEND,
+        endpoint,
+        (uint64_t)(uintptr_t)&response,
+        sizeof(response),
+        0u,
+        0u
+    ) == 0u;
+
+    secure_zero(&response, sizeof(response));
+    return sent;
+}
+
 static bool receive_message(
     uint64_t endpoint,
     struct aurora_sys_ipc_received *received
@@ -228,6 +268,7 @@ static bool open_protected_state(
     struct aurora_identity_protected_state_transport_ops transport;
     if (context == NULL) return false;
 
+    context->persistent_store_ready = false;
     secure_zero(&transport, sizeof(transport));
     if (!identity_runtime_protected_state_transport_init(
             &context->transport_context,
@@ -254,8 +295,10 @@ static bool open_protected_state(
     secure_zero(&io, sizeof(io));
     secure_zero(&transport, sizeof(transport));
 
-    return result == AURORA_IDENTITY_PERSISTENT_OPEN_OK ||
+    context->persistent_store_ready =
+        result == AURORA_IDENTITY_PERSISTENT_OPEN_OK ||
         result == AURORA_IDENTITY_PERSISTENT_OPEN_EMPTY;
+    return context->persistent_store_ready;
 }
 
 static bool instantiate_runtime_drbg(
@@ -573,6 +616,17 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
                     startup->ipc_endpoint,
                     AURORA_IDENTITY_SERVICE_PONG,
                     request.request_id)) {
+                release_persistent_context(persistent_context);
+                return 1;
+            }
+            continue;
+        }
+
+        if (request.type == AURORA_IDENTITY_SERVICE_STATUS) {
+            if (!send_status_response(
+                    startup->ipc_endpoint,
+                    request.request_id,
+                    persistent_context)) {
                 release_persistent_context(persistent_context);
                 return 1;
             }
