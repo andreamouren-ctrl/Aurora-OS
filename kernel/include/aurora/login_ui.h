@@ -20,6 +20,8 @@ void login_ui_init(
 
 bool login_ui_is_initialized(void);
 
+bool login_ui_activate_native_artwork(void);
+
 void login_ui_set_state(
     enum aurora_login_state state
 );

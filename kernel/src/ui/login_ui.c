@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include <aurora/framebuffer.h>
+#include <aurora/identity_graphics.h>
 #include <aurora/login_ui.h>
 
 #define LOGIN_FONT_WIDTH  5u
@@ -212,6 +213,11 @@ static void login_draw_frame(
 }
 
 static void login_draw_background(void) {
+    if (identity_graphics_ready()) {
+        identity_graphics_draw_base();
+        return;
+    }
+
     uint32_t deep_navy = login_rgb(4, 8, 20);
     uint32_t lower_navy = login_rgb(7, 13, 30);
     uint32_t violet_haze = login_rgb(18, 15, 42);
@@ -271,6 +277,10 @@ static void login_draw_background(void) {
 }
 
 static void login_draw_aurora_mark(void) {
+    if (identity_graphics_ready()) {
+        return;
+    }
+
     uint64_t cx = login_fb.width / 2u;
     uint64_t top = login_fb.height * 15u / 100u;
     uint64_t span = login_fb.width >= 1600u ? 180u : 132u;
@@ -523,7 +533,7 @@ void login_ui_render(void) {
 
     login_draw_text_centered(
         login_fb.height * 92u / 100u,
-        "AURORA OS - IDENTITY PREVIEW",
+        "AURORA OS - IDENTITY",
         1u,
         login_rgb(67, 94, 112)
     );
@@ -552,6 +562,20 @@ void login_ui_init(
 
 bool login_ui_is_initialized(void) {
     return login_initialized;
+}
+
+bool login_ui_activate_native_artwork(void) {
+    if (!login_initialized) {
+        return false;
+    }
+
+    if (!identity_graphics_ready() &&
+        !identity_graphics_init(&login_fb)) {
+        return false;
+    }
+
+    login_ui_render();
+    return true;
 }
 
 void login_ui_set_state(

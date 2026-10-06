@@ -24,6 +24,7 @@
 
 static char credential_buffer[AURORA_KEY_MAX_LENGTH + 1u];
 static size_t credential_length;
+static bool native_artwork_attempted;
 
 static void clear_credential(void) {
     for (size_t i = 0u; i < sizeof(credential_buffer); ++i) {
@@ -232,6 +233,7 @@ void login_input_init(void) {
     protected_state_bootstrap_probe();
 
     credential_length = 0u;
+    native_artwork_attempted = false;
 
     for (size_t i = 0u; i < sizeof(credential_buffer); ++i) {
         credential_buffer[i] = '\0';
@@ -249,6 +251,15 @@ void login_input_init(void) {
 }
 
 void login_input_pump(void) {
+    if (!native_artwork_attempted) {
+        native_artwork_attempted = true;
+        if (login_ui_activate_native_artwork()) {
+            log_line("[identity-gui] full-quality PNG artwork active");
+        } else {
+            log_line("[identity-gui] native artwork unavailable; procedural fallback active");
+        }
+    }
+
     synchronize_identity_state();
 
     struct aurora_input_event event;
