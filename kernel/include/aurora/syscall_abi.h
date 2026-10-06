@@ -27,7 +27,8 @@ enum aurora_syscall_number {
     AURORA_SYS_ENTROPY_SEED = 9,
     AURORA_SYS_PROTECTED_STATE_REPLACE_DURABLE = 10,
     AURORA_SYS_USER_MEMORY_ALLOC = 11,
-    AURORA_SYS_USER_MEMORY_FREE = 12
+    AURORA_SYS_USER_MEMORY_FREE = 12,
+    AURORA_SYS_CAP_REVOKE = 13
 };
 
 struct aurora_sys_ipc_transfer {

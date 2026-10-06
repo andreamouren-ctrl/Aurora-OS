@@ -139,6 +139,20 @@ static uint64_t dispatch_cap_check(
     ) ? 1ull : 0ull;
 }
 
+static uint64_t dispatch_cap_revoke(
+    struct aurora_process *process,
+    uint64_t handle
+) {
+    if (process == NULL || handle == AURORA_CAP_INVALID) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    return cap_revoke(
+        &process->capabilities,
+        (aurora_cap_handle)handle
+    ) ? 0ull : AURORA_SYS_RESULT_ERROR;
+}
+
 static struct aurora_ipc_endpoint *lookup_ipc_endpoint(
     struct aurora_process *process,
     uint64_t handle,
@@ -393,6 +407,9 @@ struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
             break;
         case AURORA_SYS_USER_MEMORY_FREE:
             frame->rax = dispatch_user_memory_free(process, frame->rdi);
+            break;
+        case AURORA_SYS_CAP_REVOKE:
+            frame->rax = dispatch_cap_revoke(process, frame->rdi);
             break;
         default:
             frame->rax = AURORA_SYS_RESULT_ERROR;
