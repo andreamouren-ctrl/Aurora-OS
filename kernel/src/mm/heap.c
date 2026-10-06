@@ -29,6 +29,15 @@ static uint64_t align_up_u64(uint64_t value, uint64_t alignment) {
     return (value + (alignment - 1u)) & ~(alignment - 1u);
 }
 
+static void clear_bytes(void *address, size_t size) {
+    volatile uint8_t *bytes = (volatile uint8_t *)address;
+    if (address == NULL) return;
+    while (size != 0u) {
+        *bytes++ = 0u;
+        --size;
+    }
+}
+
 bool kheap_init(void) {
     spinlock_init(&heap_lock);
     heap_cursor = KHEAP_BASE;
@@ -44,6 +53,8 @@ static bool ensure_mapped_locked(uint64_t end) {
     while (mapped_end < target) {
         uint64_t page = pmm_alloc_page();
         if (page == 0u) return false;
+
+        clear_bytes(pmm_phys_to_virt(page), (size_t)AURORA_PAGE_SIZE);
 
         if (!vmm_map_page(mapped_end, page, VMM_FLAG_WRITE)) {
             pmm_free_page(page);
@@ -176,6 +187,7 @@ bool kheap_free_sized(void *address, size_t size) {
     }
 
     bool ok = insert_free_range_locked(start, end);
+    if (ok) clear_bytes(address, size);
     spinlock_unlock_irqrestore(&heap_lock, irq);
     return ok;
 }

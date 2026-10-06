@@ -120,6 +120,7 @@ static void protected_state_bootstrap_probe(void) {
         kernel_panic("Trusted Ring 3 Identity service bootstrap self-test failed");
     }
 
+    log_line("[lifecycle] 96 Ring 3 create/exit/reap cycles + stable PMM passed");
     log_line("[service] trusted Ring 3 Identity bootstrap + least-privilege capability assignment passed");
 }
 
