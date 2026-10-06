@@ -12,12 +12,13 @@
 #include <aurora/usercopy.h>
 #include <aurora/vfs.h>
 
-#define PROBE_HANDLE_OFFSET   8ull
-#define PROBE_RECORD_OFFSET  64ull
-#define PROBE_MISSING_OFFSET 80ull
-#define PROBE_PAYLOAD_OFFSET 96ull
-#define PROBE_READBACK_OFFSET 128ull
-#define PROBE_READBACK_SIZE 32u
+#define PROBE_HANDLE_OFFSET       8ull
+#define PROBE_RECORD_OFFSET      64ull
+#define PROBE_MISSING_OFFSET     80ull
+#define PROBE_PAYLOAD_OFFSET     96ull
+#define PROBE_REPLACEMENT_OFFSET 112ull
+#define PROBE_READBACK_OFFSET    160ull
+#define PROBE_READBACK_SIZE      32u
 
 static struct aurora_protected_state_namespace ring3_probe_state;
 static struct aurora_cap_table ring3_probe_kernel_caps;
@@ -27,6 +28,10 @@ static const char probe_missing_name[] = "missing";
 static const uint8_t probe_payload[] = {
     'A', 'U', 'R', 'O', 'R', 'A', '-', 'P',
     'S', '-', 'R', 'I', 'N', 'G', '3', '!'
+};
+static const uint8_t probe_replacement[] = {
+    'A', 'U', 'R', 'O', 'R', 'A', '-', 'R',
+    'E', 'P', 'L', 'A', 'C', 'E', 'D', '!'
 };
 
 static bool bytes_equal(const uint8_t *left, const uint8_t *right, size_t length) {
@@ -111,6 +116,11 @@ bool protected_state_ring3_self_test(void) {
             sizeof(probe_payload)) ||
         !copy_to_user(
             process,
+            stack_top - PROBE_REPLACEMENT_OFFSET,
+            probe_replacement,
+            sizeof(probe_replacement)) ||
+        !copy_to_user(
+            process,
             stack_top - PROBE_READBACK_OFFSET,
             readback_zero,
             sizeof(readback_zero))) {
@@ -133,26 +143,29 @@ bool protected_state_ring3_self_test(void) {
     if (process_bootstrap_signal(process) !=
             AURORA_USER_PROTECTED_STATE_PROBE_MAGIC ||
         !scheduler_thread_finished(thread) ||
-        process_state(process) != AURORA_PROCESS_EXITED) {
+        process_state(process) != AURORA_PROCESS_EXITED ||
+        process->exit_code != 0) {
         (void)clean_probe_record(kernel_handle);
         return false;
     }
 
-    uint8_t readback[sizeof(probe_payload)];
+    uint8_t readback[sizeof(probe_replacement)];
     if (!copy_from_user(
             process,
             readback,
             stack_top - PROBE_READBACK_OFFSET,
             sizeof(readback)) ||
-        !bytes_equal(readback, probe_payload, sizeof(readback))) {
+        !bytes_equal(readback, probe_replacement, sizeof(readback))) {
         (void)clean_probe_record(kernel_handle);
         return false;
     }
 
-    if (!clean_probe_record(kernel_handle)) return false;
-
-    if (!cap_revoke(&process->capabilities, user_handle) ||
-        !cap_revoke(&ring3_probe_kernel_caps, kernel_handle)) {
+    if (!clean_probe_record(kernel_handle) ||
+        !cap_revoke(&process->capabilities, user_handle) ||
+        !cap_revoke(&ring3_probe_kernel_caps, kernel_handle) ||
+        !scheduler_reap_thread(thread) ||
+        !process_reap(process, NULL) ||
+        !process_release(process)) {
         return false;
     }
 
