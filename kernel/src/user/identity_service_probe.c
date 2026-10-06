@@ -11,11 +11,12 @@
  *   +0  uint32_t ABI version
  *   +8  uint64_t IPC endpoint capability
  *   +16 uint64_t Protected State capability
+ *   +24 uint64_t entropy-seed capability
  *
- * The probe verifies the startup ABI and least-privilege Protected State
+ * The probe verifies startup ABI v2 and least-privilege Protected State
  * authority, publishes a versioned READY message, then remains alive in a
- * blocking IPC loop. It sleeps in AURORA_SYS_IPC_WAIT until a request arrives,
- * receives one fixed-size protocol message, and supports:
+ * blocking IPC loop. The entropy handle is reserved for the real Identity
+ * runtime; a dedicated Ring 3 entropy probe exercises the seed syscall.
  *
  *   PING     -> PONG with the same request_id
  *   SHUTDOWN -> SHUTDOWN_ACK with the same request_id, then clean exit
@@ -24,12 +25,11 @@
  * This is still a runtime probe rather than the final services/identity binary,
  * but it exercises the real long-lived Ring 3 wait/receive/respond lifecycle.
  *
- * The byte image below is assembled from a freestanding x86-64 implementation
- * of that contract. Receive storage is kept at RSP-512 and response storage at
- * RSP-128, both within the process-owned user stack.
+ * Receive storage is kept at RSP-512 and response storage at RSP-128, both
+ * within the process-owned user stack.
  */
 static const uint8_t probe_image[] = {
-    0x83, 0x7c, 0x24, 0xc0, 0x01, 0x0f, 0x85, 0x6e, 0x01, 0x00, 0x00, 0x4c,
+    0x83, 0x7c, 0x24, 0xc0, 0x02, 0x0f, 0x85, 0x6e, 0x01, 0x00, 0x00, 0x4c,
     0x8b, 0x64, 0x24, 0xc8, 0x4c, 0x8b, 0x6c, 0x24, 0xd0, 0x4c, 0x89, 0xef,
     0xbe, 0x0f, 0x00, 0x00, 0x00, 0xba, 0x03, 0x00, 0x00, 0x00, 0xb8, 0x02,
     0x00, 0x00, 0x00, 0x0f, 0x05, 0x48, 0x83, 0xf8, 0x01, 0x0f, 0x85, 0x46,
