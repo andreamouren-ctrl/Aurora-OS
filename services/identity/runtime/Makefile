@@ -5,13 +5,19 @@ OBJCOPY ?= objcopy
 ROOT := ../../..
 BUILD_DIR := $(ROOT)/build/$(ARCH)/identity-runtime
 KERNEL_INCLUDE := $(ROOT)/kernel/include
+IDENTITY_INCLUDE := $(ROOT)/services/identity/include
+IDENTITY_SRC := $(ROOT)/services/identity/src
+RUNTIME_INCLUDE := include
 ELF := $(BUILD_DIR)/identity-service.elf
 BIN := $(BUILD_DIR)/identity-service.bin
 C_OBJECT := $(BUILD_DIR)/main.o
 MEMORY_OBJECT := $(BUILD_DIR)/memory.o
+PROTECTED_STATE_TRANSPORT_OBJECT := $(BUILD_DIR)/protected_state_transport.o
+PERSISTENT_STORE_OBJECT := $(BUILD_DIR)/persistent_store.o
+PERSISTENT_STORE_PROTECTED_STATE_OBJECT := $(BUILD_DIR)/persistent_store_protected_state.o
 ENTRY_OBJECT := $(BUILD_DIR)/entry.o
 
-CPPFLAGS := -I$(KERNEL_INCLUDE)
+CPPFLAGS := -I$(RUNTIME_INCLUDE) -I$(KERNEL_INCLUDE) -I$(IDENTITY_INCLUDE)
 CFLAGS := \
     -target x86_64-unknown-none-elf \
     -std=c11 \
@@ -61,17 +67,26 @@ all: $(BIN)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(C_OBJECT): main.c $(KERNEL_INCLUDE)/aurora/capability_abi.h $(KERNEL_INCLUDE)/aurora/identity_service_protocol.h $(KERNEL_INCLUDE)/aurora/service_abi.h $(KERNEL_INCLUDE)/aurora/syscall_abi.h | $(BUILD_DIR)
+$(C_OBJECT): main.c protected_state_transport.h $(KERNEL_INCLUDE)/aurora/capability_abi.h $(KERNEL_INCLUDE)/aurora/identity_service_protocol.h $(KERNEL_INCLUDE)/aurora/service_abi.h $(KERNEL_INCLUDE)/aurora/syscall_abi.h $(IDENTITY_INCLUDE)/aurora/identity/persistent_store.h $(IDENTITY_INCLUDE)/aurora/identity/persistent_store_protected_state.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c main.c -o $@
 
-$(MEMORY_OBJECT): memory.c $(KERNEL_INCLUDE)/aurora/syscall_abi.h | $(BUILD_DIR)
+$(MEMORY_OBJECT): memory.c $(KERNEL_INCLUDE)/aurora/syscall_abi.h $(RUNTIME_INCLUDE)/string.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c memory.c -o $@
+
+$(PROTECTED_STATE_TRANSPORT_OBJECT): protected_state_transport.c protected_state_transport.h $(KERNEL_INCLUDE)/aurora/syscall_abi.h $(IDENTITY_INCLUDE)/aurora/identity/protected_state_transport.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c protected_state_transport.c -o $@
+
+$(PERSISTENT_STORE_OBJECT): $(IDENTITY_SRC)/persistent_store.c $(IDENTITY_INCLUDE)/aurora/identity/persistent_store.h $(RUNTIME_INCLUDE)/string.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $(IDENTITY_SRC)/persistent_store.c -o $@
+
+$(PERSISTENT_STORE_PROTECTED_STATE_OBJECT): $(IDENTITY_SRC)/persistent_store_protected_state.c $(IDENTITY_INCLUDE)/aurora/identity/persistent_store_protected_state.h $(IDENTITY_INCLUDE)/aurora/identity/protected_state_transport.h $(RUNTIME_INCLUDE)/string.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $(IDENTITY_SRC)/persistent_store_protected_state.c -o $@
 
 $(ENTRY_OBJECT): entry.S | $(BUILD_DIR)
 	$(CC) $(ASMFLAGS) -c entry.S -o $@
 
-$(ELF): $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) linker.ld
-	$(CC) $(LDFLAGS) $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) -o $@
+$(ELF): $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) $(PROTECTED_STATE_TRANSPORT_OBJECT) $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT) linker.ld
+	$(CC) $(LDFLAGS) $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) $(PROTECTED_STATE_TRANSPORT_OBJECT) $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT) -o $@
 
 $(BIN): $(ELF)
 	$(OBJCOPY) -O binary $< $@
