@@ -11,6 +11,12 @@ enum aurora_fs_v2_object_type {
     AURORA_FS_V2_OBJECT_DIRECTORY = 2
 };
 
+enum aurora_fs_v2_lookup_result {
+    AURORA_FS_V2_LOOKUP_ERROR = 0,
+    AURORA_FS_V2_LOOKUP_NOT_FOUND,
+    AURORA_FS_V2_LOOKUP_FOUND
+};
+
 struct aurora_fs_v2_directory_entry {
     uint64_t object_id;
     enum aurora_fs_v2_object_type type;
@@ -32,6 +38,14 @@ bool aurora_fs_v2_directory_append_entry(
     uint64_t child_object_id,
     enum aurora_fs_v2_object_type child_type,
     const char *name
+);
+
+enum aurora_fs_v2_lookup_result aurora_fs_v2_directory_lookup_entry_result(
+    struct aurora_fs_v2_allocator *allocator,
+    const struct aurora_fs_v2_format_geometry *geometry,
+    uint64_t directory_inode_index,
+    const char *name,
+    struct aurora_fs_v2_directory_entry *out_entry
 );
 
 bool aurora_fs_v2_directory_lookup_entry(
