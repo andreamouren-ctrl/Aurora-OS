@@ -12,6 +12,7 @@ This directory contains the canonical project documentation. Documents are group
 - [`RING3_IPC_SYSCALLS.md`](RING3_IPC_SYSCALLS.md) — capability-checked Ring 3 IPC send/receive ABI and runtime probe.
 - [`TRUSTED_SERVICE_BOOTSTRAP.md`](TRUSTED_SERVICE_BOOTSTRAP.md) — pre-Service-Manager trusted Ring 3 bootstrap and Identity Service capability-assignment proof.
 - [`PROCESS_LIFECYCLE.md`](PROCESS_LIFECYCLE.md) — Ring 3 process/thread resource ownership, reap ordering, heap scrubbing and lifecycle-reuse verification.
+- [`SERVICE_SUPERVISION.md`](SERVICE_SUPERVISION.md) — bounded trusted-service restart policy, fresh capability reconstruction and supervisor runtime gate.
 
 ## Security and permissions
 
