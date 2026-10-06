@@ -73,10 +73,11 @@ static bool build_staging_name(
     return true;
 }
 
-static bool authorize_record_write(
+static bool authorize_record(
     struct aurora_cap_table *table,
     aurora_cap_handle handle,
-    struct aurora_protected_state_namespace *state
+    struct aurora_protected_state_namespace *state,
+    uint64_t rights
 ) {
     struct aurora_capability_view view;
     if (table == NULL || state == NULL || !state->initialized ||
@@ -84,7 +85,7 @@ static bool authorize_record_write(
             table,
             handle,
             AURORA_CAP_PROTECTED_STATE,
-            AURORA_RIGHT_WRITE,
+            rights,
             &view)) {
         return false;
     }
@@ -99,6 +100,46 @@ static bool cleanup_staging(const char *path) {
     if (lookup == AURORA_VFS_LOOKUP_NOT_FOUND) return true;
     if (lookup != AURORA_VFS_LOOKUP_FOUND) return false;
     return vfs_remove(path);
+}
+
+enum aurora_protected_state_read_result protected_state_read_record(
+    struct aurora_cap_table *table,
+    aurora_cap_handle handle,
+    struct aurora_protected_state_namespace *state,
+    const char *relative_path,
+    void *buffer,
+    size_t capacity,
+    size_t *out_length
+) {
+    char path[AURORA_VFS_PATH_MAX];
+    struct aurora_vfs_stat stat;
+
+    if (!authorize_record(table, handle, state, AURORA_RIGHT_READ) ||
+        buffer == NULL || out_length == NULL || capacity == 0u ||
+        capacity > AURORA_PROTECTED_STATE_RECORD_MAX ||
+        !build_record_path(state, relative_path, path)) {
+        return AURORA_PROTECTED_STATE_READ_ERROR;
+    }
+
+    *out_length = 0u;
+    enum aurora_vfs_lookup_result lookup = vfs_stat_result(path, &stat);
+    if (lookup == AURORA_VFS_LOOKUP_NOT_FOUND)
+        return AURORA_PROTECTED_STATE_READ_NOT_FOUND;
+    if (lookup != AURORA_VFS_LOOKUP_FOUND ||
+        stat.type != AURORA_VFS_NODE_FILE ||
+        stat.size == 0u || stat.size > (uint64_t)capacity ||
+        stat.size > AURORA_PROTECTED_STATE_RECORD_MAX) {
+        return AURORA_PROTECTED_STATE_READ_ERROR;
+    }
+
+    size_t length = 0u;
+    if (!vfs_read_file(path, buffer, capacity, &length) ||
+        (uint64_t)length != stat.size) {
+        return AURORA_PROTECTED_STATE_READ_ERROR;
+    }
+
+    *out_length = length;
+    return AURORA_PROTECTED_STATE_READ_OK;
 }
 
 enum aurora_protected_state_create_once_result
@@ -117,7 +158,7 @@ protected_state_create_record_once_durable(
     enum aurora_protected_state_create_once_result result =
         AURORA_PROTECTED_STATE_CREATE_ONCE_ERROR;
 
-    if (!authorize_record_write(table, handle, state) ||
+    if (!authorize_record(table, handle, state, AURORA_RIGHT_WRITE) ||
         data == NULL || length == 0u ||
         length > AURORA_PROTECTED_STATE_RECORD_MAX ||
         !build_record_path(state, relative_path, target) ||
