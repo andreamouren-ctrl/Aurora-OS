@@ -8,6 +8,7 @@ KERNEL_INCLUDE := $(ROOT)/kernel/include
 ELF := $(BUILD_DIR)/identity-service.elf
 BIN := $(BUILD_DIR)/identity-service.bin
 C_OBJECT := $(BUILD_DIR)/main.o
+MEMORY_OBJECT := $(BUILD_DIR)/memory.o
 ENTRY_OBJECT := $(BUILD_DIR)/entry.o
 
 CPPFLAGS := -I$(KERNEL_INCLUDE)
@@ -64,11 +65,14 @@ $(BUILD_DIR):
 $(C_OBJECT): main.c $(KERNEL_INCLUDE)/aurora/capability_abi.h $(KERNEL_INCLUDE)/aurora/identity_service_protocol.h $(KERNEL_INCLUDE)/aurora/service_abi.h $(KERNEL_INCLUDE)/aurora/syscall_abi.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c main.c -o $@
 
+$(MEMORY_OBJECT): memory.c | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c memory.c -o $@
+
 $(ENTRY_OBJECT): entry.S | $(BUILD_DIR)
 	$(CC) $(ASMFLAGS) -c entry.S -o $@
 
-$(ELF): $(ENTRY_OBJECT) $(C_OBJECT) linker.ld
-	$(CC) $(CFLAGS) $(LDFLAGS) $(ENTRY_OBJECT) $(C_OBJECT) -o $@
+$(ELF): $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) linker.ld
+	$(CC) $(CFLAGS) $(LDFLAGS) $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) -o $@
 
 $(BIN): $(ELF)
 	$(OBJCOPY) -O binary $< $@
