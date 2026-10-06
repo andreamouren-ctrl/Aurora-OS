@@ -19,9 +19,11 @@
 void *malloc(size_t size);
 void free(void *pointer);
 
-static struct identity_runtime_protected_state_context protected_state_context;
-static struct aurora_identity_persistent_protected_state_store protected_state_store;
-static struct aurora_identity_persistent_store persistent_store;
+struct identity_runtime_persistent_context {
+    struct identity_runtime_protected_state_context transport_context;
+    struct aurora_identity_persistent_protected_state_store protected_state_store;
+    struct aurora_identity_persistent_store persistent_store;
+};
 
 static void secure_zero(void *buffer, size_t size) {
     volatile uint8_t *bytes = (volatile uint8_t *)buffer;
@@ -202,29 +204,46 @@ static bool validate_authority(
     return true;
 }
 
-static bool open_persistent_store(uint64_t protected_state_handle) {
+static bool open_persistent_store(
+    uint64_t protected_state_handle,
+    struct identity_runtime_persistent_context *context
+) {
     struct aurora_identity_protected_state_transport_ops transport;
+    if (context == NULL) return false;
+
+    secure_zero(&transport, sizeof(transport));
     if (!identity_runtime_protected_state_transport_init(
-            &protected_state_context,
+            &context->transport_context,
             protected_state_handle,
             &transport) ||
         !aurora_identity_persistent_protected_state_store_init(
-            &protected_state_store,
+            &context->protected_state_store,
             &transport)) {
         secure_zero(&transport, sizeof(transport));
         return false;
     }
 
     struct aurora_identity_persistent_io_ops io =
-        aurora_identity_persistent_protected_state_io_ops(&protected_state_store);
+        aurora_identity_persistent_protected_state_io_ops(
+            &context->protected_state_store);
     enum aurora_identity_persistent_open_result result =
-        aurora_identity_persistent_store_open(&persistent_store, &io);
+        aurora_identity_persistent_store_open(
+            &context->persistent_store,
+            &io);
 
     secure_zero(&io, sizeof(io));
     secure_zero(&transport, sizeof(transport));
 
     return result == AURORA_IDENTITY_PERSISTENT_OPEN_OK ||
         result == AURORA_IDENTITY_PERSISTENT_OPEN_EMPTY;
+}
+
+static void release_persistent_context(
+    struct identity_runtime_persistent_context *context
+) {
+    if (context == NULL) return;
+    secure_zero(context, sizeof(*context));
+    free(context);
 }
 
 static bool seed_runtime(uint64_t entropy_handle) {
@@ -320,7 +339,23 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
         return 1;
     }
 
-    if (!open_persistent_store(startup->protected_state)) return 1;
+    /*
+     * Flat service image pages are executable and intentionally not writable.
+     * Long-lived mutable Identity state therefore belongs in process-owned
+     * anonymous RW memory, not in .data/.bss inside the RX image.
+     */
+    struct identity_runtime_persistent_context *persistent_context =
+        (struct identity_runtime_persistent_context *)malloc(
+            sizeof(struct identity_runtime_persistent_context));
+    if (persistent_context == NULL) return 1;
+    secure_zero(persistent_context, sizeof(*persistent_context));
+
+    if (!open_persistent_store(
+            startup->protected_state,
+            persistent_context)) {
+        release_persistent_context(persistent_context);
+        return 1;
+    }
 
     /*
      * Service startup is allowed when the platform currently has no qualified
@@ -335,12 +370,16 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
      */
     (void)seed_runtime(startup->entropy_seed);
 
-    if (!probe_user_memory()) return 1;
+    if (!probe_user_memory()) {
+        release_persistent_context(persistent_context);
+        return 1;
+    }
 
     if (!send_message(
             startup->ipc_endpoint,
             AURORA_IDENTITY_SERVICE_READY,
             0u)) {
+        release_persistent_context(persistent_context);
         return 1;
     }
 
@@ -350,6 +389,7 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
 
         if (!wait_for_message(startup->ipc_endpoint) ||
             !receive_message(startup->ipc_endpoint, &received)) {
+            release_persistent_context(persistent_context);
             return 1;
         }
 
@@ -359,6 +399,7 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
                     startup->ipc_endpoint,
                     AURORA_IDENTITY_SERVICE_ERROR,
                     0u)) {
+                release_persistent_context(persistent_context);
                 return 1;
             }
             continue;
@@ -369,23 +410,26 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
                     startup->ipc_endpoint,
                     AURORA_IDENTITY_SERVICE_PONG,
                     request.request_id)) {
+                release_persistent_context(persistent_context);
                 return 1;
             }
             continue;
         }
 
         if (request.type == AURORA_IDENTITY_SERVICE_SHUTDOWN) {
-            return send_message(
+            bool sent = send_message(
                 startup->ipc_endpoint,
                 AURORA_IDENTITY_SERVICE_SHUTDOWN_ACK,
-                request.request_id
-            ) ? 0 : 1;
+                request.request_id);
+            release_persistent_context(persistent_context);
+            return sent ? 0 : 1;
         }
 
         if (!send_message(
                 startup->ipc_endpoint,
                 AURORA_IDENTITY_SERVICE_ERROR,
                 request.request_id)) {
+            release_persistent_context(persistent_context);
             return 1;
         }
     }
