@@ -6,6 +6,7 @@
 
 #include <aurora/capability_abi.h>
 #include <aurora/identity/argon2id_provider.h>
+#include <aurora/identity/core.h>
 #include <aurora/identity/crypto_foundation.h>
 #include <aurora/identity/crypto_provider.h>
 #include <aurora/identity/machine_secret.h>
@@ -39,10 +40,12 @@ struct identity_runtime_persistent_context {
     struct aurora_identity_hmac_drbg drbg;
     struct aurora_identity_hmac_provider hmac_provider;
     struct aurora_identity_argon2id_provider argon2id_provider;
+    struct aurora_identity_core identity_core;
     bool machine_secret_ready;
     bool drbg_ready;
     bool hmac_provider_ready;
     bool argon2id_provider_ready;
+    bool identity_core_ready;
 };
 
 static void secure_zero(void *buffer, size_t size) {
@@ -52,6 +55,19 @@ static void secure_zero(void *buffer, size_t size) {
         *bytes++ = 0u;
         --size;
     }
+}
+
+static uint64_t aurora_syscall0(uint64_t number) {
+    register uint64_t rax __asm__("rax") = number;
+
+    __asm__ volatile (
+        "syscall"
+        : "+a"(rax)
+        :
+        : "rcx", "r11", "memory"
+    );
+
+    return rax;
 }
 
 static uint64_t aurora_syscall2(uint64_t number, uint64_t a1, uint64_t a2) {
@@ -280,6 +296,13 @@ static bool entropy_fill_random(
     ) == 0u;
 }
 
+static bool runtime_monotonic_ms(void *context, uint64_t *out_now_ms) {
+    (void)context;
+    if (out_now_ms == NULL) return false;
+    *out_now_ms = aurora_syscall0(AURORA_SYS_CLOCK_NS) / UINT64_C(1000000);
+    return true;
+}
+
 static bool initialize_machine_secret(
     uint64_t entropy_handle,
     struct identity_runtime_persistent_context *context
@@ -382,6 +405,7 @@ static bool initialize_hmac_provider(
 ) {
     uint8_t lookup_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE];
     uint8_t session_grant_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE];
+    struct aurora_identity_hmac_drbg *drbg;
     bool initialized;
 
     if (context == NULL) return false;
@@ -391,7 +415,7 @@ static bool initialize_hmac_provider(
     secure_zero(lookup_key, sizeof(lookup_key));
     secure_zero(session_grant_key, sizeof(session_grant_key));
 
-    if (!context->machine_secret_ready || !context->drbg_ready) {
+    if (!context->machine_secret_ready) {
         return true;
     }
 
@@ -409,11 +433,12 @@ static bool initialize_hmac_provider(
         return false;
     }
 
+    drbg = context->drbg_ready ? &context->drbg : NULL;
     initialized = aurora_identity_hmac_provider_init(
         &context->hmac_provider,
         lookup_key,
         session_grant_key,
-        &context->drbg);
+        drbg);
 
     secure_zero(lookup_key, sizeof(lookup_key));
     secure_zero(session_grant_key, sizeof(session_grant_key));
@@ -466,10 +491,52 @@ static bool initialize_argon2id_provider(
     return true;
 }
 
+static bool initialize_identity_core(
+    struct identity_runtime_persistent_context *context
+) {
+    if (context == NULL) return false;
+
+    context->identity_core_ready = false;
+    secure_zero(&context->identity_core, sizeof(context->identity_core));
+
+    if (!context->argon2id_provider_ready) {
+        return true;
+    }
+
+    context->identity_core.crypto =
+        aurora_identity_argon2id_provider_crypto_ops(&context->argon2id_provider);
+    context->identity_core.random =
+        aurora_identity_hmac_provider_random_ops(&context->hmac_provider);
+    context->identity_core.store =
+        aurora_identity_persistent_store_core_ops(&context->persistent_store);
+    context->identity_core.clock.context = NULL;
+    context->identity_core.clock.monotonic_ms = runtime_monotonic_ms;
+
+    context->identity_core.throttle_policy.free_failures = 2u;
+    context->identity_core.throttle_policy.initial_delay_ms = 1000u;
+    context->identity_core.throttle_policy.maximum_delay_ms = 8000u;
+
+    context->identity_core.creation_policy.kdf.algorithm =
+        AURORA_IDENTITY_KDF_ARGON2ID;
+    context->identity_core.creation_policy.kdf.parameters_version =
+        AURORA_IDENTITY_ARGON2ID_PARAMETERS_VERSION_1;
+    context->identity_core.creation_policy.kdf.memory_kib = 65536u;
+    context->identity_core.creation_policy.kdf.time_cost = 3u;
+    context->identity_core.creation_policy.kdf.parallelism = 1u;
+    context->identity_core.creation_policy.salt_size = 16u;
+    context->identity_core.creation_policy.verifier_size = 32u;
+    context->identity_core.creation_policy.identity_record_version = 1u;
+    context->identity_core.creation_policy.policy_version = 1u;
+
+    context->identity_core_ready = true;
+    return true;
+}
+
 static void release_persistent_context(
     struct identity_runtime_persistent_context *context
 ) {
     if (context == NULL) return;
+    secure_zero(&context->identity_core, sizeof(context->identity_core));
     aurora_identity_argon2id_provider_clear(&context->argon2id_provider);
     aurora_identity_hmac_provider_clear(&context->hmac_provider);
     aurora_identity_hmac_drbg_clear(&context->drbg);
@@ -577,18 +644,20 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
             startup->entropy_seed,
             persistent_context) ||
         !initialize_hmac_provider(persistent_context) ||
-        !initialize_argon2id_provider(persistent_context)) {
+        !initialize_argon2id_provider(persistent_context) ||
+        !initialize_identity_core(persistent_context)) {
         release_persistent_context(persistent_context);
         return 1;
     }
 
     /*
-     * Service startup is allowed when the platform currently has no qualified
-     * entropy source. Existing protected state is still opened fail-closed,
-     * while random-producing operations remain unavailable when drbg_ready is
-     * false. The HMAC and Argon2id providers become ready only after the stable
-     * machine secret and live DRBG are available, so authentication primitives
-     * are never bootstrapped from fabricated or volatile secrets.
+     * Existing-record authentication remains cryptographically available when
+     * protected Machine Secret state exists even if this boot has no qualified
+     * fresh entropy. In that mode the HMAC/Argon2/core chain is live, while the
+     * provider's random operation fails closed; identity creation, salt/ID
+     * generation and future session-grant issuance therefore cannot fabricate
+     * randomness. A first boot with no Machine Secret and no entropy remains a
+     * valid degraded startup but has no operational Identity core yet.
      */
 
     if (!probe_user_memory()) {
