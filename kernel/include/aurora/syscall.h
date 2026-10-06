@@ -23,7 +23,8 @@ enum aurora_syscall_number {
     AURORA_SYS_IPC_SEND = 4,
     AURORA_SYS_IPC_RECEIVE = 5,
     AURORA_SYS_PROTECTED_STATE_READ = 6,
-    AURORA_SYS_PROTECTED_STATE_CREATE_ONCE = 7
+    AURORA_SYS_PROTECTED_STATE_CREATE_ONCE = 7,
+    AURORA_SYS_IPC_WAIT = 8
 };
 
 struct aurora_sys_ipc_transfer {
