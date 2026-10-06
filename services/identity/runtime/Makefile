@@ -64,7 +64,7 @@ $(BUILD_DIR):
 $(C_OBJECT): main.c $(KERNEL_INCLUDE)/aurora/capability_abi.h $(KERNEL_INCLUDE)/aurora/identity_service_protocol.h $(KERNEL_INCLUDE)/aurora/service_abi.h $(KERNEL_INCLUDE)/aurora/syscall_abi.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c main.c -o $@
 
-$(MEMORY_OBJECT): memory.c | $(BUILD_DIR)
+$(MEMORY_OBJECT): memory.c $(KERNEL_INCLUDE)/aurora/syscall_abi.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c memory.c -o $@
 
 $(ENTRY_OBJECT): entry.S | $(BUILD_DIR)
