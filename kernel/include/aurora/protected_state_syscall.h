@@ -23,4 +23,13 @@ uint64_t protected_state_syscall_create_once(
     uint64_t length
 );
 
+uint64_t protected_state_syscall_replace_durable(
+    struct aurora_process *process,
+    uint64_t handle,
+    uint64_t user_name,
+    uint64_t name_length,
+    uint64_t user_data,
+    uint64_t length
+);
+
 #endif
