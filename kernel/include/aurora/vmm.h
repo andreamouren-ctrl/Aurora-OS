@@ -34,6 +34,20 @@ bool vmm_address_space_create(
     struct vmm_address_space *out
 );
 
+/* True only when no online CPU currently has this address space active. */
+bool vmm_address_space_is_quiescent(
+    const struct vmm_address_space *space
+);
+
+/*
+ * Destroys only the private user page-table hierarchy of a quiescent address
+ * space. Leaf physical frames are owned by the mapping creator and are never
+ * freed implicitly here. The shared kernel half is preserved.
+ */
+bool vmm_address_space_destroy(
+    struct vmm_address_space *space
+);
+
 bool vmm_activate(
     struct vmm_address_space *space
 );
