@@ -1,5 +1,6 @@
 ARCH ?= x86_64
 CC := clang
+LD := ld
 PYTHON ?= python3
 
 ROOT := ..
@@ -12,11 +13,16 @@ BOOT_ASSET := assets/boot/aurora_boot.idx8
 BOOT_ASSET_TOOL := $(ROOT)/scripts/prepare-boot-asset.py
 BOOT_ASSET_OBJ := $(BUILD_DIR)/src/ui/boot_asset.o
 
+IDENTITY_RUNTIME_DIR := $(ROOT)/services/identity/runtime
+IDENTITY_RUNTIME_BIN := $(ROOT)/build/$(ARCH)/identity-runtime/identity-service.bin
+IDENTITY_RUNTIME_OBJ := $(BUILD_DIR)/identity-service.bin.o
+
 C_SRC := $(shell find src -type f -name '*.c' | LC_ALL=C sort)
 ASM_SRC := $(shell find src -type f -name '*.S' | LC_ALL=C sort)
 
 OBJ := $(patsubst %.c,$(BUILD_DIR)/%.o,$(C_SRC)) \
-       $(patsubst %.S,$(BUILD_DIR)/%.o,$(ASM_SRC))
+       $(patsubst %.S,$(BUILD_DIR)/%.o,$(ASM_SRC)) \
+       $(IDENTITY_RUNTIME_OBJ)
 
 DEP := $(patsubst %.c,$(BUILD_DIR)/%.d,$(C_SRC))
 
@@ -71,6 +77,14 @@ $(BOOT_ASSET): $(BOOT_ASSET_SOURCES) $(BOOT_ASSET_TOOL)
 
 $(BOOT_ASSET_OBJ): $(BOOT_ASSET)
 
+$(IDENTITY_RUNTIME_BIN):
+	$(MAKE) -C "$(IDENTITY_RUNTIME_DIR)" ARCH=$(ARCH)
+
+$(IDENTITY_RUNTIME_OBJ): $(IDENTITY_RUNTIME_BIN)
+	@mkdir -p "$(dir $@)"
+	cd "$(dir $(IDENTITY_RUNTIME_BIN))" && \
+		$(LD) -r -b binary "$(notdir $(IDENTITY_RUNTIME_BIN))" -o "$(abspath $@)"
+
 $(OUTPUT): $(OBJ) $(ROOT)/linker/x86_64.ld
 	@mkdir -p "$(dir $@)"
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJ) -o "$@"
@@ -86,4 +100,5 @@ $(BUILD_DIR)/%.o: %.S
 -include $(DEP)
 
 clean:
+	$(MAKE) -C "$(IDENTITY_RUNTIME_DIR)" ARCH=$(ARCH) clean
 	rm -rf "$(ROOT)/build/$(ARCH)/kernel" "$(OUTPUT)" "$(BOOT_ASSET)"

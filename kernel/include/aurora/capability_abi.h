@@ -1,0 +1,46 @@
+#ifndef AURORA_CAPABILITY_ABI_H
+#define AURORA_CAPABILITY_ABI_H
+
+#include <stdint.h>
+
+typedef uint64_t aurora_cap_handle;
+
+#define AURORA_CAP_INVALID ((aurora_cap_handle)0)
+
+enum aurora_cap_type {
+    AURORA_CAP_NONE = 0,
+    AURORA_CAP_MEMORY,
+    AURORA_CAP_FILE,
+    AURORA_CAP_DEVICE,
+    AURORA_CAP_IPC_ENDPOINT,
+    AURORA_CAP_PROCESS,
+    AURORA_CAP_THREAD,
+    AURORA_CAP_NETWORK,
+    AURORA_CAP_MICROPHONE,
+    AURORA_CAP_CAMERA,
+    AURORA_CAP_DISPLAY,
+    AURORA_CAP_CLIPBOARD,
+    AURORA_CAP_LOCATION,
+    AURORA_CAP_NOTIFICATION,
+    AURORA_CAP_SYSTEM,
+    AURORA_CAP_PROTECTED_STATE,
+    AURORA_CAP_ENTROPY,
+    AURORA_CAP_TYPE_COUNT
+};
+
+enum aurora_cap_right {
+    AURORA_RIGHT_READ       = 1ull << 0,
+    AURORA_RIGHT_WRITE      = 1ull << 1,
+    AURORA_RIGHT_EXECUTE    = 1ull << 2,
+    AURORA_RIGHT_MAP        = 1ull << 3,
+    AURORA_RIGHT_CONTROL    = 1ull << 4,
+    AURORA_RIGHT_TRANSFER   = 1ull << 5,
+    AURORA_RIGHT_CONNECT    = 1ull << 6,
+    AURORA_RIGHT_LISTEN     = 1ull << 7,
+    AURORA_RIGHT_ENUMERATE  = 1ull << 8,
+    AURORA_RIGHT_BACKGROUND = 1ull << 9,
+    AURORA_RIGHT_NOTIFY     = 1ull << 10,
+    AURORA_RIGHT_DEVICE_IO  = 1ull << 11
+};
+
+#endif

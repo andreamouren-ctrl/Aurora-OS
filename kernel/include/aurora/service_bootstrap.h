@@ -10,17 +10,7 @@
 #include <aurora/process.h>
 #include <aurora/protected_state.h>
 #include <aurora/scheduler.h>
-
-#define AURORA_SERVICE_STARTUP_ABI_VERSION 2u
-#define AURORA_SERVICE_STARTUP_STACK_OFFSET 64u
-
-struct aurora_service_startup_block {
-    uint32_t abi_version;
-    uint32_t flags;
-    aurora_cap_handle ipc_endpoint;
-    aurora_cap_handle protected_state;
-    aurora_cap_handle entropy_seed;
-};
+#include <aurora/service_abi.h>
 
 struct aurora_trusted_service_manifest {
     const char *name;
