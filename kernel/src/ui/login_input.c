@@ -25,6 +25,9 @@
 static char credential_buffer[AURORA_KEY_MAX_LENGTH + 1u];
 static size_t credential_length;
 static bool native_artwork_attempted;
+static bool create_offer_active;
+static bool create_entry_mode;
+static bool creation_notice_active;
 
 static void clear_credential(void) {
     for (size_t i = 0u; i < sizeof(credential_buffer); ++i) {
@@ -55,18 +58,27 @@ static void synchronize_identity_state(void) {
     switch (identity_client_state()) {
         case AURORA_IDENTITY_CLIENT_AUTH_FAILED:
             clear_credential();
-            login_ui_set_state(AURORA_LOGIN_ERROR);
+            create_offer_active = true;
+            create_entry_mode = false;
+            creation_notice_active = false;
+            login_ui_set_state(AURORA_LOGIN_UNKNOWN_IDENTITY);
             identity_client_reset_result();
             return;
 
         case AURORA_IDENTITY_CLIENT_THROTTLED:
             clear_credential();
+            create_offer_active = false;
+            create_entry_mode = false;
+            creation_notice_active = false;
             login_ui_set_state(AURORA_LOGIN_THROTTLED);
             identity_client_reset_result();
             return;
 
         case AURORA_IDENTITY_CLIENT_VERIFIED:
             clear_credential();
+            create_offer_active = false;
+            create_entry_mode = false;
+            creation_notice_active = false;
             /*
              * Identity verification succeeded, but Aurora does not yet have the
              * Session Manager that consumes the opaque grant and establishes a
@@ -76,9 +88,35 @@ static void synchronize_identity_state(void) {
             login_ui_set_state(AURORA_LOGIN_AUTHENTICATING);
             return;
 
+        case AURORA_IDENTITY_CLIENT_CREATING:
+            login_ui_set_state(AURORA_LOGIN_CREATING);
+            return;
+
+        case AURORA_IDENTITY_CLIENT_CREATED:
+            clear_credential();
+            create_offer_active = false;
+            create_entry_mode = false;
+            creation_notice_active = true;
+            login_ui_set_state(AURORA_LOGIN_CREATED);
+            identity_client_reset_result();
+            return;
+
+        case AURORA_IDENTITY_CLIENT_CREATE_EXISTS:
+        case AURORA_IDENTITY_CLIENT_CREATE_DENIED:
+            clear_credential();
+            create_offer_active = false;
+            create_entry_mode = false;
+            creation_notice_active = true;
+            login_ui_set_state(AURORA_LOGIN_CREATE_DENIED);
+            identity_client_reset_result();
+            return;
+
         case AURORA_IDENTITY_CLIENT_UNAVAILABLE:
         case AURORA_IDENTITY_CLIENT_ERROR:
             clear_credential();
+            create_offer_active = false;
+            create_entry_mode = false;
+            creation_notice_active = false;
             login_ui_set_state(AURORA_LOGIN_ERROR);
             return;
 
@@ -96,13 +134,46 @@ static void synchronize_identity_state(void) {
 static void handle_pressed_key(
     enum aurora_key_code key
 ) {
-    if (identity_client_state() == AURORA_IDENTITY_CLIENT_AUTHENTICATING ||
-        identity_client_state() == AURORA_IDENTITY_CLIENT_VERIFIED) {
+    enum aurora_identity_client_state state = identity_client_state();
+    if (state == AURORA_IDENTITY_CLIENT_AUTHENTICATING ||
+        state == AURORA_IDENTITY_CLIENT_VERIFIED ||
+        state == AURORA_IDENTITY_CLIENT_CREATING) {
+        return;
+    }
+
+    if (create_offer_active) {
+        if (key == AURORA_KEY_ESCAPE) {
+            create_offer_active = false;
+            clear_credential();
+            identity_client_reset_result();
+            login_ui_set_state(AURORA_LOGIN_IDLE);
+        } else if (key == AURORA_KEY_ENTER) {
+            create_offer_active = false;
+            create_entry_mode = true;
+            creation_notice_active = false;
+            clear_credential();
+            identity_client_reset_result();
+            login_ui_set_state(AURORA_LOGIN_CREATE_ENTRY);
+        }
+        return;
+    }
+
+    if (creation_notice_active) {
+        if (key == AURORA_KEY_ENTER || key == AURORA_KEY_ESCAPE) {
+            creation_notice_active = false;
+            create_entry_mode = false;
+            clear_credential();
+            identity_client_reset_result();
+            login_ui_set_state(AURORA_LOGIN_IDLE);
+        }
         return;
     }
 
     if (key == AURORA_KEY_ESCAPE) {
         clear_credential();
+        create_offer_active = false;
+        create_entry_mode = false;
+        creation_notice_active = false;
         identity_client_reset_result();
         login_ui_set_state(AURORA_LOGIN_IDLE);
         return;
@@ -116,7 +187,10 @@ static void handle_pressed_key(
         }
 
         identity_client_reset_result();
-        login_ui_set_state(AURORA_LOGIN_IDLE);
+        login_ui_set_state(
+            create_entry_mode
+                ? AURORA_LOGIN_CREATE_ENTRY
+                : AURORA_LOGIN_IDLE);
         return;
     }
 
@@ -126,16 +200,26 @@ static void handle_pressed_key(
             return;
         }
 
-        if (!identity_client_begin_key_auth(
+        bool submitted = create_entry_mode
+            ? identity_client_begin_create(
                 credential_buffer,
-                credential_length)) {
+                credential_length)
+            : identity_client_begin_key_auth(
+                credential_buffer,
+                credential_length);
+
+        if (!submitted) {
             clear_credential();
+            create_entry_mode = false;
             login_ui_set_state(AURORA_LOGIN_ERROR);
             return;
         }
 
         clear_credential();
-        login_ui_set_state(AURORA_LOGIN_AUTHENTICATING);
+        login_ui_set_state(
+            create_entry_mode
+                ? AURORA_LOGIN_CREATING
+                : AURORA_LOGIN_AUTHENTICATING);
         return;
     }
 
@@ -151,7 +235,10 @@ static void handle_pressed_key(
     credential_buffer[credential_length] = '\0';
 
     login_ui_set_masked_length(credential_length);
-    login_ui_set_state(AURORA_LOGIN_IDLE);
+    login_ui_set_state(
+        create_entry_mode
+            ? AURORA_LOGIN_CREATE_ENTRY
+            : AURORA_LOGIN_IDLE);
 }
 
 static void protected_state_bootstrap_probe(void) {
@@ -234,6 +321,9 @@ void login_input_init(void) {
 
     credential_length = 0u;
     native_artwork_attempted = false;
+    create_offer_active = false;
+    create_entry_mode = false;
+    creation_notice_active = false;
 
     for (size_t i = 0u; i < sizeof(credential_buffer); ++i) {
         credential_buffer[i] = '\0';
