@@ -12,6 +12,10 @@ _Static_assert(
     AURORA_SYS_PROTECTED_STATE_IO_MAX <= AURORA_PROTECTED_STATE_RECORD_MAX,
     "Ring 3 Protected State I/O bound exceeds kernel record bound"
 );
+_Static_assert(
+    AURORA_SYS_PROTECTED_STATE_NAME_MAX < AURORA_VFS_PATH_MAX,
+    "Ring 3 Protected State record names must fit the VFS path contract"
+);
 
 static void secure_zero(void *buffer, size_t length) {
     volatile uint8_t *bytes = buffer;
