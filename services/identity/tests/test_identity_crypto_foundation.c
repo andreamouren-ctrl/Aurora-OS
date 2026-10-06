@@ -179,11 +179,51 @@ static bool test_provider_domains_and_random(void) {
     return true;
 }
 
+static bool test_provider_entropy_degraded_mode(void) {
+    struct aurora_identity_hmac_provider provider;
+    struct aurora_identity_random_ops random_ops;
+    uint8_t lookup_key[32];
+    uint8_t session_key[32];
+    uint8_t lookup_tag[32];
+    uint8_t random_bytes[16];
+    static const char normalized_key[] = "AUR7K4PN9Q2XM6D";
+    size_t i;
+
+    for (i = 0u; i < sizeof(lookup_key); ++i) {
+        lookup_key[i] = (uint8_t)i;
+        session_key[i] = (uint8_t)(32u + i);
+    }
+    memset(&provider, 0, sizeof(provider));
+    memset(lookup_tag, 0, sizeof(lookup_tag));
+    memset(random_bytes, 0, sizeof(random_bytes));
+
+    CHECK(aurora_identity_hmac_provider_init(
+        &provider, lookup_key, session_key, NULL));
+    CHECK(provider.initialized);
+    CHECK(provider.drbg == NULL);
+    CHECK(aurora_identity_hmac_provider_derive_lookup_tag(
+        &provider,
+        normalized_key,
+        sizeof(normalized_key) - 1u,
+        lookup_tag));
+
+    random_ops = aurora_identity_hmac_provider_random_ops(&provider);
+    CHECK(!random_ops.fill_random(
+        random_ops.context,
+        random_bytes,
+        sizeof(random_bytes)));
+
+    aurora_identity_hmac_provider_clear(&provider);
+    CHECK(!provider.initialized);
+    return true;
+}
+
 int main(void) {
     if (!test_sha256_vectors() ||
         !test_hmac_vectors() ||
         !test_hmac_drbg_known_answer() ||
-        !test_provider_domains_and_random()) {
+        !test_provider_domains_and_random() ||
+        !test_provider_entropy_degraded_mode()) {
         return 1;
     }
 
