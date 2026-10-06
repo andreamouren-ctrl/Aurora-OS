@@ -3,6 +3,7 @@
 #include <aurora/bootstrap_probe.h>
 #include <aurora/entropy.h>
 #include <aurora/entropy_ring3_probe.h>
+#include <aurora/identity_auth_probe.h>
 #include <aurora/input.h>
 #include <aurora/ipc_wait_probe.h>
 #include <aurora/log.h>
@@ -74,10 +75,10 @@ static void handle_pressed_key(
         login_ui_set_state(AURORA_LOGIN_AUTHENTICATING);
 
         /*
-         * The production Aurora Identity Service is not connected to the login
-         * surface yet. Do not fabricate an account lookup or verifier result in
-         * kernel space. Wipe the submitted secret and keep the bootstrap login
-         * fail-closed until the real service protocol is wired in.
+         * The production Aurora Identity Service protocol now has a validated
+         * Ring 3 key-auth path, but the framebuffer login surface does not yet
+         * own a production client endpoint/authority lifecycle. Keep the UI
+         * fail-closed until the Session Manager client is wired in.
          */
         clear_credential();
         login_ui_set_state(AURORA_LOGIN_ERROR);
@@ -125,6 +126,12 @@ static void protected_state_bootstrap_probe(void) {
 
     log_line("[service] trusted Ring 3 Identity bootstrap + least-privilege capability assignment passed");
     log_line("[identity-service] long-lived blocking IPC request loop passed");
+
+    if (!identity_auth_ring3_self_test()) {
+        kernel_panic("Ring 3 Identity key-auth protocol self-test failed");
+    }
+
+    log_line("[identity-auth] capability-authorized BEGIN/QUERY/CANCEL protocol passed");
 
     if (!service_supervisor_self_test()) {
         kernel_panic("Trusted Ring 3 service supervisor restart self-test failed");
