@@ -22,6 +22,11 @@ struct aurora_identity_hmac_provider {
  * The provider keys must come from protected system state. In particular the
  * lookup key must remain stable across reboot or existing Aurora Key lookup
  * tags would no longer be reproducible. This API never fabricates those keys.
+ *
+ * drbg may be NULL when the platform currently has no qualified fresh entropy.
+ * Keyed lookup/session-tag operations remain available in that degraded mode;
+ * every operation that requires fresh randomness must fail closed until an
+ * instantiated DRBG is attached by a later provider initialization.
  */
 bool aurora_identity_hmac_provider_init(
     struct aurora_identity_hmac_provider *provider,
