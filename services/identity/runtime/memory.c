@@ -1,4 +1,21 @@
 #include <stddef.h>
+#include <stdint.h>
+
+#include <aurora/syscall_abi.h>
+
+static uint64_t runtime_syscall1(uint64_t number, uint64_t a1) {
+    register uint64_t rax __asm__("rax") = number;
+    register uint64_t rdi __asm__("rdi") = a1;
+
+    __asm__ volatile (
+        "syscall"
+        : "+a"(rax)
+        : "D"(rdi)
+        : "rcx", "r11", "memory"
+    );
+
+    return rax;
+}
 
 void *memset(void *destination, int value, size_t length) {
     unsigned char *dst = (unsigned char *)destination;
@@ -38,4 +55,27 @@ int memcmp(const void *left, const void *right, size_t length) {
     }
 
     return 0;
+}
+
+void *malloc(size_t size) {
+    if (size == 0u ||
+        (uint64_t)size > AURORA_SYS_USER_MEMORY_MAX_ALLOCATION_BYTES) {
+        return NULL;
+    }
+
+    uint64_t result = runtime_syscall1(
+        AURORA_SYS_USER_MEMORY_ALLOC,
+        (uint64_t)size
+    );
+
+    if (result == AURORA_SYS_RESULT_ERROR || result == 0u) return NULL;
+    return (void *)(uintptr_t)result;
+}
+
+void free(void *pointer) {
+    if (pointer == NULL) return;
+    (void)runtime_syscall1(
+        AURORA_SYS_USER_MEMORY_FREE,
+        (uint64_t)(uintptr_t)pointer
+    );
 }
