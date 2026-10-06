@@ -4,6 +4,7 @@
 #include <aurora/arch.h>
 #include <aurora/clock.h>
 #include <aurora/identity_service_probe.h>
+#include <aurora/process_lifecycle_probe.h>
 #include <aurora/service_bootstrap.h>
 #include <aurora/usercopy.h>
 
@@ -205,5 +206,16 @@ bool service_bootstrap_self_test(void) {
         return false;
     }
 
-    return true;
+    struct aurora_process *probe_process = identity_probe_service.process;
+    aurora_thread_id probe_thread = identity_probe_service.thread;
+
+    if (!scheduler_reap_thread(probe_thread) ||
+        process_live_thread_count(probe_process) != 0u ||
+        !process_reap(probe_process, NULL) ||
+        !process_release(probe_process)) {
+        return false;
+    }
+
+    clear_bytes(&identity_probe_service, sizeof(identity_probe_service));
+    return process_lifecycle_self_test();
 }
