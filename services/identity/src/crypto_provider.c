@@ -59,7 +59,7 @@ bool aurora_identity_hmac_provider_init(
     const uint8_t session_grant_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE],
     struct aurora_identity_hmac_drbg *drbg) {
     if (provider == NULL || lookup_key == NULL || session_grant_key == NULL ||
-        drbg == NULL || !drbg->instantiated) {
+        (drbg != NULL && !drbg->instantiated)) {
         return false;
     }
 
@@ -132,7 +132,7 @@ bool aurora_identity_hmac_provider_fill_random(
         (struct aurora_identity_hmac_provider *)context;
 
     if (provider == NULL || !provider->initialized || provider->drbg == NULL ||
-        buffer == NULL || size == 0u) {
+        !provider->drbg->instantiated || buffer == NULL || size == 0u) {
         return false;
     }
 

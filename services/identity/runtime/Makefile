@@ -16,6 +16,7 @@ BIN := $(BUILD_DIR)/identity-service.bin
 C_OBJECT := $(BUILD_DIR)/main.o
 MEMORY_OBJECT := $(BUILD_DIR)/memory.o
 PROTECTED_STATE_TRANSPORT_OBJECT := $(BUILD_DIR)/protected_state_transport.o
+CORE_OBJECT := $(BUILD_DIR)/identity_core.o
 CRYPTO_FOUNDATION_OBJECT := $(BUILD_DIR)/crypto_foundation.o
 CRYPTO_PROVIDER_OBJECT := $(BUILD_DIR)/crypto_provider.o
 ARGON2ID_PROVIDER_OBJECT := $(BUILD_DIR)/argon2id_provider.o
@@ -102,7 +103,7 @@ all: $(BIN)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(C_OBJECT): main.c protected_state_transport.h $(KERNEL_INCLUDE)/aurora/capability_abi.h $(KERNEL_INCLUDE)/aurora/identity_service_protocol.h $(KERNEL_INCLUDE)/aurora/service_abi.h $(KERNEL_INCLUDE)/aurora/syscall_abi.h $(IDENTITY_INCLUDE)/aurora/identity/argon2id_provider.h $(IDENTITY_INCLUDE)/aurora/identity/crypto_foundation.h $(IDENTITY_INCLUDE)/aurora/identity/crypto_provider.h $(IDENTITY_INCLUDE)/aurora/identity/machine_secret.h $(IDENTITY_INCLUDE)/aurora/identity/machine_secret_protected_state.h $(IDENTITY_INCLUDE)/aurora/identity/persistent_store.h $(IDENTITY_INCLUDE)/aurora/identity/persistent_store_protected_state.h | $(BUILD_DIR)
+$(C_OBJECT): main.c protected_state_transport.h $(KERNEL_INCLUDE)/aurora/capability_abi.h $(KERNEL_INCLUDE)/aurora/identity_service_protocol.h $(KERNEL_INCLUDE)/aurora/service_abi.h $(KERNEL_INCLUDE)/aurora/syscall_abi.h $(IDENTITY_INCLUDE)/aurora/identity/core.h $(IDENTITY_INCLUDE)/aurora/identity/argon2id_provider.h $(IDENTITY_INCLUDE)/aurora/identity/crypto_foundation.h $(IDENTITY_INCLUDE)/aurora/identity/crypto_provider.h $(IDENTITY_INCLUDE)/aurora/identity/machine_secret.h $(IDENTITY_INCLUDE)/aurora/identity/machine_secret_protected_state.h $(IDENTITY_INCLUDE)/aurora/identity/persistent_store.h $(IDENTITY_INCLUDE)/aurora/identity/persistent_store_protected_state.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) -I$(ARGON2_VENDOR_INCLUDE) $(CFLAGS) -c main.c -o $@
 
 $(MEMORY_OBJECT): memory.c $(KERNEL_INCLUDE)/aurora/syscall_abi.h $(RUNTIME_INCLUDE)/string.h $(RUNTIME_INCLUDE)/stdlib.h | $(BUILD_DIR)
@@ -110,6 +111,9 @@ $(MEMORY_OBJECT): memory.c $(KERNEL_INCLUDE)/aurora/syscall_abi.h $(RUNTIME_INCL
 
 $(PROTECTED_STATE_TRANSPORT_OBJECT): protected_state_transport.c protected_state_transport.h $(KERNEL_INCLUDE)/aurora/syscall_abi.h $(IDENTITY_INCLUDE)/aurora/identity/protected_state_transport.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c protected_state_transport.c -o $@
+
+$(CORE_OBJECT): $(IDENTITY_SRC)/core.c $(IDENTITY_INCLUDE)/aurora/identity/core.h $(RUNTIME_INCLUDE)/string.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $(IDENTITY_SRC)/core.c -o $@
 
 $(CRYPTO_FOUNDATION_OBJECT): $(IDENTITY_SRC)/crypto_foundation.c $(IDENTITY_INCLUDE)/aurora/identity/crypto_foundation.h $(RUNTIME_INCLUDE)/string.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $(IDENTITY_SRC)/crypto_foundation.c -o $@
@@ -150,8 +154,8 @@ $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT): $(IDENTITY_SRC)/persistent_store_pro
 $(ENTRY_OBJECT): entry.S | $(BUILD_DIR)
 	$(CC) $(ASMFLAGS) -c entry.S -o $@
 
-$(ELF): $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) $(PROTECTED_STATE_TRANSPORT_OBJECT) $(CRYPTO_FOUNDATION_OBJECT) $(CRYPTO_PROVIDER_OBJECT) $(ARGON2ID_PROVIDER_OBJECT) $(ARGON2_REF_OBJECTS) $(MACHINE_SECRET_OBJECT) $(MACHINE_SECRET_CODEC_OBJECT) $(MACHINE_SECRET_PROTECTED_STATE_OBJECT) $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT) linker.ld
-	$(CC) $(LDFLAGS) $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) $(PROTECTED_STATE_TRANSPORT_OBJECT) $(CRYPTO_FOUNDATION_OBJECT) $(CRYPTO_PROVIDER_OBJECT) $(ARGON2ID_PROVIDER_OBJECT) $(ARGON2_REF_OBJECTS) $(MACHINE_SECRET_OBJECT) $(MACHINE_SECRET_CODEC_OBJECT) $(MACHINE_SECRET_PROTECTED_STATE_OBJECT) $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT) -o $@
+$(ELF): $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) $(PROTECTED_STATE_TRANSPORT_OBJECT) $(CORE_OBJECT) $(CRYPTO_FOUNDATION_OBJECT) $(CRYPTO_PROVIDER_OBJECT) $(ARGON2ID_PROVIDER_OBJECT) $(ARGON2_REF_OBJECTS) $(MACHINE_SECRET_OBJECT) $(MACHINE_SECRET_CODEC_OBJECT) $(MACHINE_SECRET_PROTECTED_STATE_OBJECT) $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT) linker.ld
+	$(CC) $(LDFLAGS) $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) $(PROTECTED_STATE_TRANSPORT_OBJECT) $(CORE_OBJECT) $(CRYPTO_FOUNDATION_OBJECT) $(CRYPTO_PROVIDER_OBJECT) $(ARGON2ID_PROVIDER_OBJECT) $(ARGON2_REF_OBJECTS) $(MACHINE_SECRET_OBJECT) $(MACHINE_SECRET_CODEC_OBJECT) $(MACHINE_SECRET_PROTECTED_STATE_OBJECT) $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT) -o $@
 
 $(BIN): $(ELF)
 	$(OBJCOPY) -O binary $< $@
