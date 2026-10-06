@@ -1,7 +1,7 @@
 # Aurora OS Protected System State
 
-Status: **kernel foundation with fail-closed durable create-once record publication**  
-Version: **0.3**
+Status: **kernel foundation with fail-closed durable records and a bounded Ring 3 bridge**  
+Version: **0.4**
 
 ## Purpose
 
@@ -39,7 +39,7 @@ Current rights are:
 - `WRITE` — create, write, truncate, durability-sync, and publish create-once records;
 - `CONTROL` — rename or remove records.
 
-`TRANSFER` is deliberately not accepted by `protected_state_grant()` in this foundation. The future Service Manager must make any cross-process authority assignment explicit rather than allowing a service to hand privileged system-state authority to arbitrary applications.
+`TRANSFER` is deliberately not accepted by `protected_state_grant()`. A future Service Manager must make any cross-process authority assignment explicit rather than allowing a service to hand privileged system-state authority to arbitrary applications.
 
 ## Filesystem boundary
 
@@ -56,7 +56,7 @@ with root ownership and mode `0700`. Files created through the Protected State A
 
 Filesystem metadata is defense in depth. The canonical authorization decision is the typed capability bound to the namespace.
 
-At this stage direct VFS functions remain privileged kernel APIs. They are not exposed as an unrestricted Ring 3 pathname interface. When Aurora later exposes general file syscalls/brokers, `/system/.protected` must remain excluded from ordinary pathname access; user space must reach protected state only through an explicitly authorized system service path.
+Direct VFS functions remain privileged kernel APIs. Aurora does not expose an unrestricted Ring 3 pathname syscall for `/system/.protected`.
 
 ## Fail-closed storage lookup
 
@@ -97,6 +97,72 @@ The staging name is deterministic and publication is serialized inside the kerne
 
 This primitive is intentionally different from a generic atomic-replace operation. The transactional Identity database still needs a separately specified durable replacement primitive before its rotating dual-slot snapshots move onto Protected State.
 
+## Bounded Ring 3 record bridge
+
+Aurora exposes a deliberately narrow Ring 3 bridge for service processes that already hold a Protected State capability. The bridge does **not** expose general VFS pathname operations.
+
+Two syscalls are currently defined:
+
+```text
+AURORA_SYS_PROTECTED_STATE_READ = 6
+AURORA_SYS_PROTECTED_STATE_CREATE_ONCE = 7
+```
+
+Both calls authorize against the current process capability table. The capability must be type `AURORA_CAP_PROTECTED_STATE`, must be bound to the exact namespace object, and must contain the required right.
+
+### READ
+
+Register ABI:
+
+```text
+rax = 6
+rdi = protected-state capability handle
+rsi = user pointer to record name
+rdx = record-name byte length
+r10 = user output buffer
+r8  = output capacity
+```
+
+Results:
+
+- `0..AURORA_SYS_PROTECTED_STATE_IO_MAX` — exact byte length read;
+- `AURORA_SYS_RESULT_NOT_FOUND` — clean `NOT_FOUND` lookup;
+- `AURORA_SYS_RESULT_ERROR` — capability, usercopy, metadata, bounds, I/O, or other failure.
+
+### CREATE_ONCE
+
+Register ABI:
+
+```text
+rax = 7
+rdi = protected-state capability handle
+rsi = user pointer to record name
+rdx = record-name byte length
+r10 = user pointer to complete record bytes
+r8  = record byte length
+```
+
+Results:
+
+- `0` — record durably published;
+- `AURORA_SYS_RESULT_EXISTS` — final record was positively observed as already present;
+- `AURORA_SYS_RESULT_ERROR` — any other failure.
+
+### ABI bounds
+
+The current service bridge intentionally uses smaller limits than the internal Protected State maximum:
+
+```text
+record name <= 64 bytes
+record I/O   <= 512 bytes
+```
+
+This is sufficient for the 84-byte Aurora Identity Machine Secret record while keeping kernel syscall stack buffers bounded. The limits can be revised only through an explicit ABI change.
+
+Record names use explicit lengths, embedded NUL bytes are rejected, and the normal Protected State relative-name validator still rejects separators, traversal names and control characters. User buffers are accessed only through checked usercopy. Temporary kernel buffers that may contain record bytes are explicitly zeroed before syscall return after data has been copied in or read from storage.
+
+The Ring 3 bridge intentionally exposes no remove, rename, truncate, generic write, namespace creation or capability-transfer operation. The service process receives only the rights needed by policy.
+
 ## Fail-closed behavior
 
 Protected State operations fail if any of the following is true:
@@ -108,27 +174,33 @@ Protected State operations fail if any of the following is true:
 - the requested record name attempts pathname traversal or escape;
 - a create-once record is empty or exceeds the bounded record limit;
 - a required lookup returns `ERROR` instead of `FOUND` or `NOT_FOUND` as expected;
+- checked usercopy fails;
 - the backing VFS mutation/read/sync fails.
 
 No operation falls back to ordinary unrestricted VFS access.
 
 ## Runtime verification
 
-When `/system` is available, the bootstrap runtime self-test verifies:
+When `/system` is available, bootstrap first verifies the kernel Protected State capability boundary and then runs a real Ring 3 process through the record syscall bridge.
 
-- namespace preparation on AuroraFS;
-- full read/write/control capability access;
-- read-only access succeeds for reads and fails for writes;
-- invalid handles fail;
-- a capability for another namespace fails;
-- traversal/absolute-name attempts fail;
-- rename/truncate/fsync work through the gate;
-- revocation immediately removes authority;
-- the self-test namespace can be cleaned without removing the canonical `.protected` parent.
+The Ring 3 probe receives a process-local Protected State capability with only `READ | WRITE` rights and verifies:
 
-AuroraFS separately runtime-verifies the namespace transaction and recovery behavior used by durable create-once publication. The VFS/AuroraFS tri-state lookup gate is runtime-covered by existing filesystem/VFS smoke tests. A later Ring 3 Protected State bridge milestone will exercise `protected_state_create_record_once_durable()` end-to-end through a user-space capability.
+1. an invalid capability returns `ERROR`;
+2. reading a cleanly absent record returns `NOT_FOUND`;
+3. first create-once publication succeeds;
+4. repeated publication returns `EXISTS` rather than overwriting;
+5. a subsequent read returns the exact persisted byte count and payload;
+6. the process reaches the normal SYSCALL/SYSRET and EXIT path.
 
-If `/system` is unavailable, Aurora continues booting and reports that the runtime self-test was skipped. Absence of a system disk must not itself become a kernel panic.
+The kernel test harness keeps `CONTROL` authority separately only to clean the dedicated `ring3-bridge` test namespace afterward. The Ring 3 process never receives `CONTROL`.
+
+Successful runtime verification logs:
+
+```text
+[ring3-protected-state] capability-gated record syscall probe passed
+```
+
+If `/system` is unavailable, Protected State runtime tests are skipped. Absence of a system disk must not itself become a kernel panic.
 
 ## Identity integration
 
@@ -143,22 +215,24 @@ The intended Identity layout is conceptually:
     ...
 ```
 
-The future Aurora Identity Service will receive the namespace capability from trusted system policy. Ordinary applications will not.
+The Aurora Identity Machine Secret layer already has a service-side transport adapter with `read_record` and `create_record_once_durable` operations. The Ring 3 bridge now supplies matching kernel primitives for a future Identity Service process.
 
-The Machine Secret's Protected State adapter can map its `create_record_once_durable` transport operation onto this kernel primitive once the Ring 3 bridge is installed. The Identity database remains separate until durable atomic replacement is available.
+This does **not** yet mean the live login path uses the Identity Service. A trusted service/bootstrap manager still has to instantiate the long-lived Identity process, bind the `identity` namespace, grant its non-transferable capability, and connect login/session IPC to it.
+
+The mutable Identity database remains separate until durable atomic replacement is available.
 
 ## Security limits
 
-This foundation protects against unauthorized running software only to the extent that Aurora's capability and future syscall/broker boundaries are respected.
+This foundation protects against unauthorized running software only to the extent that Aurora's capability and syscall boundaries are respected.
 
 It does **not** yet provide:
 
 - TPM or secure-hardware sealing;
 - encryption of protected records at rest;
 - resistance to an offline attacker with unrestricted raw-disk access;
-- a production Service Manager that grants the Identity capability;
-- Ring 3 Protected State syscalls/bridge;
+- a production Service Manager that launches/restarts Identity and grants its namespace capability;
+- resource reclamation required for restartable long-lived services;
 - a generic durable atomic-replace primitive for mutable transactional service state;
-- generic VFS syscall filtering, because unrestricted pathname syscalls do not yet exist.
+- general filesystem syscall mediation, which remains a separate future subsystem.
 
 These are separate future hardening/integration stages.
