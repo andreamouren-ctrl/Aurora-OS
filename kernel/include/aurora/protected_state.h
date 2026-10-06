@@ -135,6 +135,23 @@ protected_state_create_record_once_durable(
     size_t length
 );
 
+/*
+ * Publish a complete mutable record using a durable staging file. If the
+ * target already exists it is removed only after the staging image has been
+ * fully written and flushed. A crash may therefore leave the target absent,
+ * but can never expose a partially written target. This primitive is intended
+ * for redundant schemes such as the Identity dual-slot store, where another
+ * independently valid slot remains authoritative during replacement.
+ */
+bool protected_state_replace_record_durable(
+    struct aurora_cap_table *table,
+    aurora_cap_handle handle,
+    struct aurora_protected_state_namespace *state,
+    const char *relative_path,
+    const void *data,
+    size_t length
+);
+
 bool protected_state_self_test(void);
 
 #endif
