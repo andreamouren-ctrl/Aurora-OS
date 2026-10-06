@@ -114,7 +114,7 @@ static bool preflight_owned_pages(const struct aurora_process *process) {
         }
     }
 
-    return true;
+    return process_user_memory_preflight(process);
 }
 
 static void free_owned_pages(struct aurora_process *process) {
@@ -134,6 +134,7 @@ static void free_owned_pages(struct aurora_process *process) {
         pmm_free_page(physical);
     }
 
+    process_user_memory_reap(process);
     process->image_page_count = 0u;
     process->stack_page_count = 0u;
 }
@@ -175,6 +176,7 @@ struct aurora_process *process_create_image(
     process->state = AURORA_PROCESS_RUNNING;
 
     cap_table_init(&process->capabilities);
+    spinlock_init(&process->anonymous_lock);
 
     if (!vmm_address_space_create(&process->address_space)) {
         discard_new_process(process);
