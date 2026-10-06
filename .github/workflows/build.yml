@@ -125,6 +125,7 @@ jobs:
           grep -F "[aurorafs-v2] mounted at /system via common filesystem framework" "$SERIAL_LOG"
           grep -F "[vfs] AuroraFS v2 mounted-path mutation routing verified" "$SERIAL_LOG"
           grep -F "[protected-state] capability-gated /system state self-test passed" "$SERIAL_LOG"
+          grep -F "[service-supervisor] bounded Identity restart + fresh capability bootstrap passed" "$SERIAL_LOG"
 
           if ! grep -F \
             "[kernel] M1 user-space bootstrap reached successfully" \
@@ -248,6 +249,7 @@ jobs:
           grep -F "[aurorafs-v2] mounted at /system via common filesystem framework" "$ATA_SERIAL_LOG"
           grep -F "[vfs] AuroraFS v2 mounted-path mutation routing verified" "$ATA_SERIAL_LOG"
           grep -F "[protected-state] capability-gated /system state self-test passed" "$ATA_SERIAL_LOG"
+          grep -F "[service-supervisor] bounded Identity restart + fresh capability bootstrap passed" "$ATA_SERIAL_LOG"
           grep -F "[partition] discovered: 2" "$ATA_SERIAL_LOG"
           grep -F "[fs] detected FAT32 on partition 1" "$ATA_SERIAL_LOG"
           grep -F "[fat32] external image mounted read-only" "$ATA_SERIAL_LOG"
@@ -296,6 +298,7 @@ jobs:
           grep -F "[aurorafs-v2] mounted at /system via common filesystem framework" "$ATA_SERIAL_LOG_2"
           grep -F "[vfs] AuroraFS v2 mounted-path mutation routing verified" "$ATA_SERIAL_LOG_2"
           grep -F "[protected-state] capability-gated /system state self-test passed" "$ATA_SERIAL_LOG_2"
+          grep -F "[service-supervisor] bounded Identity restart + fresh capability bootstrap passed" "$ATA_SERIAL_LOG_2"
           grep -F "[fat32] external file read verified" "$ATA_SERIAL_LOG_2"
           grep -F "[fat32] VFAT long Unicode filename verified" "$ATA_SERIAL_LOG_2"
           grep -F "[vfs] FAT32 mounted-path routing verified" "$ATA_SERIAL_LOG_2"
