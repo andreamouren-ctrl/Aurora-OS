@@ -1,6 +1,6 @@
 # Aurora Trusted Service Supervision
 
-Status: **implemented foundation; runtime gate pending CI for the current PR**
+Status: **runtime verified in QEMU CI**
 
 ## Purpose
 
@@ -80,6 +80,8 @@ Expected success marker:
 [service-supervisor] bounded Identity restart + fresh capability bootstrap passed
 ```
 
+The marker has been observed in the four-CPU q35 BIOS smoke path and in both the first and second ATA/AuroraFS boot paths. This verifies the QEMU software path; it is not real-hardware certification.
+
 ## Security properties
 
 This foundation establishes:
@@ -109,4 +111,4 @@ Still missing:
 
 ## Next Identity step
 
-Once the runtime supervisor gate is green, the next Identity milestone should replace the one-shot probe behavior with a small long-lived Ring 3 request loop using blocking IPC, then begin routing real Identity requests through that service boundary. Login/session integration should remain later than that service-runtime proof.
+With the supervisor runtime gate green, the next Identity milestone is to replace the one-shot probe behavior with a small long-lived Ring 3 request loop using blocking IPC, then begin routing real Identity requests through that service boundary. Login/session integration should remain later than that service-runtime proof.
