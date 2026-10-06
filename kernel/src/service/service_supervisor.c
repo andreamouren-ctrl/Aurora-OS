@@ -210,6 +210,33 @@ static bool verify_identity_instance_authority(
         return false;
     }
 
+    if (!cap_lookup(
+            &supervisor->service.process->capabilities,
+            supervisor->service.entropy_seed_handle,
+            AURORA_CAP_ENTROPY,
+            AURORA_RIGHT_READ,
+            &view) ||
+        cap_lookup(
+            &supervisor->service.process->capabilities,
+            supervisor->service.entropy_seed_handle,
+            AURORA_CAP_ENTROPY,
+            AURORA_RIGHT_WRITE,
+            &view) ||
+        cap_lookup(
+            &supervisor->service.process->capabilities,
+            supervisor->service.entropy_seed_handle,
+            AURORA_CAP_ENTROPY,
+            AURORA_RIGHT_CONTROL,
+            &view) ||
+        cap_lookup(
+            &supervisor->service.process->capabilities,
+            supervisor->service.entropy_seed_handle,
+            AURORA_CAP_ENTROPY,
+            AURORA_RIGHT_TRANSFER,
+            &view)) {
+        return false;
+    }
+
     return cap_lookup(
         &supervisor->service.process->capabilities,
         supervisor->service.service_endpoint_handle,
@@ -342,7 +369,8 @@ bool service_supervisor_self_test(void) {
         .image = identity_service_probe_image(),
         .image_size = identity_service_probe_image_size(),
         .protected_state_scope = "identity",
-        .protected_state_rights = AURORA_RIGHT_READ | AURORA_RIGHT_WRITE
+        .protected_state_rights = AURORA_RIGHT_READ | AURORA_RIGHT_WRITE,
+        .grant_entropy_seed = true
     };
 
     struct aurora_service_supervisor supervisor;
