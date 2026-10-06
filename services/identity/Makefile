@@ -15,6 +15,7 @@ ROTATION_OBJECT := $(BUILD_DIR)/rotation.o
 SESSION_GRANT_OBJECT := $(BUILD_DIR)/session_grant.o
 PERSISTENT_STORE_OBJECT := $(BUILD_DIR)/persistent_store.o
 PERSISTENT_STORE_POSIX_OBJECT := $(BUILD_DIR)/persistent_store_posix.o
+PERSISTENT_STORE_PROTECTED_STATE_OBJECT := $(BUILD_DIR)/persistent_store_protected_state.o
 CRYPTO_FOUNDATION_OBJECT := $(BUILD_DIR)/crypto_foundation.o
 CRYPTO_PROVIDER_OBJECT := $(BUILD_DIR)/crypto_provider.o
 ARGON2ID_PROVIDER_OBJECT := $(BUILD_DIR)/argon2id_provider.o
@@ -34,6 +35,7 @@ CREATION_TEST_BINARY := $(BUILD_DIR)/identity-creation-tests
 ROTATION_TEST_BINARY := $(BUILD_DIR)/identity-rotation-tests
 SESSION_GRANT_TEST_BINARY := $(BUILD_DIR)/identity-session-grant-tests
 PERSISTENT_STORE_TEST_BINARY := $(BUILD_DIR)/identity-persistent-store-tests
+PERSISTENT_STORE_PROTECTED_STATE_TEST_BINARY := $(BUILD_DIR)/identity-persistent-store-protected-state-tests
 CRYPTO_FOUNDATION_TEST_BINARY := $(BUILD_DIR)/identity-crypto-foundation-tests
 ARGON2ID_PROVIDER_TEST_BINARY := $(BUILD_DIR)/identity-argon2id-provider-tests
 MACHINE_SECRET_TEST_BINARY := $(BUILD_DIR)/identity-machine-secret-tests
@@ -43,12 +45,13 @@ MACHINE_SECRET_PROTECTED_STATE_TEST_BINARY := $(BUILD_DIR)/identity-machine-secr
 
 all: test
 
-test: $(CORE_TEST_BINARY) $(CREATION_TEST_BINARY) $(ROTATION_TEST_BINARY) $(SESSION_GRANT_TEST_BINARY) $(PERSISTENT_STORE_TEST_BINARY) $(CRYPTO_FOUNDATION_TEST_BINARY) $(ARGON2ID_PROVIDER_TEST_BINARY) $(MACHINE_SECRET_TEST_BINARY) $(MACHINE_SECRET_PROTECTED_STATE_TEST_BINARY)
+test: $(CORE_TEST_BINARY) $(CREATION_TEST_BINARY) $(ROTATION_TEST_BINARY) $(SESSION_GRANT_TEST_BINARY) $(PERSISTENT_STORE_TEST_BINARY) $(PERSISTENT_STORE_PROTECTED_STATE_TEST_BINARY) $(CRYPTO_FOUNDATION_TEST_BINARY) $(ARGON2ID_PROVIDER_TEST_BINARY) $(MACHINE_SECRET_TEST_BINARY) $(MACHINE_SECRET_PROTECTED_STATE_TEST_BINARY)
 	$(CORE_TEST_BINARY)
 	$(CREATION_TEST_BINARY)
 	$(ROTATION_TEST_BINARY)
 	$(SESSION_GRANT_TEST_BINARY)
 	$(PERSISTENT_STORE_TEST_BINARY)
+	$(PERSISTENT_STORE_PROTECTED_STATE_TEST_BINARY)
 	$(CRYPTO_FOUNDATION_TEST_BINARY)
 	$(ARGON2ID_PROVIDER_TEST_BINARY)
 	$(MACHINE_SECRET_TEST_BINARY)
@@ -71,6 +74,9 @@ $(PERSISTENT_STORE_OBJECT): src/persistent_store.c include/aurora/identity/persi
 
 $(PERSISTENT_STORE_POSIX_OBJECT): src/persistent_store_posix.c include/aurora/identity/persistent_store_posix.h include/aurora/identity/persistent_store.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/persistent_store_posix.c -o $@
+
+$(PERSISTENT_STORE_PROTECTED_STATE_OBJECT): src/persistent_store_protected_state.c include/aurora/identity/persistent_store_protected_state.h include/aurora/identity/persistent_store.h include/aurora/identity/machine_secret_protected_state.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/persistent_store_protected_state.c -o $@
 
 $(CRYPTO_FOUNDATION_OBJECT): src/crypto_foundation.c include/aurora/identity/crypto_foundation.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/crypto_foundation.c -o $@
@@ -122,6 +128,9 @@ $(SESSION_GRANT_TEST_BINARY): tests/test_identity_session_grant.c $(CORE_OBJECT)
 
 $(PERSISTENT_STORE_TEST_BINARY): tests/test_identity_persistent_store.c $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_POSIX_OBJECT) include/aurora/identity/persistent_store.h include/aurora/identity/persistent_store_posix.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_identity_persistent_store.c $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_POSIX_OBJECT) -o $@
+
+$(PERSISTENT_STORE_PROTECTED_STATE_TEST_BINARY): tests/test_identity_persistent_store_protected_state.c $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT) include/aurora/identity/persistent_store_protected_state.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_identity_persistent_store_protected_state.c $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT) -o $@
 
 $(CRYPTO_FOUNDATION_TEST_BINARY): tests/test_identity_crypto_foundation.c $(CRYPTO_FOUNDATION_OBJECT) $(CRYPTO_PROVIDER_OBJECT) include/aurora/identity/crypto_foundation.h include/aurora/identity/crypto_provider.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_identity_crypto_foundation.c $(CRYPTO_FOUNDATION_OBJECT) $(CRYPTO_PROVIDER_OBJECT) -o $@
