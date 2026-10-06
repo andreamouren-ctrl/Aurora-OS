@@ -15,6 +15,11 @@ ARCHIVE="$CACHE/limine-binary-$LIMINE_VERSION.tar.gz"
 
 mkdir -p "$THIRD_PARTY" "$CACHE"
 
+# The Ring 3 Identity runtime links the repository-pinned Argon2 reference
+# implementation directly. Materialize that exact gitlink before the kernel
+# build so bootstrap/CI never falls back to an unpinned system Argon2 package.
+git -C "$ROOT" submodule update --init --recursive services/identity/vendor/argon2
+
 if [ ! -d "$PROTOCOL_DIR/.git" ]; then
     git clone https://github.com/Limine-Bootloader/limine-protocol.git "$PROTOCOL_DIR"
 fi
