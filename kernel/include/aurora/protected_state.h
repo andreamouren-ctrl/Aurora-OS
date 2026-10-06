@@ -21,6 +21,12 @@ struct aurora_protected_state_namespace {
     bool initialized;
 };
 
+enum aurora_protected_state_read_result {
+    AURORA_PROTECTED_STATE_READ_OK = 0,
+    AURORA_PROTECTED_STATE_READ_NOT_FOUND,
+    AURORA_PROTECTED_STATE_READ_ERROR
+};
+
 enum aurora_protected_state_create_once_result {
     AURORA_PROTECTED_STATE_CREATE_ONCE_OK = 0,
     AURORA_PROTECTED_STATE_CREATE_ONCE_EXISTS,
@@ -50,6 +56,21 @@ bool protected_state_create_file(
 );
 
 bool protected_state_read_file(
+    struct aurora_cap_table *table,
+    aurora_cap_handle handle,
+    struct aurora_protected_state_namespace *state,
+    const char *relative_path,
+    void *buffer,
+    size_t capacity,
+    size_t *out_length
+);
+
+/*
+ * Security-sensitive bounded record read. NOT_FOUND is returned only after a
+ * clean namespace lookup. Existing-but-unreadable, malformed, oversized or
+ * otherwise ambiguous records fail closed as READ_ERROR.
+ */
+enum aurora_protected_state_read_result protected_state_read_record(
     struct aurora_cap_table *table,
     aurora_cap_handle handle,
     struct aurora_protected_state_namespace *state,
