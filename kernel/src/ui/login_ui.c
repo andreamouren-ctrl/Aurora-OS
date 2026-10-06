@@ -557,12 +557,25 @@ void login_ui_init(
     login_state = AURORA_LOGIN_IDLE;
     masked_key_length = 0u;
 
-    (void)identity_graphics_init(&login_fb);
     login_ui_render();
 }
 
 bool login_ui_is_initialized(void) {
     return login_initialized;
+}
+
+bool login_ui_activate_native_artwork(void) {
+    if (!login_initialized) {
+        return false;
+    }
+
+    if (!identity_graphics_ready() &&
+        !identity_graphics_init(&login_fb)) {
+        return false;
+    }
+
+    login_ui_render();
+    return true;
 }
 
 void login_ui_set_state(
