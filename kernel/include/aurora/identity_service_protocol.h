@@ -5,6 +5,7 @@
 
 #define AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION 1u
 #define AURORA_IDENTITY_SERVICE_MESSAGE_SIZE 16u
+#define AURORA_IDENTITY_SERVICE_STATUS_RESPONSE_SIZE 24u
 
 enum aurora_identity_service_message_type {
     AURORA_IDENTITY_SERVICE_READY = 1,
@@ -12,13 +13,29 @@ enum aurora_identity_service_message_type {
     AURORA_IDENTITY_SERVICE_PONG = 3,
     AURORA_IDENTITY_SERVICE_SHUTDOWN = 4,
     AURORA_IDENTITY_SERVICE_SHUTDOWN_ACK = 5,
+    AURORA_IDENTITY_SERVICE_STATUS = 6,
+    AURORA_IDENTITY_SERVICE_STATUS_RESPONSE = 7,
     AURORA_IDENTITY_SERVICE_ERROR = 255
+};
+
+enum aurora_identity_service_status_flag {
+    AURORA_IDENTITY_SERVICE_STATUS_PERSISTENT_STORE_READY = UINT64_C(1) << 0,
+    AURORA_IDENTITY_SERVICE_STATUS_DRBG_READY = UINT64_C(1) << 1,
+    AURORA_IDENTITY_SERVICE_STATUS_MACHINE_SECRET_READY = UINT64_C(1) << 2,
+    AURORA_IDENTITY_SERVICE_STATUS_LOOKUP_KEY_READY = UINT64_C(1) << 3
 };
 
 struct aurora_identity_service_message {
     uint32_t version;
     uint32_t type;
     uint64_t request_id;
+};
+
+struct aurora_identity_service_status_response {
+    uint32_t version;
+    uint32_t type;
+    uint64_t request_id;
+    uint64_t flags;
 };
 
 #endif
