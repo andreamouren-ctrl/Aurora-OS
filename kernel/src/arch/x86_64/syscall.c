@@ -305,6 +305,36 @@ struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
                 frame->r8
             );
             break;
+        case AURORA_SYS_IPC_WAIT: {
+            struct aurora_ipc_endpoint *endpoint =
+                lookup_ipc_endpoint(process, frame->rdi, AURORA_RIGHT_READ);
+            aurora_thread_id thread_id = scheduler_current_thread_id();
+            if (endpoint == NULL || thread_id == 0u) {
+                frame->rax = AURORA_SYS_RESULT_ERROR;
+                break;
+            }
+
+            enum aurora_ipc_wait_result wait =
+                ipc_wait_register(endpoint, thread_id);
+            if (wait == AURORA_IPC_WAIT_READY) {
+                frame->rax = 0u;
+                break;
+            }
+            if (wait != AURORA_IPC_WAIT_REGISTERED) {
+                frame->rax = AURORA_SYS_RESULT_ERROR;
+                break;
+            }
+
+            struct interrupt_frame *next = NULL;
+            if (!scheduler_block_current_syscall(frame, 0u, &next)) {
+                (void)ipc_wait_cancel(endpoint, thread_id);
+                frame->rax = AURORA_SYS_RESULT_ERROR;
+                break;
+            }
+
+            if (next != NULL) return next;
+            break;
+        }
         default:
             frame->rax = AURORA_SYS_RESULT_ERROR;
             break;

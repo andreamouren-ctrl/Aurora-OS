@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include <aurora/ipc.h>
+#include <aurora/scheduler.h>
 
 static void copy_bytes(
     void *destination,
@@ -57,6 +58,7 @@ void ipc_channel_init(
         queue->head = 0;
         queue->tail = 0;
         queue->count = 0;
+        channel->waiter_thread[side] = 0u;
 
         channel->endpoints[side].channel =
             channel;
@@ -199,9 +201,16 @@ bool ipc_send(
 
     ++queue->count;
 
+    aurora_thread_id waiter = channel->waiter_thread[destination_side];
+    channel->waiter_thread[destination_side] = 0u;
+
     spinlock_unlock(
         &channel->lock
     );
+
+    if (waiter != 0u) {
+        (void)scheduler_wake_thread(waiter);
+    }
 
     return true;
 }
@@ -322,6 +331,51 @@ bool ipc_receive(
     );
 
     return true;
+}
+
+enum aurora_ipc_wait_result ipc_wait_register(
+    struct aurora_ipc_endpoint *endpoint,
+    aurora_thread_id thread_id
+) {
+    if (endpoint == NULL || endpoint->channel == NULL ||
+        endpoint->side > 1u || thread_id == 0u) {
+        return AURORA_IPC_WAIT_ERROR;
+    }
+
+    struct aurora_ipc_channel *channel = endpoint->channel;
+    spinlock_lock(&channel->lock);
+
+    struct aurora_ipc_queue *queue = &channel->inbound[endpoint->side];
+    if (queue->count != 0u) {
+        spinlock_unlock(&channel->lock);
+        return AURORA_IPC_WAIT_READY;
+    }
+
+    if (channel->waiter_thread[endpoint->side] != 0u) {
+        spinlock_unlock(&channel->lock);
+        return AURORA_IPC_WAIT_ERROR;
+    }
+
+    channel->waiter_thread[endpoint->side] = thread_id;
+    spinlock_unlock(&channel->lock);
+    return AURORA_IPC_WAIT_REGISTERED;
+}
+
+bool ipc_wait_cancel(
+    struct aurora_ipc_endpoint *endpoint,
+    aurora_thread_id thread_id
+) {
+    if (endpoint == NULL || endpoint->channel == NULL ||
+        endpoint->side > 1u || thread_id == 0u) {
+        return false;
+    }
+
+    struct aurora_ipc_channel *channel = endpoint->channel;
+    spinlock_lock(&channel->lock);
+    bool cancelled = channel->waiter_thread[endpoint->side] == thread_id;
+    if (cancelled) channel->waiter_thread[endpoint->side] = 0u;
+    spinlock_unlock(&channel->lock);
+    return cancelled;
 }
 
 bool ipc_self_test(void) {

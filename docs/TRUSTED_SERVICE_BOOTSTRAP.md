@@ -1,7 +1,7 @@
 # Aurora Trusted Service Bootstrap
 
-Status: **runtime-verified pre-Service-Manager foundation**
-Version: **0.2**
+Status: **runtime-verified pre-Service-Manager foundation with blocking IPC wait**
+Version: **0.3**
 
 ## Purpose
 
@@ -56,14 +56,22 @@ Successful boot logs:
 
 If `/system` is unavailable, the storage-dependent proof is skipped rather than crashing a diskless boot. When `/system` exists, failure is fail-closed and stops bootstrap.
 
+## Blocking IPC foundation
+
+Aurora now provides `AURORA_SYS_IPC_WAIT` in addition to send/receive. A trusted Ring 3 service can sleep while its endpoint queue is empty and be made runnable only after a sender enqueues work.
+
+The first wait implementation supports one blocked waiter per endpoint and includes an explicit `wake_pending` handshake in the scheduler so an enqueue racing with the final park operation cannot be lost. The runtime proof sends only after the target user thread has been observed in scheduler state `BLOCKED`.
+
+This removes busy-polling as a prerequisite for keeping a future Identity daemon alive. It does **not** yet make the service restartable; lifecycle reclamation remains separate.
+
 ## Protected State bridge
 
-Aurora now has a separate bounded Ring 3 Protected State bridge with capability-gated record operations:
+Aurora has a bounded Ring 3 Protected State bridge with capability-gated record operations:
 
 - `AURORA_SYS_PROTECTED_STATE_READ`;
 - `AURORA_SYS_PROTECTED_STATE_CREATE_ONCE`.
 
-Those syscalls already match the `read_record` / `create_record_once_durable` boundary used by the Aurora Identity Machine Secret adapter. They do not expose generic VFS path access, removal, rename, truncate, namespace creation, or unrestricted capability transfer.
+Those syscalls match the `read_record` / `create_record_once_durable` boundary used by the Aurora Identity Machine Secret adapter. They do not expose generic VFS path access, removal, rename, truncate, namespace creation, or unrestricted capability transfer.
 
 This bootstrap milestone proves that a trusted Identity process can receive the exact namespace capability needed to use that bridge. It does not yet link the full `services/identity` runtime into the Ring 3 process.
 
@@ -90,21 +98,21 @@ Ordinary applications do not receive the Protected State capability. The trusted
 
 This is not yet the production Service Manager:
 
-- the Identity probe exits after validating bootstrap;
-- there is no blocking IPC wait/wakeup yet, so a long-lived daemon would otherwise poll;
+- the current Identity bootstrap probe exits after validating startup;
 - there is no service discovery or registry;
 - there are no restart/dependency policies;
 - terminated thread/process/address-space resources are not yet generally reclaimed;
 - the Identity DRBG entropy handoff is not yet part of the startup ABI;
 - the real Identity service executable is not yet linked from `services/identity`;
-- the mutable Identity database still lacks a durable atomic-replace Protected State primitive.
+- the mutable Identity database still lacks a durable atomic-replace Protected State primitive;
+- IPC wait currently supports one waiter per endpoint and sender-side queue backpressure remains non-blocking.
 
-These limits are intentional. Aurora should add blocking IPC and lifecycle/reclamation foundations before treating services as restartable long-lived daemons.
+These limits are intentional. Lifecycle/reclamation and controlled entropy should be completed before Aurora treats Identity as a restartable production daemon.
 
 ## Next gates
 
-1. provide blocking IPC wait/wakeup semantics;
-2. implement thread/process/address-space reclamation needed for restartable services;
-3. define the controlled entropy/DRBG bootstrap handoff;
-4. port the real Identity Service runtime so it consumes the Machine Secret through the existing Protected State bridge;
-5. replace the probe with the long-lived service and connect the login/session protocol only after those lifecycle guarantees exist.
+1. implement thread/process/address-space reclamation needed for restartable services;
+2. define the controlled entropy/DRBG bootstrap handoff;
+3. port the real Identity Service runtime so it consumes the Machine Secret through the existing Protected State bridge;
+4. replace the probe with the long-lived service;
+5. connect the login/session protocol only after those lifecycle guarantees exist.

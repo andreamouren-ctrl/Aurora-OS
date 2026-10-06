@@ -24,6 +24,7 @@ enum thread_state {
     THREAD_UNUSED = 0,
     THREAD_RUNNABLE,
     THREAD_RUNNING,
+    THREAD_BLOCKED,
     THREAD_TERMINATED
 };
 
@@ -32,6 +33,7 @@ struct scheduler_thread {
     enum thread_state state;
     bool idle;
     bool user;
+    bool wake_pending;
     char name[32];
     kernel_thread_entry entry;
     void *argument;
@@ -40,6 +42,7 @@ struct scheduler_thread {
     void *stack_base;
     size_t stack_size;
     struct interrupt_frame *saved_frame;
+    struct interrupt_frame syscall_resume_frame;
     uint32_t pinned_cpu;
     uint32_t preferred_cpu;
 };
@@ -114,8 +117,7 @@ static uint32_t thread_assignment_cpu_locked(
 
 static bool thread_counts_for_load_locked(const struct scheduler_thread *thread) {
     return thread != NULL && !thread->idle &&
-        thread->state != THREAD_UNUSED &&
-        thread->state != THREAD_TERMINATED;
+        (thread->state == THREAD_RUNNABLE || thread->state == THREAD_RUNNING);
 }
 
 static uint32_t logical_load_locked(uint32_t logical_id) {
@@ -198,6 +200,12 @@ static uint64_t thread_kernel_stack_top(const struct scheduler_thread *thread) {
     return (uint64_t)(uintptr_t)thread->stack_base + thread->stack_size;
 }
 
+static uint64_t sanitize_user_rflags(uint64_t rflags) {
+    rflags &= ~((3ull << 12) | (1ull << 14) | (1ull << 16) | (1ull << 17));
+    rflags |= 0x202ull;
+    return rflags;
+}
+
 static void thread_trampoline(struct scheduler_thread *thread) __attribute__((noreturn));
 
 static struct interrupt_frame *build_kernel_frame(struct scheduler_thread *thread) {
@@ -231,6 +239,38 @@ static struct interrupt_frame *build_user_frame(
     frame->rsp = process->user_stack_top;
     frame->ss = gdt_user_data_selector();
     return frame;
+}
+
+static void build_syscall_resume_frame(
+    struct scheduler_thread *thread,
+    const struct syscall_frame *source,
+    uint64_t return_value
+) {
+    struct interrupt_frame *frame = &thread->syscall_resume_frame;
+    clear_bytes(frame, sizeof(*frame));
+
+    frame->r15 = source->r15;
+    frame->r14 = source->r14;
+    frame->r13 = source->r13;
+    frame->r12 = source->r12;
+    frame->r11 = sanitize_user_rflags(source->user_rflags);
+    frame->r10 = source->r10;
+    frame->r9 = source->r9;
+    frame->r8 = source->r8;
+    frame->rbp = source->rbp;
+    frame->rdi = source->rdi;
+    frame->rsi = source->rsi;
+    frame->rdx = source->rdx;
+    frame->rcx = source->user_rip;
+    frame->rbx = source->rbx;
+    frame->rax = return_value;
+    frame->rip = source->user_rip;
+    frame->cs = gdt_user_code_selector();
+    frame->rflags = sanitize_user_rflags(source->user_rflags);
+    frame->rsp = source->user_rsp;
+    frame->ss = gdt_user_data_selector();
+
+    thread->saved_frame = frame;
 }
 
 static uint32_t find_free_slot_locked(void) {
@@ -649,6 +689,14 @@ bool scheduler_thread_finished(aurora_thread_id id) {
     return finished;
 }
 
+bool scheduler_thread_blocked(aurora_thread_id id) {
+    aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
+    struct scheduler_thread *thread = find_thread_locked(id);
+    bool blocked = thread != NULL && thread->state == THREAD_BLOCKED;
+    spinlock_unlock_irqrestore(&scheduler_lock, irq);
+    return blocked;
+}
+
 aurora_thread_id scheduler_current_thread_id(void) {
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
     struct aurora_cpu_local *cpu = current_cpu_locked();
@@ -669,6 +717,64 @@ struct aurora_process *scheduler_current_process(void) {
     return process;
 }
 
+bool scheduler_block_current_syscall(
+    struct syscall_frame *frame,
+    uint64_t return_value,
+    struct interrupt_frame **out_next
+) {
+    if (frame == NULL || out_next == NULL) return false;
+    *out_next = NULL;
+
+    aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
+    struct aurora_cpu_local *cpu = current_cpu_locked();
+    uint32_t current_index = cpu->scheduler_current_index;
+    if (!started || current_index >= SCHEDULER_MAX_THREADS) {
+        spinlock_unlock_irqrestore(&scheduler_lock, irq);
+        return false;
+    }
+
+    struct scheduler_thread *current = &threads[current_index];
+    if (!current->user || current->state != THREAD_RUNNING) {
+        spinlock_unlock_irqrestore(&scheduler_lock, irq);
+        return false;
+    }
+
+    if (current->wake_pending) {
+        current->wake_pending = false;
+        frame->rax = return_value;
+        spinlock_unlock_irqrestore(&scheduler_lock, irq);
+        return true;
+    }
+
+    build_syscall_resume_frame(current, frame, return_value);
+    current->state = THREAD_BLOCKED;
+    *out_next = select_after_current_stops_locked(cpu);
+    spinlock_unlock_irqrestore(&scheduler_lock, irq);
+    return true;
+}
+
+bool scheduler_wake_thread(aurora_thread_id id) {
+    aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
+    struct scheduler_thread *thread = find_thread_locked(id);
+    bool ok = false;
+
+    if (thread != NULL && thread->user) {
+        if (thread->state == THREAD_BLOCKED) {
+            thread->state = THREAD_RUNNABLE;
+            thread->wake_pending = false;
+            ok = true;
+        } else if (thread->state == THREAD_RUNNING ||
+                   thread->state == THREAD_RUNNABLE) {
+            thread->wake_pending = true;
+            ok = true;
+        }
+    }
+
+    if (ok && started) (void)timer_arm_ns(1u);
+    spinlock_unlock_irqrestore(&scheduler_lock, irq);
+    return ok;
+}
+
 struct interrupt_frame *scheduler_terminate_current(void) {
     aurora_spinlock_irq_state irq = spinlock_lock_irqsave(&scheduler_lock);
     struct aurora_cpu_local *cpu = current_cpu_locked();
@@ -681,6 +787,7 @@ struct interrupt_frame *scheduler_terminate_current(void) {
         kernel_panic("Kernel thread termination through user path");
 
     current->state = THREAD_TERMINATED;
+    current->wake_pending = false;
     struct interrupt_frame *next = select_after_current_stops_locked(cpu);
     spinlock_unlock_irqrestore(&scheduler_lock, irq);
     return next;

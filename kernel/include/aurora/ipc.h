@@ -6,11 +6,18 @@
 #include <stdint.h>
 
 #include <aurora/capability.h>
+#include <aurora/scheduler.h>
 #include <aurora/spinlock.h>
 
 #define AURORA_IPC_QUEUE_DEPTH 16u
 #define AURORA_IPC_PAYLOAD_MAX 256u
 #define AURORA_IPC_CAPS_MAX 4u
+
+enum aurora_ipc_wait_result {
+    AURORA_IPC_WAIT_ERROR = 0,
+    AURORA_IPC_WAIT_READY,
+    AURORA_IPC_WAIT_REGISTERED
+};
 
 struct aurora_ipc_transfer {
     aurora_cap_handle handle;
@@ -65,6 +72,7 @@ struct aurora_ipc_channel {
 
     struct aurora_ipc_queue inbound[2];
     struct aurora_cap_table escrow;
+    aurora_thread_id waiter_thread[2];
 
     struct aurora_ipc_endpoint endpoints[2];
 };
@@ -91,6 +99,21 @@ bool ipc_receive(
     struct aurora_ipc_endpoint *endpoint,
     struct aurora_cap_table *receiver_caps,
     struct aurora_ipc_received *out
+);
+
+/*
+ * Register one scheduler thread to be woken when the endpoint becomes readable.
+ * At most one waiter is accepted per endpoint in this foundation. READY means
+ * data is already queued and the caller must not block.
+ */
+enum aurora_ipc_wait_result ipc_wait_register(
+    struct aurora_ipc_endpoint *endpoint,
+    aurora_thread_id thread_id
+);
+
+bool ipc_wait_cancel(
+    struct aurora_ipc_endpoint *endpoint,
+    aurora_thread_id thread_id
 );
 
 bool ipc_self_test(void);

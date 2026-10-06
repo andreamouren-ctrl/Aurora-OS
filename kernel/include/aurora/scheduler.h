@@ -7,6 +7,7 @@
 #include <aurora/interrupts.h>
 
 struct aurora_process;
+struct syscall_frame;
 
 typedef uint32_t aurora_thread_id;
 
@@ -54,9 +55,34 @@ bool scheduler_thread_finished(
     aurora_thread_id id
 );
 
+bool scheduler_thread_blocked(
+    aurora_thread_id id
+);
+
 aurora_thread_id scheduler_current_thread_id(void);
 
 struct aurora_process *scheduler_current_process(void);
+
+/*
+ * Park the current Ring 3 thread from inside a syscall and arrange for it to
+ * resume through IRET with return_value in RAX. If a wake raced with the park,
+ * the function consumes that pending wake and returns success with *out_next
+ * set to NULL so the caller may return normally through SYSRET.
+ */
+bool scheduler_block_current_syscall(
+    struct syscall_frame *frame,
+    uint64_t return_value,
+    struct interrupt_frame **out_next
+);
+
+/*
+ * Wake one thread that is parked in a blocking kernel wait. A wake that races
+ * before the thread reaches BLOCKED is remembered and consumed by the park
+ * operation, preventing a lost wakeup.
+ */
+bool scheduler_wake_thread(
+    aurora_thread_id id
+);
 
 struct interrupt_frame *scheduler_terminate_current(void);
 
