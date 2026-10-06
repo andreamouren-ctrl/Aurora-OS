@@ -1,7 +1,7 @@
 # Aurora Identity Machine Secret Provisioning
 
-Status: **isolated implementation foundation with kernel Protected System State available**
-Version: **0.2**
+Status: **Protected State transport adapter implemented; Ring 3 bridge pending**
+Version: **0.3**
 
 ## 1. Purpose
 
@@ -46,6 +46,8 @@ Version 1 stores:
 - 32-byte machine root secret;
 - SHA-256 corruption checksum over a domain-separated canonical representation.
 
+The canonical serialized record is 84 bytes and uses the `AURMSV1` magic. The codec is shared by Aurora-native transports so the stored representation does not depend on a host POSIX implementation.
+
 The checksum detects accidental damage. It is **not** an authentication mechanism against an attacker who can rewrite protected system state.
 
 ## 4. Replica model
@@ -59,15 +61,12 @@ A single valid replica is sufficient to recover the original secret if the secon
 
 If both valid replicas contain different secrets, Aurora fails closed rather than selecting one arbitrarily.
 
-The POSIX validation adapter publishes a replica by:
+The host POSIX validation adapter remains available for persistence tests. The Aurora-native adapter now maps the same replica model onto a narrow Protected State transport contract:
 
-1. writing a temporary owner-only file;
-2. `fsync` of the complete temporary record;
-3. atomic create-if-absent publication with a hard link;
-4. removal of the temporary name;
-5. `fsync` of the containing directory.
+- `read_record(name, ...)`;
+- `create_record_once_durable(name, ...)`.
 
-This proves close/reopen and create-once semantics on a host filesystem. It is not the final Aurora runtime adapter.
+The adapter deliberately does not include kernel, VFS, or capability headers. The future Ring 3 Identity Service supplies those transport operations using its Protected State authority.
 
 ## 5. Random generation
 
@@ -103,7 +102,7 @@ Session Grant keys remain transient and have a separate lifecycle; they are not 
 
 ## 7. Protected System State boundary
 
-Aurora OS now has the first kernel Protected System State foundation.
+Aurora OS now has a kernel Protected System State foundation.
 
 Sensitive system-service namespaces live conceptually under:
 
@@ -113,11 +112,11 @@ Sensitive system-service namespaces live conceptually under:
 
 and are accessed through the dedicated `AURORA_CAP_PROTECTED_STATE` capability type rather than ordinary application authority. The kernel foundation separates READ, WRITE and CONTROL rights, binds a capability to one exact namespace object, rejects pathname escape attempts, and does not grant TRANSFER authority through the Protected State API.
 
-AuroraFS/VFS already provides create, rename, truncate, ownership/mode changes, `fsync`/`fdatasync`, filesystem sync, and AuroraFS v2 ACL support. The Protected State runtime self-test exercises the capability gate against the mounted `/system` filesystem.
+The Machine Secret now has an Aurora-native Protected State **transport adapter**. Its two replicas are represented by the fixed record names `machine-secret.a` and `machine-secret.b`, and create-once conflicts map directly to the existing Machine Secret concurrency/fail-closed rules.
 
-The machine-secret provisioning core is **not yet wired to this namespace**. The next integration step is an Aurora-native machine-secret store adapter that uses the `identity` Protected State capability rather than the host POSIX adapter.
+This does not yet mean the live Ring 3 Identity Service can access the namespace: the service lifecycle and capability bridge/syscall/IPC path still need to be implemented. Until then the adapter is an isolated, tested service-side boundary rather than a live login dependency.
 
-The future Ring 3 Identity Service must receive that namespace capability from trusted service policy; ordinary applications must not receive it.
+The transactional Identity database is intentionally **not** migrated to Protected State by this milestone. Its dual-slot backend requires a true durable atomic-replace primitive. Current rename support is not being treated as equivalent without that guarantee.
 
 ## 8. At-rest threat boundary
 
@@ -157,7 +156,9 @@ CI covers:
 - bounded retry of an all-zero RNG candidate;
 - recovery from one corrupt replica;
 - fail-closed behavior when both replicas are corrupt;
-- RNG failure leaving the store unprovisioned.
+- RNG failure leaving the store unprovisioned;
+- Protected State adapter provisioning and reopen using a deterministic transport;
+- Protected State adapter corruption with proof that no replacement secret is generated.
 
 The kernel Protected State milestone separately verifies typed capability enforcement and mounted AuroraFS persistence semantics.
 
@@ -166,8 +167,10 @@ The kernel Protected State milestone separately verifies typed capability enforc
 Before this secret participates in live Aurora login:
 
 1. Identity Service DRBG must be seeded from the kernel entropy service;
-2. an Aurora-native machine-secret adapter must persist replicas through the `identity` Protected State namespace;
-3. the Ring 3 Identity Service must receive the Protected State capability from trusted system policy;
+2. the Ring 3 Identity Service must receive the Protected State capability from trusted system policy;
+3. the service must bridge the implemented Protected State transport operations to that capability;
 4. secure secret-memory lifetime rules must be applied in the final service process;
 5. offline-at-rest hardening policy must be selected;
 6. rotation/recovery policy must be designed before any production root-secret replacement feature exists.
+
+Separately, before the transactional Identity database can use the same Protected State namespace, Aurora needs a durable atomic-replace primitive with crash-consistency semantics strong enough for the dual-slot store contract.
