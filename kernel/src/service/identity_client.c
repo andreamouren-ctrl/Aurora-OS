@@ -140,11 +140,15 @@ static void apply_create_result(
             return;
 
         case AURORA_IDENTITY_SERVICE_CREATE_STATE_SERVICE_ERROR:
-            client_state =
-                result->public_error ==
-                    AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE
-                ? AURORA_IDENTITY_CLIENT_UNAVAILABLE
-                : AURORA_IDENTITY_CLIENT_ERROR;
+            if (result->public_error ==
+                AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE) {
+                client_state = AURORA_IDENTITY_CLIENT_UNAVAILABLE;
+            } else if (result->public_error ==
+                       AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_POLICY_DENIED) {
+                client_state = AURORA_IDENTITY_CLIENT_CREATE_DENIED;
+            } else {
+                client_state = AURORA_IDENTITY_CLIENT_ERROR;
+            }
             return;
 
         default:
@@ -406,6 +410,7 @@ void identity_client_reset_result(void) {
         client_state == AURORA_IDENTITY_CLIENT_VERIFIED ||
         client_state == AURORA_IDENTITY_CLIENT_CREATED ||
         client_state == AURORA_IDENTITY_CLIENT_CREATE_EXISTS ||
+        client_state == AURORA_IDENTITY_CLIENT_CREATE_DENIED ||
         client_state == AURORA_IDENTITY_CLIENT_ERROR) {
         retry_after_ms = 0u;
         current_request_id = 0u;
