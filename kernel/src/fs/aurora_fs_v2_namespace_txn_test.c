@@ -442,15 +442,27 @@ static bool run_end_to_end(uint32_t block_size) {
     struct aurora_block_device device;
     struct aurora_fs_v2_format_geometry geometry;
     struct aurora_fs_v2_allocator allocator;
+    struct aurora_fs_v2_directory_entry entry;
+    struct v2nt_inode_disk superseded;
     if (!init_case(block_size, &device, &geometry, &allocator) ||
         !aurora_fs_v2_create_child_txn(
             &allocator, &geometry, 0u, 1u, 2u, AURORA_FS_V2_OBJECT_FILE, "alpha") ||
+        !aurora_fs_v2_create_child_txn(
+            &allocator, &geometry, 0u, 2u, 3u, AURORA_FS_V2_OBJECT_FILE, "staging") ||
+        !aurora_fs_v2_rename_child_txn(
+            &allocator, &geometry, 0u, "staging", "alpha") ||
+        !aurora_fs_v2_directory_lookup_entry(
+            &allocator, &geometry, 0u, "alpha", &entry) ||
+        entry.object_id != 3u ||
+        !read_inode(&device, &geometry, 1u, &superseded) || superseded.object_id != 0u ||
+        lookup_state(&allocator, &geometry, "staging", true) ||
         !aurora_fs_v2_rename_child_txn(
             &allocator, &geometry, 0u, "alpha", "beta") ||
         !aurora_fs_v2_remove_child_txn(
-            &allocator, &geometry, 0u, 1u, "beta")) return false;
+            &allocator, &geometry, 0u, 2u, "beta")) return false;
     return txn_is_clean(&device, geometry.base_bytes) &&
         lookup_state(&allocator, &geometry, "alpha", false) &&
+        lookup_state(&allocator, &geometry, "staging", false) &&
         lookup_state(&allocator, &geometry, "beta", false);
 }
 
