@@ -8,7 +8,12 @@
 #include <aurora/service_bootstrap.h>
 #include <aurora/usercopy.h>
 
-#define SERVICE_BOOTSTRAP_TEST_TIMEOUT_NS 500000000ull
+/*
+ * First-boot Identity now performs durable machine-secret provisioning before
+ * announcing READY. Keep the probe bounded while allowing emulated CI storage
+ * enough time for two durable protected-state commits plus crypto bootstrap.
+ */
+#define SERVICE_BOOTSTRAP_TEST_TIMEOUT_NS 2000000000ull
 
 static struct aurora_trusted_service identity_probe_service;
 static uint64_t entropy_seed_authority;
