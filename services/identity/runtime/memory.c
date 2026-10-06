@@ -57,6 +57,12 @@ int memcmp(const void *left, const void *right, size_t length) {
     return 0;
 }
 
+size_t strlen(const char *string) {
+    size_t length = 0u;
+    while (string[length] != '\0') ++length;
+    return length;
+}
+
 void *malloc(size_t size) {
     if (size == 0u ||
         (uint64_t)size > AURORA_SYS_USER_MEMORY_MAX_ALLOCATION_BYTES) {
@@ -78,4 +84,15 @@ void free(void *pointer) {
         AURORA_SYS_USER_MEMORY_FREE,
         (uint64_t)(uintptr_t)pointer
     );
+}
+
+void *calloc(size_t count, size_t size) {
+    if (count == 0u || size == 0u || count > SIZE_MAX / size) return NULL;
+
+    size_t total = count * size;
+    void *memory = malloc(total);
+    if (memory == NULL) return NULL;
+
+    memset(memory, 0, total);
+    return memory;
 }

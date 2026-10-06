@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include <aurora/capability_abi.h>
+#include <aurora/identity/argon2id_provider.h>
 #include <aurora/identity/crypto_foundation.h>
 #include <aurora/identity/crypto_provider.h>
 #include <aurora/identity/machine_secret.h>
@@ -37,9 +38,11 @@ struct identity_runtime_persistent_context {
     struct aurora_identity_machine_secret machine_secret;
     struct aurora_identity_hmac_drbg drbg;
     struct aurora_identity_hmac_provider hmac_provider;
+    struct aurora_identity_argon2id_provider argon2id_provider;
     bool machine_secret_ready;
     bool drbg_ready;
     bool hmac_provider_ready;
+    bool argon2id_provider_ready;
 };
 
 static void secure_zero(void *buffer, size_t size) {
@@ -424,10 +427,50 @@ static bool initialize_hmac_provider(
     return true;
 }
 
+static bool initialize_argon2id_provider(
+    struct identity_runtime_persistent_context *context
+) {
+    struct aurora_identity_argon2id_limits limits;
+
+    if (context == NULL) return false;
+
+    context->argon2id_provider_ready = false;
+    aurora_identity_argon2id_provider_clear(&context->argon2id_provider);
+
+    if (!context->hmac_provider_ready) {
+        return true;
+    }
+
+    secure_zero(&limits, sizeof(limits));
+    limits.minimum_memory_kib = 8u;
+    limits.maximum_memory_kib = 65536u;
+    limits.minimum_time_cost = 1u;
+    limits.maximum_time_cost = 6u;
+    limits.minimum_parallelism = 1u;
+    limits.maximum_parallelism = 4u;
+    limits.minimum_salt_size = 8u;
+    limits.maximum_salt_size = AURORA_IDENTITY_SALT_MAX_SIZE;
+    limits.minimum_verifier_size = 16u;
+    limits.maximum_verifier_size = AURORA_IDENTITY_VERIFIER_MAX_SIZE;
+
+    if (!aurora_identity_argon2id_provider_init(
+            &context->argon2id_provider,
+            &context->hmac_provider,
+            &limits)) {
+        secure_zero(&limits, sizeof(limits));
+        return false;
+    }
+
+    secure_zero(&limits, sizeof(limits));
+    context->argon2id_provider_ready = true;
+    return true;
+}
+
 static void release_persistent_context(
     struct identity_runtime_persistent_context *context
 ) {
     if (context == NULL) return;
+    aurora_identity_argon2id_provider_clear(&context->argon2id_provider);
     aurora_identity_hmac_provider_clear(&context->hmac_provider);
     aurora_identity_hmac_drbg_clear(&context->drbg);
     aurora_identity_machine_secret_clear(&context->machine_secret);
@@ -533,7 +576,8 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
         !initialize_drbg(
             startup->entropy_seed,
             persistent_context) ||
-        !initialize_hmac_provider(persistent_context)) {
+        !initialize_hmac_provider(persistent_context) ||
+        !initialize_argon2id_provider(persistent_context)) {
         release_persistent_context(persistent_context);
         return 1;
     }
@@ -542,9 +586,9 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
      * Service startup is allowed when the platform currently has no qualified
      * entropy source. Existing protected state is still opened fail-closed,
      * while random-producing operations remain unavailable when drbg_ready is
-     * false. The HMAC provider becomes ready only after both the stable machine
-     * secret and the live DRBG are available, so lookup/session keys are never
-     * fabricated from volatile process state.
+     * false. The HMAC and Argon2id providers become ready only after the stable
+     * machine secret and live DRBG are available, so authentication primitives
+     * are never bootstrapped from fabricated or volatile secrets.
      */
 
     if (!probe_user_memory()) {
