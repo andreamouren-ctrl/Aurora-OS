@@ -122,6 +122,7 @@ static void protected_state_bootstrap_probe(void) {
     }
 
     log_line("[service] trusted Ring 3 Identity bootstrap + least-privilege capability assignment passed");
+    log_line("[identity-service] long-lived blocking IPC request loop passed");
 
     if (!service_supervisor_self_test()) {
         kernel_panic("Trusted Ring 3 service supervisor restart self-test failed");

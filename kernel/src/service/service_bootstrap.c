@@ -8,12 +8,24 @@
 #include <aurora/service_bootstrap.h>
 #include <aurora/usercopy.h>
 
+#define SERVICE_BOOTSTRAP_TEST_TIMEOUT_NS 500000000ull
+
 static struct aurora_trusted_service identity_probe_service;
 
 static void clear_bytes(void *buffer, size_t size) {
     uint8_t *bytes = buffer;
     if (buffer == NULL) return;
     for (size_t i = 0u; i < size; ++i) bytes[i] = 0u;
+}
+
+static bool bytes_equal(const void *left, const void *right, size_t length) {
+    const uint8_t *a = left;
+    const uint8_t *b = right;
+    if (left == NULL || right == NULL) return false;
+    for (size_t i = 0u; i < length; ++i) {
+        if (a[i] != b[i]) return false;
+    }
+    return true;
 }
 
 static bool manifest_valid(
@@ -119,6 +131,28 @@ bool service_bootstrap_start_trusted(
     return true;
 }
 
+bool service_bootstrap_send(
+    struct aurora_trusted_service *service,
+    const void *data,
+    uint32_t length
+) {
+    if (service == NULL || !service->started ||
+        service->supervisor_endpoint == NULL ||
+        length > AURORA_IPC_PAYLOAD_MAX ||
+        (length != 0u && data == NULL)) {
+        return false;
+    }
+
+    return ipc_send(
+        service->supervisor_endpoint,
+        &service->supervisor_caps,
+        data,
+        length,
+        NULL,
+        0u
+    );
+}
+
 bool service_bootstrap_receive(
     struct aurora_trusted_service *service,
     struct aurora_ipc_received *out
@@ -133,6 +167,94 @@ bool service_bootstrap_receive(
         &service->supervisor_caps,
         out
     );
+}
+
+static bool identity_message_matches(
+    const struct aurora_ipc_received *received,
+    uint32_t type,
+    uint64_t request_id
+) {
+    if (received == NULL ||
+        received->length != AURORA_IDENTITY_SERVICE_MESSAGE_SIZE ||
+        received->capability_count != 0u) {
+        return false;
+    }
+
+    const struct aurora_identity_service_message expected = {
+        .version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION,
+        .type = type,
+        .request_id = request_id
+    };
+
+    return bytes_equal(
+        received->data,
+        &expected,
+        sizeof(expected)
+    );
+}
+
+static bool send_identity_message(
+    struct aurora_trusted_service *service,
+    uint32_t type,
+    uint64_t request_id
+) {
+    const struct aurora_identity_service_message message = {
+        .version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION,
+        .type = type,
+        .request_id = request_id
+    };
+
+    return service_bootstrap_send(service, &message, sizeof(message));
+}
+
+static bool wait_for_identity_message(
+    struct aurora_trusted_service *service,
+    uint32_t type,
+    uint64_t request_id
+) {
+    if (service == NULL) return false;
+
+    uint64_t deadline = clock_now_ns() + SERVICE_BOOTSTRAP_TEST_TIMEOUT_NS;
+    while (clock_now_ns() < deadline) {
+        struct aurora_ipc_received received;
+        if (service_bootstrap_receive(service, &received)) {
+            return identity_message_matches(&received, type, request_id);
+        }
+
+        if (service->thread != 0u && scheduler_thread_finished(service->thread)) {
+            return false;
+        }
+
+        arch_idle();
+    }
+
+    return false;
+}
+
+static bool wait_for_service_blocked(struct aurora_trusted_service *service) {
+    if (service == NULL || service->thread == 0u) return false;
+
+    uint64_t deadline = clock_now_ns() + SERVICE_BOOTSTRAP_TEST_TIMEOUT_NS;
+    while (!scheduler_thread_blocked(service->thread) &&
+           !scheduler_thread_finished(service->thread) &&
+           clock_now_ns() < deadline) {
+        arch_idle();
+    }
+
+    return scheduler_thread_blocked(service->thread) &&
+        !scheduler_thread_finished(service->thread);
+}
+
+static bool wait_for_service_finished(struct aurora_trusted_service *service) {
+    if (service == NULL || service->thread == 0u) return false;
+
+    uint64_t deadline = clock_now_ns() + SERVICE_BOOTSTRAP_TEST_TIMEOUT_NS;
+    while (!scheduler_thread_finished(service->thread) &&
+           clock_now_ns() < deadline) {
+        arch_idle();
+    }
+
+    return scheduler_thread_finished(service->thread);
 }
 
 bool service_bootstrap_self_test(void) {
@@ -174,33 +296,36 @@ bool service_bootstrap_self_test(void) {
         return false;
     }
 
-    const uint8_t *expected = identity_service_ready_payload();
-    struct aurora_ipc_received received;
-    bool ready = false;
-    uint64_t deadline = clock_now_ns() + 500000000ull;
+    const uint64_t ping_request_id = 0x494450494E470001ull;
+    const uint64_t shutdown_request_id = 0x4944534855540001ull;
 
-    while (clock_now_ns() < deadline) {
-        if (!ready && service_bootstrap_receive(&identity_probe_service, &received)) {
-            if (received.length != AURORA_IDENTITY_SERVICE_READY_SIZE ||
-                received.capability_count != 0u) {
-                return false;
-            }
-
-            for (uint32_t i = 0u; i < received.length; ++i) {
-                if (received.data[i] != expected[i]) return false;
-            }
-            ready = true;
-        }
-
-        if (ready && scheduler_thread_finished(identity_probe_service.thread)) {
-            break;
-        }
-
-        arch_idle();
+    if (!wait_for_identity_message(
+            &identity_probe_service,
+            AURORA_IDENTITY_SERVICE_READY,
+            0u) ||
+        !wait_for_service_blocked(&identity_probe_service) ||
+        !send_identity_message(
+            &identity_probe_service,
+            AURORA_IDENTITY_SERVICE_PING,
+            ping_request_id) ||
+        !wait_for_identity_message(
+            &identity_probe_service,
+            AURORA_IDENTITY_SERVICE_PONG,
+            ping_request_id) ||
+        !wait_for_service_blocked(&identity_probe_service) ||
+        !send_identity_message(
+            &identity_probe_service,
+            AURORA_IDENTITY_SERVICE_SHUTDOWN,
+            shutdown_request_id) ||
+        !wait_for_identity_message(
+            &identity_probe_service,
+            AURORA_IDENTITY_SERVICE_SHUTDOWN_ACK,
+            shutdown_request_id) ||
+        !wait_for_service_finished(&identity_probe_service)) {
+        return false;
     }
 
-    if (!ready || !scheduler_thread_finished(identity_probe_service.thread) ||
-        identity_probe_service.process == NULL ||
+    if (identity_probe_service.process == NULL ||
         process_state(identity_probe_service.process) != AURORA_PROCESS_EXITED ||
         identity_probe_service.process->exit_code != 0) {
         return false;
