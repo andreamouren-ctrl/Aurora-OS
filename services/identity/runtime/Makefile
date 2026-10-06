@@ -17,6 +17,7 @@ C_OBJECT := $(BUILD_DIR)/main.o
 MEMORY_OBJECT := $(BUILD_DIR)/memory.o
 PROTECTED_STATE_TRANSPORT_OBJECT := $(BUILD_DIR)/protected_state_transport.o
 CORE_OBJECT := $(BUILD_DIR)/identity_core.o
+CREATION_ACCESS_POLICY_OBJECT := $(BUILD_DIR)/creation_access_policy.o
 SESSION_GRANT_OBJECT := $(BUILD_DIR)/session_grant.o
 SESSION_GRANT_MEMORY_OBJECT := $(BUILD_DIR)/session_grant_memory.o
 CRYPTO_FOUNDATION_OBJECT := $(BUILD_DIR)/crypto_foundation.o
@@ -105,7 +106,7 @@ all: $(BIN)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(C_OBJECT): main.c protected_state_transport.h $(KERNEL_INCLUDE)/aurora/capability_abi.h $(KERNEL_INCLUDE)/aurora/identity_service_protocol.h $(KERNEL_INCLUDE)/aurora/service_abi.h $(KERNEL_INCLUDE)/aurora/syscall_abi.h $(IDENTITY_INCLUDE)/aurora/identity/core.h $(IDENTITY_INCLUDE)/aurora/identity/argon2id_provider.h $(IDENTITY_INCLUDE)/aurora/identity/crypto_foundation.h $(IDENTITY_INCLUDE)/aurora/identity/crypto_provider.h $(IDENTITY_INCLUDE)/aurora/identity/machine_secret.h $(IDENTITY_INCLUDE)/aurora/identity/machine_secret_protected_state.h $(IDENTITY_INCLUDE)/aurora/identity/persistent_store.h $(IDENTITY_INCLUDE)/aurora/identity/persistent_store_protected_state.h $(IDENTITY_INCLUDE)/aurora/identity/session_grant.h $(IDENTITY_INCLUDE)/aurora/identity/session_grant_memory.h | $(BUILD_DIR)
+$(C_OBJECT): main.c protected_state_transport.h $(KERNEL_INCLUDE)/aurora/capability_abi.h $(KERNEL_INCLUDE)/aurora/identity_service_protocol.h $(KERNEL_INCLUDE)/aurora/service_abi.h $(KERNEL_INCLUDE)/aurora/syscall_abi.h $(IDENTITY_INCLUDE)/aurora/identity/core.h $(IDENTITY_INCLUDE)/aurora/identity/creation_access_policy.h $(IDENTITY_INCLUDE)/aurora/identity/argon2id_provider.h $(IDENTITY_INCLUDE)/aurora/identity/crypto_foundation.h $(IDENTITY_INCLUDE)/aurora/identity/crypto_provider.h $(IDENTITY_INCLUDE)/aurora/identity/machine_secret.h $(IDENTITY_INCLUDE)/aurora/identity/machine_secret_protected_state.h $(IDENTITY_INCLUDE)/aurora/identity/persistent_store.h $(IDENTITY_INCLUDE)/aurora/identity/persistent_store_protected_state.h $(IDENTITY_INCLUDE)/aurora/identity/session_grant.h $(IDENTITY_INCLUDE)/aurora/identity/session_grant_memory.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) -I$(ARGON2_VENDOR_INCLUDE) $(CFLAGS) -c main.c -o $@
 
 $(MEMORY_OBJECT): memory.c $(KERNEL_INCLUDE)/aurora/syscall_abi.h $(RUNTIME_INCLUDE)/string.h $(RUNTIME_INCLUDE)/stdlib.h | $(BUILD_DIR)
@@ -116,6 +117,9 @@ $(PROTECTED_STATE_TRANSPORT_OBJECT): protected_state_transport.c protected_state
 
 $(CORE_OBJECT): $(IDENTITY_SRC)/core.c $(IDENTITY_INCLUDE)/aurora/identity/core.h $(RUNTIME_INCLUDE)/string.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $(IDENTITY_SRC)/core.c -o $@
+
+$(CREATION_ACCESS_POLICY_OBJECT): $(IDENTITY_SRC)/creation_access_policy.c $(IDENTITY_INCLUDE)/aurora/identity/creation_access_policy.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $(IDENTITY_SRC)/creation_access_policy.c -o $@
 
 $(SESSION_GRANT_OBJECT): $(IDENTITY_SRC)/session_grant.c $(IDENTITY_INCLUDE)/aurora/identity/session_grant.h $(IDENTITY_INCLUDE)/aurora/identity/core.h $(RUNTIME_INCLUDE)/string.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $(IDENTITY_SRC)/session_grant.c -o $@
@@ -162,7 +166,7 @@ $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT): $(IDENTITY_SRC)/persistent_store_pro
 $(ENTRY_OBJECT): entry.S | $(BUILD_DIR)
 	$(CC) $(ASMFLAGS) -c entry.S -o $@
 
-$(ELF): $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) $(PROTECTED_STATE_TRANSPORT_OBJECT) $(CORE_OBJECT) $(SESSION_GRANT_OBJECT) $(SESSION_GRANT_MEMORY_OBJECT) $(CRYPTO_FOUNDATION_OBJECT) $(CRYPTO_PROVIDER_OBJECT) $(ARGON2ID_PROVIDER_OBJECT) $(ARGON2_REF_OBJECTS) $(MACHINE_SECRET_OBJECT) $(MACHINE_SECRET_CODEC_OBJECT) $(MACHINE_SECRET_PROTECTED_STATE_OBJECT) $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT) linker.ld
+$(ELF): $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) $(PROTECTED_STATE_TRANSPORT_OBJECT) $(CORE_OBJECT) $(CREATION_ACCESS_POLICY_OBJECT) $(SESSION_GRANT_OBJECT) $(SESSION_GRANT_MEMORY_OBJECT) $(CRYPTO_FOUNDATION_OBJECT) $(CRYPTO_PROVIDER_OBJECT) $(ARGON2ID_PROVIDER_OBJECT) $(ARGON2_REF_OBJECTS) $(MACHINE_SECRET_OBJECT) $(MACHINE_SECRET_CODEC_OBJECT) $(MACHINE_SECRET_PROTECTED_STATE_OBJECT) $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT) linker.ld
 	$(CC) $(LDFLAGS) $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) $(PROTECTED_STATE_TRANSPORT_OBJECT) $(CORE_OBJECT) $(SESSION_GRANT_OBJECT) $(SESSION_GRANT_MEMORY_OBJECT) $(CRYPTO_FOUNDATION_OBJECT) $(CRYPTO_PROVIDER_OBJECT) $(ARGON2ID_PROVIDER_OBJECT) $(ARGON2_REF_OBJECTS) $(MACHINE_SECRET_OBJECT) $(MACHINE_SECRET_CODEC_OBJECT) $(MACHINE_SECRET_PROTECTED_STATE_OBJECT) $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT) -o $@
 
 $(BIN): $(ELF)
