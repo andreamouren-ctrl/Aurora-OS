@@ -15,7 +15,8 @@ static void copy_bytes(void *destination, const void *source, size_t length) {
 }
 
 static void clear_bytes(void *address, size_t length) {
-    uint8_t *bytes = address;
+    volatile uint8_t *bytes = address;
+    if (address == NULL) return;
     for (size_t i = 0u; i < length; ++i) bytes[i] = 0u;
 }
 
@@ -114,7 +115,7 @@ static bool preflight_owned_pages(const struct aurora_process *process) {
         }
     }
 
-    return true;
+    return process_anonymous_preflight(process);
 }
 
 static void free_owned_pages(struct aurora_process *process) {
@@ -124,6 +125,7 @@ static void free_owned_pages(struct aurora_process *process) {
         uint64_t virtual_address = AURORA_USER_IMAGE_BASE +
             (uint64_t)page * AURORA_PAGE_SIZE;
         (void)vmm_translate_in(&process->address_space, virtual_address, &physical);
+        clear_bytes(pmm_phys_to_virt(physical), (size_t)AURORA_PAGE_SIZE);
         pmm_free_page(physical);
     }
 
@@ -131,9 +133,11 @@ static void free_owned_pages(struct aurora_process *process) {
         uint64_t virtual_address = AURORA_USER_STACK_TOP -
             ((uint64_t)page + 1ull) * AURORA_PAGE_SIZE;
         (void)vmm_translate_in(&process->address_space, virtual_address, &physical);
+        clear_bytes(pmm_phys_to_virt(physical), (size_t)AURORA_PAGE_SIZE);
         pmm_free_page(physical);
     }
 
+    process_anonymous_reap(process);
     process->image_page_count = 0u;
     process->stack_page_count = 0u;
 }
@@ -175,6 +179,7 @@ struct aurora_process *process_create_image(
     process->state = AURORA_PROCESS_RUNNING;
 
     cap_table_init(&process->capabilities);
+    spinlock_init(&process->memory_lock);
 
     if (!vmm_address_space_create(&process->address_space)) {
         discard_new_process(process);
@@ -284,7 +289,8 @@ bool process_reap(
 bool process_release(struct aurora_process *process) {
     if (process == NULL || process_state(process) != AURORA_PROCESS_REAPED ||
         process_live_thread_count(process) != 0u ||
-        process->address_space.root_physical != 0u) {
+        process->address_space.root_physical != 0u ||
+        process_anonymous_page_count(process) != 0u) {
         return false;
     }
 
