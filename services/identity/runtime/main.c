@@ -13,6 +13,8 @@
 #include <aurora/identity/machine_secret_protected_state.h>
 #include <aurora/identity/persistent_store.h>
 #include <aurora/identity/persistent_store_protected_state.h>
+#include <aurora/identity/reauth_proof.h>
+#include <aurora/identity/reauth_proof_memory.h>
 #include <aurora/identity/session_grant.h>
 #include <aurora/identity/session_grant_memory.h>
 #include <aurora/identity_service_protocol.h>
@@ -25,6 +27,7 @@
 #define IDENTITY_RUNTIME_REAP_PROBE_SIZE (256u * 1024u)
 #define IDENTITY_RUNTIME_PAGE_SIZE 4096u
 #define IDENTITY_RUNTIME_SESSION_GRANT_TTL_MS UINT64_C(30000)
+#define IDENTITY_RUNTIME_REAUTH_PROOF_TTL_MS UINT64_C(60000)
 
 void *malloc(size_t size);
 void free(void *pointer);
@@ -33,6 +36,8 @@ static const uint8_t identity_runtime_drbg_personalization[] =
     "AURORA.IDENTITY.RUNTIME.HMAC-DRBG.V1";
 static const uint8_t identity_runtime_session_grant_key_domain[] =
     "AURORA.IDENTITY.SESSION-GRANT-KEY.V1";
+static const uint8_t identity_runtime_reauth_proof_key_domain[] =
+    "AURORA.IDENTITY.REAUTH-PROOF-KEY.V1";
 
 struct identity_runtime_auth_job {
     bool occupied;
@@ -60,6 +65,8 @@ struct identity_runtime_persistent_context {
     struct aurora_identity_core identity_core;
     struct aurora_identity_session_grant_memory_store session_grant_store;
     struct aurora_identity_session_grant_core session_grant_core;
+    struct aurora_identity_reauth_memory_store reauth_proof_store;
+    struct aurora_identity_reauth_core reauth_proof_core;
     struct identity_runtime_auth_job auth_job;
     struct identity_runtime_create_job create_job;
     bool machine_secret_ready;
@@ -68,6 +75,7 @@ struct identity_runtime_persistent_context {
     bool argon2id_provider_ready;
     bool identity_core_ready;
     bool session_grant_ready;
+    bool reauth_proof_ready;
 };
 
 static void secure_zero(void *buffer, size_t size) {
@@ -528,6 +536,7 @@ static bool initialize_hmac_provider(
 ) {
     uint8_t lookup_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE];
     uint8_t session_grant_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE];
+    uint8_t reauth_proof_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE];
     struct aurora_identity_hmac_drbg *drbg;
     bool initialized;
 
@@ -536,6 +545,7 @@ static bool initialize_hmac_provider(
     aurora_identity_hmac_provider_clear(&context->hmac_provider);
     secure_zero(lookup_key, sizeof(lookup_key));
     secure_zero(session_grant_key, sizeof(session_grant_key));
+    secure_zero(reauth_proof_key, sizeof(reauth_proof_key));
 
     if (!context->machine_secret_ready) return true;
 
@@ -547,9 +557,16 @@ static bool initialize_hmac_provider(
             sizeof(context->machine_secret.bytes),
             identity_runtime_session_grant_key_domain,
             sizeof(identity_runtime_session_grant_key_domain) - 1u,
-            session_grant_key)) {
+            session_grant_key) ||
+        !aurora_identity_hmac_sha256(
+            context->machine_secret.bytes,
+            sizeof(context->machine_secret.bytes),
+            identity_runtime_reauth_proof_key_domain,
+            sizeof(identity_runtime_reauth_proof_key_domain) - 1u,
+            reauth_proof_key)) {
         secure_zero(lookup_key, sizeof(lookup_key));
         secure_zero(session_grant_key, sizeof(session_grant_key));
+        secure_zero(reauth_proof_key, sizeof(reauth_proof_key));
         return false;
     }
 
@@ -558,10 +575,12 @@ static bool initialize_hmac_provider(
         &context->hmac_provider,
         lookup_key,
         session_grant_key,
+        reauth_proof_key,
         drbg);
 
     secure_zero(lookup_key, sizeof(lookup_key));
     secure_zero(session_grant_key, sizeof(session_grant_key));
+    secure_zero(reauth_proof_key, sizeof(reauth_proof_key));
     if (!initialized) {
         aurora_identity_hmac_provider_clear(&context->hmac_provider);
         return false;
@@ -663,6 +682,31 @@ static bool initialize_session_grants(
     return true;
 }
 
+static bool initialize_reauth_proofs(
+    struct identity_runtime_persistent_context *context
+) {
+    if (context == NULL) return false;
+    context->reauth_proof_ready = false;
+    secure_zero(&context->reauth_proof_core, sizeof(context->reauth_proof_core));
+    aurora_identity_reauth_memory_init(&context->reauth_proof_store);
+
+    if (!context->hmac_provider_ready || !context->drbg_ready) return true;
+
+    context->reauth_proof_core.random =
+        aurora_identity_hmac_provider_random_ops(&context->hmac_provider);
+    context->reauth_proof_core.clock.context = NULL;
+    context->reauth_proof_core.clock.monotonic_ms = runtime_monotonic_ms;
+    context->reauth_proof_core.crypto =
+        aurora_identity_hmac_provider_reauth_crypto_ops(
+            &context->hmac_provider);
+    context->reauth_proof_core.store =
+        aurora_identity_reauth_memory_ops(&context->reauth_proof_store);
+    context->reauth_proof_core.policy.ttl_ms =
+        IDENTITY_RUNTIME_REAUTH_PROOF_TTL_MS;
+    context->reauth_proof_ready = true;
+    return true;
+}
+
 static void clear_auth_job(struct identity_runtime_auth_job *job) {
     if (job != NULL) secure_zero(job, sizeof(*job));
 }
@@ -679,6 +723,8 @@ static void release_persistent_context(
     clear_create_job(&context->create_job);
     aurora_identity_session_grant_memory_clear(&context->session_grant_store);
     secure_zero(&context->session_grant_core, sizeof(context->session_grant_core));
+    aurora_identity_reauth_memory_clear(&context->reauth_proof_store);
+    secure_zero(&context->reauth_proof_core, sizeof(context->reauth_proof_core));
     secure_zero(&context->identity_core, sizeof(context->identity_core));
     aurora_identity_argon2id_provider_clear(&context->argon2id_provider);
     aurora_identity_hmac_provider_clear(&context->hmac_provider);
@@ -1359,7 +1405,8 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
         !initialize_hmac_provider(persistent_context) ||
         !initialize_argon2id_provider(persistent_context) ||
         !initialize_identity_core(persistent_context) ||
-        !initialize_session_grants(persistent_context)) {
+        !initialize_session_grants(persistent_context) ||
+        !initialize_reauth_proofs(persistent_context)) {
         release_persistent_context(persistent_context);
         return 1;
     }
