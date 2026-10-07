@@ -31,7 +31,7 @@ jobs:
             qemu-system-x86
 
       - name: Build kernel and ISO
-        run: make iso
+        run: make BOOT_VALIDATION=1 iso
 
       - name: Ring 3 entropy handoff smoke
         run: |
