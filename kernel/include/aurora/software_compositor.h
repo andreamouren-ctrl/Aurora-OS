@@ -122,6 +122,13 @@ bool software_compositor_set_secure_scene(
     bool active
 );
 
+bool software_compositor_hit_test(
+    struct aurora_software_compositor *compositor,
+    int32_t x,
+    int32_t y,
+    uint64_t *out_node_id
+);
+
 bool software_compositor_compose_present(
     struct aurora_software_compositor *compositor,
     uint64_t *out_present_serial
