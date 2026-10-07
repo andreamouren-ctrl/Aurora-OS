@@ -275,6 +275,8 @@ static bool send_lifecycle_result(
 static bool send_lock_result(
     uint64_t endpoint,
     uint64_t request_id,
+    uint32_t state,
+    uint32_t public_error,
     uint64_t generation,
     const uint8_t *user_id
 ) {
@@ -283,8 +285,8 @@ static bool send_lock_result(
     result.header.version = AURORA_SESSION_MANAGER_PROTOCOL_VERSION;
     result.header.type = AURORA_SESSION_MANAGER_LOCK_RESULT;
     result.header.request_id = request_id;
-    result.state = AURORA_SESSION_MANAGER_STATE_LOCKED;
-    result.public_error = AURORA_SESSION_MANAGER_ERROR_NONE;
+    result.state = state;
+    result.public_error = public_error;
     result.session_generation = generation;
     if (user_id != NULL) copy_bytes(result.user_id, user_id, sizeof(result.user_id));
     bool sent = send_payload(endpoint, &result, sizeof(result));
@@ -617,7 +619,7 @@ static bool lock_session(
     }
 
     if (!context->active || context->locked || context->profile_handle == 0u) {
-        return send_unlock_result(
+        return send_lock_result(
             context->supervisor_endpoint,
             request->request_id,
             AURORA_SESSION_MANAGER_STATE_BUSY,
@@ -630,6 +632,8 @@ static bool lock_session(
     return send_lock_result(
         context->supervisor_endpoint,
         request->request_id,
+        AURORA_SESSION_MANAGER_STATE_LOCKED,
+        AURORA_SESSION_MANAGER_ERROR_NONE,
         context->generation,
         context->user_id);
 }
