@@ -270,6 +270,149 @@ bool graphics_surface_damage(
     return true;
 }
 
+bool graphics_surface_request_frame_callback(
+    struct aurora_cap_table *table,
+    aurora_cap_handle surface_handle,
+    uint64_t request_id
+) {
+    if (request_id == 0u) return false;
+
+    struct aurora_graphics_surface *surface = NULL;
+
+    if (!graphics_surface_lookup(
+            table,
+            surface_handle,
+            AURORA_RIGHT_WRITE,
+            &surface)) {
+        return false;
+    }
+
+    spinlock_lock(&surface_lock);
+
+    if (surface->state == AURORA_GRAPHICS_SURFACE_FREE ||
+        surface->pending_frame_callback) {
+        spinlock_unlock(&surface_lock);
+        return false;
+    }
+
+    uint32_t free_slots = 0u;
+    for (uint32_t i = 0u;
+         i < AURORA_GRAPHICS_SURFACE_MAX_FRAME_CALLBACKS;
+         ++i) {
+        if (surface->frame_callbacks[i].state ==
+            AURORA_GRAPHICS_FRAME_CALLBACK_FREE) {
+            ++free_slots;
+        }
+    }
+
+    if (free_slots == 0u) {
+        spinlock_unlock(&surface_lock);
+        return false;
+    }
+
+    surface->pending_frame_callback = true;
+    surface->pending_frame_request_id = request_id;
+
+    spinlock_unlock(&surface_lock);
+    return true;
+}
+
+bool graphics_surface_complete_frame(
+    struct aurora_graphics_surface *surface,
+    uint64_t commit_serial,
+    uint64_t presentation_serial
+) {
+    if (surface == NULL ||
+        commit_serial == 0u ||
+        presentation_serial == 0u) {
+        return false;
+    }
+
+    spinlock_lock(&surface_lock);
+
+    if (surface < &surfaces[0] ||
+        surface >= &surfaces[AURORA_GRAPHICS_SURFACE_MAX_OBJECTS] ||
+        surface->state == AURORA_GRAPHICS_SURFACE_FREE) {
+        spinlock_unlock(&surface_lock);
+        return false;
+    }
+
+    for (uint32_t i = 0u;
+         i < AURORA_GRAPHICS_SURFACE_MAX_FRAME_CALLBACKS;
+         ++i) {
+        struct aurora_graphics_frame_callback *callback =
+            &surface->frame_callbacks[i];
+
+        if (callback->state ==
+                AURORA_GRAPHICS_FRAME_CALLBACK_WAITING &&
+            callback->commit_serial == commit_serial) {
+            callback->presentation_serial = presentation_serial;
+            callback->state =
+                AURORA_GRAPHICS_FRAME_CALLBACK_READY;
+            spinlock_unlock(&surface_lock);
+            return true;
+        }
+    }
+
+    spinlock_unlock(&surface_lock);
+    return false;
+}
+
+bool graphics_surface_take_frame_callback(
+    struct aurora_cap_table *table,
+    aurora_cap_handle surface_handle,
+    struct aurora_graphics_frame_callback *out_callback
+) {
+    if (out_callback == NULL) return false;
+
+    struct aurora_graphics_surface *surface = NULL;
+
+    if (!graphics_surface_lookup(
+            table,
+            surface_handle,
+            AURORA_RIGHT_READ,
+            &surface)) {
+        return false;
+    }
+
+    spinlock_lock(&surface_lock);
+
+    uint32_t selected =
+        AURORA_GRAPHICS_SURFACE_MAX_FRAME_CALLBACKS;
+    uint64_t oldest_commit = UINT64_MAX;
+
+    for (uint32_t i = 0u;
+         i < AURORA_GRAPHICS_SURFACE_MAX_FRAME_CALLBACKS;
+         ++i) {
+        struct aurora_graphics_frame_callback *callback =
+            &surface->frame_callbacks[i];
+
+        if (callback->state ==
+                AURORA_GRAPHICS_FRAME_CALLBACK_READY &&
+            callback->commit_serial < oldest_commit) {
+            oldest_commit = callback->commit_serial;
+            selected = i;
+        }
+    }
+
+    if (selected ==
+        AURORA_GRAPHICS_SURFACE_MAX_FRAME_CALLBACKS) {
+        spinlock_unlock(&surface_lock);
+        return false;
+    }
+
+    *out_callback = surface->frame_callbacks[selected];
+
+    surface->frame_callbacks[selected].request_id = 0u;
+    surface->frame_callbacks[selected].commit_serial = 0u;
+    surface->frame_callbacks[selected].presentation_serial = 0u;
+    surface->frame_callbacks[selected].state =
+        AURORA_GRAPHICS_FRAME_CALLBACK_FREE;
+
+    spinlock_unlock(&surface_lock);
+    return true;
+}
+
 bool graphics_surface_commit(
     struct aurora_cap_table *table,
     aurora_cap_handle surface_handle,
@@ -329,6 +472,35 @@ bool graphics_surface_commit(
     }
     if (next_commit_serial == 0u) {
         next_commit_serial = 1u;
+    }
+
+    if (surface->pending_frame_callback) {
+        struct aurora_graphics_frame_callback *callback_slot = NULL;
+
+        for (uint32_t i = 0u;
+             i < AURORA_GRAPHICS_SURFACE_MAX_FRAME_CALLBACKS;
+             ++i) {
+            if (surface->frame_callbacks[i].state ==
+                AURORA_GRAPHICS_FRAME_CALLBACK_FREE) {
+                callback_slot = &surface->frame_callbacks[i];
+                break;
+            }
+        }
+
+        if (callback_slot == NULL) {
+            spinlock_unlock(&surface_lock);
+            return false;
+        }
+
+        callback_slot->request_id =
+            surface->pending_frame_request_id;
+        callback_slot->commit_serial = serial;
+        callback_slot->presentation_serial = 0u;
+        callback_slot->state =
+            AURORA_GRAPHICS_FRAME_CALLBACK_WAITING;
+
+        surface->pending_frame_callback = false;
+        surface->pending_frame_request_id = 0u;
     }
 
     if (!graphics_buffer_retain_surface(buffer)) {
