@@ -87,3 +87,32 @@ const struct aurora_display_mode *display_mode_at(
 
     return &output->modes[mode_index];
 }
+
+bool display_present(
+    uint32_t output_index,
+    const struct aurora_display_backbuffer *buffer
+) {
+    const struct aurora_display_output *output =
+        display_output_at(output_index);
+
+    if (output == NULL ||
+        buffer == NULL ||
+        !buffer->ready) {
+        return false;
+    }
+
+    switch (output->backend) {
+        case AURORA_DISPLAY_BACKEND_BOOT_FRAMEBUFFER:
+            if (output != &boot_backend.output) {
+                return false;
+            }
+
+            return display_boot_framebuffer_present(
+                &boot_backend,
+                buffer
+            );
+
+        default:
+            return false;
+    }
+}
