@@ -153,7 +153,7 @@ Remaining:
 
 - compositor/desktop process bootstrap above the User Session Host once M4 graphics foundations exist;
 - complete session lifecycle state machine beyond active/lock/unlock/logout/termination;
-- purpose-bound re-authentication proofs for sensitive actions;
+- production Ring 3 issuance/consumption of purpose-bound re-authentication proofs for sensitive actions (isolated token/store core implemented);
 - final profile/settings service bootstrap above the profile capability.
 
 Acceptance gate:
