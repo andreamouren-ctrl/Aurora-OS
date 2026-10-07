@@ -572,7 +572,6 @@ void login_ui_render(void) {
         2u,
         login_state == AURORA_LOGIN_AUTHENTICATING ||
         login_state == AURORA_LOGIN_CREATING ||
-        login_state == AURORA_LOGIN_UNLOCKING ||
         login_state == AURORA_LOGIN_UNLOCKING
             ? field_border_active
             : field_border
