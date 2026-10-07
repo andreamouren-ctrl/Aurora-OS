@@ -194,8 +194,8 @@ bool session_manager_client_begin(
 }
 
 bool session_manager_client_lock(void) {
-    if ((client_state != AURORA_SESSION_CLIENT_ACTIVE &&
-         client_state != AURORA_SESSION_CLIENT_LOCKED) ||
+    if (client_state != AURORA_SESSION_CLIENT_ACTIVE ||
+        active_profile_handle == AURORA_CAP_INVALID ||
         session_supervisor.state != AURORA_SERVICE_SUPERVISOR_RUNNING) {
         return false;
     }
@@ -269,8 +269,14 @@ bool session_manager_client_unlock(
 }
 
 bool session_manager_client_logout(void) {
-    if (client_state != AURORA_SESSION_CLIENT_ACTIVE ||
-        active_profile_handle == AURORA_CAP_INVALID ||
+    bool active_with_profile =
+        client_state == AURORA_SESSION_CLIENT_ACTIVE &&
+        active_profile_handle != AURORA_CAP_INVALID;
+    bool locked_without_profile =
+        client_state == AURORA_SESSION_CLIENT_LOCKED &&
+        active_profile_handle == AURORA_CAP_INVALID;
+
+    if ((!active_with_profile && !locked_without_profile) ||
         session_supervisor.state != AURORA_SERVICE_SUPERVISOR_RUNNING) {
         return false;
     }
