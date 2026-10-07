@@ -50,6 +50,7 @@
 #include <aurora/timer.h>
 #include <aurora/usb_hid.h>
 #include <aurora/usb_hid_transport.h>
+#include <aurora/xhci.h>
 #include <aurora/user_ipc_probe.h>
 #include <aurora/user_probe.h>
 #include <aurora/usercopy.h>
@@ -1480,6 +1481,39 @@ void kmain(void) {
     log_line("[graphics-input] normalized mouse + hit-test focus isolation self-test passed");
     log_line("[usb-hid] transport-independent boot keyboard/mouse decoder self-test passed");
     log_line("[usb-hid-transport] binding/dispatch/stale-handle/disconnect self-test passed");
+
+    struct aurora_xhci_probe_result xhci = {0};
+    if (xhci_probe(&xhci)) {
+        log_write("[xhci] PCI ");
+        log_u64(xhci.bus);
+        log_putc(':');
+        log_u64(xhci.slot);
+        log_putc('.');
+        log_u64(xhci.function);
+        log_write(" MMIO ");
+        log_hex64(xhci.mmio_physical);
+        log_line("");
+
+        log_write("[xhci] version ");
+        log_hex64(xhci.interface_version);
+        log_write(" slots ");
+        log_u64(xhci.max_device_slots);
+        log_write(" interrupters ");
+        log_u64(xhci.max_interrupters);
+        log_write(" ports ");
+        log_u64(xhci.max_ports);
+        log_line("");
+
+        log_write("[xhci] MSI ");
+        log_u64(xhci.has_msi ? 1u : 0u);
+        log_write(" MSI-X ");
+        log_u64(xhci.has_msix ? 1u : 0u);
+        log_line("");
+
+        log_line("[xhci] PCI/BAR/MMIO capability probe passed");
+    } else {
+        log_line("[xhci] controller unavailable");
+    }
 
     struct aurora_memory_object *shared_probe =
         memory_object_create(2u);
