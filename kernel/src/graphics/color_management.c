@@ -1451,6 +1451,23 @@ static bool sample_curve_tag(
     }
 
     /*
+     * Binary search below is valid only for monotonic device->PCS curves.
+     * Reject malformed/non-monotonic sampled TRCs instead of silently
+     * producing an arbitrary inverse curve.
+     */
+    uint16_t previous_sample = read_be16(data + 12u);
+    for (uint32_t i = 1u; i < count; ++i) {
+        uint16_t current_sample =
+            read_be16(data + 12u + i * 2u);
+
+        if (current_sample < previous_sample) {
+            return false;
+        }
+
+        previous_sample = current_sample;
+    }
+
+    /*
      * ICC display TRC is device code -> linear PCS. We need the inverse
      * linear -> device code. Resample the monotonic sampled curve by bounded
      * binary/linear search.
@@ -1587,8 +1604,16 @@ bool color_management_parse_icc(
     if (profile_bytes == NULL ||
         out_profile == NULL ||
         profile_size < 132u ||
-        profile_size > (16u * 1024u * 1024u) ||
-        read_be32(profile_bytes) > profile_size ||
+        profile_size > (16u * 1024u * 1024u)) {
+        return false;
+    }
+
+    uint32_t declared_size = read_be32(profile_bytes);
+    uint8_t icc_major_version = profile_bytes[8u];
+
+    if (declared_size < 132u ||
+        declared_size > profile_size ||
+        (icc_major_version != 2u && icc_major_version != 4u) ||
         read_be32(profile_bytes + 36u) != UINT32_C(0x61637370)) {
         return false;
     }
@@ -1612,7 +1637,7 @@ bool color_management_parse_icc(
     for (uint32_t i = 0u; i < 6u; ++i) {
         if (!find_icc_tag(
                 profile_bytes,
-                profile_size,
+                declared_size,
                 tags[i],
                 &tag_data[i],
                 &tag_size[i])) {
@@ -1657,7 +1682,7 @@ bool color_management_parse_icc(
 
     if (find_icc_tag(
             profile_bytes,
-            profile_size,
+            declared_size,
             UINT32_C(0x76636774),
             &vcgt,
             &vcgt_size)) {
@@ -2268,6 +2293,8 @@ static bool build_and_parse_test_icc(
     uint8_t icc[512] = {0};
 
     write_be32(icc, sizeof(icc));
+    icc[8u] = 4u;
+    icc[9u] = 0x30u; /* ICC v4.3 */
     write_be32(icc + 36u, UINT32_C(0x61637370)); /* acsp */
     write_be32(icc + 128u, 7u);
 
@@ -2403,11 +2430,51 @@ bool color_management_selftest(void) {
         }
     }
 
-    if (color_st2084_eotf_nits_q16(65535u) !=
+    if (color_st2084_eotf_nits_q16(0u) != 0u ||
+        color_st2084_eotf_nits_q16(65535u) !=
             10000u * 65536u) {
         return false;
     }
 
+    uint32_t previous_pq = 0u;
+    for (uint32_t code = 1u; code <= 65535u; ++code) {
+        uint32_t current_pq =
+            color_st2084_eotf_nits_q16((uint16_t)code);
+
+        if (current_pq < previous_pq) {
+            return false;
+        }
+
+        previous_pq = current_pq;
+    }
+
+    uint32_t previous_mapped = 0u;
+    const uint32_t tone_source_peak = 1000u * 65536u;
+    const uint32_t tone_target_peak = 203u * 65536u;
+
+    for (uint32_t step = 0u; step <= 4096u; ++step) {
+        uint32_t luminance =
+            (uint32_t)(((uint64_t)tone_source_peak * step) / 4096u);
+        uint32_t mapped =
+            perceptual_tone_map_luminance(
+                luminance,
+                tone_source_peak,
+                tone_target_peak
+            );
+
+        if (mapped < previous_mapped ||
+            mapped > tone_target_peak) {
+            return false;
+        }
+
+        previous_mapped = mapped;
+    }
+
+    uint32_t hlg_black =
+        source_to_linear_nits_q16(
+            AURORA_COLOR_TRANSFER_HLG,
+            0u
+        );
     uint32_t hlg_half =
         source_to_linear_nits_q16(
             AURORA_COLOR_TRANSFER_HLG,
@@ -2419,7 +2486,8 @@ bool color_management_selftest(void) {
             65535u
         );
 
-    if (hlg_half < 45u * 65536u ||
+    if (hlg_black != 0u ||
+        hlg_half < 45u * 65536u ||
         hlg_half > 60u * 65536u ||
         hlg_peak < 999u * 65536u ||
         hlg_peak > 1000u * 65536u) {
