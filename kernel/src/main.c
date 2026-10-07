@@ -160,9 +160,14 @@ void kmain(void) {
         kernel_panic("HDMI sink capability self-test failed");
     }
 
+    if (!display_vrr_selftest()) {
+        kernel_panic("VRR policy self-test failed");
+    }
+
     log_line("[display] DDC/E-DDC EDID transport passed");
     log_line("[display] DisplayPort/eDP DPCD capability path passed");
     log_line("[display] HDMI EDID/CTA capability path passed");
+    log_line("[display] VRR range and presentation policy passed");
 #endif
 
     boot_ui_init(&framebuffer);
