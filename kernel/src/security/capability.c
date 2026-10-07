@@ -317,6 +317,80 @@ bool cap_lookup(
     return valid;
 }
 
+bool cap_lookup_retain(
+    struct aurora_cap_table *table,
+    aurora_cap_handle handle,
+    enum aurora_cap_type expected_type,
+    uint64_t required_rights,
+    struct aurora_capability_view *out
+) {
+    if (table == NULL ||
+        out == NULL ||
+        (expected_type != AURORA_CAP_NONE &&
+         !cap_type_valid(expected_type))) {
+        return false;
+    }
+
+    uint32_t slot = 0u;
+    uint32_t generation = 0u;
+
+    if (!decode_handle(
+            handle,
+            &slot,
+            &generation)) {
+        return false;
+    }
+
+    spinlock_lock(&table->lock);
+
+    struct aurora_cap_entry *entry =
+        &table->entries[slot];
+
+    bool entry_type_valid =
+        entry->type > (uint16_t)AURORA_CAP_NONE &&
+        entry->type < (uint16_t)AURORA_CAP_TYPE_COUNT;
+
+    bool valid =
+        entry->occupied &&
+        entry->generation == generation &&
+        entry->object != NULL &&
+        entry_type_valid &&
+        (expected_type == AURORA_CAP_NONE ||
+         entry->type == (uint16_t)expected_type) &&
+        (entry->rights & required_rights) == required_rights;
+
+    if (valid) {
+        valid = lifecycle_retain(
+            (enum aurora_cap_type)entry->type,
+            entry->object
+        );
+    }
+
+    if (valid) {
+        out->object = entry->object;
+        out->type = (enum aurora_cap_type)entry->type;
+        out->rights = entry->rights;
+    }
+
+    spinlock_unlock(&table->lock);
+    return valid;
+}
+
+void cap_view_release(
+    const struct aurora_capability_view *view
+) {
+    if (view == NULL ||
+        view->object == NULL ||
+        !cap_type_valid(view->type)) {
+        return;
+    }
+
+    lifecycle_release(
+        view->type,
+        view->object
+    );
+}
+
 bool cap_revoke(
     struct aurora_cap_table *table,
     aurora_cap_handle handle
