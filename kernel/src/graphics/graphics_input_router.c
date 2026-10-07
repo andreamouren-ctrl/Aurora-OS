@@ -574,7 +574,8 @@ bool graphics_input_router_selftest(void) {
      * Queue pressure may coalesce only adjacent motion. Key/button ordering
      * must remain intact and a full queue must still reject other event types.
      */
-    struct aurora_graphics_input_target pressure = {
+    static struct aurora_graphics_input_target pressure;
+    pressure = (struct aurora_graphics_input_target){
         .target_id = 999u,
         .node_id = 999u,
         .used = true
