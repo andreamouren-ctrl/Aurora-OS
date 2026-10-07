@@ -6,6 +6,7 @@
 
 #include <aurora/boot.h>
 #include <aurora/display_output.h>
+#include <aurora/display_backbuffer.h>
 
 #define AURORA_DISPLAY_MAX_OUTPUTS 4u
 
@@ -22,6 +23,11 @@ const struct aurora_display_output *display_output_at(
 const struct aurora_display_mode *display_mode_at(
     uint32_t output_index,
     uint32_t mode_index
+);
+
+bool display_present(
+    uint32_t output_index,
+    const struct aurora_display_backbuffer *buffer
 );
 
 #endif
