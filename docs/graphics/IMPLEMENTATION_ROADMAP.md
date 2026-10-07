@@ -72,7 +72,7 @@ G2 acceptance gate and lifecycle hardening are runtime verified in QEMU.
 
 ## Phase G3 — Software compositor
 
-Status: **In progress**
+Status: **Complete**
 
 Implemented and runtime verified:
 
@@ -86,18 +86,22 @@ Implemented and runtime verified:
 - [x] frame-callback completion after successful presentation;
 - [x] moving/overlapping surface QEMU correctness probe.
 
-Remaining:
+Implemented and runtime verified in the second/third G3 blocks:
 
-- [ ] occlusion culling / opaque-region optimization;
-- [ ] transforms and scaling;
-- [ ] secure privileged surface classes and exclusion rules;
-- [ ] wider color/format composition path beyond matched 32-bit SDR packed RGB.
+- [x] bounded full-surface occlusion culling for fully covered opaque nodes;
+- [x] nearest-neighbor integer scaling (1x-4x) with 0/90/180/270 transforms;
+- [x] DISPLAY|CONTROL-gated privileged surface classes and secure-scene exclusion rules;
+- [x] RGB10A2 composition into the SDR backbuffer;
+- [x] 48-bit RGB12 composition into the SDR backbuffer;
+- [x] RGBA16F decoding with fixed-point gamut/transfer handling and baseline HDR-to-SDR tone mapping.
 
 Acceptance gate:
 
 Multiple moving/overlapping surfaces render correctly in QEMU with bounded memory growth and deterministic clipping tests.
 
-Current gate status: **core raster plus occlusion/transform/security correctness runtime verified in QEMU**. Final G3 completion remains blocked by the wider color/format composition path above.
+Current gate status: **G3 runtime verified in QEMU**. Moving/overlapping surfaces, clipping, alpha, damage, occlusion, transforms/scaling, secure-scene exclusion and RGB10A2/RGB12/RGBA16F composition all pass the mandatory boot validation gate.
+
+Color accuracy note: the current HDR-to-SDR path is a bounded integer/fixed-point baseline intended for compositor correctness and safe fallback. Production mastering-grade transfer functions, calibration and perceptual tone mapping remain performance/color-management hardening work rather than a G3 correctness blocker.
 
 ## Phase G4 — Pointer and modern input
 
@@ -207,4 +211,4 @@ Hardware/runtime integration still pending:
 - [x] runtime PCI display-class probe + BAR0 LFB validation;
 - [x] native GPU candidate attachment with boot-framebuffer fallback preserved;
 - [ ] vendor GPU scanout/color-pipeline programming;
-- [ ] compositor color conversion and HDR tone mapping.
+- [x] baseline compositor color conversion and fixed-point HDR-to-SDR tone mapping.
