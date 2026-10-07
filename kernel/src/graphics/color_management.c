@@ -1545,9 +1545,11 @@ static uint32_t lut_interp_u16(
     const uint16_t *table,
     uint16_t input
 ) {
-    uint32_t scaled = (uint32_t)input * COLOR_LUT_INTERVALS;
-    uint32_t index = scaled >> 16;
-    uint32_t fraction = scaled & 0xFFFFu;
+    uint64_t position =
+        ((uint64_t)input * COLOR_LUT_INTERVALS * 65536u) /
+        65535u;
+    uint32_t index = (uint32_t)(position >> 16);
+    uint32_t fraction = (uint32_t)(position & 0xFFFFu);
 
     if (index >= COLOR_LUT_INTERVALS) {
         return table[COLOR_LUT_INTERVALS];
@@ -1567,10 +1569,12 @@ static uint32_t lut_interp_u16(
 }
 
 uint32_t color_st2084_eotf_nits_q16(uint16_t encoded_q16) {
-    uint32_t scaled =
-        (uint32_t)encoded_q16 * COLOR_LUT_INTERVALS;
-    uint32_t index = scaled >> 16;
-    uint32_t fraction = scaled & 0xFFFFu;
+    uint64_t position =
+        ((uint64_t)encoded_q16 *
+         COLOR_LUT_INTERVALS * 65536u) /
+        65535u;
+    uint32_t index = (uint32_t)(position >> 16);
+    uint32_t fraction = (uint32_t)(position & 0xFFFFu);
 
     if (index >= COLOR_LUT_INTERVALS) {
         return st2084_nits_q16[COLOR_LUT_INTERVALS];
