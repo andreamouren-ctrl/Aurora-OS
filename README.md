@@ -88,7 +88,7 @@ G1-G3 currently include capability-gated Ring 3 display/surface paths, cross-cli
 
 Display-link foundations include EDID/CTA/DisplayID parsing, HDMI/DisplayPort capability models, VRR/DSC contracts, link-training contracts and a QEMU Standard VGA/Bochs VBE native-driver foundation.
 
-G4 currently includes normalized device-independent events, PS/2 keyboard integration and the initial IRQ12 PS/2 mouse packet path. Full focus/capture and USB HID remain follow-up work.
+G4 now includes normalized device-independent events, PS/2 keyboard integration, a live IRQ12 PS/2 mouse path, secure-scene-aware compositor hit testing, trusted focus routing, private target queues and a multi-client no-leakage gate. Explicit pointer-capture/revocation completion and USB HID remain follow-up work.
 
 ## What Aurora is not yet
 
