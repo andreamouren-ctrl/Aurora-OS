@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define AURORA_SESSION_MANAGER_PROTOCOL_VERSION 1u
+#define AURORA_SESSION_MANAGER_PROTOCOL_VERSION 2u
 #define AURORA_SESSION_MANAGER_MESSAGE_SIZE 16u
 #define AURORA_SESSION_MANAGER_GRANT_SIZE 32u
 #define AURORA_SESSION_MANAGER_USER_ID_SIZE 16u
@@ -17,6 +17,10 @@ enum aurora_session_manager_message_type {
     AURORA_SESSION_MANAGER_SESSION_RESULT = 17,
     AURORA_SESSION_MANAGER_LOGOUT = 18,
     AURORA_SESSION_MANAGER_LOGOUT_RESULT = 19,
+    AURORA_SESSION_MANAGER_LOCK = 20,
+    AURORA_SESSION_MANAGER_LOCK_RESULT = 21,
+    AURORA_SESSION_MANAGER_UNLOCK = 22,
+    AURORA_SESSION_MANAGER_UNLOCK_RESULT = 23,
 
     AURORA_SESSION_MANAGER_ERROR = 255
 };
@@ -26,7 +30,8 @@ enum aurora_session_manager_state {
     AURORA_SESSION_MANAGER_STATE_REJECTED,
     AURORA_SESSION_MANAGER_STATE_BUSY,
     AURORA_SESSION_MANAGER_STATE_SERVICE_ERROR,
-    AURORA_SESSION_MANAGER_STATE_LOGGED_OUT
+    AURORA_SESSION_MANAGER_STATE_LOGGED_OUT,
+    AURORA_SESSION_MANAGER_STATE_LOCKED
 };
 
 enum aurora_session_manager_public_error {
@@ -45,6 +50,11 @@ struct aurora_session_manager_message {
 };
 
 struct aurora_session_manager_begin_session {
+    struct aurora_session_manager_message header;
+    uint8_t session_grant[AURORA_SESSION_MANAGER_GRANT_SIZE];
+};
+
+struct aurora_session_manager_unlock {
     struct aurora_session_manager_message header;
     uint8_t session_grant[AURORA_SESSION_MANAGER_GRANT_SIZE];
 };

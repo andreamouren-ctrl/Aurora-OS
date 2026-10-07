@@ -93,7 +93,16 @@ Authentication success alone does not guarantee session startup if profile/stora
 
 Locking removes interactive access while preserving the underlying session according to Session Manager policy.
 
-Unlock requires fresh authentication through Aurora Identity.
+The current Phase F implementation performs the capability-critical lock boundary:
+
+1. the Ring 3 User Session Host is stopped;
+2. all delegated profile leases are revoked;
+3. Session Manager preserves the active session generation, stable `user_id`, and source profile authority;
+4. the fallback Identity surface enters `LOCKED`.
+
+Unlock requires fresh authentication through Aurora Identity. The resulting one-time grant is consumed by Session Manager and the verified `user_id` must match the already-bound locked session. A grant for another valid Aurora identity is rejected and no profile lease is restored.
+
+Only after same-user verification succeeds does the kernel reopen the session profile lease and restart the User Session Host.
 
 The lock screen may display the current user's presentation because the active session identity is already known locally; this does not change the cold-boot no-enumeration rule.
 
