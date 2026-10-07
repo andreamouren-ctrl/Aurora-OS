@@ -712,6 +712,8 @@ static bool signed_rw_probe(struct aurora_block_device *device) {
         return true;
     }
 
+    nvme_rw_probe_media = true;
+
     for (uint32_t i = 0u; i < block_size; ++i) {
         rw_pattern[i] = (uint8_t)(0x5Au ^ (uint8_t)i);
         rw_readback[i] = 0u;
@@ -743,6 +745,7 @@ static bool signed_rw_probe(struct aurora_block_device *device) {
 }
 
 static bool nvme_bootstrap_complete;
+static bool nvme_rw_probe_media;
 
 void nvme_bootstrap_probe(void) {
     if (nvme_bootstrap_complete) {
@@ -841,4 +844,7 @@ void nvme_bootstrap_probe(void) {
 #endif
 
     nvme_bootstrap_complete = true;
+}
+bool nvme_namespace_reserved_for_rw_probe(void) {
+    return nvme_rw_probe_media;
 }
