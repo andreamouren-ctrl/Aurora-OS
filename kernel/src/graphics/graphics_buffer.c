@@ -215,7 +215,8 @@ struct aurora_graphics_buffer *graphics_buffer_create(
 }
 
 bool graphics_buffer_release_owner(
-    struct aurora_graphics_buffer *buffer
+    struct aurora_graphics_buffer *buffer,
+    uint32_t expected_generation
 ) {
     if (buffer == NULL) return false;
 
@@ -223,6 +224,7 @@ bool graphics_buffer_release_owner(
 
     if (!buffer_pointer_valid(buffer) ||
         buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
+        buffer->generation != expected_generation ||
         buffer->owner_refs == 0u) {
         spinlock_unlock(&buffer_lock);
         return false;
