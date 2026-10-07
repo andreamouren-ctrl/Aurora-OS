@@ -16,8 +16,19 @@ def st2084_eotf_nits(code: int) -> float:
         return 10000.0
     return 10000.0 * (numerator / denominator) ** (1.0 / m1)
 
+def hlg_inverse_oetf(signal: float) -> float:
+    a = 0.17883277
+    b = 0.28466892
+    c = 0.55991073
+    if signal <= 0.5:
+        return (signal * signal) / 3.0
+    return (math.exp((signal - c) / a) + b) / 12.0
+
 def q16_nits(value: float) -> int:
     return max(0, min(0xFFFFFFFF, int(round(value * 65536.0))))
+
+def q16_unit(value: float) -> int:
+    return max(0, min(65535, int(round(value * 65535.0))))
 
 def emit(path: str) -> None:
     with open(path, "w", encoding="utf-8") as f:
@@ -30,6 +41,17 @@ def emit(path: str) -> None:
         for code in range(65536):
             row.append(str(q16_nits(st2084_eotf_nits(code))))
             if len(row) == 8:
+                f.write("    " + ", ".join(row) + ",\n")
+                row = []
+        if row:
+            f.write("    " + ", ".join(row) + "\n")
+        f.write("};\n\n")
+        f.write("#define AURORA_HLG_Q16_ENTRIES 65536u\n\n")
+        f.write("static const uint16_t aurora_hlg_scene_linear_q16[AURORA_HLG_Q16_ENTRIES] = {\n")
+        row = []
+        for code in range(65536):
+            row.append(str(q16_unit(hlg_inverse_oetf(code / 65535.0))))
+            if len(row) == 12:
                 f.write("    " + ", ".join(row) + ",\n")
                 row = []
         if row:
