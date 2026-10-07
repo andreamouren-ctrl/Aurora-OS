@@ -474,9 +474,9 @@ bool graphics_surface_commit(
         next_commit_serial = 1u;
     }
 
-    if (surface->pending_frame_callback) {
-        struct aurora_graphics_frame_callback *callback_slot = NULL;
+    struct aurora_graphics_frame_callback *callback_slot = NULL;
 
+    if (surface->pending_frame_callback) {
         for (uint32_t i = 0u;
              i < AURORA_GRAPHICS_SURFACE_MAX_FRAME_CALLBACKS;
              ++i) {
@@ -491,7 +491,14 @@ bool graphics_surface_commit(
             spinlock_unlock(&surface_lock);
             return false;
         }
+    }
 
+    if (!graphics_buffer_retain_surface(buffer)) {
+        spinlock_unlock(&surface_lock);
+        return false;
+    }
+
+    if (callback_slot != NULL) {
         callback_slot->request_id =
             surface->pending_frame_request_id;
         callback_slot->commit_serial = serial;
@@ -501,11 +508,6 @@ bool graphics_surface_commit(
 
         surface->pending_frame_callback = false;
         surface->pending_frame_request_id = 0u;
-    }
-
-    if (!graphics_buffer_retain_surface(buffer)) {
-        spinlock_unlock(&surface_lock);
-        return false;
     }
 
     struct aurora_graphics_buffer *old_committed =
