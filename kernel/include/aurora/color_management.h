@@ -60,8 +60,10 @@ bool color_management_get_output_profile(
  * Supported professional monitor-profile path:
  * - RGB matrix-shaper rXYZ/gXYZ/bXYZ;
  * - sampled curveType rTRC/gTRC/bTRC;
+ * - parametricCurveType functions 0-4 with fixed-point inversion;
  * - identity/linear curveType;
- * - optional table-form vcgt calibration ramps.
+ * - optional table-form vcgt calibration ramps;
+ * - optional externally supplied 17^3 monitor calibration LUT.
  *
  * Unsupported/ambiguous profile constructs fail closed.
  */
@@ -77,7 +79,11 @@ bool color_management_set_3d_calibration(
     uint32_t entry_count
 );
 
-/* Exact SMPTE ST 2084 constants evaluated into a high-precision LUT. */
+/*
+ * SMPTE ST 2084 EOTF evaluated for every possible 16-bit encoded input by a
+ * build-generated direct LUT. No runtime floating point or interpolation is
+ * used in the PQ path.
+ */
 uint32_t color_st2084_eotf_nits_q16(uint16_t encoded_q16);
 
 /*
