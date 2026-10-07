@@ -10,6 +10,9 @@
 #include <aurora/cpu_local.h>
 #include <aurora/display.h>
 #include <aurora/display_ddc.h>
+#include <aurora/display_vrr_backend.h>
+#include <aurora/display_link_training.h>
+#include <aurora/display_dsc.h>
 #include <aurora/display_identification.h>
 #include <aurora/displayport_link.h>
 #include <aurora/display_backbuffer.h>
@@ -164,10 +167,25 @@ void kmain(void) {
         kernel_panic("VRR policy self-test failed");
     }
 
+    if (!display_dsc_selftest()) {
+        kernel_panic("DSC capability/config self-test failed");
+    }
+
+    if (!display_vrr_backend_selftest()) {
+        kernel_panic("VRR backend programming self-test failed");
+    }
+
+    if (!display_link_training_selftest()) {
+        kernel_panic("Display link training self-test failed");
+    }
+
     log_line("[display] DDC/E-DDC EDID transport passed");
     log_line("[display] DisplayPort/eDP DPCD capability path passed");
     log_line("[display] HDMI EDID/CTA capability path passed");
     log_line("[display] VRR range and presentation policy passed");
+    log_line("[display] DSC capability/config validation passed");
+    log_line("[display] VRR hardware programming contract passed");
+    log_line("[display] DP/HDMI bounded link training passed");
 #endif
 
     boot_ui_init(&framebuffer);
