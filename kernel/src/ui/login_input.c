@@ -32,6 +32,7 @@ static bool create_offer_active;
 static bool create_entry_mode;
 static bool creation_notice_active;
 static bool session_active_announced;
+static bool logout_in_progress;
 
 static void clear_credential(void) {
     for (size_t i = 0u; i < sizeof(credential_buffer); ++i) {
@@ -68,6 +69,7 @@ static void synchronize_identity_state(void) {
         create_offer_active = false;
         create_entry_mode = false;
         creation_notice_active = false;
+        logout_in_progress = false;
         login_ui_set_state(AURORA_LOGIN_SESSION_ACTIVE);
         if (!session_active_announced) {
             session_active_announced = true;
@@ -75,6 +77,21 @@ static void synchronize_identity_state(void) {
             log_u64(session_manager_client_generation());
             log_line("");
         }
+        return;
+    }
+
+    if (session_state == AURORA_SESSION_CLIENT_LOGGING_OUT) {
+        login_ui_set_state(AURORA_LOGIN_LOGGING_OUT);
+        return;
+    }
+
+    if (session_state == AURORA_SESSION_CLIENT_READY && logout_in_progress) {
+        logout_in_progress = false;
+        session_active_announced = false;
+        clear_credential();
+        identity_client_reset_result();
+        login_ui_set_state(AURORA_LOGIN_IDLE);
+        log_line("[session-manager] logout complete; session-scoped profile authority revoked");
         return;
     }
 
@@ -183,11 +200,20 @@ static void handle_pressed_key(
     enum aurora_identity_client_state state = identity_client_state();
     enum aurora_session_manager_client_state session_state =
         session_manager_client_state();
+    if (session_state == AURORA_SESSION_CLIENT_ACTIVE) {
+        if (key == AURORA_KEY_ESCAPE &&
+            session_manager_client_logout()) {
+            logout_in_progress = true;
+            login_ui_set_state(AURORA_LOGIN_LOGGING_OUT);
+        }
+        return;
+    }
+
     if (state == AURORA_IDENTITY_CLIENT_AUTHENTICATING ||
         state == AURORA_IDENTITY_CLIENT_VERIFIED ||
         state == AURORA_IDENTITY_CLIENT_CREATING ||
         session_state == AURORA_SESSION_CLIENT_STARTING ||
-        session_state == AURORA_SESSION_CLIENT_ACTIVE) {
+        session_state == AURORA_SESSION_CLIENT_LOGGING_OUT) {
         return;
     }
 
@@ -398,6 +424,7 @@ void login_input_init(void) {
     create_entry_mode = false;
     creation_notice_active = false;
     session_active_announced = false;
+    logout_in_progress = false;
 
     for (size_t i = 0u; i < sizeof(credential_buffer); ++i) {
         credential_buffer[i] = '\0';
