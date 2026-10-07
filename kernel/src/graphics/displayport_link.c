@@ -84,23 +84,31 @@ bool display_dp_query_link(
     uint8_t mst = 0u;
     uint8_t dsc = 0u;
 
-    if (!transport->read_dpcd(
-            transport->context,
-            DP_MAIN_LINK_CHANNEL_CODING,
-            &coding,
-            1u) ||
-        !transport->read_dpcd(
-            transport->context,
-            DP_MSTM_CAP,
-            &mst,
-            1u) ||
-        !transport->read_dpcd(
-            transport->context,
-            DP_DSC_SUPPORT,
-            &dsc,
-            1u)) {
-        return false;
-    }
+    /*
+     * These capability registers are optional across DP generations.
+     * Failure to read one must not invalidate an otherwise valid base
+     * receiver-capability block. Fail closed per capability instead.
+     */
+    (void)transport->read_dpcd(
+        transport->context,
+        DP_MAIN_LINK_CHANNEL_CODING,
+        &coding,
+        1u
+    );
+
+    (void)transport->read_dpcd(
+        transport->context,
+        DP_MSTM_CAP,
+        &mst,
+        1u
+    );
+
+    (void)transport->read_dpcd(
+        transport->context,
+        DP_DSC_SUPPORT,
+        &dsc,
+        1u
+    );
 
     out->mst_supported =
         (mst & DP_MST_CAP) != 0u;
