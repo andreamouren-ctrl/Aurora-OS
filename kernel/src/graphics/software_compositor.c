@@ -763,15 +763,25 @@ bool software_compositor_remove_surface(
             &compositor->surface_caps,
             node->surface_handle,
             &snapshot)) {
-        (void)damage_union(
-            &compositor->pending_damage,
-            node->x,
-            node->y,
-            snapshot.buffer->width,
-            snapshot.buffer->height,
-            mode->width,
-            mode->height
-        );
+        uint64_t width = 0u;
+        uint64_t height = 0u;
+
+        if (transformed_extent(
+                node,
+                snapshot.buffer->width,
+                snapshot.buffer->height,
+                &width,
+                &height)) {
+            (void)damage_union(
+                &compositor->pending_damage,
+                node->x,
+                node->y,
+                width,
+                height,
+                mode->width,
+                mode->height
+            );
+        }
         graphics_surface_snapshot_release(&snapshot);
     }
 
@@ -806,12 +816,24 @@ bool software_compositor_set_node(
         return false;
     }
 
+    uint64_t old_width = 0u;
+    uint64_t old_height = 0u;
+    if (!transformed_extent(
+            node,
+            snapshot.buffer->width,
+            snapshot.buffer->height,
+            &old_width,
+            &old_height)) {
+        graphics_surface_snapshot_release(&snapshot);
+        return false;
+    }
+
     (void)damage_union(
         &compositor->pending_damage,
         node->x,
         node->y,
-        snapshot.buffer->width,
-        snapshot.buffer->height,
+        old_width,
+        old_height,
         mode->width,
         mode->height
     );
@@ -821,18 +843,150 @@ bool software_compositor_set_node(
     node->z = z;
     node->opacity = opacity;
     node->visible = visible;
+    node->fully_opaque =
+        opacity == 255u &&
+        snapshot.buffer->format.alpha_mask_size == 0u;
+
+    uint64_t new_width = 0u;
+    uint64_t new_height = 0u;
+    if (!transformed_extent(
+            node,
+            snapshot.buffer->width,
+            snapshot.buffer->height,
+            &new_width,
+            &new_height)) {
+        graphics_surface_snapshot_release(&snapshot);
+        return false;
+    }
 
     (void)damage_union(
         &compositor->pending_damage,
         node->x,
         node->y,
-        snapshot.buffer->width,
-        snapshot.buffer->height,
+        new_width,
+        new_height,
         mode->width,
         mode->height
     );
 
     graphics_surface_snapshot_release(&snapshot);
+    return true;
+}
+
+bool software_compositor_set_transform(
+    struct aurora_software_compositor *compositor,
+    uint64_t node_id,
+    enum aurora_compositor_transform transform,
+    uint8_t scale
+) {
+    if (transform < AURORA_COMPOSITOR_TRANSFORM_NORMAL ||
+        transform > AURORA_COMPOSITOR_TRANSFORM_ROTATE_270 ||
+        scale == 0u ||
+        scale > AURORA_COMPOSITOR_MAX_SCALE) {
+        return false;
+    }
+
+    struct aurora_compositor_node *node =
+        find_node(compositor, node_id);
+
+    if (node == NULL) return false;
+
+    const struct aurora_display_mode *mode =
+        display_mode_at(compositor->output_index, 0u);
+    struct aurora_graphics_surface_snapshot snapshot = {0};
+
+    if (mode == NULL ||
+        !graphics_surface_read_committed(
+            &compositor->surface_caps,
+            node->surface_handle,
+            &snapshot)) {
+        return false;
+    }
+
+    uint64_t old_width = 0u;
+    uint64_t old_height = 0u;
+    if (!transformed_extent(
+            node,
+            snapshot.buffer->width,
+            snapshot.buffer->height,
+            &old_width,
+            &old_height)) {
+        graphics_surface_snapshot_release(&snapshot);
+        return false;
+    }
+
+    (void)damage_union(
+        &compositor->pending_damage,
+        node->x,
+        node->y,
+        old_width,
+        old_height,
+        mode->width,
+        mode->height
+    );
+
+    node->transform = transform;
+    node->scale = scale;
+
+    uint64_t new_width = 0u;
+    uint64_t new_height = 0u;
+    bool valid =
+        transformed_extent(
+            node,
+            snapshot.buffer->width,
+            snapshot.buffer->height,
+            &new_width,
+            &new_height
+        );
+
+    if (valid) {
+        (void)damage_union(
+            &compositor->pending_damage,
+            node->x,
+            node->y,
+            new_width,
+            new_height,
+            mode->width,
+            mode->height
+        );
+    }
+
+    graphics_surface_snapshot_release(&snapshot);
+    return valid;
+}
+
+bool software_compositor_set_secure_scene(
+    struct aurora_software_compositor *compositor,
+    struct aurora_cap_table *authority_caps,
+    aurora_cap_handle display_control_handle,
+    bool active
+) {
+    if (compositor == NULL ||
+        !compositor->initialized ||
+        !display_control_authorized(
+            authority_caps,
+            display_control_handle,
+            compositor->output_index)) {
+        return false;
+    }
+
+    if (compositor->secure_scene_active == active) {
+        return true;
+    }
+
+    const struct aurora_display_mode *mode =
+        display_mode_at(compositor->output_index, 0u);
+
+    if (mode == NULL) return false;
+
+    compositor->secure_scene_active = active;
+    compositor->pending_damage = (struct aurora_compositor_damage){
+        .x = 0u,
+        .y = 0u,
+        .width = (uint32_t)mode->width,
+        .height = (uint32_t)mode->height,
+        .valid = true
+    };
     return true;
 }
 
