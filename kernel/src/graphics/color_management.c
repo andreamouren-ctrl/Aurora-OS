@@ -2246,6 +2246,14 @@ static void build_test_curve_tag(uint8_t *data) {
     write_be16(data + 14u, 65535u);
 }
 
+static void build_test_parametric_curve_tag(uint8_t *data) {
+    write_be32(data, UINT32_C(0x70617261)); /* para */
+    write_be32(data + 4u, 0u);
+    write_be16(data + 8u, 0u); /* function type 0: Y = X^g */
+    write_be16(data + 10u, 0u);
+    write_be32(data + 12u, UINT32_C(0x00023333)); /* gamma ~= 2.2 */
+}
+
 static bool build_and_parse_test_icc(
     struct aurora_color_output_profile *out_profile
 ) {
@@ -2298,9 +2306,9 @@ static bool build_and_parse_test_icc(
         9379, 3974, 46815
     );
 
-    build_test_curve_tag(icc + 284u);
-    build_test_curve_tag(icc + 300u);
-    build_test_curve_tag(icc + 316u);
+    build_test_parametric_curve_tag(icc + 284u);
+    build_test_parametric_curve_tag(icc + 300u);
+    build_test_parametric_curve_tag(icc + 316u);
 
     uint8_t *vcgt = icc + 332u;
     write_be32(vcgt, UINT32_C(0x76636774));
@@ -2389,12 +2397,47 @@ bool color_management_selftest(void) {
         }
     }
 
+    if (color_st2084_eotf_nits_q16(65535u) !=
+            10000u * 65536u) {
+        return false;
+    }
+
+    uint32_t hlg_half =
+        source_to_linear_nits_q16(
+            AURORA_COLOR_TRANSFER_HLG,
+            32768u
+        );
+    uint32_t hlg_peak =
+        source_to_linear_nits_q16(
+            AURORA_COLOR_TRANSFER_HLG,
+            65535u
+        );
+
+    if (hlg_half < 45u * 65536u ||
+        hlg_half > 60u * 65536u ||
+        hlg_peak < 999u * 65536u ||
+        hlg_peak > 1000u * 65536u) {
+        return false;
+    }
+
     static struct aurora_color_output_profile parsed;
     if (!build_and_parse_test_icc(&parsed) ||
         !parsed.valid ||
         !parsed.has_icc_matrix ||
         !parsed.has_icc_trc ||
         !parsed.has_calibration_1d) {
+        return false;
+    }
+
+    /*
+     * Gamma 2.2 inverse TRC: linear 0.5 should encode near 0.73.
+     * The broad tolerance covers fixed-point resampling while rejecting
+     * identity/fallback behavior.
+     */
+    uint16_t param_mid =
+        parsed.encode_trc[0][AURORA_COLOR_PROFILE_CURVE_SAMPLES / 2u];
+
+    if (param_mid < 45000u || param_mid > 51000u) {
         return false;
     }
 
@@ -2450,6 +2493,8 @@ bool color_management_selftest(void) {
     uint8_t low_r = 0u, low_g = 0u, low_b = 0u;
     uint8_t high_r = 0u, high_g = 0u, high_b = 0u;
 
+    uint8_t hot_r = 0u, hot_g = 0u, hot_b = 0u;
+
     bool transformed =
         color_management_transform_rgb8(
             0u,
@@ -2470,6 +2515,16 @@ bool color_management_selftest(void) {
             &high_r,
             &high_g,
             &high_b
+        ) &&
+        color_management_transform_rgb8(
+            0u,
+            &hdr,
+            56000u,
+            43000u,
+            36000u,
+            &hot_r,
+            &hot_g,
+            &hot_b
         );
 
     bool restored =
@@ -2486,7 +2541,10 @@ bool color_management_selftest(void) {
         high_r <= low_r ||
         high_r != high_g ||
         high_g != high_b ||
-        high_r > 255u) {
+        high_r > 255u ||
+        hot_r < hot_g ||
+        hot_g < hot_b ||
+        hot_r == 255u) {
         return false;
     }
 
