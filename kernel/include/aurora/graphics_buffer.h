@@ -40,10 +40,6 @@ struct aurora_graphics_buffer *graphics_buffer_create(
     const struct aurora_display_pixel_format *format
 );
 
-bool graphics_buffer_destroy(
-    struct aurora_graphics_buffer *buffer
-);
-
 aurora_cap_handle graphics_buffer_grant(
     struct aurora_cap_table *table,
     struct aurora_graphics_buffer *buffer,
