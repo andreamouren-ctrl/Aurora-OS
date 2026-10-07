@@ -35,6 +35,12 @@ bool session_manager_client_unlock(
     const uint8_t grant[AURORA_SESSION_MANAGER_GRANT_SIZE]
 );
 
+bool session_manager_client_lock(void);
+
+bool session_manager_client_unlock(
+    const uint8_t grant[AURORA_SESSION_MANAGER_GRANT_SIZE]
+);
+
 bool session_manager_client_logout(void);
 
 void session_manager_client_pump(void);
