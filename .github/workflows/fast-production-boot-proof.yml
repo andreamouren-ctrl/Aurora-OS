@@ -1,0 +1,138 @@
+name: Aurora Fast Production Boot Proof
+
+on:
+  pull_request:
+    branches: [ perf/fast-production-boot ]
+
+jobs:
+  production-boot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang lld make xorriso curl git binutils python3 \
+            qemu-system-x86 socat ffmpeg
+
+      - name: Build production ISO
+        run: make iso
+
+      - name: Measure boot to final Identity surface
+        run: |
+          set -eu
+          mkdir -p build/fast-boot-proof
+
+          SERIAL_LOG=build/fast-boot-proof/serial.log
+          DEBUG_LOG=build/fast-boot-proof/debug.log
+          STORAGE_IMAGE=build/fast-boot-proof/storage.img
+          MONITOR_SOCKET=build/fast-boot-proof/monitor.sock
+          RESULT=build/fast-boot-proof/result.txt
+
+          rm -f "$SERIAL_LOG" "$DEBUG_LOG" "$STORAGE_IMAGE" "$MONITOR_SOCKET" "$RESULT"
+          truncate -s 16M "$STORAGE_IMAGE"
+
+          python3 - "$STORAGE_IMAGE" <<'PY'
+          import sys
+          path = sys.argv[1]
+          signature = b"AURORA-AHCI-RW-TEST-V1"
+          with open(path, "r+b") as f:
+              f.seek(-512, 2)
+              sector = bytearray(512)
+              sector[:len(signature)] = signature
+              f.write(sector)
+          PY
+
+          START_NS=$(date +%s%N)
+
+          qemu-system-x86_64 \
+            -M q35 \
+            -cpu max \
+            -m 512M \
+            -smp 4,sockets=1,cores=2,threads=2 \
+            -vga std \
+            -cdrom build/AuroraOS-x86_64.iso \
+            -drive file="$STORAGE_IMAGE",format=raw,if=none,id=aurora_disk \
+            -device ide-hd,drive=aurora_disk \
+            -serial file:"$SERIAL_LOG" \
+            -d int,cpu_reset \
+            -D "$DEBUG_LOG" \
+            -monitor unix:"$MONITOR_SOCKET",server=on,wait=off \
+            -display none \
+            -no-reboot \
+            -no-shutdown \
+            >build/fast-boot-proof/qemu-stdout.log 2>&1 &
+          QEMU_PID=$!
+
+          cleanup() {
+            kill "$QEMU_PID" 2>/dev/null || true
+            wait "$QEMU_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          FOUND=0
+          for i in $(seq 1 160); do
+            if [ -f "$SERIAL_LOG" ] && \
+               grep -Fq "[boot] Identity login ready at " "$SERIAL_LOG"; then
+              FOUND=1
+              break
+            fi
+            sleep 0.05
+          done
+
+          END_NS=$(date +%s%N)
+          WALL_MS=$(( (END_NS - START_NS) / 1000000 ))
+
+          if [ "$FOUND" -ne 1 ]; then
+            echo "Production login was not ready within 8 seconds" >&2
+            cat "$SERIAL_LOG" >&2 || true
+            exit 1
+          fi
+
+          INTERNAL_MS=$(sed -n 's/.*\[boot\] Identity login ready at \([0-9][0-9]*\) ms.*/\1/p' "$SERIAL_LOG" | tail -n 1)
+          test -n "$INTERNAL_MS"
+
+          for i in $(seq 1 50); do
+            [ -S "$MONITOR_SOCKET" ] && break
+            sleep 0.02
+          done
+
+          printf 'screendump build/fast-boot-proof/login-final.ppm\n' | \
+            socat - UNIX-CONNECT:"$MONITOR_SOCKET"
+          ffmpeg -y -i build/fast-boot-proof/login-final.ppm \
+            build/fast-boot-proof/login-final.png >/dev/null 2>&1
+
+          {
+            echo "Aurora internal boot-to-login: $INTERNAL_MS ms"
+            echo "QEMU wall boot-to-login: $WALL_MS ms"
+          } | tee "$RESULT"
+
+          grep -F "[identity-gui] full-quality PNG artwork active" "$SERIAL_LOG"
+          grep -F "[identity-client] production Ring 3 Identity service connected to login input" "$SERIAL_LOG"
+
+          # Production mode must not run deep validation probes.
+          if grep -Fq "[service-supervisor] bounded Identity restart + fresh capability bootstrap passed" "$SERIAL_LOG"; then
+            echo "Validation-only service supervisor probe ran in production mode" >&2
+            exit 1
+          fi
+
+          cleanup
+          trap - EXIT
+
+      - name: Upload production boot proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aurora-Fast-Production-Boot-Proof
+          if-no-files-found: error
+          path: |
+            build/fast-boot-proof/result.txt
+            build/fast-boot-proof/login-final.png
+            build/fast-boot-proof/serial.log
+            build/fast-boot-proof/debug.log
+            build/fast-boot-proof/qemu-stdout.log
