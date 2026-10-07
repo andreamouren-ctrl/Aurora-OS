@@ -1023,6 +1023,16 @@ bool software_compositor_remove_surface(
     }
 
     aurora_cap_handle handle = node->surface_handle;
+    uint64_t removed_node_id = node->node_id;
+
+    if (compositor->scene_observer != NULL) {
+        compositor->scene_observer(
+            compositor->scene_observer_context,
+            AURORA_COMPOSITOR_SCENE_NODE_REMOVED,
+            removed_node_id
+        );
+    }
+
     *node = (struct aurora_compositor_node){0};
     return cap_revoke(&compositor->surface_caps, handle);
 }
@@ -1224,6 +1234,29 @@ bool software_compositor_set_secure_scene(
         .height = (uint32_t)mode->height,
         .valid = true
     };
+
+    if (compositor->scene_observer != NULL) {
+        compositor->scene_observer(
+            compositor->scene_observer_context,
+            AURORA_COMPOSITOR_SCENE_SECURITY_POLICY_CHANGED,
+            0u
+        );
+    }
+
+    return true;
+}
+
+bool software_compositor_set_scene_observer(
+    struct aurora_software_compositor *compositor,
+    aurora_compositor_scene_observer observer,
+    void *context
+) {
+    if (compositor == NULL || !compositor->initialized) {
+        return false;
+    }
+
+    compositor->scene_observer = observer;
+    compositor->scene_observer_context = context;
     return true;
 }
 
