@@ -23,6 +23,7 @@ static uint64_t current_request_id;
 static uint64_t next_request_id = UINT64_C(0x5345535300000001);
 static uint64_t active_generation;
 static uint64_t observed_service_generation;
+static bool terminated_requires_ready;
 static uint8_t active_user_id[AURORA_SESSION_MANAGER_USER_ID_SIZE];
 
 static void clear_bytes(void *buffer, size_t size) {
@@ -131,6 +132,7 @@ bool session_manager_client_init(void) {
     active_generation = 0u;
     active_profile_handle = AURORA_CAP_INVALID;
     observed_service_generation = 0u;
+    terminated_requires_ready = false;
 
     if (!service_supervisor_init(
             &session_supervisor,
@@ -307,6 +309,7 @@ bool session_manager_client_terminate(void) {
     if (session_supervisor.state != AURORA_SERVICE_SUPERVISOR_RUNNING) {
         drop_active_profile();
         current_request_id = 0u;
+        terminated_requires_ready = true;
         client_state = AURORA_SESSION_CLIENT_TERMINATED;
         return true;
     }
@@ -333,6 +336,27 @@ bool session_manager_client_terminate(void) {
     return true;
 }
 
+bool session_manager_client_acknowledge_terminated(void) {
+    if (client_state != AURORA_SESSION_CLIENT_TERMINATED ||
+        active_profile_handle != AURORA_CAP_INVALID ||
+        session_profile_lease_active()) {
+        return false;
+    }
+
+    if (terminated_requires_ready) {
+        if (session_supervisor.state != AURORA_SERVICE_SUPERVISOR_RUNNING ||
+            !wait_ready()) {
+            return false;
+        }
+        observed_service_generation = session_supervisor.generation;
+    }
+
+    terminated_requires_ready = false;
+    current_request_id = 0u;
+    client_state = AURORA_SESSION_CLIENT_READY;
+    return true;
+}
+
 void session_manager_client_pump(void) {
     if (client_state == AURORA_SESSION_CLIENT_UNINITIALIZED) return;
 
@@ -343,9 +367,12 @@ void session_manager_client_pump(void) {
             client_state == AURORA_SESSION_CLIENT_LOCKED ||
             client_state == AURORA_SESSION_CLIENT_TERMINATING;
         drop_active_profile();
-        client_state = had_session
-            ? AURORA_SESSION_CLIENT_TERMINATED
-            : AURORA_SESSION_CLIENT_ERROR;
+        if (had_session) {
+            terminated_requires_ready = true;
+            client_state = AURORA_SESSION_CLIENT_TERMINATED;
+        } else {
+            client_state = AURORA_SESSION_CLIENT_ERROR;
+        }
         return;
     }
 
@@ -357,9 +384,12 @@ void session_manager_client_pump(void) {
             client_state == AURORA_SESSION_CLIENT_TERMINATING;
         drop_active_profile();
         observed_service_generation = session_supervisor.generation;
-        client_state = had_session
-            ? AURORA_SESSION_CLIENT_TERMINATED
-            : AURORA_SESSION_CLIENT_UNAVAILABLE;
+        if (had_session) {
+            terminated_requires_ready = true;
+            client_state = AURORA_SESSION_CLIENT_TERMINATED;
+        } else {
+            client_state = AURORA_SESSION_CLIENT_UNAVAILABLE;
+        }
         return;
     }
 
@@ -375,9 +405,12 @@ void session_manager_client_pump(void) {
                 active_profile_handle != AURORA_CAP_INVALID ||
                 client_state != AURORA_SESSION_CLIENT_STARTING;
             drop_active_profile();
-            client_state = had_session
-                ? AURORA_SESSION_CLIENT_TERMINATED
-                : AURORA_SESSION_CLIENT_UNAVAILABLE;
+            if (had_session) {
+                terminated_requires_ready = true;
+                client_state = AURORA_SESSION_CLIENT_TERMINATED;
+            } else {
+                client_state = AURORA_SESSION_CLIENT_UNAVAILABLE;
+            }
         }
         return;
     }
@@ -528,6 +561,7 @@ void session_manager_client_pump(void) {
         clear_bytes(&received, sizeof(received));
         clear_bytes(&result, sizeof(result));
         drop_active_profile();
+        terminated_requires_ready = false;
         client_state = AURORA_SESSION_CLIENT_TERMINATED;
         return;
     }
