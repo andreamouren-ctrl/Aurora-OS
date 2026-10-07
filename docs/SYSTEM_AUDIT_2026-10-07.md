@@ -2,7 +2,7 @@
 
 Status: **Canonical status audit**
 Audit date: **2026-10-07**
-Repository baseline: `main` at `f928b52414ffd7af4f61134ad9a8ffc85f6410c9`
+Repository baseline: `main` at `f174b3e2476298c09d24ce6b5eaff306b660e6b3`
 
 This document records the implemented and runtime-verified state of Aurora OS and compares the current architecture with a contemporary Ubuntu/Linux and Windows baseline.
 
@@ -57,7 +57,7 @@ boot
  -> persistent user profile authority
  -> ordinary Ring 3 User Session Host
  -> Display/Surface/Compositor foundations
- -> normalized keyboard/pointer input work
+ -> secure-scene-aware hit testing and isolated keyboard/pointer focus routing
 ```
 
 Aurora remains far behind Linux and Windows as a complete consumer OS because networking, USB, audio, power management, broad GPU acceleration, application ecosystem and real-hardware driver coverage are not yet comparable.
@@ -434,17 +434,22 @@ Position:
 
 ## 16. Input
 
-Implemented/current work:
+Implemented/runtime-gated current work:
 
 - normalized device-independent input events;
 - PS/2 keyboard;
-- PS/2 mouse IRQ12 packet path;
-- graphics input-routing foundation;
+- live PS/2 mouse IRQ12 packet path;
+- secure-scene-aware compositor hit testing;
+- trusted graphics input router;
+- pointer and keyboard focus routing;
+- private target queues;
+- multi-client no-leakage validation;
 - explicit separation of pointer events from Aurora Key handling.
 
 Still required:
 
-- full compositor hit testing/focus/capture completion;
+- explicit pointer-capture semantics and revocation completion;
+- teardown/revocation coverage across every surface/session destruction path;
 - USB HID;
 - touch/multitouch;
 - pen/gamepad;
@@ -507,7 +512,7 @@ The strongest differentiators today are:
 
 The highest-priority maturity gaps are:
 
-1. finish G4 input focus/capture and USB HID;
+1. finish G4 pointer-capture/revocation teardown semantics, then add USB HID;
 2. implement G5 window protocol/Desktop Shell;
 3. vendor GPU acceleration and production display programming;
 4. networking;
