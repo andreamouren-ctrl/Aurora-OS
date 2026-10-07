@@ -377,6 +377,54 @@ static bool session_manager_profile_binding_self_test(void) {
     clear_bytes(&session_received, sizeof(session_received));
     clear_bytes(&session_result, sizeof(session_result));
 
+    const uint64_t logout_id = UINT64_C(0x50524F464C4F474F);
+    if (!send_manager_message(
+            &session,
+            AURORA_SESSION_MANAGER_LOGOUT,
+            logout_id)) {
+        return false;
+    }
+
+    clear_bytes(&session_received, sizeof(session_received));
+    if (!wait_receive(&session, &session_received) ||
+        session_received.length != sizeof(struct aurora_session_manager_result) ||
+        session_received.capability_count != 0u) {
+        return false;
+    }
+
+    clear_bytes(&session_result, sizeof(session_result));
+    for (size_t i = 0u; i < sizeof(session_result); ++i) {
+        ((uint8_t *)&session_result)[i] = session_received.data[i];
+    }
+
+    if (session_result.header.version != AURORA_SESSION_MANAGER_PROTOCOL_VERSION ||
+        session_result.header.type != AURORA_SESSION_MANAGER_LOGOUT_RESULT ||
+        session_result.header.request_id != logout_id ||
+        session_result.state != AURORA_SESSION_MANAGER_STATE_LOGGED_OUT ||
+        session_result.public_error != AURORA_SESSION_MANAGER_ERROR_NONE) {
+        clear_bytes(&session_received, sizeof(session_received));
+        clear_bytes(&session_result, sizeof(session_result));
+        return false;
+    }
+
+    clear_bytes(&session_received, sizeof(session_received));
+    clear_bytes(&session_result, sizeof(session_result));
+
+    /*
+     * The Session Manager revoked its source profile authority before
+     * acknowledging logout. The session bridge owns the delegated copy and
+     * must revoke that copy as part of logout completion.
+     */
+    if (!cap_revoke(&session.supervisor_caps, profile_handle) ||
+        cap_lookup(
+            &session.supervisor_caps,
+            profile_handle,
+            AURORA_CAP_FILE,
+            0u,
+            &profile_view)) {
+        return false;
+    }
+
     const uint64_t shutdown_id = UINT64_C(0x50524F4653485554);
     if (!send_manager_message(
             &session,
@@ -390,7 +438,6 @@ static bool session_manager_profile_binding_self_test(void) {
         return false;
     }
 
-    (void)cap_revoke(&session.supervisor_caps, profile_handle);
     return reap_service(&session);
 }
 

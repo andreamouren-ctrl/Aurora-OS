@@ -120,6 +120,10 @@ Logout should:
 5. clear transient identity proofs;
 6. return to pre-session Aurora Identity login.
 
+The current Phase F implementation now performs the capability-critical subset: Session Manager revokes its source profile authority before acknowledging logout, the kernel session bridge revokes its delegated profile capability when the acknowledgement is accepted, transient bound `user_id` state is cleared, and the fallback Identity surface returns to pre-session mode.
+
+Desktop/user-service teardown and broader user-state flushing remain dependent on the desktop/session service stack.
+
 A logout must not leave a reusable session grant behind.
 
 ## 8. Recovery philosophy
