@@ -1,7 +1,7 @@
 # Aurora OS Roadmap
 
 Status: **Active implementation**
-Version: **0.31**
+Version: **0.40**
 
 The roadmap distinguishes architecture decisions, repository implementation, and runtime verification. A feature is not considered complete merely because a detector or interface exists.
 
@@ -48,13 +48,22 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] x86_64 IDT and CPU exception handlers
 - [x] one-shot timer bootstrap and runtime probe
 - [x] SMP bring-up infrastructure
-- [ ] Runtime-verify multi-vCPU SMP path in CI
+- [x] Runtime-verify multi-vCPU SMP path in CI
+- [x] CPU-local scheduler execution state
+- [x] AP scheduler-stack handoff and per-CPU Local APIC timers
+- [x] physical package/core/SMT topology discovery
+- [x] core-first / SMT-second scheduler placement foundation
+- [x] synchronous IPI-based TLB shootdown
 
 ### Memory
 - [x] physical memory manager
 - [x] virtual memory manager
 - [x] kernel heap
 - [x] checked usercopy layer
+- [x] reusable kernel-heap free ranges and lifecycle scrubbing
+- [x] anonymous Ring 3 memory allocation/free
+- [x] refcounted shared-memory object foundation
+- [x] user address-space destruction/reclamation
 
 ### Isolation and scheduling
 - [x] preemptive kernel-thread scheduler prototype
@@ -63,13 +72,19 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] per-thread kernel stack + TSS Ring 3 return path
 - [x] x86_64 SYSCALL/SYSRET + EXIT path
 - [x] Ring 3 runtime probe
+- [x] thread/process exit and deterministic reap ordering
+- [x] repeated create -> run -> exit -> reap -> reuse lifecycle verification
+- [x] scheduler BLOCKED/wakeup state for blocking IPC
 
 ### Security and IPC
 - [x] CR0.WP and SMEP/SMAP/UMIP activation where supported
 - [x] typed capability prototype
 - [x] bounded IPC capability-transfer prototype
 - [x] capability and IPC runtime self-tests
-- [ ] production capability lineage/revocation policy
+- [x] Ring 3 IPC send/receive plus blocking wait/wakeup foundation
+- [x] service dependency-capability bootstrap
+- [x] session/profile capability lease + revocation foundation
+- [ ] complete production capability lineage/audit policy across all future object classes
 
 ### Input and session bootstrap
 - [x] generic input-event queue
@@ -77,10 +92,16 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] boot-to-login framebuffer handoff
 - [x] Aurora Identity login UI prototype
 - [x] interactive Aurora Key entry
-- [ ] persistent Aurora Identity Service
-- [ ] secure credential verifier
-- [ ] persistent local identity database
-- [ ] authenticated session bootstrap
+- [x] persistent Ring 3 Aurora Identity Service
+- [x] Argon2id credential verifier provider and protected lookup tags
+- [x] persistent local identity database
+- [x] authenticated one-time session-grant bootstrap
+- [x] separate Ring 3 Session Manager
+- [x] persistent user profile capability on AuroraFS
+- [x] ordinary Ring 3 User Session Host
+- [x] logout profile-authority revocation
+- [x] lock/unlock with fresh same-user authentication
+- [x] fail-closed abnormal session termination
 
 ## M2 — Aurora Memory Fabric prototype
 
@@ -218,18 +239,22 @@ The roadmap distinguishes architecture decisions, repository implementation, and
 - [x] runtime-verify persistent full-last-leaf level-3 append + inode publication + reopen lookup
 - [x] implement full final level-1 sibling COW growth below an existing level-3 root
 - [x] runtime-verify full final level-1 sibling COW growth below level-3 on synthetic 512/4096-byte devices
-- [ ] publish level-3 full-level1 sibling growth through the inode and runtime-verify reopen lookup
-- [ ] handle a completely full final level-2 child while the level-3 root still has spare child capacity
-- [ ] general create/truncate/remove/rename operations
+- [x] publish level-3 full-level1 sibling growth through the inode and runtime-verify reopen lookup
+- [x] close the bounded Level-3 hierarchy contract through its supported maximum mapping
+- [x] general create/mkdir/write/truncate/remove/rename operations
+- [x] free-space reclaim
 - [ ] sparse files
-- [ ] crash-consistent metadata strategy
-- [ ] permissions/ownership/timestamps
-- [ ] corruption recovery model
+- [x] crash-consistent namespace transaction strategy
+- [x] permissions/ownership/timestamps
+- [x] persistent ACLs
+- [x] corruption/integrity recovery gates
+- [x] explicit fsync/fdatasync/sync durability path
+- [x] mount real AuroraFS v2 at `/system`
 - [ ] explicit v1-to-v2 migration tooling
 
 ### System integrity
-- [ ] protected durable system state
-- [ ] transactional identity database backend
+- [x] protected durable system state
+- [x] transactional/persistent Identity database backend
 - [ ] system/data separation
 - [ ] package model
 - [ ] signed package metadata
@@ -242,13 +267,20 @@ Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC re
 
 Architecture contracts: [`graphics/README.md`](graphics/README.md).
 
-- [x] graphics architecture and protocol contracts defined (design only; no runtime claim)
-- [ ] display subsystem beyond boot framebuffer
-- [ ] compositor
+- [x] graphics architecture and protocol contracts defined
+- [x] G1 display subsystem foundation beyond direct boot-framebuffer ownership
+- [x] G2 capability-backed surface/buffer protocol and cross-client isolation
+- [x] G3 software compositor with damage/clipping/z-order/transforms/occlusion
+- [x] mastering software color pipeline: ST.2084, BT.2100 HLG, ICC matrix-shaper, calibration and tone mapping
+- [x] normalized device-independent input event foundation
+- [x] PS/2 keyboard normalized-event path
+- [x] live IRQ12 PS/2 mouse packet path
+- [x] secure-scene-aware compositor hit testing
+- [x] pointer/keyboard focus routing with private target queues
+- [x] multi-client normalized-input isolation gate
+- [ ] explicit pointer capture/revocation completion
 - [ ] modern USB HID input path
-- [ ] pointer/mouse stack
-- [ ] window/surface protocol
-- [ ] Desktop shell
+- [ ] G5 window-management protocol and Desktop Shell
 - [ ] Activity Space prototype
 - [ ] persistent activity state
 - [ ] customization framework
@@ -276,9 +308,9 @@ Architecture contracts: [`graphics/README.md`](graphics/README.md).
 - [ ] application lifecycle
 - [ ] freeze/resume integration
 - [ ] notifications/background policy
-- [ ] privileged service lifecycle
-- [ ] Aurora Identity Service production host
-- [ ] Session Manager
+- [x] privileged trusted-service lifecycle/supervision foundation
+- [x] Aurora Identity Service Ring 3 production-path host
+- [x] Session Manager and ordinary User Session Host foundation
 
 ## M7 — Recovery, installation and updates
 
@@ -312,19 +344,19 @@ Architecture contracts: [`graphics/README.md`](graphics/README.md).
 
 ## Current development gate
 
-Aurora can boot through the M1 kernel foundation and enter the native login prototype. The storage stack has runtime-verified baseline modern SATA and NVMe paths through the generic block layer, partition manager, AuroraFS bootstrap, FAT32/VFAT, exFAT, mount manager and VFS. ATA PIO remains a compatibility transport. AuroraFS v2 now runtime-verifies bounded extent-tree lookup and COW structural growth through level 3, including full-last-leaf growth and full final level-1 sibling growth below a published level-3 root. The active AuroraFS gate is durable inode publication and reopen verification for that level-3 full-level1 sibling replacement hierarchy. AuroraFS v1 remains the mounted compatibility/bootstrap format.
+Aurora now has runtime-verified kernel/SMP/Ring 3 lifecycle foundations, baseline AHCI and NVMe storage paths, a real AuroraFS v2 `/system` mount with Level-3 bounded extent hierarchy and higher-level mutation/recovery/metadata/ACL/durability semantics, a live Ring 3 Identity/Session chain, and M4 graphics through the completed G3 software compositor/color milestone. G4 pointer/modern-input work is active.
 
 Near-term dependency order:
 
-1. implement and runtime-verify persistent level-3 full-level1 sibling growth + inode publication + reopen lookup;
-2. handle a completely full final level-2 child under a level-3 root that still has spare child capacity;
-3. add general create/truncate/remove/rename operations;
-4. establish crash-consistent metadata updates and recovery behavior;
-5. remove bootstrap static registry/mount/driver limits;
-6. add NTFS and ext-family read-only support;
-7. strengthen AHCI/NVMe with batching, recovery, interrupt-driven completion and hot-plug policy;
-8. establish protected durable system state and production Aurora Identity persistence;
-9. add USB/xHCI storage and Aurora Identity Drive support.
+1. complete G4 explicit pointer-capture semantics/revocation and destruction/session teardown handling;
+2. add USB/xHCI + USB HID foundations so input/removable-media work is not PS/2-bound;
+3. implement G5 toplevel/window protocol and Desktop Shell baseline;
+4. migrate normal Identity presentation onto the compositor while retaining framebuffer recovery fallback;
+5. continue vendor GPU scanout/acceleration and hardware color/VRR/DSC programming;
+6. add networking/DNS/TLS foundations for M5;
+7. extend the memory manager with demand paging/page-cache/swap-class facilities required by a mature desktop;
+8. strengthen AHCI/NVMe recovery, interrupts/queue scaling and hot-plug policy;
+9. expand real-hardware validation, fuzzing and fault-injection coverage.
 
 Detailed Identity sequencing remains in `docs/identity/IMPLEMENTATION_ROADMAP.md`.
 

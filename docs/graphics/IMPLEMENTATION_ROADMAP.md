@@ -1,7 +1,7 @@
 # Aurora M4 Graphics Implementation Roadmap
 
 Status: **Canonical implementation plan**
-Version: **0.1**
+Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
@@ -112,15 +112,29 @@ Explicit limits: ICC LUT-based A2B/B2A/CLUT profile transforms are not yet impor
 
 ## Phase G4 — Pointer and modern input
 
-Implement:
+Status: **In progress**
 
-- mouse/pointer device path;
-- normalized device-independent events;
-- compositor hit testing;
-- pointer focus;
-- keyboard focus routing;
-- focus/capture revocation;
-- USB HID input foundation where transport dependencies are ready.
+Implemented and runtime-gated foundation:
+
+- [x] normalized device-independent input event model;
+- [x] sequenced/bounded normalized event queue;
+- [x] PS/2 keyboard emits normalized keyboard events;
+- [x] dedicated PS/2 mouse interrupt vector/stub;
+- [x] IRQ12 PS/2 mouse packet decoder and live QEMU IRQ gate;
+- [x] Identity credential handling remains isolated from pointer events;
+- [x] secure-scene-aware compositor hit testing;
+- [x] trusted graphics input router;
+- [x] pointer focus routing;
+- [x] keyboard focus routing;
+- [x] private per-target event queues;
+- [x] multi-client focus/no-leakage runtime gate.
+
+Remaining:
+
+- [ ] explicit pointer capture semantics and revocation;
+- [ ] focus/capture teardown on all surface/session destruction paths;
+- [ ] USB HID input foundation once xHCI/USB transport exists;
+- [ ] touch/pen/gamepad and accessibility/input-method layers later.
 
 Acceptance gate:
 
