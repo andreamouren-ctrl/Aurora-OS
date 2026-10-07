@@ -149,8 +149,14 @@ static bool invert_matrix_q16(
         }
 
         numerator = co << 16;
+        int64_t determinant_scaled = determinant >> 16;
+
+        if (determinant_scaled == 0) {
+            return false;
+        }
+
         int64_t value =
-            (numerator * 65536ll) / (determinant >> 16);
+            numerator / determinant_scaled;
 
         if (value > INT32_MAX || value < INT32_MIN) {
             return false;
@@ -183,9 +189,9 @@ static void profile_identity(
 
     /* D50 PCS XYZ -> linear sRGB, Bradford-adapted approximation. */
     const int32_t matrix[9] = {
-         224015, -104952,  -33162,
-         -63543,  122740,    2742,
-           3596,  -13416,   69139
+         205413, -105980,  -32158,
+         -64143,  125573,    2192,
+           4714,  -15004,   92072
     };
 
     for (uint32_t i = 0u; i < 9u; ++i) {
@@ -602,20 +608,24 @@ static void source_rgb_to_xyz_q16(
     /* Q16 matrices to D65 XYZ. */
     const int32_t *m;
 
+    /*
+     * Bradford-adapted source RGB -> ICC PCS XYZ D50 matrices, Q16.
+     * This keeps the compositor and ICC display profiles in the same PCS.
+     */
     static const int32_t srgb[9] = {
-        27026, 23435, 11828,
-        13936, 46869,  4730,
-         1267,  7811, 62279
+        28574, 25236,  9379,
+        14580, 46982,  3974,
+          913,  6364, 46815
     };
     static const int32_t p3[9] = {
-        31888, 17411, 12990,
-        15006, 45334,  5196,
-            0,  2957, 68416
+        33756, 19133, 10301,
+        15805, 45366,  4364,
+          -69,  2745, 51416
     };
     static const int32_t bt2020[9] = {
-        41744,  9478, 11068,
-        17216, 44433,  3886,
-            0,  1840, 69533
+        44134, 10855,  8200,
+        18286, 44259,  2991,
+         -126,  1965, 52254
     };
 
     if (primaries == AURORA_COLOR_PRIMARIES_DISPLAY_P3_D65) {
