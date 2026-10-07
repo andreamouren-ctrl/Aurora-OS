@@ -1,4 +1,5 @@
 ARCH ?= x86_64
+BOOT_VALIDATION ?= 0
 CC := clang
 LD := ld
 PYTHON ?= python3
@@ -36,6 +37,7 @@ DEP := $(patsubst %.c,$(BUILD_DIR)/%.d,$(C_SRC))
 CFLAGS := \
     -target x86_64-unknown-none-elf \
     -std=c11 \
+    -DAURORA_BOOT_VALIDATION=$(BOOT_VALIDATION) \
     -O2 \
     -g \
     -Wall \
