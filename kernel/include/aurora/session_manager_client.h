@@ -41,6 +41,8 @@ bool session_manager_client_logout(void);
 
 bool session_manager_client_terminate(void);
 
+bool session_manager_client_acknowledge_terminated(void);
+
 void session_manager_client_pump(void);
 
 enum aurora_session_manager_client_state session_manager_client_state(void);
