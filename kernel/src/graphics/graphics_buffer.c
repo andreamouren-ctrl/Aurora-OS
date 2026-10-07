@@ -3,6 +3,7 @@
 
 #include <aurora/graphics_buffer.h>
 #include <aurora/process.h>
+#include <aurora/pmm.h>
 
 static struct aurora_graphics_buffer buffers[AURORA_GRAPHICS_BUFFER_MAX_OBJECTS];
 static aurora_spinlock buffer_lock = AURORA_SPINLOCK_INIT;
