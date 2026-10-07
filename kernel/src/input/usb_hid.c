@@ -123,6 +123,25 @@ bool usb_hid_keyboard_detach(
         return false;
     }
 
+    /*
+     * A disappearing keyboard must not leave logical keys stuck down. Clear
+     * each successfully published release immediately so a retry cannot emit
+     * duplicate releases after queue backpressure.
+     */
+    for (uint32_t i = 0u;
+         i < AURORA_USB_HID_BOOT_KEY_COUNT;
+         ++i) {
+        uint8_t usage = keyboard->previous_keys[i];
+
+        if (usage == 0u) continue;
+
+        if (!emit_key(keyboard, usage, false)) {
+            return false;
+        }
+
+        keyboard->previous_keys[i] = 0u;
+    }
+
     const struct aurora_input_event removed = {
         .type = AURORA_INPUT_EVENT_DEVICE_REMOVED,
         .source = AURORA_INPUT_SOURCE_USB_HID,
@@ -242,6 +261,29 @@ bool usb_hid_mouse_detach(
 ) {
     if (mouse == NULL || !mouse->connected) {
         return false;
+    }
+
+    /*
+     * Publish button releases before DEVICE_REMOVED so focus/capture policy
+     * never observes a permanently pressed button after unplug/revocation.
+     * State is cleared per successful release for retry safety.
+     */
+    const enum aurora_pointer_button buttons[3] = {
+        AURORA_POINTER_BUTTON_LEFT,
+        AURORA_POINTER_BUTTON_RIGHT,
+        AURORA_POINTER_BUTTON_MIDDLE
+    };
+
+    for (uint32_t i = 0u; i < 3u; ++i) {
+        uint8_t mask = (uint8_t)(1u << i);
+
+        if ((mouse->buttons & mask) == 0u) continue;
+
+        if (!emit_mouse_button(mouse, buttons[i], false)) {
+            return false;
+        }
+
+        mouse->buttons &= (uint8_t)~mask;
     }
 
     const struct aurora_input_event removed = {
