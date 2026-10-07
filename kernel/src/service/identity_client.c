@@ -422,6 +422,7 @@ void identity_client_reset_result(void) {
         clear_bytes(pending_session_grant, sizeof(pending_session_grant));
         retry_after_ms = 0u;
         current_request_id = 0u;
+        clear_bytes(pending_session_grant, sizeof(pending_session_grant));
         client_state = identity_supervisor.state == AURORA_SERVICE_SUPERVISOR_RUNNING
             ? AURORA_IDENTITY_CLIENT_READY
             : AURORA_IDENTITY_CLIENT_UNAVAILABLE;
