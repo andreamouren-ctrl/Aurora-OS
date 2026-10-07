@@ -455,9 +455,28 @@ bool ahci_rw_signed_probe(void) {
     zero_bytes(probe_readback, sizeof(probe_readback));
 
     if (!block_device_read(device, lba, 1u, probe_original)) return false;
-    if (!bytes_equal(probe_original, signature, sizeof(signature) - 1u)) {
-        return false;
+
+    bool test_media =
+        bytes_equal(probe_original, signature, sizeof(signature) - 1u);
+
+    if (!test_media) {
+        static const uint8_t filesystem_test_signature[] =
+            "AURORA-AHCI-FS-TEST-V1";
+
+        zero_bytes(probe_readback, sizeof(probe_readback));
+
+        if (!block_device_read(device, 0u, 1u, probe_readback) ||
+            !bytes_equal(
+                probe_readback,
+                filesystem_test_signature,
+                sizeof(filesystem_test_signature) - 1u)) {
+            return false;
+        }
+
+        test_media = true;
     }
+
+    if (!test_media) return false;
 
     for (uint32_t i = 0u; i < device->block_size; ++i) {
         probe_pattern[i] = (uint8_t)(0xA5u ^ (uint8_t)i);
