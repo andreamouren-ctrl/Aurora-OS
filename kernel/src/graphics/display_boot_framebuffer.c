@@ -34,13 +34,22 @@ bool display_boot_framebuffer_init(
         .refresh_numerator = 0u,
         .refresh_denominator = 0u,
         .format = {
+            .encoding = AURORA_PIXEL_ENCODING_UNORM_PACKED,
             .bits_per_pixel = framebuffer->bpp,
             .red_mask_size = framebuffer->red_mask_size,
             .red_mask_shift = framebuffer->red_mask_shift,
             .green_mask_size = framebuffer->green_mask_size,
             .green_mask_shift = framebuffer->green_mask_shift,
             .blue_mask_size = framebuffer->blue_mask_size,
-            .blue_mask_shift = framebuffer->blue_mask_shift
+            .blue_mask_shift = framebuffer->blue_mask_shift,
+            .alpha_mask_size = 0u,
+            .alpha_mask_shift = 0u
+        },
+        .color = {
+            .primaries = AURORA_COLOR_PRIMARIES_SRGB,
+            .transfer = AURORA_COLOR_TRANSFER_SRGB,
+            .range = AURORA_COLOR_RANGE_FULL,
+            .hdr_static = { .valid = false }
         }
     };
 
@@ -53,6 +62,27 @@ bool display_boot_framebuffer_init(
             &backend->output,
             &mode,
             true)) {
+        clear_backend(backend);
+        return false;
+    }
+
+    struct aurora_display_capabilities capabilities = {
+        .flags = AURORA_DISPLAY_CAP_SDR,
+        .primaries_mask =
+            (1u << AURORA_COLOR_PRIMARIES_SRGB) |
+            (1u << AURORA_COLOR_PRIMARIES_BT709),
+        .transfer_mask =
+            (1u << AURORA_COLOR_TRANSFER_SRGB) |
+            (1u << AURORA_COLOR_TRANSFER_BT1886),
+        .min_bits_per_component = 8u,
+        .max_bits_per_component = 8u,
+        .vrr_min_millihz = 0u,
+        .vrr_max_millihz = 0u
+    };
+
+    if (!display_output_set_capabilities(
+            &backend->output,
+            &capabilities)) {
         clear_backend(backend);
         return false;
     }
@@ -86,13 +116,16 @@ static bool same_format(
     const struct aurora_display_pixel_format *a,
     const struct aurora_display_pixel_format *b
 ) {
-    return a->bits_per_pixel == b->bits_per_pixel &&
+    return a->encoding == b->encoding &&
+        a->bits_per_pixel == b->bits_per_pixel &&
         a->red_mask_size == b->red_mask_size &&
         a->red_mask_shift == b->red_mask_shift &&
         a->green_mask_size == b->green_mask_size &&
         a->green_mask_shift == b->green_mask_shift &&
         a->blue_mask_size == b->blue_mask_size &&
-        a->blue_mask_shift == b->blue_mask_shift;
+        a->blue_mask_shift == b->blue_mask_shift &&
+        a->alpha_mask_size == b->alpha_mask_size &&
+        a->alpha_mask_shift == b->alpha_mask_shift;
 }
 
 bool display_boot_framebuffer_present(
