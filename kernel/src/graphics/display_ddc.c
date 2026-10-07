@@ -60,7 +60,7 @@ bool display_ddc_read_snapshot(
         1u + (uint32_t)base.extension_count;
 
     if (requested > AURORA_DDC_MAX_EDID_BLOCKS) {
-        requested = AURORA_DDC_MAX_EDID_BLOCKS;
+        return false;
     }
 
     out->block_count = 1u;
