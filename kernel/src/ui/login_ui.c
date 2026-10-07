@@ -373,6 +373,15 @@ static const char *login_status_text(void) {
         case AURORA_LOGIN_LOGGING_OUT:
             return "LOGGING OUT...";
 
+        case AURORA_LOGIN_LOCKING:
+            return "LOCKING SESSION...";
+
+        case AURORA_LOGIN_LOCKED:
+            return "SESSION LOCKED";
+
+        case AURORA_LOGIN_UNLOCKING:
+            return "VERIFYING UNLOCK...";
+
         case AURORA_LOGIN_SESSION_ACTIVE:
             return "AUTHENTICATED SESSION ACTIVE";
 
@@ -388,6 +397,13 @@ static const char *login_prompt_text(void) {
     }
     if (login_state == AURORA_LOGIN_LOGGING_OUT) {
         return "ENDING LOCAL SESSION";
+    }
+    if (login_state == AURORA_LOGIN_LOCKING) {
+        return "SUSPENDING SESSION ACCESS";
+    }
+    if (login_state == AURORA_LOGIN_LOCKED ||
+        login_state == AURORA_LOGIN_UNLOCKING) {
+        return "ENTER YOUR AURORA KEY";
     }
 
     return login_state == AURORA_LOGIN_CREATE_ENTRY ||
@@ -411,8 +427,17 @@ static const char *login_instruction_text(void) {
         case AURORA_LOGIN_LOGGING_OUT:
             return "REVOKING SESSION ACCESS";
 
+        case AURORA_LOGIN_LOCKING:
+            return "REMOVING INTERACTIVE PROFILE ACCESS";
+
+        case AURORA_LOGIN_LOCKED:
+            return "ENTER TO UNLOCK - ESC TO LOG OUT";
+
+        case AURORA_LOGIN_UNLOCKING:
+            return "FRESH AUTHENTICATION REQUIRED";
+
         case AURORA_LOGIN_SESSION_ACTIVE:
-            return "PRESS ESC TO LOG OUT";
+            return "PRESS L TO LOCK - ESC TO LOG OUT";
 
         default:
             return "PRESS ENTER TO CONTINUE";
@@ -546,7 +571,8 @@ void login_ui_render(void) {
         field_height,
         2u,
         login_state == AURORA_LOGIN_AUTHENTICATING ||
-        login_state == AURORA_LOGIN_CREATING
+        login_state == AURORA_LOGIN_CREATING ||
+        login_state == AURORA_LOGIN_UNLOCKING
             ? field_border_active
             : field_border
     );
