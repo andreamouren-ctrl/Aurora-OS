@@ -9,6 +9,9 @@
 
 #define AURORA_CAPABILITY_SLOTS 256u
 
+typedef bool (*aurora_cap_retain_fn)(void *object);
+typedef void (*aurora_cap_release_fn)(void *object);
+
 struct aurora_capability_view {
     void *object;
     enum aurora_cap_type type;
@@ -33,6 +36,16 @@ struct aurora_cap_table {
 
 void cap_table_init(
     struct aurora_cap_table *table
+);
+
+void cap_table_destroy(
+    struct aurora_cap_table *table
+);
+
+bool cap_lifecycle_register(
+    enum aurora_cap_type type,
+    aurora_cap_retain_fn retain,
+    aurora_cap_release_fn release
 );
 
 aurora_cap_handle cap_grant(
