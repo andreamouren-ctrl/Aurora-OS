@@ -20,4 +20,10 @@ struct aurora_service_startup_block {
     ];
 };
 
+_Static_assert(
+    sizeof(struct aurora_service_startup_block) ==
+        AURORA_SERVICE_STARTUP_STACK_OFFSET,
+    "Service startup ABI must remain exactly one 64-byte startup slot"
+);
+
 #endif
