@@ -164,9 +164,11 @@ G4 currently includes:
 - bounded per-target queues with adjacent motion coalescing that preserves key/button/scroll ordering;
 - stable device identity carried by normalized input events;
 - transport-independent USB HID boot keyboard/mouse report decoders with device lifecycle events;
+- bounded HID binding registry with generational handles and stale-reference rejection;
+- strict report-size/protocol dispatch and pressed-state sanitization before removal;
 - separation between pointer events and Aurora Identity credential input.
 
-The current G4 foundation is runtime verified in four-CPU QEMU. The HID decoder layer is implemented and executable without a controller-specific dependency, while live USB HID hardware binding remains pending until Aurora has an xHCI/USB host transport. Touch, pen, gamepad, accessibility and input-method layers remain later work.
+The current G4 foundation is runtime verified in four-CPU QEMU. The HID decoder and binding layers are implemented and executable without a controller-specific dependency, while live USB enumeration and report delivery remain pending until Aurora has an xHCI/USB host-controller transport. Touch, pen, gamepad, accessibility and input-method layers remain later work.
 
 ## 9. Performance direction
 

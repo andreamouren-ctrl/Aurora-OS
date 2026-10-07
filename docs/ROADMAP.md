@@ -280,7 +280,8 @@ Architecture contracts: [`graphics/README.md`](graphics/README.md).
 - [x] multi-client normalized-input isolation gate
 - [x] explicit pointer capture/revocation completion
 - [x] transport-agnostic USB HID boot keyboard/mouse decoder foundation
-- [ ] xHCI/USB host transport + live USB HID device binding
+- [x] bounded HID binding/dispatch layer with stale-handle and disconnect hardening
+- [ ] xHCI/USB host controller + live USB enumeration/report transport
 - [ ] G5 window-management protocol and Desktop Shell
 - [ ] Activity Space prototype
 - [ ] persistent activity state

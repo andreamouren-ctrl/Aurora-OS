@@ -150,22 +150,25 @@ Implemented and runtime-verified lifecycle hardening:
 - [x] compositor teardown/restart notification revokes all registered input authority before compositor state destruction;
 - [x] bounded per-target queue backpressure coalesces only immediately-consecutive pointer motion while preserving key/button/scroll ordering.
 
-Implemented and runtime-verified modern-input decoder foundation:
+Implemented and runtime-verified modern-input decoder/binding foundation:
 
 - [x] stable per-device identity in normalized input events;
 - [x] transport-agnostic USB HID boot-keyboard report decoding with press/release state;
-- [x] transport-agnostic USB HID boot-mouse motion/button/wheel decoding and device lifecycle events.
+- [x] transport-agnostic USB HID boot-mouse motion/button/wheel decoding and device lifecycle events;
+- [x] bounded USB HID binding registry with generational opaque handles;
+- [x] validated protocol/report-size dispatch with stale-handle rejection;
+- [x] disconnect sanitization publishes key/button releases before DEVICE_REMOVED.
 
 Remaining transport/extended-device work:
 
-- [ ] xHCI/USB host transport and live USB HID device binding;
+- [ ] xHCI/USB host controller transport and live hardware enumeration/binding;
 - [ ] touch/pen/gamepad and accessibility/input-method layers later.
 
 Acceptance gate:
 
 Mouse and keyboard interact with multiple surfaces without cross-client event leakage.
 
-Current G4 gate status: **runtime verified in four-CPU QEMU for PS/2 routing plus the transport-independent USB HID decoder foundation**. Hit testing, pointer/keyboard focus, capture ownership, hidden/destroyed-surface revocation, secure-scene revocation, session/compositor teardown, queue-pressure motion coalescing, stable device identity and HID boot keyboard/mouse report decoding all execute inside mandatory boot validation. G4 remains **In progress** because live USB HID hardware binding still depends on the future xHCI/USB host stack and the extended input classes are intentionally later work.
+Current G4 gate status: **runtime verified in four-CPU QEMU for PS/2 routing plus the transport-independent USB HID decoder and binding foundation**. Hit testing, pointer/keyboard focus, capture ownership, hidden/destroyed-surface revocation, secure-scene revocation, session/compositor teardown, queue-pressure motion coalescing, stable device identity, HID boot keyboard/mouse report decoding, generational binding handles, stale-handle rejection and disconnect state sanitization all execute inside mandatory boot validation. G4 remains **In progress** because live USB hardware enumeration/report delivery still depends on the future xHCI/USB host controller stack and the extended input classes are intentionally later work.
 
 ## Phase G5 — Window protocol and Shell
 
