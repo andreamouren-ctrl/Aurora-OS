@@ -755,21 +755,6 @@ void kmain(void) {
         kernel_panic("Graphics recycled buffer cleanup failed");
     }
 
-    if (!graphics_surface_detach_buffers(
-            &graphics_probe_caps,
-            graphics_surface_handle)) {
-        kernel_panic("Graphics surface buffer detach probe failed");
-    }
-
-    if (!cap_revoke(
-            &graphics_probe_caps,
-            graphics_buffer_handle) ||
-        !graphics_buffer_release_owner(
-            graphics_probe_buffer,
-            graphics_probe_buffer->generation)) {
-        kernel_panic("Graphics primary buffer lifetime cleanup failed");
-    }
-
     log_line("[graphics] capability lifetime accounting passed");
     log_line("[graphics] deferred destroy and stale-handle rejection passed");
     log_line("[graphics] capability-safe buffer slot reuse passed");
@@ -820,6 +805,121 @@ void kmain(void) {
     }
 
     log_line("[graphics] bounded frame callback lifecycle passed");
+
+    if (!graphics_surface_detach_buffers(
+            &graphics_probe_caps,
+            graphics_surface_handle)) {
+        kernel_panic("Graphics surface buffer detach probe failed");
+    }
+
+    if (!cap_revoke(
+            &graphics_probe_caps,
+            graphics_buffer_handle) ||
+        !graphics_buffer_release_owner(
+            graphics_probe_buffer,
+            graphics_probe_buffer->generation)) {
+        kernel_panic("Graphics primary buffer lifetime cleanup failed");
+    }
+
+    struct aurora_display_pixel_format hdr10_format = {
+        .encoding = AURORA_PIXEL_ENCODING_UNORM_PACKED,
+        .bits_per_pixel = 32u,
+        .red_mask_size = 10u,
+        .red_mask_shift = 0u,
+        .green_mask_size = 10u,
+        .green_mask_shift = 10u,
+        .blue_mask_size = 10u,
+        .blue_mask_shift = 20u,
+        .alpha_mask_size = 2u,
+        .alpha_mask_shift = 30u
+    };
+
+    struct aurora_color_description hdr10_color = {
+        .primaries = AURORA_COLOR_PRIMARIES_BT2020,
+        .transfer = AURORA_COLOR_TRANSFER_PQ_ST2084,
+        .range = AURORA_COLOR_RANGE_FULL,
+        .hdr_static = {
+            .valid = true,
+            .mastering_max_luminance_millinit = 1000000u,
+            .mastering_min_luminance_micrinit = 50u,
+            .max_cll_nits = 1000u,
+            .max_fall_nits = 400u
+        }
+    };
+
+    struct aurora_display_pixel_format rgb12_format = {
+        .encoding = AURORA_PIXEL_ENCODING_UNORM_PACKED,
+        .bits_per_pixel = 48u,
+        .red_mask_size = 12u,
+        .red_mask_shift = 0u,
+        .green_mask_size = 12u,
+        .green_mask_shift = 12u,
+        .blue_mask_size = 12u,
+        .blue_mask_shift = 24u,
+        .alpha_mask_size = 0u,
+        .alpha_mask_shift = 0u
+    };
+
+    struct aurora_display_pixel_format fp16_format = {
+        .encoding = AURORA_PIXEL_ENCODING_FLOAT16,
+        .bits_per_pixel = 64u,
+        .red_mask_size = 16u,
+        .red_mask_shift = 0u,
+        .green_mask_size = 16u,
+        .green_mask_shift = 16u,
+        .blue_mask_size = 16u,
+        .blue_mask_shift = 32u,
+        .alpha_mask_size = 16u,
+        .alpha_mask_shift = 48u
+    };
+
+    struct aurora_color_description linear_p3 = {
+        .primaries = AURORA_COLOR_PRIMARIES_DISPLAY_P3_D65,
+        .transfer = AURORA_COLOR_TRANSFER_LINEAR,
+        .range = AURORA_COLOR_RANGE_FULL,
+        .hdr_static = { .valid = false }
+    };
+
+    struct aurora_graphics_buffer *hdr10_probe =
+        graphics_buffer_create_ex(16u, 16u, &hdr10_format, &hdr10_color);
+    struct aurora_graphics_buffer *rgb12_probe =
+        graphics_buffer_create_ex(16u, 16u, &rgb12_format, &linear_p3);
+    struct aurora_graphics_buffer *fp16_probe =
+        graphics_buffer_create_ex(16u, 16u, &fp16_format, &linear_p3);
+
+    if (hdr10_probe == NULL ||
+        rgb12_probe == NULL ||
+        fp16_probe == NULL ||
+        !graphics_buffer_metadata_valid(hdr10_probe) ||
+        !graphics_buffer_metadata_valid(rgb12_probe) ||
+        !graphics_buffer_metadata_valid(fp16_probe)) {
+        kernel_panic("Extended color/HDR graphics format probe failed");
+    }
+
+    const struct aurora_display_capabilities *boot_caps =
+        display_output_capabilities(boot_output);
+
+    if (boot_caps == NULL ||
+        (boot_caps->flags & AURORA_DISPLAY_CAP_SDR) == 0u ||
+        (boot_caps->flags & (AURORA_DISPLAY_CAP_HDR_STATIC |
+                             AURORA_DISPLAY_CAP_PQ |
+                             AURORA_DISPLAY_CAP_HLG |
+                             AURORA_DISPLAY_CAP_VRR |
+                             AURORA_DISPLAY_CAP_DSC)) != 0u ||
+        boot_caps->min_bits_per_component != 8u ||
+        boot_caps->max_bits_per_component != 8u) {
+        kernel_panic("Boot display capability fail-closed probe failed");
+    }
+
+    if (!graphics_buffer_release_owner(hdr10_probe, hdr10_probe->generation) ||
+        !graphics_buffer_release_owner(rgb12_probe, rgb12_probe->generation) ||
+        !graphics_buffer_release_owner(fp16_probe, fp16_probe->generation)) {
+        kernel_panic("Extended color/HDR probe cleanup failed");
+    }
+
+    log_line("[graphics] HDR10/RGB12/RGBA16F format foundation passed");
+    log_line("[display] explicit SDR/HDR/VRR capability model passed");
+
 
     struct aurora_process *graphics_client_a =
         process_create_image(
