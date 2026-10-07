@@ -1,11 +1,18 @@
 # Aurora Graphics Architecture
 
-Status: **Canonical architecture contract**
-Version: **0.1**
+Status: **Canonical architecture contract with G1-G3 runtime implementation**
+Version: **0.2**
 
 ## 1. Goal
 
-Aurora M4 introduces a graphics stack that can evolve from a simple software compositor to accelerated rendering without changing application-facing ownership or security contracts.
+Aurora M4 defines a capability-scoped graphics stack that can evolve from the current software compositor into accelerated rendering without changing application-facing ownership or security contracts.
+
+The first three implementation phases are no longer hypothetical:
+
+- **G1 Display foundation — complete/runtime verified**
+- **G2 Surface/buffer core — complete/runtime verified**
+- **G3 Software compositor + professional color pipeline — complete/runtime verified**
+- **G4 Pointer/modern input — active**
 
 ## 2. Components
 
@@ -13,21 +20,41 @@ Aurora M4 introduces a graphics stack that can evolve from a simple software com
 
 Owns physical display outputs, modes, scanout targets, presentation timing and backend-specific display state. It does not own desktop policy.
 
+Current implementation includes output/mode objects, boot-framebuffer presentation, display-controller abstractions, DDC/EDID capability discovery, HDMI/DisplayPort contracts and a QEMU Standard VGA/Bochs VBE driver foundation.
+
 ### Aurora Compositor
 
-Owns composition of authorized surfaces into output frames. It tracks scene state, clipping, transforms, visibility, damage and presentation.
+Owns composition of authorized surfaces into output frames. It tracks scene state, clipping, transforms, visibility, damage, presentation and frame-callback completion.
+
+The current G3 software compositor is runtime verified for:
+
+- deterministic z-order;
+- clipping;
+- alpha composition;
+- damage aggregation;
+- transforms and integer scaling;
+- bounded occlusion culling;
+- secure-scene exclusion;
+- RGB10A2, RGB12 and RGBA16F source handling;
+- calibrated software color conversion.
 
 ### Window Manager / Shell policy
 
-Owns user-facing placement, stacking policy, focus policy, workspaces/Activity Spaces, decorations and system chrome. In the initial implementation this policy may live in the Desktop Shell process, but it remains logically separate from composition.
+Owns placement, stacking policy, focus policy, workspaces/Activity Spaces, decorations and system chrome.
+
+This policy remains a G5+ responsibility. It must remain logically separate from low-level composition even if early implementations share process infrastructure.
 
 ### Desktop Shell
 
-Trusted user-session component that implements the Aurora desktop experience: panels, launcher, task switching, Activity Spaces, desktop surfaces, notifications, system overlays and customization.
+Trusted user-session component that will implement panels, launcher, task switching, Activity Spaces, notifications, system overlays and customization.
+
+The Desktop Shell is not yet complete.
 
 ### Clients
 
 Applications and system apps render into their own buffers and submit those buffers to compositor-managed surfaces.
+
+Two isolated Ring 3 clients are already runtime tested against the surface/buffer capability model.
 
 ## 3. Process model
 
@@ -41,13 +68,15 @@ Applications            untrusted clients
 Identity System App     trusted pre-session client
 ```
 
-Early M4 may combine Display Service and compositor implementation in one process for bootstrap, provided the public contracts and ownership boundaries are preserved.
+Early M4 may combine some Display/Compositor implementation while preserving public contracts and authority boundaries.
+
+The boot/recovery framebuffer path remains independent of this normal-session split.
 
 ## 4. Capability model
 
-Clients receive explicit capabilities for the graphics objects they may use. A capability identifies an object and permitted rights; possession of a generic IPC endpoint does not imply graphics authority.
+Clients receive explicit capabilities for the graphics objects they may use. Possessing a generic IPC endpoint does not imply graphics authority.
 
-Initial logical rights:
+Logical rights include:
 
 - CREATE_SURFACE
 - ATTACH_BUFFER
@@ -60,15 +89,79 @@ Initial logical rights:
 - MANAGE_WINDOWS
 - MANAGE_OUTPUTS
 
-Ordinary applications must never receive MANAGE_OUTPUTS, MANAGE_WINDOWS or CAPTURE_OUTPUT by default.
+Ordinary applications must never receive MANAGE_OUTPUTS, MANAGE_WINDOWS or CAPTURE_OUTPUT merely because they can render a normal surface.
+
+Current G2 validation includes cross-client rejection: one Ring 3 client cannot map or attach another client's buffer without the appropriate capability.
 
 ## 5. Session isolation
 
-Every normal surface is bound to exactly one session security domain. A surface from one authenticated session must never become visible or readable from another session unless an explicit trusted transition protocol authorizes it.
+Every normal surface belongs to exactly one session security domain.
 
-On logout, the Session Manager revokes the session's graphics authority before the session is considered destroyed.
+A surface from one authenticated session must never become visible/readable in another session without an explicit trusted transition protocol.
 
-## 6. Performance direction
+On logout or terminal session failure, graphics authority must be revoked before session destruction is considered complete.
+
+This remains a required integration gate as the Desktop Shell and compositor become session-owned services.
+
+## 6. Color and HDR architecture
+
+HDR and color management are no longer "out of scope".
+
+The current software path includes:
+
+- SDR/wide-gamut/HDR metadata models;
+- SMPTE ST.2084/PQ;
+- BT.2100 HLG;
+- ICC v2/v4 RGB matrix-shaper import;
+- sampled and parametric TRCs;
+- monitor VCGT calibration;
+- optional bounded 17^3 calibration LUT;
+- perceptual HDR shoulder/tone mapping;
+- hue-preserving gamut compression;
+- highlight chroma roll-off.
+
+The current limits are explicit:
+
+- ICC LUT-based A2B/B2A profile transforms are not yet imported;
+- vendor GPU hardware degamma/gamma/3D-LUT programming is not yet implemented;
+- output HDR signaling ultimately depends on native vendor display programming;
+- current validation is primarily the software compositor/QEMU path.
+
+## 7. Output/link architecture
+
+Implemented foundations include:
+
+- DDC / E-DDC abstraction;
+- EDID base parsing;
+- CTA-861 HDR/color discovery;
+- DisplayID structural parsing;
+- DisplayPort AUX/DPCD capability discovery;
+- HDMI digital sink capability parsing;
+- HDMI VSDB/HF-VSDB FRL/VRR discovery;
+- DisplayPort DSC/MST/UHBR readiness discovery;
+- VRR policy/backend contracts;
+- DSC validation/config model;
+- bounded HDMI/DP link-training state-machine contracts;
+- display-controller mode-set/scanout contract;
+- GPU display-driver match/bind registry;
+- QEMU Standard VGA / Bochs VBE foundation.
+
+Still required are production vendor-specific scanout/link/color/VRR/DSC backends.
+
+## 8. Input relationship
+
+Graphics consumes normalized device-independent input events rather than device-specific PS/2 packet formats.
+
+G4 currently includes:
+
+- normalized keyboard events;
+- initial normalized pointer path;
+- PS/2 mouse IRQ12 packet decoding;
+- separation between pointer events and Aurora Identity credential input.
+
+Still pending are complete compositor hit testing, keyboard/pointer focus, capture revocation and USB HID.
+
+## 9. Performance direction
 
 The protocol is designed for:
 
@@ -78,29 +171,35 @@ The protocol is designed for:
 - buffer reuse;
 - asynchronous frame callbacks;
 - frame pacing;
-- later zero-copy or GPU-backed buffers;
-- later multi-output support.
+- later zero-copy/GPU-backed buffers;
+- later multi-output support;
+- GPU acceleration without changing the client ownership contract.
 
 Correctness must not depend on GPU acceleration.
 
-## 7. Failure behavior
+## 10. Failure behavior
 
 If the compositor or Display Service fails:
 
 - ordinary client presentation stops safely;
-- no stale client must acquire new input;
-- session graphics capabilities are invalidated/reconstructed on restart;
-- the trusted supervisor may restart graphics services with fresh authority;
+- stale clients must not gain new input;
+- session graphics capabilities must be invalidated/reconstructed;
+- trusted supervision may restart graphics services with fresh authority;
 - boot/recovery framebuffer output remains outside this dependency chain.
 
-## 8. Out of scope for first implementation
+## 11. Remaining major work
 
-- 3D API;
-- vendor-specific GPU acceleration;
-- HDR;
-- variable refresh rate;
-- color-management pipeline beyond a stable placeholder contract;
+The following are not yet production-complete:
+
+- vendor GPU acceleration;
+- GPU scheduling/virtual memory;
+- production multi-monitor/hotplug;
+- full G4 focus/capture input routing;
+- G5 window protocol;
+- Desktop Shell;
+- normal compositor-backed Identity pre-session UI;
+- 3D application API;
 - remote desktop;
-- cross-session surface sharing.
+- explicit cross-session sharing policy if ever enabled.
 
-These may be added without violating the base ownership model.
+These may be added without weakening the base ownership model.
