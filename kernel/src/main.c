@@ -1977,16 +1977,20 @@ void kmain(void) {
 
     input_init();
 
-    if (ps2_keyboard_init(lapic_id())) {
-        log_line("[input] PS/2 keyboard IRQ path online");
-    } else {
-        log_line("[input] PS/2 keyboard unavailable; waiting for another input driver");
-    }
-
+    /*
+     * Initialize the i8042 auxiliary device before unmasking IRQ1. Controller
+     * command responses otherwise risk being consumed by the keyboard ISR.
+     */
     if (ps2_mouse_init(lapic_id())) {
         log_line("[input] PS/2 mouse IRQ path online");
     } else {
         log_line("[input] PS/2 mouse unavailable; pointer input remains offline");
+    }
+
+    if (ps2_keyboard_init(lapic_id())) {
+        log_line("[input] PS/2 keyboard IRQ path online");
+    } else {
+        log_line("[input] PS/2 keyboard unavailable; waiting for another input driver");
     }
 
     boot_ui_complete();
