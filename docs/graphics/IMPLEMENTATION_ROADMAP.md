@@ -52,9 +52,10 @@ Implemented:
 Remaining:
 
 - [x] capability-aware buffer lifetime, deferred destroy and safe object reuse;
-- [x] bounded frame callbacks tied to commit/presentation serials;
+- [x] bounded frame-callback core tied to commit/presentation serials;
 - [x] capability-gated Ring 3 graphics-buffer map/unmap syscall path;
 - [x] strict 32-bit RGB mask, stride, size and backing metadata validation;
+- [ ] Ring 3 frame-callback request/delivery ABI.
 
 Acceptance gate:
 
