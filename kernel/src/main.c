@@ -33,9 +33,11 @@
 #include <aurora/version.h>
 #include <aurora/vmm.h>
 
+#if AURORA_BOOT_VALIDATION
 static volatile uint64_t scheduler_probe_value;
 static struct aurora_ipc_channel ring3_ipc_probe_channel;
 static struct aurora_cap_table ring3_ipc_kernel_caps;
+#endif
 
 static const char *lapic_mode_name(void) {
     switch (lapic_current_mode()) {
@@ -50,6 +52,7 @@ static const char *lapic_mode_name(void) {
     }
 }
 
+#if AURORA_BOOT_VALIDATION
 static void scheduler_probe_thread(
     void *argument
 ) {
@@ -61,6 +64,7 @@ static void scheduler_probe_thread(
             0x4155524F52414F53ull;
     }
 }
+#endif
 
 void kmain(void) {
     arch_early_init();
@@ -259,6 +263,7 @@ void kmain(void) {
     log_write("[timer] mode: ");
     log_line(timer_mode_name());
 
+#if AURORA_BOOT_VALIDATION
     uint64_t timer_before =
         timer_interrupt_count();
 
@@ -283,6 +288,7 @@ void kmain(void) {
     }
 
     log_line("[timer] one-shot interrupt probe passed");
+#endif
 
     boot_ui_stage(
         AURORA_BOOT_STAGE_TIMER
@@ -292,6 +298,7 @@ void kmain(void) {
         kernel_panic("Kernel heap initialization failed");
     }
 
+#if AURORA_BOOT_VALIDATION
     void *probe = kheap_alloc(128, 16);
 
     if (probe == 0) {
@@ -318,26 +325,31 @@ void kmain(void) {
     }
 
     log_line("[clock] 1 ms monotonic probe passed");
+#endif
 
     boot_ui_stage(
         AURORA_BOOT_STAGE_HEAP
     );
 
+#if AURORA_BOOT_VALIDATION
     if (!capability_self_test()) {
         kernel_panic("Capability security self-test failed");
     }
 
     log_line("[cap] typed capability self-test passed");
+#endif
 
     boot_ui_stage(
         AURORA_BOOT_STAGE_CAPABILITIES
     );
 
+#if AURORA_BOOT_VALIDATION
     if (!ipc_self_test()) {
         kernel_panic("IPC capability-transfer self-test failed");
     }
 
     log_line("[ipc] bounded capability-transfer self-test passed");
+#endif
 
     boot_ui_stage(
         AURORA_BOOT_STAGE_IPC
@@ -357,6 +369,7 @@ void kmain(void) {
         }
     }
 
+#if AURORA_BOOT_VALIDATION
     scheduler_probe_value = 0;
 
     aurora_thread_id probe_thread =
@@ -371,6 +384,7 @@ void kmain(void) {
             "Could not create scheduler probe thread"
         );
     }
+#endif
 
     if (!scheduler_start()) {
         kernel_panic("Could not start scheduler");
@@ -394,6 +408,7 @@ void kmain(void) {
     log_u64(smp_scheduler_owned_cpu_count());
     log_line("");
 
+#if AURORA_BOOT_VALIDATION
     uint32_t expected_ap_timer_cpus =
         smp_online_cpu_count() > 0u
             ? smp_online_cpu_count() - 1u
@@ -457,11 +472,13 @@ void kmain(void) {
     log_line("");
 
     log_line("[sched] preemptive kernel thread probe passed");
+#endif
 
     boot_ui_stage(
         AURORA_BOOT_STAGE_SCHEDULER
     );
 
+#if AURORA_BOOT_VALIDATION
     struct aurora_process *user_process =
         process_create_image(
             "ring3-probe",
@@ -640,6 +657,7 @@ void kmain(void) {
     }
 
     log_line("[ring3-ipc] capability-gated send/receive syscall round-trip passed");
+#endif
 
     boot_ui_stage(
         AURORA_BOOT_STAGE_USERSPACE
