@@ -12,6 +12,12 @@
 #include <aurora/scheduler.h>
 #include <aurora/service_abi.h>
 
+struct aurora_service_bootstrap_capability {
+    void *object;
+    enum aurora_cap_type type;
+    uint64_t rights;
+};
+
 struct aurora_trusted_service_manifest {
     const char *name;
     const uint8_t *image;
@@ -19,6 +25,8 @@ struct aurora_trusted_service_manifest {
     const char *protected_state_scope;
     uint64_t protected_state_rights;
     bool grant_entropy_seed;
+    const struct aurora_service_bootstrap_capability *extra_capabilities;
+    uint32_t extra_capability_count;
 };
 
 struct aurora_trusted_service {
@@ -35,6 +43,10 @@ struct aurora_trusted_service {
     aurora_cap_handle service_endpoint_handle;
     aurora_cap_handle protected_state_handle;
     aurora_cap_handle entropy_seed_handle;
+    aurora_cap_handle extra_capability_handles[
+        AURORA_SERVICE_STARTUP_MAX_EXTRA_CAPABILITIES
+    ];
+    uint32_t extra_capability_count;
 
     bool started;
 };
@@ -43,9 +55,10 @@ struct aurora_trusted_service {
  * Bootstrap one explicitly trusted Ring 3 service.
  *
  * The service receives a process-local IPC endpoint, one non-transferable
- * Protected System State capability, and optionally one read-only entropy-seed
- * capability. Ordinary user processes are not granted these authorities by
- * this API implicitly.
+ * Protected System State capability, optionally one read-only entropy-seed
+ * capability, and at most AURORA_SERVICE_STARTUP_MAX_EXTRA_CAPABILITIES
+ * explicitly declared dependency capabilities. Ordinary user processes are
+ * never granted these authorities implicitly.
  */
 bool service_bootstrap_start_trusted(
     const struct aurora_trusted_service_manifest *manifest,
