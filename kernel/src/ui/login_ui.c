@@ -382,15 +382,6 @@ static const char *login_status_text(void) {
         case AURORA_LOGIN_LOGGING_OUT:
             return "LOGGING OUT...";
 
-        case AURORA_LOGIN_LOCKING:
-            return "LOCKING SESSION...";
-
-        case AURORA_LOGIN_LOCKED:
-            return "SESSION LOCKED";
-
-        case AURORA_LOGIN_UNLOCKING:
-            return "VERIFYING TO UNLOCK...";
-
         case AURORA_LOGIN_SESSION_ACTIVE:
             return "AUTHENTICATED SESSION ACTIVE";
 
@@ -413,13 +404,6 @@ static const char *login_prompt_text(void) {
     }
     if (login_state == AURORA_LOGIN_LOGGING_OUT) {
         return "ENDING LOCAL SESSION";
-    }
-    if (login_state == AURORA_LOGIN_LOCKING) {
-        return "SECURING LOCAL SESSION";
-    }
-    if (login_state == AURORA_LOGIN_LOCKED ||
-        login_state == AURORA_LOGIN_UNLOCKING) {
-        return "ENTER YOUR AURORA KEY TO UNLOCK";
     }
 
     return login_state == AURORA_LOGIN_CREATE_ENTRY ||
