@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <aurora/capability_abi.h>
+
 #include <aurora/session_manager_protocol.h>
 
 enum aurora_session_manager_client_state {
@@ -29,5 +31,7 @@ enum aurora_session_manager_client_state session_manager_client_state(void);
 uint64_t session_manager_client_generation(void);
 
 const uint8_t *session_manager_client_user_id(void);
+
+aurora_cap_handle session_manager_client_profile_handle(void);
 
 #endif

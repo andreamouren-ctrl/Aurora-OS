@@ -9,6 +9,7 @@
 #include <aurora/ipc.h>
 #include <aurora/pmm.h>
 #include <aurora/process.h>
+#include <aurora/profile_session.h>
 #include <aurora/protected_state_syscall.h>
 #include <aurora/scheduler.h>
 #include <aurora/syscall.h>
@@ -318,6 +319,36 @@ static uint64_t dispatch_user_memory_free(
         : AURORA_SYS_RESULT_ERROR;
 }
 
+static uint64_t dispatch_profile_open_or_create(
+    struct aurora_process *process,
+    uint64_t root_handle,
+    uint64_t user_user_id
+) {
+    uint8_t user_id[AURORA_SYS_PROFILE_USER_ID_SIZE];
+    secure_zero_bytes(user_id, sizeof(user_id));
+
+    if (process == NULL || user_user_id == 0u ||
+        !copy_from_user(
+            process,
+            user_id,
+            user_user_id,
+            sizeof(user_id))) {
+        secure_zero_bytes(user_id, sizeof(user_id));
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    aurora_cap_handle handle = profile_open_or_create(
+        process,
+        (aurora_cap_handle)root_handle,
+        user_id
+    );
+
+    secure_zero_bytes(user_id, sizeof(user_id));
+    return handle == AURORA_CAP_INVALID
+        ? AURORA_SYS_RESULT_ERROR
+        : (uint64_t)handle;
+}
+
 struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
     struct aurora_process *process = scheduler_current_process();
     if (process == NULL) return scheduler_terminate_current();
@@ -410,6 +441,13 @@ struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
             break;
         case AURORA_SYS_CAP_REVOKE:
             frame->rax = dispatch_cap_revoke(process, frame->rdi);
+            break;
+        case AURORA_SYS_PROFILE_OPEN_OR_CREATE:
+            frame->rax = dispatch_profile_open_or_create(
+                process,
+                frame->rdi,
+                frame->rsi
+            );
             break;
         default:
             frame->rax = AURORA_SYS_RESULT_ERROR;

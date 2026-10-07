@@ -5,6 +5,7 @@
 #include <aurora/capability.h>
 #include <aurora/clock.h>
 #include <aurora/identity_client.h>
+#include <aurora/profile_session.h>
 #include <aurora/service_supervisor.h>
 #include <aurora/session_manager_client.h>
 #include <aurora/session_manager_service.h>
@@ -12,8 +13,9 @@
 #define SESSION_MANAGER_READY_TIMEOUT_NS 2000000000ull
 
 static struct aurora_service_supervisor session_supervisor;
-static struct aurora_service_bootstrap_capability session_dependencies[2];
+static struct aurora_service_bootstrap_capability session_dependencies[3];
 static uint64_t session_authority_object;
+static aurora_cap_handle active_profile_handle;
 static enum aurora_session_manager_client_state client_state =
     AURORA_SESSION_CLIENT_UNINITIALIZED;
 static uint64_t current_request_id;
@@ -25,6 +27,17 @@ static void clear_bytes(void *buffer, size_t size) {
     uint8_t *bytes = (uint8_t *)buffer;
     if (buffer == NULL) return;
     for (size_t i = 0u; i < size; ++i) bytes[i] = 0u;
+}
+
+static void revoke_received_capabilities(
+    const struct aurora_ipc_received *received
+) {
+    if (received == NULL) return;
+    for (uint32_t i = 0u; i < received->capability_count; ++i) {
+        (void)cap_revoke(
+            &session_supervisor.service.supervisor_caps,
+            received->capabilities[i]);
+    }
 }
 
 static bool bytes_equal(const void *left, const void *right, size_t size) {
@@ -82,6 +95,10 @@ bool session_manager_client_init(void) {
     session_dependencies[1].rights =
         AURORA_RIGHT_CONTROL | AURORA_RIGHT_TRANSFER;
 
+    session_dependencies[2].object = profile_root_authority();
+    session_dependencies[2].type = AURORA_CAP_PROFILE_ROOT;
+    session_dependencies[2].rights = AURORA_RIGHT_CONTROL;
+
     const struct aurora_trusted_service_manifest manifest = {
         .name = "session-manager",
         .image = session_manager_service_image(),
@@ -90,13 +107,14 @@ bool session_manager_client_init(void) {
         .protected_state_rights = AURORA_RIGHT_READ | AURORA_RIGHT_WRITE,
         .grant_entropy_seed = false,
         .extra_capabilities = session_dependencies,
-        .extra_capability_count = 2u
+        .extra_capability_count = 3u
     };
 
     clear_bytes(&session_supervisor, sizeof(session_supervisor));
     clear_bytes(active_user_id, sizeof(active_user_id));
     current_request_id = 0u;
     active_generation = 0u;
+    active_profile_handle = AURORA_CAP_INVALID;
 
     if (!service_supervisor_init(
             &session_supervisor,
@@ -178,8 +196,8 @@ void session_manager_client_pump(void) {
     clear_bytes(&received, sizeof(received));
     if (!service_supervisor_receive(&session_supervisor, &received)) return;
 
-    if (received.capability_count != 0u ||
-        received.length != sizeof(struct aurora_session_manager_result)) {
+    if (received.length != sizeof(struct aurora_session_manager_result)) {
+        revoke_received_capabilities(&received);
         clear_bytes(&received, sizeof(received));
         client_state = AURORA_SESSION_CLIENT_ERROR;
         return;
@@ -190,11 +208,12 @@ void session_manager_client_pump(void) {
     for (size_t i = 0u; i < sizeof(result); ++i) {
         ((uint8_t *)&result)[i] = received.data[i];
     }
-    clear_bytes(&received, sizeof(received));
 
     if (result.header.version != AURORA_SESSION_MANAGER_PROTOCOL_VERSION ||
         result.header.type != AURORA_SESSION_MANAGER_SESSION_RESULT ||
         result.header.request_id != current_request_id) {
+        revoke_received_capabilities(&received);
+        clear_bytes(&received, sizeof(received));
         clear_bytes(&result, sizeof(result));
         client_state = AURORA_SESSION_CLIENT_ERROR;
         return;
@@ -204,15 +223,53 @@ void session_manager_client_pump(void) {
 
     if (result.state == AURORA_SESSION_MANAGER_STATE_ACTIVE &&
         result.public_error == AURORA_SESSION_MANAGER_ERROR_NONE &&
-        result.session_generation != 0u) {
+        result.session_generation != 0u &&
+        received.capability_count == 1u) {
+        struct aurora_capability_view profile_view;
+        aurora_cap_handle profile_handle =
+            (aurora_cap_handle)received.capabilities[0];
+
+        if (!cap_lookup(
+                &session_supervisor.service.supervisor_caps,
+                profile_handle,
+                AURORA_CAP_FILE,
+                AURORA_RIGHT_READ |
+                AURORA_RIGHT_WRITE |
+                AURORA_RIGHT_ENUMERATE,
+                &profile_view) ||
+            !profile_capability_matches_user(
+                &session_supervisor.service.supervisor_caps,
+                profile_handle,
+                result.user_id)) {
+            (void)cap_revoke(
+                &session_supervisor.service.supervisor_caps,
+                profile_handle);
+            clear_bytes(&received, sizeof(received));
+            clear_bytes(&result, sizeof(result));
+            client_state = AURORA_SESSION_CLIENT_ERROR;
+            return;
+        }
+
+        active_profile_handle = profile_handle;
         active_generation = result.session_generation;
         for (size_t i = 0u; i < sizeof(active_user_id); ++i) {
             active_user_id[i] = result.user_id[i];
         }
+        clear_bytes(&received, sizeof(received));
         clear_bytes(&result, sizeof(result));
         client_state = AURORA_SESSION_CLIENT_ACTIVE;
         return;
     }
+
+    if (received.capability_count != 0u) {
+        revoke_received_capabilities(&received);
+        clear_bytes(&received, sizeof(received));
+        clear_bytes(&result, sizeof(result));
+        client_state = AURORA_SESSION_CLIENT_ERROR;
+        return;
+    }
+
+    clear_bytes(&received, sizeof(received));
 
     if (result.state == AURORA_SESSION_MANAGER_STATE_REJECTED) {
         clear_bytes(&result, sizeof(result));
@@ -243,4 +300,11 @@ const uint8_t *session_manager_client_user_id(void) {
     return client_state == AURORA_SESSION_CLIENT_ACTIVE
         ? active_user_id
         : NULL;
+}
+
+
+aurora_cap_handle session_manager_client_profile_handle(void) {
+    return client_state == AURORA_SESSION_CLIENT_ACTIVE
+        ? active_profile_handle
+        : AURORA_CAP_INVALID;
 }

@@ -5,6 +5,8 @@
 #include <aurora/capability.h>
 #include <aurora/clock.h>
 #include <aurora/identity_service_probe.h>
+#include <aurora/ipc.h>
+#include <aurora/profile_session.h>
 #include <aurora/process.h>
 #include <aurora/scheduler.h>
 #include <aurora/service_bootstrap.h>
@@ -163,10 +165,239 @@ static bool reap_service(struct aurora_trusted_service *service) {
     return true;
 }
 
+
+static bool wait_fake_identity_request(
+    struct aurora_ipc_endpoint *endpoint,
+    struct aurora_cap_table *caps,
+    struct aurora_ipc_received *out
+) {
+    if (endpoint == NULL || caps == NULL || out == NULL) return false;
+    uint64_t deadline = clock_now_ns() + SESSION_MANAGER_PROBE_TIMEOUT_NS;
+    while (clock_now_ns() < deadline) {
+        clear_bytes(out, sizeof(*out));
+        if (ipc_receive(endpoint, caps, out)) return true;
+        arch_idle();
+    }
+    return false;
+}
+
+static bool session_manager_profile_binding_self_test(void) {
+    static struct aurora_trusted_service session;
+    static struct aurora_service_bootstrap_capability dependencies[3];
+    static struct aurora_ipc_channel identity_channel;
+    static struct aurora_cap_table identity_caps;
+
+    clear_bytes(&session, sizeof(session));
+    clear_bytes(dependencies, sizeof(dependencies));
+    ipc_channel_init(&identity_channel);
+    cap_table_init(&identity_caps);
+
+    struct aurora_ipc_endpoint *identity_service_endpoint =
+        ipc_channel_endpoint(&identity_channel, 1u);
+    struct aurora_ipc_endpoint *identity_probe_endpoint =
+        ipc_channel_endpoint(&identity_channel, 0u);
+    if (identity_service_endpoint == NULL || identity_probe_endpoint == NULL) {
+        return false;
+    }
+
+    session_manager_probe_authority ^= UINT64_C(0x50524F46494C4501);
+
+    dependencies[0].object = identity_service_endpoint;
+    dependencies[0].type = AURORA_CAP_IPC_ENDPOINT;
+    dependencies[0].rights = AURORA_RIGHT_READ | AURORA_RIGHT_WRITE;
+
+    dependencies[1].object = &session_manager_probe_authority;
+    dependencies[1].type = AURORA_CAP_IDENTITY_SESSION;
+    dependencies[1].rights =
+        AURORA_RIGHT_CONTROL | AURORA_RIGHT_TRANSFER;
+
+    dependencies[2].object = profile_root_authority();
+    dependencies[2].type = AURORA_CAP_PROFILE_ROOT;
+    dependencies[2].rights = AURORA_RIGHT_CONTROL;
+
+    const struct aurora_trusted_service_manifest manifest = {
+        .name = "session-manager-profile-probe",
+        .image = session_manager_service_image(),
+        .image_size = session_manager_service_image_size(),
+        .protected_state_scope = "session-manager-profile-probe",
+        .protected_state_rights = AURORA_RIGHT_READ | AURORA_RIGHT_WRITE,
+        .grant_entropy_seed = false,
+        .extra_capabilities = dependencies,
+        .extra_capability_count = 3u
+    };
+
+    if (!service_bootstrap_start_trusted(&manifest, &session) ||
+        !wait_message(&session, AURORA_SESSION_MANAGER_READY, 0u)) {
+        return false;
+    }
+
+    const uint64_t request_id = UINT64_C(0x50524F46494C4502);
+    struct aurora_session_manager_begin_session request;
+    clear_bytes(&request, sizeof(request));
+    request.header.version = AURORA_SESSION_MANAGER_PROTOCOL_VERSION;
+    request.header.type = AURORA_SESSION_MANAGER_BEGIN_SESSION;
+    request.header.request_id = request_id;
+    for (size_t i = 0u; i < sizeof(request.session_grant); ++i) {
+        request.session_grant[i] = (uint8_t)(0xA0u + (uint8_t)i);
+    }
+
+    if (!service_bootstrap_send(&session, &request, sizeof(request))) {
+        clear_bytes(&request, sizeof(request));
+        return false;
+    }
+    clear_bytes(&request, sizeof(request));
+
+    struct aurora_ipc_received identity_received;
+    clear_bytes(&identity_received, sizeof(identity_received));
+    if (!wait_fake_identity_request(
+            identity_probe_endpoint,
+            &identity_caps,
+            &identity_received) ||
+        identity_received.length !=
+            sizeof(struct aurora_identity_service_consume_session_grant) ||
+        identity_received.capability_count != 1u) {
+        return false;
+    }
+
+    struct aurora_identity_service_consume_session_grant consume;
+    clear_bytes(&consume, sizeof(consume));
+    for (size_t i = 0u; i < sizeof(consume); ++i) {
+        ((uint8_t *)&consume)[i] = identity_received.data[i];
+    }
+
+    aurora_cap_handle session_authority =
+        identity_received.capabilities[0];
+    struct aurora_capability_view authority_view;
+    if (consume.header.version != AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION ||
+        consume.header.type != AURORA_IDENTITY_SERVICE_CONSUME_SESSION_GRANT ||
+        consume.header.request_id != request_id ||
+        !cap_lookup(
+            &identity_caps,
+            session_authority,
+            AURORA_CAP_IDENTITY_SESSION,
+            AURORA_RIGHT_CONTROL,
+            &authority_view) ||
+        cap_lookup(
+            &identity_caps,
+            session_authority,
+            AURORA_CAP_IDENTITY_SESSION,
+            AURORA_RIGHT_TRANSFER,
+            &authority_view) ||
+        !cap_revoke(&identity_caps, session_authority)) {
+        clear_bytes(&consume, sizeof(consume));
+        return false;
+    }
+    clear_bytes(&consume, sizeof(consume));
+    clear_bytes(&identity_received, sizeof(identity_received));
+
+    static const uint8_t expected_user_id[AURORA_SESSION_MANAGER_USER_ID_SIZE] = {
+        0x12u,0x34u,0x56u,0x78u,0x9Au,0xBCu,0xDEu,0xF0u,
+        0x11u,0x22u,0x33u,0x44u,0x55u,0x66u,0x77u,0x88u
+    };
+
+    struct aurora_identity_service_session_grant_result identity_result;
+    clear_bytes(&identity_result, sizeof(identity_result));
+    identity_result.header.version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION;
+    identity_result.header.type =
+        AURORA_IDENTITY_SERVICE_SESSION_GRANT_RESULT;
+    identity_result.header.request_id = request_id;
+    identity_result.state =
+        AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_SUCCESS;
+    identity_result.public_error =
+        AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE;
+    for (size_t i = 0u; i < sizeof(expected_user_id); ++i) {
+        identity_result.user_id[i] = expected_user_id[i];
+    }
+
+    if (!ipc_send(
+            identity_probe_endpoint,
+            &identity_caps,
+            &identity_result,
+            (uint32_t)sizeof(identity_result),
+            NULL,
+            0u)) {
+        clear_bytes(&identity_result, sizeof(identity_result));
+        return false;
+    }
+    clear_bytes(&identity_result, sizeof(identity_result));
+
+    struct aurora_ipc_received session_received;
+    clear_bytes(&session_received, sizeof(session_received));
+    if (!wait_receive(&session, &session_received) ||
+        session_received.length != sizeof(struct aurora_session_manager_result) ||
+        session_received.capability_count != 1u) {
+        return false;
+    }
+
+    struct aurora_session_manager_result session_result;
+    clear_bytes(&session_result, sizeof(session_result));
+    for (size_t i = 0u; i < sizeof(session_result); ++i) {
+        ((uint8_t *)&session_result)[i] = session_received.data[i];
+    }
+
+    aurora_cap_handle profile_handle = session_received.capabilities[0];
+    if (session_result.header.version != AURORA_SESSION_MANAGER_PROTOCOL_VERSION ||
+        session_result.header.type != AURORA_SESSION_MANAGER_SESSION_RESULT ||
+        session_result.header.request_id != request_id ||
+        session_result.state != AURORA_SESSION_MANAGER_STATE_ACTIVE ||
+        session_result.public_error != AURORA_SESSION_MANAGER_ERROR_NONE ||
+        session_result.session_generation == 0u ||
+        !bytes_equal(
+            session_result.user_id,
+            expected_user_id,
+            sizeof(expected_user_id)) ||
+        !profile_capability_matches_user(
+            &session.supervisor_caps,
+            profile_handle,
+            expected_user_id)) {
+        clear_bytes(&session_received, sizeof(session_received));
+        clear_bytes(&session_result, sizeof(session_result));
+        return false;
+    }
+
+    struct aurora_capability_view profile_view;
+    if (!cap_lookup(
+            &session.supervisor_caps,
+            profile_handle,
+            AURORA_CAP_FILE,
+            AURORA_RIGHT_READ |
+            AURORA_RIGHT_WRITE |
+            AURORA_RIGHT_ENUMERATE |
+            AURORA_RIGHT_TRANSFER,
+            &profile_view) ||
+        cap_lookup(
+            &session.supervisor_caps,
+            profile_handle,
+            AURORA_CAP_FILE,
+            AURORA_RIGHT_CONTROL,
+            &profile_view)) {
+        return false;
+    }
+
+    clear_bytes(&session_received, sizeof(session_received));
+    clear_bytes(&session_result, sizeof(session_result));
+
+    const uint64_t shutdown_id = UINT64_C(0x50524F4653485554);
+    if (!send_manager_message(
+            &session,
+            AURORA_SESSION_MANAGER_SHUTDOWN,
+            shutdown_id) ||
+        !wait_message(
+            &session,
+            AURORA_SESSION_MANAGER_SHUTDOWN_ACK,
+            shutdown_id) ||
+        !wait_finished(&session)) {
+        return false;
+    }
+
+    (void)cap_revoke(&session.supervisor_caps, profile_handle);
+    return reap_service(&session);
+}
+
 bool session_manager_ring3_self_test(void) {
     static struct aurora_trusted_service identity;
     static struct aurora_trusted_service session;
-    static struct aurora_service_bootstrap_capability dependencies[2];
+    static struct aurora_service_bootstrap_capability dependencies[3];
 
     clear_bytes(&identity, sizeof(identity));
     clear_bytes(&session, sizeof(session));
@@ -200,6 +431,10 @@ bool session_manager_ring3_self_test(void) {
     dependencies[1].rights =
         AURORA_RIGHT_CONTROL | AURORA_RIGHT_TRANSFER;
 
+    dependencies[2].object = profile_root_authority();
+    dependencies[2].type = AURORA_CAP_PROFILE_ROOT;
+    dependencies[2].rights = AURORA_RIGHT_CONTROL;
+
     const struct aurora_trusted_service_manifest session_manifest = {
         .name = "session-manager-probe",
         .image = session_manager_service_image(),
@@ -208,7 +443,7 @@ bool session_manager_ring3_self_test(void) {
         .protected_state_rights = AURORA_RIGHT_READ | AURORA_RIGHT_WRITE,
         .grant_entropy_seed = false,
         .extra_capabilities = dependencies,
-        .extra_capability_count = 2u
+        .extra_capability_count = 3u
     };
 
     if (!service_bootstrap_start_trusted(&session_manifest, &session) ||
@@ -303,6 +538,10 @@ bool session_manager_ring3_self_test(void) {
             identity_shutdown_id) ||
         !wait_finished(&identity) ||
         !reap_service(&identity)) {
+        return false;
+    }
+
+    if (!session_manager_profile_binding_self_test()) {
         return false;
     }
 
