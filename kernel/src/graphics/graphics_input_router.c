@@ -44,6 +44,14 @@ static uint64_t target_for_node(
     return 0u;
 }
 
+static int32_t saturating_add_i32(int32_t a, int32_t b) {
+    int64_t sum = (int64_t)a + (int64_t)b;
+
+    if (sum > INT32_MAX) return INT32_MAX;
+    if (sum < INT32_MIN) return INT32_MIN;
+    return (int32_t)sum;
+}
+
 static bool enqueue(
     struct aurora_graphics_input_target *target,
     const struct aurora_input_event *event
@@ -55,6 +63,36 @@ static bool enqueue(
         AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY;
 
     if (next == target->tail) {
+        /*
+         * Preserve key/button/scroll ordering under pressure. Only the newest
+         * immediately-consecutive pointer motion may be coalesced.
+         */
+        uint32_t previous =
+            (target->head +
+             AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY - 1u) %
+            AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY;
+        struct aurora_input_event *last =
+            &target->queue[previous];
+
+        if (event->type == AURORA_INPUT_EVENT_POINTER_RELATIVE &&
+            last->type == AURORA_INPUT_EVENT_POINTER_RELATIVE) {
+            int32_t dx =
+                saturating_add_i32(last->delta_x, event->delta_x);
+            int32_t dy =
+                saturating_add_i32(last->delta_y, event->delta_y);
+
+            *last = *event;
+            last->delta_x = dx;
+            last->delta_y = dy;
+            return true;
+        }
+
+        if (event->type == AURORA_INPUT_EVENT_POINTER_ABSOLUTE &&
+            last->type == AURORA_INPUT_EVENT_POINTER_ABSOLUTE) {
+            *last = *event;
+            return true;
+        }
+
         return false;
     }
 
@@ -532,6 +570,81 @@ static bool fill_buffer(
 }
 
 bool graphics_input_router_selftest(void) {
+    /*
+     * Queue pressure may coalesce only adjacent motion. Key/button ordering
+     * must remain intact and a full queue must still reject other event types.
+     */
+    struct aurora_graphics_input_target pressure = {
+        .target_id = 999u,
+        .node_id = 999u,
+        .used = true
+    };
+    const struct aurora_input_event pressure_key = {
+        .type = AURORA_INPUT_EVENT_KEY,
+        .source = AURORA_INPUT_SOURCE_SYNTHETIC,
+        .synthetic = true,
+        .key = AURORA_KEY_A,
+        .pressed = true
+    };
+    const struct aurora_input_event motion_a = {
+        .type = AURORA_INPUT_EVENT_POINTER_RELATIVE,
+        .source = AURORA_INPUT_SOURCE_SYNTHETIC,
+        .synthetic = true,
+        .delta_x = 4,
+        .delta_y = -3
+    };
+    const struct aurora_input_event motion_b = {
+        .type = AURORA_INPUT_EVENT_POINTER_RELATIVE,
+        .source = AURORA_INPUT_SOURCE_SYNTHETIC,
+        .synthetic = true,
+        .delta_x = 7,
+        .delta_y = 5
+    };
+
+    for (uint32_t i = 0u;
+         i < AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY - 2u;
+         ++i) {
+        if (!enqueue(&pressure, &pressure_key)) {
+            return false;
+        }
+    }
+
+    if (!enqueue(&pressure, &motion_a) ||
+        !enqueue(&pressure, &motion_b) ||
+        enqueue(&pressure, &pressure_key)) {
+        return false;
+    }
+
+    for (uint32_t i = 0u;
+         i < AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY - 2u;
+         ++i) {
+        struct aurora_input_event queued = {0};
+
+        if (pressure.tail == pressure.head) return false;
+        queued = pressure.queue[pressure.tail];
+        pressure.tail =
+            (pressure.tail + 1u) %
+            AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY;
+
+        if (queued.type != AURORA_INPUT_EVENT_KEY) {
+            return false;
+        }
+    }
+
+    if (pressure.tail == pressure.head) return false;
+    struct aurora_input_event coalesced =
+        pressure.queue[pressure.tail];
+    pressure.tail =
+        (pressure.tail + 1u) %
+        AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY;
+
+    if (coalesced.type != AURORA_INPUT_EVENT_POINTER_RELATIVE ||
+        coalesced.delta_x != 11 ||
+        coalesced.delta_y != 2 ||
+        pressure.tail != pressure.head) {
+        return false;
+    }
+
     const struct aurora_display_mode *mode =
         display_mode_at(0u, 0u);
 
