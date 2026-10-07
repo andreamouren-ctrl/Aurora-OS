@@ -124,19 +124,25 @@ Implemented foundation:
 - [x] Identity credential handling remains isolated from pointer events;
 - [x] graphics input-router foundation present.
 
+Runtime-verified first routing block:
+
+- [x] secure-scene-aware compositor hit testing;
+- [x] pointer focus routing;
+- [x] keyboard focus routing;
+- [x] private per-target normalized input queues;
+- [x] multi-client no-leakage/focus-isolation QEMU gate;
+- [x] live PS/2 mouse IRQ12 path required by the QEMU gate.
+
 Remaining:
 
-- [ ] compositor hit testing;
-- [ ] pointer focus;
-- [ ] keyboard focus routing;
-- [ ] focus/capture revocation;
-- [ ] multi-client no-leakage runtime gate;
+- [ ] explicit pointer capture and capture-revocation semantics;
+- [ ] focus teardown/revocation integration with final window/session lifecycle;
 - [ ] USB HID input foundation once xHCI/USB transport exists;
 - [ ] touch/pen/gamepad and accessibility/input-method layers later.
 
 Acceptance gate:
 
-Mouse and keyboard interact with multiple surfaces without cross-client event leakage.
+The first focus/isolation acceptance gate is runtime verified in QEMU. G4 remains in progress until capture/revocation and modern USB HID input are implemented.
 
 ## Phase G5 — Window protocol and Shell
 
