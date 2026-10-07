@@ -261,3 +261,113 @@ const struct aurora_display_capabilities *display_output_capabilities(
     if (output == NULL || !output->connected) return NULL;
     return &output->capabilities;
 }
+
+bool display_vrr_range_valid(
+    uint32_t min_millihz,
+    uint32_t max_millihz
+) {
+    return min_millihz != 0u &&
+        max_millihz != 0u &&
+        max_millihz >= min_millihz;
+}
+
+bool display_output_set_vrr_policy(
+    struct aurora_display_output *output,
+    bool enabled,
+    uint32_t min_millihz,
+    uint32_t max_millihz,
+    uint32_t preferred_millihz
+) {
+    if (output == NULL || !output->connected) return false;
+
+    if (!enabled) {
+        output->vrr_policy.enabled = false;
+        output->vrr_policy.min_millihz = 0u;
+        output->vrr_policy.max_millihz = 0u;
+        output->vrr_policy.preferred_millihz = 0u;
+        return true;
+    }
+
+    if ((output->capabilities.flags & AURORA_DISPLAY_CAP_VRR) == 0u ||
+        !display_vrr_range_valid(min_millihz, max_millihz) ||
+        !display_vrr_range_valid(
+            output->capabilities.vrr_min_millihz,
+            output->capabilities.vrr_max_millihz) ||
+        min_millihz < output->capabilities.vrr_min_millihz ||
+        max_millihz > output->capabilities.vrr_max_millihz ||
+        preferred_millihz < min_millihz ||
+        preferred_millihz > max_millihz) {
+        return false;
+    }
+
+    output->vrr_policy.enabled = true;
+    output->vrr_policy.min_millihz = min_millihz;
+    output->vrr_policy.max_millihz = max_millihz;
+    output->vrr_policy.preferred_millihz = preferred_millihz;
+    return true;
+}
+
+bool display_output_refresh_allowed(
+    const struct aurora_display_output *output,
+    uint32_t refresh_millihz
+) {
+    if (output == NULL || !output->connected || refresh_millihz == 0u) {
+        return false;
+    }
+
+    if (output->vrr_policy.enabled) {
+        return refresh_millihz >= output->vrr_policy.min_millihz &&
+            refresh_millihz <= output->vrr_policy.max_millihz;
+    }
+
+    const struct aurora_display_mode *mode =
+        display_output_current_mode(output);
+
+    if (mode == NULL ||
+        mode->refresh_numerator == 0u ||
+        mode->refresh_denominator == 0u) {
+        return true;
+    }
+
+    uint64_t fixed_millihz =
+        ((uint64_t)mode->refresh_numerator * UINT64_C(1000)) /
+        (uint64_t)mode->refresh_denominator;
+
+    return fixed_millihz == refresh_millihz;
+}
+
+bool display_vrr_selftest(void) {
+    struct aurora_display_output output;
+
+    if (!display_output_init(
+            &output,
+            UINT64_C(99),
+            AURORA_DISPLAY_BACKEND_BOOT_FRAMEBUFFER,
+            false)) {
+        return false;
+    }
+
+    struct aurora_display_capabilities caps = {
+        .flags = AURORA_DISPLAY_CAP_SDR | AURORA_DISPLAY_CAP_VRR,
+        .primaries_mask = (1u << AURORA_COLOR_PRIMARIES_SRGB),
+        .transfer_mask = (1u << AURORA_COLOR_TRANSFER_SRGB),
+        .min_bits_per_component = 8u,
+        .max_bits_per_component = 10u,
+        .vrr_min_millihz = 48000u,
+        .vrr_max_millihz = 144000u
+    };
+
+    if (!display_output_set_capabilities(&output, &caps) ||
+        display_output_set_vrr_policy(
+            &output, true, 40000u, 144000u, 120000u) ||
+        !display_output_set_vrr_policy(
+            &output, true, 48000u, 144000u, 120000u) ||
+        !display_output_refresh_allowed(&output, 120000u) ||
+        display_output_refresh_allowed(&output, 30000u) ||
+        !display_output_set_vrr_policy(
+            &output, false, 0u, 0u, 0u)) {
+        return false;
+    }
+
+    return true;
+}
