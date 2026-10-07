@@ -1826,9 +1826,15 @@ static uint32_t source_peak_q16(
         }
     }
 
-    return color->transfer == AURORA_COLOR_TRANSFER_PQ_ST2084
-        ? 10000u * 65536u
-        : COLOR_SDR_REFERENCE_WHITE_NITS * 65536u;
+    if (color->transfer == AURORA_COLOR_TRANSFER_PQ_ST2084) {
+        return 10000u * 65536u;
+    }
+
+    if (color->transfer == AURORA_COLOR_TRANSFER_HLG) {
+        return 1000u * 65536u;
+    }
+
+    return COLOR_SDR_REFERENCE_WHITE_NITS * 65536u;
 }
 
 static uint32_t perceptual_tone_map_luminance(
