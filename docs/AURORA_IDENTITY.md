@@ -326,59 +326,68 @@ Recovery/admin paths must not silently expose another user's authentication secr
 
 ## 13. Current implementation state
 
-Already implemented in the repository:
+The live repository now includes substantially more than the original bootstrap prototype.
 
-- native framebuffer Boot UI;
-- boot-to-Aurora-Identity handoff;
-- framebuffer login prototype;
-- generic kernel input-event queue;
-- IRQ-driven PS/2 keyboard prototype;
-- alphanumeric Aurora Key entry;
-- masking;
-- Backspace / Esc / Enter handling;
-- length policy handling;
-- isolated host-testable Identity core with authentication, identity creation, Key rotation, and one-time Session Grant logic;
-- no fake persistent authentication in the kernel.
+Implemented and connected to the OS:
 
-Not yet production-integrated:
+- native framebuffer boot/recovery UI with full-quality Aurora artwork;
+- generic normalized input-event queue;
+- IRQ-driven PS/2 keyboard path;
+- initial PS/2 pointer path under M4 G4;
+- Aurora Key entry/masking/cancel/submit handling;
+- persistent Identity core and durable store;
+- stable user_id and independent credential_id;
+- protected lookup tags;
+- reviewed/pinned Argon2id provider foundation;
+- kernel entropy seed + controlled Ring 3 Identity handoff;
+- HMAC-DRBG and machine-root-secret foundation;
+- first-user bootstrap creation policy;
+- capability-authorized Ring 3 Identity Service;
+- asynchronous AUTH and CREATE flows;
+- one-time session grants;
+- capability-gated session-grant consumption;
+- separate Ring 3 Session Manager;
+- stable user_id -> persistent AuroraFS profile binding;
+- reduced profile capability delegation;
+- ordinary Ring 3 User Session Host;
+- logout with capability revocation;
+- lock/unlock requiring fresh same-user authentication;
+- fail-closed abnormal session termination;
+- purpose-bound re-authentication proof core.
 
-- protected persistent Identity storage;
-- secure credential RNG suitable for production identity generation;
-- reviewed Argon2id integration;
-- production persistent identity database;
-- enforced Administrator/Standard User role lifecycle;
-- enforced file/resource ownership/ACL policy;
-- isolated production Aurora Identity Service;
-- Session Manager authenticated profile bootstrap;
+Important remaining work:
+
 - compositor-backed Aurora Identity System App;
-- USB mass-storage/removable-media stack required for Identity Drive;
+- final profile/account/settings management UI;
+- production use of purpose-bound re-authentication proofs for sensitive management actions;
 - recovery credential implementation;
-- secure hardware authenticator support.
+- USB/xHCI/removable-media stack required by Aurora Identity Drive;
+- secure hardware authenticator transport;
+- hardware-backed secret sealing/TPM integration;
+- comprehensive security-event/audit pipeline;
+- broad fuzzing/security review and real-hardware certification.
 
-## 14. Required implementation order
+The framebuffer login path is retained as an independent recovery/fallback surface. It is no longer accurate to describe the live OS as having no persistent authentication or no Ring 3 Identity Service.
 
-The canonical dependency order is:
+## 14. Remaining implementation order
 
-1. persistent storage/VFS foundation;
-2. protected system-state storage;
-3. isolated user-space system-service lifecycle;
-4. secure RNG and reviewed Argon2id path;
-5. Aurora Identity Service v1;
-6. versioned IPC protocol and capability enforcement;
-7. persistent identity records, role metadata, and rate limiting;
-8. first-user Administrator bootstrap and later Standard User assignment;
-9. Permission Broker/resource-authorization contract and ownership/ACL enforcement;
-10. Session Manager and authenticated profile bootstrap;
-11. compositor-backed Aurora Identity System App including Administrator Users & Access mode;
-12. USB mass-storage/removable-device broker;
-13. Aurora Identity Drive v1;
-14. recovery v1;
-15. secure hardware authenticators;
-16. Application Identity / Service Identity integration with platform security;
-17. Data Seal and advanced session/data protection;
-18. Identity Migration and Identity Capsule workflows;
-19. optional trusted-device / multi-device federation;
-20. optional Biometric Bridge and managed Break Glass when their security foundations exist.
+The original foundational dependency chain through persistent Identity and Session Manager is now substantially implemented.
+
+Current priority order is:
+
+1. complete M4 G4 focus/capture and modern input foundations;
+2. implement G5 window protocol/Desktop Shell;
+3. bootstrap compositor-backed pre-session Identity presentation while retaining framebuffer recovery;
+4. connect purpose-bound re-authentication proofs to sensitive account/security operations;
+5. add profile/settings and Security Activity services/UI;
+6. implement USB/xHCI + removable media;
+7. implement Aurora Identity Drive v1;
+8. implement recovery v1;
+9. add secure hardware authenticators;
+10. add hardware-backed machine-secret protection where supported;
+11. integrate Application Identity / Service Identity with the mature Permission Broker;
+12. add Data Seal and advanced session/data-protection capabilities only after their storage/crypto dependencies are independently reviewed;
+13. add Identity Migration/Capsule and optional multi-device federation after networking and recovery foundations are mature.
 
 ## 15. Canonical detailed documentation
 
