@@ -4,6 +4,7 @@
 
 static const uint8_t lookup_domain[] = "AURORA.IDENTITY.LOOKUP.V1";
 static const uint8_t session_grant_domain[] = "AURORA.IDENTITY.SESSION-GRANT.V1";
+static const uint8_t reauth_proof_domain[] = "AURORA.IDENTITY.REAUTH-PROOF.V1";
 
 static void secure_zero(void *buffer, size_t size) {
     volatile uint8_t *bytes = (volatile uint8_t *)buffer;
@@ -57,8 +58,10 @@ bool aurora_identity_hmac_provider_init(
     struct aurora_identity_hmac_provider *provider,
     const uint8_t lookup_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE],
     const uint8_t session_grant_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE],
+    const uint8_t reauth_proof_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE],
     struct aurora_identity_hmac_drbg *drbg) {
     if (provider == NULL || lookup_key == NULL || session_grant_key == NULL ||
+        reauth_proof_key == NULL ||
         (drbg != NULL && !drbg->instantiated)) {
         return false;
     }
@@ -69,6 +72,10 @@ bool aurora_identity_hmac_provider_init(
         provider->session_grant_key,
         session_grant_key,
         sizeof(provider->session_grant_key));
+    memcpy(
+        provider->reauth_proof_key,
+        reauth_proof_key,
+        sizeof(provider->reauth_proof_key));
     provider->drbg = drbg;
     provider->initialized = true;
     return true;
@@ -124,6 +131,27 @@ bool aurora_identity_hmac_provider_derive_session_grant_tag(
         out_tag);
 }
 
+bool aurora_identity_hmac_provider_derive_reauth_proof_tag(
+    void *context,
+    const uint8_t token[AURORA_IDENTITY_REAUTH_PROOF_TOKEN_SIZE],
+    uint8_t out_tag[AURORA_IDENTITY_REAUTH_PROOF_TAG_SIZE]) {
+    struct aurora_identity_hmac_provider *provider =
+        (struct aurora_identity_hmac_provider *)context;
+
+    if (provider == NULL || !provider->initialized ||
+        token == NULL || out_tag == NULL) {
+        return false;
+    }
+
+    return derive_domain_tag(
+        provider->reauth_proof_key,
+        reauth_proof_domain,
+        sizeof(reauth_proof_domain) - 1u,
+        token,
+        AURORA_IDENTITY_REAUTH_PROOF_TOKEN_SIZE,
+        out_tag);
+}
+
 bool aurora_identity_hmac_provider_fill_random(
     void *context,
     uint8_t *buffer,
@@ -162,5 +190,16 @@ struct aurora_identity_session_grant_crypto_ops
     memset(&ops, 0, sizeof(ops));
     ops.context = provider;
     ops.derive_token_tag = aurora_identity_hmac_provider_derive_session_grant_tag;
+    return ops;
+}
+
+struct aurora_identity_reauth_crypto_ops
+    aurora_identity_hmac_provider_reauth_crypto_ops(
+        struct aurora_identity_hmac_provider *provider) {
+    struct aurora_identity_reauth_crypto_ops ops;
+
+    memset(&ops, 0, sizeof(ops));
+    ops.context = provider;
+    ops.derive_token_tag = aurora_identity_hmac_provider_derive_reauth_proof_tag;
     return ops;
 }
