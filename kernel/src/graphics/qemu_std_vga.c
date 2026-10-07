@@ -161,6 +161,43 @@ const struct aurora_gpu_display_driver *qemu_std_vga_driver(void) {
     return &driver;
 }
 
+bool qemu_std_vga_probe_pci(
+    struct aurora_gpu_display_device *out_device
+) {
+    if (out_device == NULL) return false;
+
+    struct aurora_pci_device device;
+
+    if (!pci_find_class(
+            0x03u,
+            0x00u,
+            0x00u,
+            &device) ||
+        !qemu_match(&device)) {
+        return false;
+    }
+
+    if (!gpu_display_driver_bind(
+            &device,
+            out_device)) {
+        return false;
+    }
+
+    uint64_t lfb = 0u;
+
+    if (!qemu_std_vga_bound_info(
+            out_device,
+            &lfb) ||
+        (lfb & UINT64_C(0xFFF)) != 0u) {
+        return false;
+    }
+
+    uint16_t id = dispi_read(BOCHS_DISPI_INDEX_ID);
+
+    return id >= UINT16_C(0xB0C0) &&
+        id <= UINT16_C(0xB0C5);
+}
+
 bool qemu_std_vga_bound_info(
     const struct aurora_gpu_display_device *device,
     uint64_t *out_lfb_physical
@@ -194,6 +231,5 @@ bool qemu_std_vga_selftest(void) {
     };
 
     return qemu_match(&match) &&
-        qemu_std_vga_driver() == &driver &&
-        dispi_read(BOCHS_DISPI_INDEX_ID) != UINT16_C(0xFFFF);
+        qemu_std_vga_driver() == &driver;
 }
