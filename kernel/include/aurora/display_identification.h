@@ -84,4 +84,6 @@ bool display_cta861_apply_capabilities(
     struct aurora_display_capabilities *capabilities
 );
 
+bool display_identification_selftest(void);
+
 #endif
