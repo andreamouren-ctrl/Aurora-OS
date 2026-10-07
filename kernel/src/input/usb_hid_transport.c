@@ -26,6 +26,36 @@ static aurora_usb_hid_binding_handle make_handle(
         (uint64_t)(slot + 1u);
 }
 
+static struct aurora_usb_hid_binding *binding_from_handle(
+    struct aurora_usb_hid_transport *transport,
+    aurora_usb_hid_binding_handle handle
+) {
+    if (transport == NULL ||
+        !transport->initialized ||
+        handle == AURORA_USB_HID_BINDING_INVALID) {
+        return NULL;
+    }
+
+    uint32_t encoded_slot = (uint32_t)(handle & UINT32_MAX);
+    uint32_t generation = (uint32_t)(handle >> 32u);
+
+    if (encoded_slot == 0u ||
+        encoded_slot > AURORA_USB_HID_MAX_BINDINGS ||
+        generation == 0u) {
+        return NULL;
+    }
+
+    struct aurora_usb_hid_binding *binding =
+        &transport->bindings[encoded_slot - 1u];
+
+    if (!binding->used ||
+        binding->generation != generation) {
+        return NULL;
+    }
+
+    return binding;
+}
+
 static uint64_t allocate_device_id(
     struct aurora_usb_hid_transport *transport
 ) {
@@ -140,6 +170,73 @@ bool usb_hid_transport_bind(
     return true;
 }
 
+bool usb_hid_transport_submit_report(
+    struct aurora_usb_hid_transport *transport,
+    aurora_usb_hid_binding_handle handle,
+    const uint8_t *report,
+    size_t report_size
+) {
+    struct aurora_usb_hid_binding *binding =
+        binding_from_handle(transport, handle);
+
+    if (binding == NULL || report == NULL) {
+        return false;
+    }
+
+    if (binding->protocol ==
+        AURORA_USB_HID_PROTOCOL_BOOT_KEYBOARD) {
+        if (report_size != 8u) return false;
+
+        return usb_hid_keyboard_process_boot_report(
+            &binding->decoder.keyboard,
+            report
+        );
+    }
+
+    if (binding->protocol ==
+        AURORA_USB_HID_PROTOCOL_BOOT_MOUSE) {
+        if (report_size != 4u) return false;
+
+        return usb_hid_mouse_process_boot_report(
+            &binding->decoder.mouse,
+            report
+        );
+    }
+
+    return false;
+}
+
+bool usb_hid_transport_unbind(
+    struct aurora_usb_hid_transport *transport,
+    aurora_usb_hid_binding_handle handle
+) {
+    struct aurora_usb_hid_binding *binding =
+        binding_from_handle(transport, handle);
+
+    if (binding == NULL) return false;
+
+    bool detached =
+        binding->protocol ==
+        AURORA_USB_HID_PROTOCOL_BOOT_KEYBOARD
+            ? usb_hid_keyboard_detach(
+                &binding->decoder.keyboard)
+            : binding->protocol ==
+                AURORA_USB_HID_PROTOCOL_BOOT_MOUSE
+                ? usb_hid_mouse_detach(
+                    &binding->decoder.mouse)
+                : false;
+
+    if (!detached) return false;
+
+    uint32_t generation = binding->generation;
+
+    *binding = (struct aurora_usb_hid_binding){
+        .generation = generation
+    };
+
+    return true;
+}
+
 bool usb_hid_transport_selftest(void) {
     input_init();
 
@@ -177,12 +274,80 @@ bool usb_hid_transport_selftest(void) {
 
     struct aurora_input_event event = {0};
 
-    return
-        input_poll_event(&event) &&
-        event.type == AURORA_INPUT_EVENT_DEVICE_ADDED &&
-        event.device_id == keyboard_id &&
-        input_poll_event(&event) &&
-        event.type == AURORA_INPUT_EVENT_DEVICE_ADDED &&
-        event.device_id == mouse_id &&
-        !input_poll_event(&event);
+    if (!input_poll_event(&event) ||
+        event.type != AURORA_INPUT_EVENT_DEVICE_ADDED ||
+        event.device_id != keyboard_id ||
+        !input_poll_event(&event) ||
+        event.type != AURORA_INPUT_EVENT_DEVICE_ADDED ||
+        event.device_id != mouse_id ||
+        input_poll_event(&event)) {
+        return false;
+    }
+
+    const uint8_t keyboard_press[8] = {
+        0u, 0u, 0x04u, 0u, 0u, 0u, 0u, 0u
+    };
+    const uint8_t mouse_motion[4] = {
+        0u, 3u, (uint8_t)-2, 0u
+    };
+
+    if (usb_hid_transport_submit_report(
+            &transport,
+            keyboard,
+            keyboard_press,
+            7u) ||
+        !usb_hid_transport_submit_report(
+            &transport,
+            keyboard,
+            keyboard_press,
+            sizeof(keyboard_press)) ||
+        !usb_hid_transport_submit_report(
+            &transport,
+            mouse,
+            mouse_motion,
+            sizeof(mouse_motion)) ||
+        !usb_hid_transport_unbind(
+            &transport,
+            keyboard) ||
+        usb_hid_transport_submit_report(
+            &transport,
+            keyboard,
+            keyboard_press,
+            sizeof(keyboard_press)) ||
+        usb_hid_transport_unbind(
+            &transport,
+            keyboard) ||
+        !usb_hid_transport_unbind(
+            &transport,
+            mouse)) {
+        return false;
+    }
+
+    bool saw_key = false;
+    bool saw_motion = false;
+    uint32_t removed = 0u;
+
+    while (input_poll_event(&event)) {
+        if (event.type == AURORA_INPUT_EVENT_KEY &&
+            event.device_id == keyboard_id &&
+            event.key == AURORA_KEY_A &&
+            event.pressed) {
+            saw_key = true;
+        }
+
+        if (event.type == AURORA_INPUT_EVENT_POINTER_RELATIVE &&
+            event.device_id == mouse_id &&
+            event.delta_x == 3 &&
+            event.delta_y == -2) {
+            saw_motion = true;
+        }
+
+        if (event.type == AURORA_INPUT_EVENT_DEVICE_REMOVED &&
+            (event.device_id == keyboard_id ||
+             event.device_id == mouse_id)) {
+            ++removed;
+        }
+    }
+
+    return saw_key && saw_motion && removed == 2u;
 }
