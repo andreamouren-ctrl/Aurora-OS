@@ -22,6 +22,7 @@
 #include <aurora/display_backbuffer.h>
 #include <aurora/framebuffer.h>
 #include <aurora/graphics_buffer.h>
+#include <aurora/graphics_input_router.h>
 #include <aurora/graphics_surface.h>
 #include <aurora/gdt.h>
 #include <aurora/heap.h>
@@ -41,6 +42,7 @@
 #include <aurora/process.h>
 #include <aurora/qemu_std_vga.h>
 #include <aurora/ps2_keyboard.h>
+#include <aurora/ps2_mouse.h>
 #include <aurora/scheduler.h>
 #include <aurora/smp.h>
 #include <aurora/software_compositor.h>
@@ -1465,6 +1467,14 @@ void kmain(void) {
 
     log_line("[compositor] scene/z-order/clipping/alpha/damage self-test passed");
 
+    if (!input_selftest() ||
+        !ps2_mouse_selftest() ||
+        !graphics_input_router_selftest()) {
+        kernel_panic("G4 normalized input/mouse/focus routing self-test failed");
+    }
+
+    log_line("[graphics-input] normalized mouse + hit-test focus isolation self-test passed");
+
     struct aurora_memory_object *shared_probe =
         memory_object_create(2u);
 
@@ -1971,6 +1981,12 @@ void kmain(void) {
         log_line("[input] PS/2 keyboard IRQ path online");
     } else {
         log_line("[input] PS/2 keyboard unavailable; waiting for another input driver");
+    }
+
+    if (ps2_mouse_init(lapic_id())) {
+        log_line("[input] PS/2 mouse IRQ path online");
+    } else {
+        log_line("[input] PS/2 mouse unavailable; pointer input remains offline");
     }
 
     boot_ui_complete();
