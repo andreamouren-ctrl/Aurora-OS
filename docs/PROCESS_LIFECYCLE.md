@@ -62,14 +62,16 @@ The complete bootstrap regression has passed the four-CPU BIOS smoke boot and th
 
 ## Current limits
 
-- The production Service Manager and restart policy are not implemented yet.
-- The current Ring 3 process model is effectively one thread per process; multi-thread process-exit semantics remain future work.
-- General shared-memory object reference counting is now implemented; the public Ring 3 capability/syscall ABI for creating and mapping those objects is still pending.
-- Kernel-heap backing mappings do not currently shrink.
+- The current ordinary Ring 3 process model remains effectively one primary thread per process; mature multi-thread process-exit/join semantics remain future work.
+- Kernel-heap backing mappings do not currently shrink back to the PMM.
 - A process with unreaped scheduler references cannot be reaped.
+- Process groups/jobs, rich accounting, debugging/ptrace-class facilities and advanced resource controls are future work.
+- Shared-memory semantics exist, but the full general-purpose synchronization/mapping ecosystem remains much smaller than Linux/Windows.
 
-## Identity relationship
+## Identity and service relationship
 
-This lifecycle foundation removes the structural resource-leak blocker for a restartable Aurora Identity Service. A future supervisor can destroy a failed Identity process and construct a fresh instance without monotonically consuming scheduler slots, kernel stacks, process objects, user frames or page-table pages.
+This lifecycle foundation is now actively used by the trusted-service supervision path.
 
-It does not by itself make Identity production-ready; service supervision, controlled secret/entropy handoff and the long-lived Identity request protocol remain separate gates.
+A failed or terminated trusted service generation can be fully reaped before a fresh process/thread/capability generation is constructed. The live Identity Service and Session Manager stack therefore no longer depend on monotonically consuming scheduler slots, kernel stacks, process objects, user frames or page-table pages.
+
+Lifecycle correctness is necessary but not sufficient for production security; service policy, credential handling, recovery and real-hardware validation remain separate gates.
