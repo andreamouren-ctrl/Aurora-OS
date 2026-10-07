@@ -3,6 +3,7 @@
 
 #include <aurora/ahci.h>
 #include <aurora/block_device.h>
+#include <aurora/log.h>
 #include <aurora/pci.h>
 #include <aurora/pmm.h>
 #include <aurora/vmm.h>
@@ -454,7 +455,10 @@ bool ahci_rw_signed_probe(void) {
     zero_bytes(probe_pattern, sizeof(probe_pattern));
     zero_bytes(probe_readback, sizeof(probe_readback));
 
-    if (!block_device_read(device, lba, 1u, probe_original)) return false;
+    if (!block_device_read(device, lba, 1u, probe_original)) {
+        log_line("[ahci-rw] probe failed: last-sector read");
+        return false;
+    }
 
     bool test_media =
         bytes_equal(probe_original, signature, sizeof(signature) - 1u);
@@ -465,11 +469,16 @@ bool ahci_rw_signed_probe(void) {
 
         zero_bytes(probe_readback, sizeof(probe_readback));
 
-        if (!block_device_read(device, 0u, 1u, probe_readback) ||
-            !bytes_equal(
+        if (!block_device_read(device, 0u, 1u, probe_readback)) {
+            log_line("[ahci-rw] probe failed: LBA0 authorization read");
+            return false;
+        }
+
+        if (!bytes_equal(
                 probe_readback,
                 filesystem_test_signature,
                 sizeof(filesystem_test_signature) - 1u)) {
+            log_line("[ahci-rw] probe failed: CI authorization signature absent");
             return false;
         }
 
@@ -482,18 +491,45 @@ bool ahci_rw_signed_probe(void) {
         probe_pattern[i] = (uint8_t)(0xA5u ^ (uint8_t)i);
     }
 
-    bool ok = block_device_write(device, lba, 1u, probe_pattern) &&
-              block_device_flush(device) &&
-              block_device_read(device, lba, 1u, probe_readback) &&
-              bytes_equal(probe_pattern, probe_readback, device->block_size);
+    bool wrote = block_device_write(device, lba, 1u, probe_pattern);
+    if (!wrote) {
+        log_line("[ahci-rw] probe failed: WRITE DMA EXT");
+        return false;
+    }
 
-    bool restored = block_device_write(device, lba, 1u, probe_original) &&
-                    block_device_flush(device);
-    if (!restored) return false;
+    if (!block_device_flush(device)) {
+        log_line("[ahci-rw] probe failed: FLUSH CACHE EXT");
+        return false;
+    }
+
+    if (!block_device_read(device, lba, 1u, probe_readback)) {
+        log_line("[ahci-rw] probe failed: write readback");
+        return false;
+    }
+
+    bool ok =
+        bytes_equal(probe_pattern, probe_readback, device->block_size);
+
+    if (!ok) {
+        log_line("[ahci-rw] probe failed: write readback mismatch");
+    }
+
+    bool restored =
+        block_device_write(device, lba, 1u, probe_original) &&
+        block_device_flush(device);
+    if (!restored) {
+        log_line("[ahci-rw] probe failed: restore write/flush");
+        return false;
+    }
 
     zero_bytes(probe_readback, sizeof(probe_readback));
-    if (!block_device_read(device, lba, 1u, probe_readback) ||
-        !bytes_equal(probe_original, probe_readback, device->block_size)) {
+    if (!block_device_read(device, lba, 1u, probe_readback)) {
+        log_line("[ahci-rw] probe failed: restore readback");
+        return false;
+    }
+
+    if (!bytes_equal(probe_original, probe_readback, device->block_size)) {
+        log_line("[ahci-rw] probe failed: restore mismatch");
         return false;
     }
 
