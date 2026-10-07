@@ -108,7 +108,19 @@ Current gate status: **G3 runtime verified in QEMU**. Moving/overlapping surface
 
 Color-management status: **mastering-grade matrix-shaper software path runtime verified in QEMU**. The kernel remains FPU/SIMD-free: PQ/HLG transfer evaluation, ICC transforms, calibration and tone mapping use generated LUTs plus bounded fixed-point math.
 
-Explicit limits: ICC LUT-based A2B/B2A/CLUT profile transforms are not yet imported, and vendor GPU hardware LUT/degamma/gamma programming remains part of later native-GPU integration. Those limits do not affect the current software compositor's calibrated matrix-shaper path.
+Final G3 mastering audit closure:
+
+- [x] direct 65,536-entry ST.2084 LUT is exact at 0 and 10,000 nit and runtime-checks monotonicity over the complete 16-bit domain;
+- [x] build-time numerical audit confirms Q16 PQ quantization error stays below 0.000008 nit absolute;
+- [x] reference BT.2100 HLG path validates black, approximately 50.7-nit midpoint and approximately 1000-nit peak before target-output tone mapping;
+- [x] ICC parsing is bounded by the profile-declared size, explicitly accepts v2/v4 matrix-shaper profiles and fails closed on unsupported versions/constructs;
+- [x] sampled ICC curveType TRCs are required to be monotonic before bounded inversion; parametricCurveType 0-4 remains fixed-point and bounded;
+- [x] singular ICC matrices fail closed; VCGT 1D calibration and optional 17^3 3D calibration remain bounded;
+- [x] HDR tone mapping runtime-checks monotonic luminance, preserves the diffuse region below the shoulder, honors source peak/MaxCLL metadata and reaches the target peak without premature hard clipping;
+- [x] out-of-gamut device-linear RGB remains signed until perceptual gamut compression, preventing destructive negative-channel pre-clipping and preserving the hue/chroma direction toward a bounded neutral;
+- [x] final Bootstrap CI gate recompiles the freestanding -mno-sse/-mno-sse2 kernel and reaches the mandatory color-management self-test marker in four-CPU QEMU.
+
+Explicit limits: ICC LUT-based A2B/B2A/CLUT profile transforms are not yet imported, and vendor GPU hardware LUT/degamma/gamma programming remains part of later native-GPU integration. The HLG path is the BT.2100 1000-nit reference OOTF followed by output-target tone mapping rather than vendor-display-specific hardware OOTF programming. These limits do not affect the current software compositor's calibrated matrix-shaper path.
 
 ## Phase G4 — Pointer and modern input
 
