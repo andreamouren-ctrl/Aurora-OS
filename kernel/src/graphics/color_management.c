@@ -1758,6 +1758,28 @@ static uint32_t source_to_linear_nits_q16(
         return color_st2084_eotf_nits_q16(bounded);
     }
 
+    if (transfer == AURORA_COLOR_TRANSFER_HLG) {
+        uint16_t bounded =
+            encoded > 65535u ? 65535u : (uint16_t)encoded;
+
+        /*
+         * BT.2100 reference HLG mastering path:
+         * inverse OETF from the generated 16-bit LUT, followed by the
+         * reference 1000-nit OOTF system gamma of 1.2.
+         */
+        uint32_t scene_linear =
+            aurora_hlg_scene_linear_q16[bounded];
+        uint32_t display_linear =
+            q16_pow_unit(scene_linear, 78643); /* 1.2 Q16 */
+
+        return (uint32_t)(
+            ((uint64_t)display_linear *
+             1000u * 65536u +
+             32767u) /
+            65535u
+        );
+    }
+
     uint32_t linear;
 
     if (transfer == AURORA_COLOR_TRANSFER_LINEAR) {
@@ -1769,8 +1791,7 @@ static uint32_t source_to_linear_nits_q16(
     } else {
         /*
          * BT.1886/gamma2.2 fallback uses the sRGB high-precision LUT rather
-         * than the old quadratic approximation. HLG is handled as a bounded
-         * relative-light path until an absolute system-gamma target exists.
+         * than the old quadratic approximation.
          */
         uint16_t bounded =
             encoded > 65535u ? 65535u : (uint16_t)encoded;
@@ -1930,6 +1951,62 @@ static void perceptual_gamut_compress(uint32_t rgb[3]) {
         rgb[i] =
             q16_mul_unsigned(rgb[i], scale);
         if (rgb[i] > 65535u) rgb[i] = 65535u;
+    }
+}
+
+static void perceptual_highlight_chroma_rolloff(
+    uint32_t rgb[3],
+    uint32_t mapped_luminance,
+    uint32_t target_peak,
+    bool hdr_compressed
+) {
+    if (rgb == NULL ||
+        !hdr_compressed ||
+        target_peak == 0u ||
+        mapped_luminance == 0u) {
+        return;
+    }
+
+    uint32_t knee =
+        (uint32_t)(((uint64_t)target_peak * 3u) / 4u);
+
+    if (mapped_luminance <= knee) return;
+
+    uint32_t range = target_peak - knee;
+    uint32_t amount =
+        range == 0u
+            ? 65535u
+            : (uint32_t)(
+                ((uint64_t)(mapped_luminance - knee) * 65535u) /
+                range
+            );
+
+    if (amount > 65535u) amount = 65535u;
+
+    /*
+     * Limit desaturation to 50% at the mastering peak. This keeps hue stable
+     * through most of the range while avoiding neon clipping in compressed
+     * specular highlights.
+     */
+    amount >>= 1;
+
+    uint32_t neutral =
+        (uint32_t)(
+            ((uint64_t)rgb[0] * 13933u +
+             (uint64_t)rgb[1] * 46871u +
+             (uint64_t)rgb[2] * 4732u +
+             32768u) >> 16
+        );
+
+    for (uint32_t i = 0u; i < 3u; ++i) {
+        int64_t delta =
+            (int64_t)neutral - (int64_t)rgb[i];
+        int64_t adjusted =
+            (int64_t)rgb[i] +
+            ((delta * amount + (delta >= 0 ? 32768 : -32768)) >> 16);
+
+        rgb[i] =
+            clamp_u32_i64(adjusted, 65535u);
     }
 }
 
@@ -2094,6 +2171,14 @@ bool color_management_transform_rgb8(
     );
 
     perceptual_gamut_compress(linear_rgb);
+
+    perceptual_highlight_chroma_rolloff(
+        linear_rgb,
+        y,
+        profile->target_peak_nits_q16,
+        source_peak_q16(source_color) >
+            profile->target_peak_nits_q16
+    );
 
     uint16_t encoded[3];
 
