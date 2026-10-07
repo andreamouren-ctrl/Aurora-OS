@@ -181,5 +181,8 @@ Hardware/runtime integration still pending:
 - [x] bounded HDMI/DP link-training state-machine contract;
 - [ ] native GPU-specific VRR / Adaptive-Sync programming;
 - [ ] native GPU-specific DSC programming;
-- [ ] GPU scanout/color-pipeline programming;
+- [x] hardware-facing display-controller mode-set/scanout contract;
+- [x] HDMI/DP/eDP PHY/link backend contract over bounded training;
+- [x] PCI display-class GPU driver registry with match/bind lifecycle;
+- [ ] vendor GPU scanout/color-pipeline programming;
 - [ ] compositor color conversion and HDR tone mapping.
