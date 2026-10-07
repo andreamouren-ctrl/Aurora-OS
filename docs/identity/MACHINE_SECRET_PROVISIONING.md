@@ -1,7 +1,7 @@
 # Aurora Identity Machine Secret Provisioning
 
-Status: **Protected State transport adapter implemented; Ring 3 bridge pending**
-Version: **0.3**
+Status: **Protected State transport live in the Ring 3 Identity path; hardware sealing still pending**
+Version: **0.4**
 
 ## 1. Purpose
 
@@ -66,7 +66,7 @@ The host POSIX validation adapter remains available for persistence tests. The A
 - `read_record(name, ...)`;
 - `create_record_once_durable(name, ...)`.
 
-The adapter deliberately does not include kernel, VFS, or capability headers. The future Ring 3 Identity Service supplies those transport operations using its Protected State authority.
+The adapter deliberately does not include kernel, VFS, or capability headers. The live Ring 3 Identity Service supplies those transport operations using its capability-scoped Protected State authority.
 
 ## 5. Random generation
 
@@ -114,9 +114,9 @@ and are accessed through the dedicated `AURORA_CAP_PROTECTED_STATE` capability t
 
 The Machine Secret now has an Aurora-native Protected State **transport adapter**. Its two replicas are represented by the fixed record names `machine-secret.a` and `machine-secret.b`, and create-once conflicts map directly to the existing Machine Secret concurrency/fail-closed rules.
 
-This does not yet mean the live Ring 3 Identity Service can access the namespace: the service lifecycle and capability bridge/syscall/IPC path still need to be implemented. Until then the adapter is an isolated, tested service-side boundary rather than a live login dependency.
+The live Ring 3 Identity Service now accesses this boundary through its trusted-service capability set. Ordinary applications do not receive the corresponding Protected State capability.
 
-The transactional Identity database is intentionally **not** migrated to Protected State by this milestone. Its dual-slot backend requires a true durable atomic-replace primitive. Current rename support is not being treated as equivalent without that guarantee.
+The persistent Identity database path is also integrated into the live Identity subsystem. Durable publication and fail-closed recovery rules remain part of the storage/security contract; a generic VFS rename must not be treated as equivalent to a stronger atomic publication guarantee unless that guarantee is explicitly established.
 
 ## 8. At-rest threat boundary
 
@@ -162,15 +162,19 @@ CI covers:
 
 The kernel Protected State milestone separately verifies typed capability enforcement and mounted AuroraFS persistence semantics.
 
-## 11. Remaining gates
+## 11. Current remaining gates
 
-Before this secret participates in live Aurora login:
+The original live-login integration gates are now implemented:
 
-1. Identity Service DRBG must be seeded from the kernel entropy service;
-2. the Ring 3 Identity Service must receive the Protected State capability from trusted system policy;
-3. the service must bridge the implemented Protected State transport operations to that capability;
-4. secure secret-memory lifetime rules must be applied in the final service process;
-5. offline-at-rest hardening policy must be selected;
-6. rotation/recovery policy must be designed before any production root-secret replacement feature exists.
+- kernel entropy is handed to the Ring 3 Identity runtime through a controlled capability path;
+- the Identity Service receives the Protected State capability from trusted bootstrap policy;
+- the Protected State transport is used by the live service boundary;
+- secret-buffer clearing/lifetime rules are applied in the Identity core/runtime paths.
 
-Separately, before the transactional Identity database can use the same Protected State namespace, Aurora needs a durable atomic-replace primitive with crash-consistency semantics strong enough for the dual-slot store contract.
+Remaining production-hardening work:
+
+1. hardware-backed sealing or equivalent offline-at-rest protection where supported;
+2. explicit machine-root-secret rotation/migration design;
+3. recovery policy for machine-secret loss/corruption that does not silently regenerate identity authority;
+4. broader fault-injection and physical storage validation;
+5. independent security review of secret lifetime and crash/diagnostic paths.
