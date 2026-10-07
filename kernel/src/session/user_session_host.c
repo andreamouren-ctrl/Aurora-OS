@@ -7,7 +7,9 @@
 #include <aurora/ipc.h>
 #include <aurora/process.h>
 #include <aurora/scheduler.h>
+#include <aurora/profile_session.h>
 #include <aurora/session_manager_client.h>
+#include <aurora/session_profile_lease.h>
 #include <aurora/user_session_host.h>
 #include <aurora/user_session_host_abi.h>
 #include <aurora/user_session_host_image.h>
@@ -84,7 +86,7 @@ static bool receive_expected(
 
 static void cleanup_finished_host(void) {
     if (host.process != NULL) {
-        (void)session_manager_client_revoke_profile(host.process);
+        (void)session_profile_lease_revoke_process(host.process);
     }
 
     if (host.thread != 0u &&
@@ -109,7 +111,7 @@ static void cleanup_finished_host(void) {
 
 static void cleanup_unstarted_host(void) {
     if (host.process != NULL) {
-        (void)session_manager_client_revoke_profile(host.process);
+        (void)session_profile_lease_revoke_process(host.process);
         if (process_state(host.process) == AURORA_PROCESS_RUNNING &&
             process_live_thread_count(host.process) == 0u) {
             process_mark_exited(host.process, 1);
@@ -119,15 +121,16 @@ static void cleanup_unstarted_host(void) {
     cleanup_finished_host();
 }
 
-bool user_session_host_start(void) {
+static bool start_with_context(
+    const uint8_t user_id[AURORA_USER_SESSION_HOST_USER_ID_SIZE],
+    uint64_t generation
+) {
     if (host.active ||
-        session_manager_client_state() != AURORA_SESSION_CLIENT_ACTIVE) {
+        user_id == NULL ||
+        generation == 0u ||
+        !session_profile_lease_active()) {
         return false;
     }
-
-    const uint8_t *user_id = session_manager_client_user_id();
-    uint64_t generation = session_manager_client_generation();
-    if (user_id == NULL || generation == 0u) return false;
 
     clear_bytes(&host, sizeof(host));
     host.control_handle = AURORA_CAP_INVALID;
@@ -163,7 +166,7 @@ bool user_session_host_start(void) {
         return false;
     }
 
-    host.profile_handle = session_manager_client_delegate_profile(
+    host.profile_handle = session_profile_lease_delegate(
         host.process,
         AURORA_RIGHT_READ |
         AURORA_RIGHT_WRITE |
@@ -214,7 +217,7 @@ bool user_session_host_start(void) {
         if (scheduler_thread_finished(host.thread)) {
             cleanup_finished_host();
         } else {
-            (void)session_manager_client_revoke_profile(host.process);
+            (void)session_profile_lease_revoke_process(host.process);
             host.profile_handle = AURORA_CAP_INVALID;
         }
         return false;
@@ -246,7 +249,7 @@ bool user_session_host_stop(void) {
             (uint32_t)sizeof(request),
             NULL,
             0u)) {
-        (void)session_manager_client_revoke_profile(host.process);
+        (void)session_profile_lease_revoke_process(host.process);
         host.profile_handle = AURORA_CAP_INVALID;
         host.active = false;
         return false;
@@ -263,7 +266,7 @@ bool user_session_host_stop(void) {
     }
 
     if (!scheduler_thread_finished(host.thread)) {
-        (void)session_manager_client_revoke_profile(host.process);
+        (void)session_profile_lease_revoke_process(host.process);
         host.profile_handle = AURORA_CAP_INVALID;
         host.active = false;
         return false;
@@ -277,9 +280,81 @@ bool user_session_host_stop(void) {
     return acknowledged && clean_exit;
 }
 
+bool user_session_host_start(void) {
+    if (session_manager_client_state() != AURORA_SESSION_CLIENT_ACTIVE) {
+        return false;
+    }
+
+    return start_with_context(
+        session_manager_client_user_id(),
+        session_manager_client_generation());
+}
+
 bool user_session_host_active(void) {
     return host.active &&
         host.process != NULL &&
         host.thread != 0u &&
         process_state(host.process) == AURORA_PROCESS_RUNNING;
+}
+
+bool user_session_host_self_test(void) {
+    if (host.active || session_profile_lease_active()) return false;
+
+    static struct aurora_process bridge;
+    clear_bytes(&bridge, sizeof(bridge));
+    cap_table_init(&bridge.capabilities);
+    bridge.state = AURORA_PROCESS_RUNNING;
+
+    const uint8_t user_id[AURORA_PROFILE_USER_ID_SIZE] = {
+        0x51u, 0x52u, 0x53u, 0x54u,
+        0x55u, 0x56u, 0x57u, 0x58u,
+        0x61u, 0x62u, 0x63u, 0x64u,
+        0x65u, 0x66u, 0x67u, 0x68u
+    };
+
+    aurora_cap_handle root = cap_grant(
+        &bridge.capabilities,
+        profile_root_authority(),
+        AURORA_CAP_PROFILE_ROOT,
+        AURORA_RIGHT_CONTROL
+    );
+    if (root == AURORA_CAP_INVALID) return false;
+
+    aurora_cap_handle profile = profile_open_or_create(
+        &bridge,
+        root,
+        user_id
+    );
+    if (profile == AURORA_CAP_INVALID) {
+        (void)cap_revoke(&bridge.capabilities, root);
+        return false;
+    }
+
+    if (!session_profile_lease_begin(
+            &bridge.capabilities,
+            profile,
+            user_id,
+            UINT64_C(1))) {
+        (void)cap_revoke(&bridge.capabilities, profile);
+        (void)cap_revoke(&bridge.capabilities, root);
+        return false;
+    }
+
+    bool started = start_with_context(user_id, UINT64_C(1));
+    bool running = started && user_session_host_active();
+    bool stopped = running && user_session_host_stop();
+
+    session_profile_lease_end();
+    bool source_revoked =
+        cap_revoke(&bridge.capabilities, profile);
+    bool root_revoked =
+        cap_revoke(&bridge.capabilities, root);
+
+    return started &&
+        running &&
+        stopped &&
+        source_revoked &&
+        root_revoked &&
+        !user_session_host_active() &&
+        !session_profile_lease_active();
 }
