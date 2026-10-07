@@ -12,6 +12,12 @@ struct aurora_usb_hid_keyboard {
     bool connected;
 };
 
+struct aurora_usb_hid_mouse {
+    uint64_t device_id;
+    uint8_t buttons;
+    bool connected;
+};
+
 bool usb_hid_keyboard_attach(
     struct aurora_usb_hid_keyboard *keyboard,
     uint64_t device_id
@@ -24,6 +30,20 @@ bool usb_hid_keyboard_detach(
 bool usb_hid_keyboard_process_boot_report(
     struct aurora_usb_hid_keyboard *keyboard,
     const uint8_t report[8]
+);
+
+bool usb_hid_mouse_attach(
+    struct aurora_usb_hid_mouse *mouse,
+    uint64_t device_id
+);
+
+bool usb_hid_mouse_detach(
+    struct aurora_usb_hid_mouse *mouse
+);
+
+bool usb_hid_mouse_process_boot_report(
+    struct aurora_usb_hid_mouse *mouse,
+    const uint8_t report[4]
 );
 
 bool usb_hid_selftest(void);
