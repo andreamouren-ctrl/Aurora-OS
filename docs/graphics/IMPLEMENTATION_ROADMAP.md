@@ -72,20 +72,32 @@ G2 acceptance gate and lifecycle hardening are runtime verified in QEMU.
 
 ## Phase G3 — Software compositor
 
-Implement:
+Status: **In progress**
 
-- scene graph;
-- z-order;
-- clipping;
-- alpha composition;
-- damage tracking;
-- CPU backbuffer composition;
-- output presentation;
-- secure privileged surface classes.
+Implemented and runtime verified:
+
+- [x] bounded capability-backed scene graph;
+- [x] deterministic z-order;
+- [x] output clipping with checked pixel addressing;
+- [x] 32-bit packed RGB/RGBA CPU alpha composition;
+- [x] translated surface damage aggregation;
+- [x] persistent CPU backbuffer composition;
+- [x] damage-driven output presentation;
+- [x] frame-callback completion after successful presentation;
+- [x] moving/overlapping surface QEMU correctness probe.
+
+Remaining:
+
+- [ ] occlusion culling / opaque-region optimization;
+- [ ] transforms and scaling;
+- [ ] secure privileged surface classes and exclusion rules;
+- [ ] wider color/format composition path beyond matched 32-bit SDR packed RGB.
 
 Acceptance gate:
 
 Multiple moving/overlapping surfaces render correctly in QEMU with bounded memory growth and deterministic clipping tests.
+
+Current gate status: **core raster correctness runtime verified in QEMU**. Final G3 completion remains blocked by the remaining scene/security features above.
 
 ## Phase G4 — Pointer and modern input
 
