@@ -28,6 +28,7 @@ The kernel provides mechanisms only: process isolation, capabilities, IPC, prote
 - [`SYSTEM_APP_UX.md`](SYSTEM_APP_UX.md) — login, creation, lock screen, credential management, device management, Administrator Users & Access mode, and fallback UX.
 - [`STORAGE_AND_DATA_MODEL.md`](STORAGE_AND_DATA_MODEL.md) — stable identity records, credential tables, authenticator records, session metadata, migrations, and protected storage requirements.
 - [`SESSION_RECOVERY.md`](SESSION_RECOVERY.md) — authenticated sessions, lock/logout, recovery credentials, trusted devices, and emergency recovery behavior.
+- [`REAUTH_PROOF_IMPLEMENTATION.md`](REAUTH_PROOF_IMPLEMENTATION.md) — isolated purpose-bound fresh-auth proof contract, TTL, single-use and destructive mismatch semantics.
 - [`IMPLEMENTATION_ROADMAP.md`](IMPLEMENTATION_ROADMAP.md) — dependency-ordered implementation plan and acceptance criteria.
 - [`TEST_PLAN.md`](TEST_PLAN.md) — correctness, persistence, security, fuzzing, failure-injection, and performance verification plan.
 - [`ADVANCED_FEATURES.md`](ADVANCED_FEATURES.md) — Ghost Session, Presence, Handoff, Identity Capsule, Trusted Circle, Vault, Device Trust, Travel Mode, Lock Zones, temporary credentials, and other forward-looking identity capabilities.
