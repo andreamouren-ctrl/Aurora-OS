@@ -11,6 +11,10 @@
 
 const struct aurora_gpu_display_driver *qemu_std_vga_driver(void);
 
+bool qemu_std_vga_probe_pci(
+    struct aurora_gpu_display_device *out_device
+);
+
 bool qemu_std_vga_bound_info(
     const struct aurora_gpu_display_device *device,
     uint64_t *out_lfb_physical
