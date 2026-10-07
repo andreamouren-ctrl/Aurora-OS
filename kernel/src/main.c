@@ -222,7 +222,7 @@ void kmain(void) {
             kernel_panic("QEMU Standard VGA native candidate attach failed");
         }
 
-        log_write("[display] QEMU std VGA BAR0 LFB: 0x");
+        log_write("[display] QEMU std VGA BAR0 LFB: ");
         log_hex64(qemu_lfb_physical);
         log_line("");
         log_line("[display] QEMU std VGA native backend candidate passed");
