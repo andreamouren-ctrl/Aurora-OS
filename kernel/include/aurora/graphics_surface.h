@@ -55,4 +55,22 @@ bool graphics_surface_lookup(
     struct aurora_graphics_surface **out_surface
 );
 
+bool graphics_surface_attach(
+    struct aurora_cap_table *table,
+    aurora_cap_handle surface_handle,
+    aurora_cap_handle buffer_handle
+);
+
+bool graphics_surface_damage(
+    struct aurora_cap_table *table,
+    aurora_cap_handle surface_handle,
+    const struct aurora_graphics_rect *rect
+);
+
+bool graphics_surface_commit(
+    struct aurora_cap_table *table,
+    aurora_cap_handle surface_handle,
+    uint64_t *out_commit_serial
+);
+
 #endif

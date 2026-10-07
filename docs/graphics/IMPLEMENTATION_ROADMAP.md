@@ -41,14 +41,19 @@ A Ring 3 graphics service can repeatedly present validated test frames through t
 
 ## Phase G2 — Surface/buffer core
 
-Implement:
+Status: **In progress**
 
-- shared/bounded graphics buffer primitive;
-- capability-backed surface handles;
-- attach/damage/commit;
-- buffer release;
-- frame callbacks;
-- strict metadata/bounds validation.
+Implemented:
+
+- [x] bounded graphics-buffer object, capability-shareable without direct cross-process mapping yet;
+- [x] capability-backed surface objects with explicit rights;
+- [x] attach + bounded damage + atomic pending-to-committed publication.
+
+Remaining:
+
+- [ ] safe buffer release/lifetime and object reuse;
+- [ ] frame callbacks;
+- [ ] full strict metadata/pixel-format validation and Ring 3 shared mapping path.
 
 Acceptance gate:
 

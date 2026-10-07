@@ -11,6 +11,8 @@
 #include <aurora/display.h>
 #include <aurora/display_backbuffer.h>
 #include <aurora/framebuffer.h>
+#include <aurora/graphics_buffer.h>
+#include <aurora/graphics_surface.h>
 #include <aurora/gdt.h>
 #include <aurora/heap.h>
 #include <aurora/hpet.h>
@@ -423,6 +425,123 @@ void kmain(void) {
     log_line("[display] compositor backbuffer allocation passed");
     log_line("[display] bounded framebuffer present passed");
     log_line("[display] presentation/release signaling passed");
+
+    if (!graphics_buffer_system_init() ||
+        !graphics_surface_system_init()) {
+        kernel_panic("Graphics surface/buffer core initialization failed");
+    }
+
+    static struct aurora_cap_table graphics_probe_caps;
+    cap_table_init(&graphics_probe_caps);
+
+    struct aurora_graphics_buffer *graphics_probe_buffer =
+        graphics_buffer_create(
+            64u,
+            64u,
+            &display_probe_mode->format
+        );
+
+    struct aurora_graphics_surface *graphics_probe_surface =
+        graphics_surface_create();
+
+    if (graphics_probe_buffer == NULL ||
+        graphics_probe_surface == NULL) {
+        kernel_panic("Graphics G2 object allocation probe failed");
+    }
+
+    aurora_cap_handle graphics_buffer_handle =
+        graphics_buffer_grant(
+            &graphics_probe_caps,
+            graphics_probe_buffer,
+            AURORA_RIGHT_READ |
+            AURORA_RIGHT_WRITE |
+            AURORA_RIGHT_TRANSFER
+        );
+
+    aurora_cap_handle graphics_surface_handle =
+        graphics_surface_grant(
+            &graphics_probe_caps,
+            graphics_probe_surface,
+            AURORA_RIGHT_READ |
+            AURORA_RIGHT_WRITE |
+            AURORA_RIGHT_CONTROL |
+            AURORA_RIGHT_TRANSFER
+        );
+
+    aurora_cap_handle graphics_readonly_surface_handle =
+        graphics_surface_grant(
+            &graphics_probe_caps,
+            graphics_probe_surface,
+            AURORA_RIGHT_READ
+        );
+
+    if (graphics_buffer_handle == AURORA_CAP_INVALID ||
+        graphics_surface_handle == AURORA_CAP_INVALID ||
+        graphics_readonly_surface_handle == AURORA_CAP_INVALID) {
+        kernel_panic("Graphics G2 capability grant probe failed");
+    }
+
+    struct aurora_graphics_rect graphics_damage = {
+        .x = 4u,
+        .y = 5u,
+        .width = 32u,
+        .height = 24u
+    };
+
+    if (graphics_surface_attach(
+            &graphics_probe_caps,
+            graphics_readonly_surface_handle,
+            graphics_buffer_handle)) {
+        kernel_panic("Graphics surface rights isolation probe failed");
+    }
+
+    if (!graphics_surface_attach(
+            &graphics_probe_caps,
+            graphics_surface_handle,
+            graphics_buffer_handle) ||
+        !graphics_surface_damage(
+            &graphics_probe_caps,
+            graphics_surface_handle,
+            &graphics_damage)) {
+        kernel_panic("Graphics attach/damage probe failed");
+    }
+
+    uint64_t graphics_commit_serial = 0u;
+
+    if (!graphics_surface_commit(
+            &graphics_probe_caps,
+            graphics_surface_handle,
+            &graphics_commit_serial) ||
+        graphics_commit_serial == 0u ||
+        graphics_probe_surface->committed.buffer != graphics_probe_buffer ||
+        graphics_probe_surface->committed.damage_count != 1u ||
+        graphics_probe_surface->committed.commit_serial != graphics_commit_serial ||
+        graphics_probe_surface->state != AURORA_GRAPHICS_SURFACE_MAPPED ||
+        graphics_probe_buffer->state != AURORA_GRAPHICS_BUFFER_COMMITTED) {
+        kernel_panic("Graphics atomic surface commit probe failed");
+    }
+
+    struct aurora_graphics_rect invalid_damage = {
+        .x = 63u,
+        .y = 63u,
+        .width = 2u,
+        .height = 2u
+    };
+
+    if (!graphics_surface_attach(
+            &graphics_probe_caps,
+            graphics_surface_handle,
+            graphics_buffer_handle) ||
+        graphics_surface_damage(
+            &graphics_probe_caps,
+            graphics_surface_handle,
+            &invalid_damage)) {
+        kernel_panic("Graphics damage bounds rejection probe failed");
+    }
+
+    log_line("[graphics] bounded graphics buffer capability passed");
+    log_line("[graphics] capability-backed surface rights passed");
+    log_line("[graphics] attach/damage/atomic commit passed");
 
     void *probe = kheap_alloc(128, 16);
 

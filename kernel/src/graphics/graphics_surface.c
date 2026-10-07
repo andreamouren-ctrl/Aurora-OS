@@ -6,6 +6,7 @@
 static struct aurora_graphics_surface surfaces[AURORA_GRAPHICS_SURFACE_MAX_OBJECTS];
 static aurora_spinlock surface_lock = AURORA_SPINLOCK_INIT;
 static uint64_t next_surface_id;
+static uint64_t next_commit_serial;
 static bool initialized;
 
 static void clear_surface(struct aurora_graphics_surface *surface) {
@@ -22,6 +23,7 @@ bool graphics_surface_system_init(void) {
     }
 
     next_surface_id = 1u;
+    next_commit_serial = 1u;
     initialized = true;
     return true;
 }
@@ -107,5 +109,182 @@ bool graphics_surface_lookup(
     }
 
     *out_surface = surface;
+    return true;
+}
+
+static bool rect_within_buffer(
+    const struct aurora_graphics_rect *rect,
+    const struct aurora_graphics_buffer *buffer
+) {
+    if (rect == NULL ||
+        buffer == NULL ||
+        rect->width == 0u ||
+        rect->height == 0u) {
+        return false;
+    }
+
+    uint64_t x_end = (uint64_t)rect->x + (uint64_t)rect->width;
+    uint64_t y_end = (uint64_t)rect->y + (uint64_t)rect->height;
+
+    return x_end <= buffer->width &&
+        y_end <= buffer->height;
+}
+
+bool graphics_surface_attach(
+    struct aurora_cap_table *table,
+    aurora_cap_handle surface_handle,
+    aurora_cap_handle buffer_handle
+) {
+    struct aurora_graphics_surface *surface = NULL;
+    struct aurora_graphics_buffer *buffer = NULL;
+
+    if (!graphics_surface_lookup(
+            table,
+            surface_handle,
+            AURORA_RIGHT_WRITE,
+            &surface) ||
+        !graphics_buffer_lookup(
+            table,
+            buffer_handle,
+            AURORA_RIGHT_READ,
+            &buffer)) {
+        return false;
+    }
+
+    spinlock_lock(&surface_lock);
+
+    if (surface->state == AURORA_GRAPHICS_SURFACE_FREE ||
+        buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
+        buffer->pixels == NULL) {
+        spinlock_unlock(&surface_lock);
+        return false;
+    }
+
+    surface->pending.buffer = buffer;
+    surface->pending.damage_count = 0u;
+    surface->pending.commit_serial = 0u;
+
+    spinlock_unlock(&surface_lock);
+    return true;
+}
+
+bool graphics_surface_damage(
+    struct aurora_cap_table *table,
+    aurora_cap_handle surface_handle,
+    const struct aurora_graphics_rect *rect
+) {
+    struct aurora_graphics_surface *surface = NULL;
+
+    if (!graphics_surface_lookup(
+            table,
+            surface_handle,
+            AURORA_RIGHT_WRITE,
+            &surface)) {
+        return false;
+    }
+
+    spinlock_lock(&surface_lock);
+
+    struct aurora_graphics_buffer *buffer =
+        surface->pending.buffer;
+
+    if (buffer == NULL ||
+        surface->pending.damage_count >=
+            AURORA_GRAPHICS_SURFACE_MAX_DAMAGE_RECTS ||
+        !rect_within_buffer(rect, buffer)) {
+        spinlock_unlock(&surface_lock);
+        return false;
+    }
+
+    surface->pending.damage[
+        surface->pending.damage_count++
+    ] = *rect;
+
+    spinlock_unlock(&surface_lock);
+    return true;
+}
+
+bool graphics_surface_commit(
+    struct aurora_cap_table *table,
+    aurora_cap_handle surface_handle,
+    uint64_t *out_commit_serial
+) {
+    if (out_commit_serial != NULL) {
+        *out_commit_serial = 0u;
+    }
+
+    struct aurora_graphics_surface *surface = NULL;
+
+    if (!graphics_surface_lookup(
+            table,
+            surface_handle,
+            AURORA_RIGHT_WRITE,
+            &surface)) {
+        return false;
+    }
+
+    spinlock_lock(&surface_lock);
+
+    struct aurora_graphics_buffer *buffer =
+        surface->pending.buffer;
+
+    if (buffer == NULL ||
+        buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
+        buffer->pixels == NULL) {
+        spinlock_unlock(&surface_lock);
+        return false;
+    }
+
+    /*
+     * A newly attached buffer must describe at least one valid damaged area.
+     * A zero-damage commit is allowed only when re-committing the exact
+     * already-visible buffer.
+     */
+    if (surface->pending.damage_count == 0u &&
+        surface->committed.buffer != buffer) {
+        spinlock_unlock(&surface_lock);
+        return false;
+    }
+
+    for (uint32_t i = 0u;
+         i < surface->pending.damage_count;
+         ++i) {
+        if (!rect_within_buffer(
+                &surface->pending.damage[i],
+                buffer)) {
+            spinlock_unlock(&surface_lock);
+            return false;
+        }
+    }
+
+    uint64_t serial = next_commit_serial++;
+    if (serial == 0u) {
+        serial = next_commit_serial++;
+    }
+    if (next_commit_serial == 0u) {
+        next_commit_serial = 1u;
+    }
+
+    struct aurora_graphics_surface_snapshot committed =
+        surface->pending;
+    committed.commit_serial = serial;
+
+    /*
+     * Publication is one structure assignment while holding the surface lock:
+     * readers can never observe a partially promoted pending state.
+     */
+    surface->committed = committed;
+    surface->state = AURORA_GRAPHICS_SURFACE_MAPPED;
+    buffer->state = AURORA_GRAPHICS_BUFFER_COMMITTED;
+
+    surface->pending.damage_count = 0u;
+    surface->pending.commit_serial = 0u;
+
+    spinlock_unlock(&surface_lock);
+
+    if (out_commit_serial != NULL) {
+        *out_commit_serial = serial;
+    }
+
     return true;
 }
