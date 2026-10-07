@@ -8,6 +8,7 @@
 #include <aurora/clock.h>
 #include <aurora/capability.h>
 #include <aurora/cpu_local.h>
+#include <aurora/display.h>
 #include <aurora/framebuffer.h>
 #include <aurora/gdt.h>
 #include <aurora/heap.h>
@@ -91,6 +92,46 @@ void kmain(void) {
     if (!boot_get_framebuffer(&framebuffer)) {
         kernel_panic("No supported 32-bit RGB framebuffer");
     }
+
+    if (!display_init_bootstrap(&framebuffer)) {
+        kernel_panic("Display bootstrap initialization failed");
+    }
+
+#if AURORA_BOOT_VALIDATION
+    if (display_output_count() != 1u) {
+        kernel_panic("Display output discovery count mismatch");
+    }
+
+    const struct aurora_display_output *boot_output =
+        display_output_at(0u);
+    const struct aurora_display_mode *boot_mode =
+        display_mode_at(0u, 0u);
+
+    if (boot_output == NULL ||
+        boot_mode == NULL ||
+        boot_output->id != UINT64_C(1) ||
+        boot_output->backend != AURORA_DISPLAY_BACKEND_BOOT_FRAMEBUFFER ||
+        !boot_output->primary ||
+        boot_output->mode_count != 1u ||
+        boot_mode->width != framebuffer.width ||
+        boot_mode->height != framebuffer.height ||
+        boot_mode->pitch != framebuffer.pitch ||
+        boot_mode->format.bits_per_pixel != framebuffer.bpp) {
+        kernel_panic("Display mode/geometry discovery mismatch");
+    }
+
+    log_write("[display] outputs discovered: ");
+    log_u64(display_output_count());
+    log_line("");
+    log_write("[display] bootstrap mode: ");
+    log_u64(boot_mode->width);
+    log_write("x");
+    log_u64(boot_mode->height);
+    log_write(" pitch=");
+    log_u64(boot_mode->pitch);
+    log_line("");
+    log_line("[display] boot framebuffer geometry discovery passed");
+#endif
 
     boot_ui_init(&framebuffer);
     boot_ui_stage(

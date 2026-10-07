@@ -22,14 +22,19 @@ No runtime claim is implied.
 
 ## Phase G1 — Display foundation
 
-Implement:
+Status: **In progress**
 
-- output object;
-- boot-framebuffer display backend;
-- mode/geometry discovery;
-- compositor-owned backbuffer;
-- safe present operation;
-- presentation/release signaling.
+Implemented:
+
+- [x] output object with bounded mode table and validated pixel geometry;
+- [x] boot-framebuffer display backend adapter;
+- [x] output and mode/geometry discovery registry with boot validation probe.
+
+Remaining:
+
+- [ ] compositor-owned backbuffer;
+- [ ] safe present operation;
+- [ ] presentation/release signaling.
 
 Acceptance gate:
 
