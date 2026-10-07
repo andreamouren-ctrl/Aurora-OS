@@ -21,6 +21,23 @@ static void clear_surface(struct aurora_graphics_surface *surface) {
     for (uint64_t i = 0u; i < sizeof(*surface); ++i) bytes[i] = 0u;
 }
 
+static void cancel_frame_callbacks_locked(
+    struct aurora_graphics_surface *surface
+) {
+    surface->pending_frame_callback = false;
+    surface->pending_frame_request_id = 0u;
+
+    for (uint32_t i = 0u;
+         i < AURORA_GRAPHICS_SURFACE_MAX_FRAME_CALLBACKS;
+         ++i) {
+        surface->frame_callbacks[i].request_id = 0u;
+        surface->frame_callbacks[i].commit_serial = 0u;
+        surface->frame_callbacks[i].presentation_serial = 0u;
+        surface->frame_callbacks[i].state =
+            AURORA_GRAPHICS_FRAME_CALLBACK_FREE;
+    }
+}
+
 static void finalize_if_unreferenced(
     struct aurora_graphics_surface *surface
 ) {
@@ -40,6 +57,14 @@ static void finalize_if_unreferenced(
 
     pending = surface->pending.buffer;
     committed = surface->committed.buffer;
+
+    /*
+     * Final destruction is the cancellation boundary for frame callbacks.
+     * Once no capability references remain there is no recipient left, so
+     * pending, waiting and ready callbacks are dropped deterministically and
+     * cannot leak into a recycled surface slot.
+     */
+    cancel_frame_callbacks_locked(surface);
 
     uint32_t next_generation = surface->generation + 1u;
     if (next_generation == 0u) next_generation = 1u;
