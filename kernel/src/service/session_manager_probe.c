@@ -554,6 +554,159 @@ static bool session_manager_profile_binding_self_test(void) {
     clear_bytes(&session_received, sizeof(session_received));
     clear_bytes(&session_result, sizeof(session_result));
 
+    const uint64_t lock_id = UINT64_C(0x4C4F434B00000001);
+    if (!send_manager_message(
+            &session,
+            AURORA_SESSION_MANAGER_LOCK,
+            lock_id)) {
+        return false;
+    }
+
+    clear_bytes(&session_received, sizeof(session_received));
+    if (!wait_receive(&session, &session_received) ||
+        session_received.length != sizeof(struct aurora_session_manager_result) ||
+        session_received.capability_count != 0u) {
+        return false;
+    }
+
+    clear_bytes(&session_result, sizeof(session_result));
+    for (size_t i = 0u; i < sizeof(session_result); ++i) {
+        ((uint8_t *)&session_result)[i] = session_received.data[i];
+    }
+
+    if (session_result.header.version != AURORA_SESSION_MANAGER_PROTOCOL_VERSION ||
+        session_result.header.type != AURORA_SESSION_MANAGER_LOCK_RESULT ||
+        session_result.header.request_id != lock_id ||
+        session_result.state != AURORA_SESSION_MANAGER_STATE_LOCKED ||
+        session_result.public_error != AURORA_SESSION_MANAGER_ERROR_NONE ||
+        session_result.session_generation != active_session_generation ||
+        !bytes_equal(
+            session_result.user_id,
+            expected_user_id,
+            sizeof(expected_user_id))) {
+        clear_bytes(&session_received, sizeof(session_received));
+        clear_bytes(&session_result, sizeof(session_result));
+        return false;
+    }
+    clear_bytes(&session_received, sizeof(session_received));
+    clear_bytes(&session_result, sizeof(session_result));
+
+    static const uint8_t wrong_user_id[AURORA_SESSION_MANAGER_USER_ID_SIZE] = {
+        0x88u,0x77u,0x66u,0x55u,0x44u,0x33u,0x22u,0x11u,
+        0xF0u,0xDEu,0xBCu,0x9Au,0x78u,0x56u,0x34u,0x12u
+    };
+
+    const uint64_t wrong_unlock_id = UINT64_C(0x554E4C4F434B0001);
+    struct aurora_session_manager_begin_session unlock_request;
+    clear_bytes(&unlock_request, sizeof(unlock_request));
+    unlock_request.header.version = AURORA_SESSION_MANAGER_PROTOCOL_VERSION;
+    unlock_request.header.type = AURORA_SESSION_MANAGER_UNLOCK_SESSION;
+    unlock_request.header.request_id = wrong_unlock_id;
+    for (size_t i = 0u; i < sizeof(unlock_request.session_grant); ++i) {
+        unlock_request.session_grant[i] = (uint8_t)(0xC1u + (uint8_t)i);
+    }
+
+    if (!service_bootstrap_send(
+            &session,
+            &unlock_request,
+            sizeof(unlock_request))) {
+        clear_bytes(&unlock_request, sizeof(unlock_request));
+        return false;
+    }
+    clear_bytes(&unlock_request, sizeof(unlock_request));
+
+    if (!fake_identity_complete_grant(
+            identity_probe_endpoint,
+            &identity_caps,
+            wrong_unlock_id,
+            wrong_user_id)) {
+        return false;
+    }
+
+    clear_bytes(&session_received, sizeof(session_received));
+    if (!wait_receive(&session, &session_received) ||
+        session_received.length != sizeof(struct aurora_session_manager_result) ||
+        session_received.capability_count != 0u) {
+        return false;
+    }
+
+    clear_bytes(&session_result, sizeof(session_result));
+    for (size_t i = 0u; i < sizeof(session_result); ++i) {
+        ((uint8_t *)&session_result)[i] = session_received.data[i];
+    }
+
+    if (session_result.header.version != AURORA_SESSION_MANAGER_PROTOCOL_VERSION ||
+        session_result.header.type != AURORA_SESSION_MANAGER_UNLOCK_RESULT ||
+        session_result.header.request_id != wrong_unlock_id ||
+        session_result.state != AURORA_SESSION_MANAGER_STATE_REJECTED ||
+        session_result.public_error != AURORA_SESSION_MANAGER_ERROR_IDENTITY_REJECTED ||
+        session_result.session_generation != active_session_generation ||
+        !bytes_equal(
+            session_result.user_id,
+            expected_user_id,
+            sizeof(expected_user_id))) {
+        clear_bytes(&session_received, sizeof(session_received));
+        clear_bytes(&session_result, sizeof(session_result));
+        return false;
+    }
+    clear_bytes(&session_received, sizeof(session_received));
+    clear_bytes(&session_result, sizeof(session_result));
+
+    const uint64_t unlock_id = UINT64_C(0x554E4C4F434B0002);
+    clear_bytes(&unlock_request, sizeof(unlock_request));
+    unlock_request.header.version = AURORA_SESSION_MANAGER_PROTOCOL_VERSION;
+    unlock_request.header.type = AURORA_SESSION_MANAGER_UNLOCK_SESSION;
+    unlock_request.header.request_id = unlock_id;
+    for (size_t i = 0u; i < sizeof(unlock_request.session_grant); ++i) {
+        unlock_request.session_grant[i] = (uint8_t)(0xD1u + (uint8_t)i);
+    }
+
+    if (!service_bootstrap_send(
+            &session,
+            &unlock_request,
+            sizeof(unlock_request))) {
+        clear_bytes(&unlock_request, sizeof(unlock_request));
+        return false;
+    }
+    clear_bytes(&unlock_request, sizeof(unlock_request));
+
+    if (!fake_identity_complete_grant(
+            identity_probe_endpoint,
+            &identity_caps,
+            unlock_id,
+            expected_user_id)) {
+        return false;
+    }
+
+    clear_bytes(&session_received, sizeof(session_received));
+    if (!wait_receive(&session, &session_received) ||
+        session_received.length != sizeof(struct aurora_session_manager_result) ||
+        session_received.capability_count != 0u) {
+        return false;
+    }
+
+    clear_bytes(&session_result, sizeof(session_result));
+    for (size_t i = 0u; i < sizeof(session_result); ++i) {
+        ((uint8_t *)&session_result)[i] = session_received.data[i];
+    }
+
+    if (session_result.header.version != AURORA_SESSION_MANAGER_PROTOCOL_VERSION ||
+        session_result.header.type != AURORA_SESSION_MANAGER_UNLOCK_RESULT ||
+        session_result.header.request_id != unlock_id ||
+        session_result.state != AURORA_SESSION_MANAGER_STATE_ACTIVE ||
+        session_result.public_error != AURORA_SESSION_MANAGER_ERROR_NONE ||
+        session_result.session_generation != active_session_generation ||
+        !bytes_equal(
+            session_result.user_id,
+            expected_user_id,
+            sizeof(expected_user_id))) {
+        clear_bytes(&session_received, sizeof(session_received));
+        clear_bytes(&session_result, sizeof(session_result));
+        return false;
+    }
+    clear_bytes(&session_received, sizeof(session_received));
+    clear_bytes(&session_result, sizeof(session_result));
+
     const uint64_t logout_id = UINT64_C(0x50524F464C4F474F);
     if (!send_manager_message(
             &session,
