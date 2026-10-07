@@ -812,6 +812,14 @@ bool software_compositor_destroy(
         return false;
     }
 
+    if (compositor->scene_observer != NULL) {
+        compositor->scene_observer(
+            compositor->scene_observer_context,
+            AURORA_COMPOSITOR_SCENE_DESTROYING,
+            0u
+        );
+    }
+
     cap_table_destroy(&compositor->surface_caps);
 
     if (!display_backbuffer_release(&compositor->backbuffer)) {

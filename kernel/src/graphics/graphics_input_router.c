@@ -100,6 +100,11 @@ static void graphics_input_scene_event(
 
     if (router == NULL || !router->initialized) return;
 
+    if (event == AURORA_COMPOSITOR_SCENE_DESTROYING) {
+        graphics_input_revoke_session(router);
+        return;
+    }
+
     if (event == AURORA_COMPOSITOR_SCENE_NODE_REMOVED) {
         uint64_t target_id = target_for_node(router, node_id);
 
