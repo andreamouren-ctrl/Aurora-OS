@@ -47,6 +47,10 @@ struct aurora_graphics_surface_snapshot {
 
 struct aurora_graphics_surface {
     uint64_t object_id;
+    uint32_t generation;
+    uint32_t owner_refs;
+    uint32_t capability_refs;
+    bool destroy_requested;
     enum aurora_graphics_surface_state state;
     struct aurora_graphics_surface_snapshot pending;
     struct aurora_graphics_surface_snapshot committed;
@@ -60,6 +64,11 @@ struct aurora_graphics_surface {
 bool graphics_surface_system_init(void);
 
 struct aurora_graphics_surface *graphics_surface_create(void);
+
+bool graphics_surface_release_owner(
+    struct aurora_graphics_surface *surface,
+    uint32_t expected_generation
+);
 
 aurora_cap_handle graphics_surface_grant(
     struct aurora_cap_table *table,
