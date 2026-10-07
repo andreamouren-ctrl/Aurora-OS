@@ -132,14 +132,14 @@ Implemented:
 - persistent profile-root mechanism on AuroraFS;
 - profile directory derived from stable `user_id`, never Aurora Key or display name;
 - `AURORA_CAP_FILE` profile capability issued only after successful Identity binding;
-- validation probe confirming the transferred profile capability is bound to the authenticated `user_id`.
+- validation probe confirming the transferred profile capability is bound to the authenticated `user_id`;
+- logout path that revokes the Session Manager's source profile authority and the session bridge's delegated profile capability before returning to pre-session login.
 
 Remaining:
 
 - desktop/user process capability delegation from the active session;
-- complete session lifecycle state machine;
+- complete session lifecycle state machine beyond active/logout;
 - lock/unlock with fresh Identity authentication;
-- logout and revocation of every session-scoped capability;
 - purpose-bound re-authentication proofs for sensitive actions;
 - final profile/settings service bootstrap above the profile capability.
 
