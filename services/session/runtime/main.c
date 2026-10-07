@@ -43,13 +43,6 @@ static bool bytes_all_zero(const uint8_t *bytes, size_t size) {
     return combined == 0u;
 }
 
-static bool bytes_equal(const uint8_t *a, const uint8_t *b, size_t size) {
-    if (a == NULL || b == NULL) return false;
-    uint8_t diff = 0u;
-    for (size_t i = 0u; i < size; ++i) diff |= (uint8_t)(a[i] ^ b[i]);
-    return diff == 0u;
-}
-
 static uint64_t syscall1(uint64_t number, uint64_t a1) {
     register uint64_t rax __asm__("rax") = number;
     register uint64_t rdi __asm__("rdi") = a1;
