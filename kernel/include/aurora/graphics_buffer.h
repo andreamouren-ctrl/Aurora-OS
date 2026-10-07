@@ -42,7 +42,8 @@ struct aurora_graphics_buffer {
 bool graphics_buffer_system_init(void);
 
 bool graphics_buffer_release_owner(
-    struct aurora_graphics_buffer *buffer
+    struct aurora_graphics_buffer *buffer,
+    uint32_t expected_generation
 );
 
 bool graphics_buffer_retain_surface(
