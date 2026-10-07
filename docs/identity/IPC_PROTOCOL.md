@@ -190,6 +190,23 @@ CHANGE_RECOVERY_POLICY
 EXPORT_RECOVERY_MATERIAL
 ```
 
+### Production re-authentication issuance
+
+Protocol v5 implements the fresh-auth issuance subset as:
+
+```text
+BEGIN_REAUTH
+REAUTH_PENDING
+QUERY_REAUTH
+REAUTH_RESULT
+CANCEL_REAUTH
+REAUTH_CANCELLED
+```
+
+`BEGIN_REAUTH` is capability-gated by `AURORA_CAP_IDENTITY_REAUTH`. The trusted kernel bridge supplies the expected stable `user_id` from the active Session Manager binding plus one canonical purpose identifier. Successful completion returns only an opaque proof, purpose, and expiry metadata. A same-key authentication that resolves to another `user_id` is returned as coarse `AUTH_FAILED`.
+
+The proof does not itself perform the sensitive action; the corresponding management endpoint must consume it internally while enforcing its own capability contract.
+
 ## 10. Error model
 
 Public protocol errors remain coarse:
