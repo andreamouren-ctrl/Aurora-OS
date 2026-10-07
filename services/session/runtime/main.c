@@ -40,18 +40,6 @@ static bool bytes_all_zero(const uint8_t *bytes, size_t size) {
     return combined == 0u;
 }
 
-static uint64_t syscall1(uint64_t number, uint64_t a1) {
-    register uint64_t rax __asm__("rax") = number;
-    register uint64_t rdi __asm__("rdi") = a1;
-    __asm__ volatile (
-        "syscall"
-        : "+a"(rax)
-        : "D"(rdi)
-        : "rcx", "r11", "memory"
-    );
-    return rax;
-}
-
 static uint64_t syscall2(uint64_t number, uint64_t a1, uint64_t a2) {
     register uint64_t rax __asm__("rax") = number;
     register uint64_t rdi __asm__("rdi") = a1;
