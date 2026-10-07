@@ -8,6 +8,11 @@
 #define PCI_COMMAND_OFFSET      0x04u
 #define PCI_COMMAND_MEMORY      (1u << 1)
 #define PCI_COMMAND_BUS_MASTER  (1u << 2)
+#define PCI_STATUS_CAPABILITIES  (1u << 20)
+#define PCI_CAPABILITY_POINTER   0x34u
+#define PCI_CAPABILITY_MIN       0x40u
+#define PCI_CAPABILITY_MAX       0xFCu
+#define PCI_CAPABILITY_LIMIT     48u
 
 static void pci_out32(uint16_t port, uint32_t value) {
     __asm__ volatile (
@@ -228,4 +233,87 @@ bool pci_enable_memory_bus_master(
 
     return (verify & (PCI_COMMAND_MEMORY | PCI_COMMAND_BUS_MASTER)) ==
         (PCI_COMMAND_MEMORY | PCI_COMMAND_BUS_MASTER);
+}
+
+
+static uint8_t pci_config_read8(
+    const struct aurora_pci_device *device,
+    uint8_t offset
+) {
+    uint32_t value = pci_config_read32(
+        device->bus,
+        device->slot,
+        device->function,
+        (uint8_t)(offset & 0xFCu)
+    );
+
+    return (uint8_t)(value >> ((offset & 0x3u) * 8u));
+}
+
+bool pci_find_capability(
+    const struct aurora_pci_device *device,
+    uint8_t capability_id,
+    uint8_t *out_offset
+) {
+    if (out_offset != NULL) *out_offset = 0u;
+
+    if (device == NULL ||
+        out_offset == NULL ||
+        capability_id == 0u) {
+        return false;
+    }
+
+    uint32_t command_status = pci_config_read32(
+        device->bus,
+        device->slot,
+        device->function,
+        PCI_COMMAND_OFFSET
+    );
+
+    if ((command_status & PCI_STATUS_CAPABILITIES) == 0u) {
+        return false;
+    }
+
+    uint8_t offset = (uint8_t)(
+        pci_config_read32(
+            device->bus,
+            device->slot,
+            device->function,
+            PCI_CAPABILITY_POINTER
+        ) & 0xFCu
+    );
+
+    uint8_t visited[64] = {0};
+
+    for (uint32_t hop = 0u;
+         hop < PCI_CAPABILITY_LIMIT && offset != 0u;
+         ++hop) {
+        if (offset < PCI_CAPABILITY_MIN ||
+            offset > PCI_CAPABILITY_MAX ||
+            (offset & 0x3u) != 0u) {
+            return false;
+        }
+
+        uint8_t index = (uint8_t)(offset >> 2u);
+        if (visited[index] != 0u) {
+            return false;
+        }
+        visited[index] = 1u;
+
+        uint8_t id = pci_config_read8(device, offset);
+        uint8_t next = pci_config_read8(
+            device,
+            (uint8_t)(offset + 1u)
+        );
+
+        if (id == capability_id) {
+            *out_offset = offset;
+            return true;
+        }
+
+        if (next == 0u) break;
+        offset = (uint8_t)(next & 0xFCu);
+    }
+
+    return false;
 }
