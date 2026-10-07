@@ -68,7 +68,7 @@ bool gpu_display_driver_bind(
         if (!driver->bind(device, &candidate) ||
             candidate.bound ||
             candidate.controller.ops == NULL) {
-            return false;
+            continue;
         }
 
         candidate.pci = *device;
