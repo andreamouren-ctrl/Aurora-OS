@@ -448,6 +448,30 @@ static uint64_t dispatch_graphics_frame_callback_take(
         return AURORA_SYS_RESULT_ERROR;
     }
 
+    struct aurora_capability_view surface_view;
+    if (!cap_lookup(
+            &process->capabilities,
+            (aurora_cap_handle)surface_handle,
+            AURORA_CAP_SURFACE,
+            AURORA_RIGHT_READ,
+            &surface_view)) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    /*
+     * Validate the destination before consuming a ready callback. Otherwise a
+     * bad user pointer could irreversibly dequeue an event the client never
+     * received.
+     */
+    struct aurora_sys_graphics_frame_callback output = {0};
+    if (!copy_to_user(
+            process,
+            user_output,
+            &output,
+            sizeof(output))) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
     struct aurora_graphics_frame_callback callback = {0};
 
     if (!graphics_surface_take_frame_callback(
@@ -457,11 +481,9 @@ static uint64_t dispatch_graphics_frame_callback_take(
         return AURORA_SYS_RESULT_NOT_FOUND;
     }
 
-    struct aurora_sys_graphics_frame_callback output = {
-        .request_id = callback.request_id,
-        .commit_serial = callback.commit_serial,
-        .presentation_serial = callback.presentation_serial
-    };
+    output.request_id = callback.request_id;
+    output.commit_serial = callback.commit_serial;
+    output.presentation_serial = callback.presentation_serial;
 
     return copy_to_user(
         process,
