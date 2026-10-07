@@ -176,7 +176,10 @@ Hardware/runtime integration still pending:
 - [x] HDMI VSDB/HF-VSDB FRL + validated VRR discovery foundation;
 - [x] DisplayPort DPCD DSC/MST/128b132b-UHBR readiness discovery;
 - [x] generic VRR range validation + presentation-policy hooks;
-- [ ] VRR / Adaptive-Sync hardware programming;
-- [ ] DSC hardware programming;
+- [x] VRR / Adaptive-Sync backend programming contract;
+- [x] detailed DSC capability/config validation model;
+- [x] bounded HDMI/DP link-training state-machine contract;
+- [ ] native GPU-specific VRR / Adaptive-Sync programming;
+- [ ] native GPU-specific DSC programming;
 - [ ] GPU scanout/color-pipeline programming;
 - [ ] compositor color conversion and HDR tone mapping.
