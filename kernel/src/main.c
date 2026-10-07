@@ -35,8 +35,10 @@
 #include <aurora/memory_object.h>
 #include <aurora/madt.h>
 #include <aurora/panic.h>
+#include <aurora/pci.h>
 #include <aurora/pmm.h>
 #include <aurora/process.h>
+#include <aurora/qemu_std_vga.h>
 #include <aurora/ps2_keyboard.h>
 #include <aurora/scheduler.h>
 #include <aurora/smp.h>
@@ -194,6 +196,40 @@ void kmain(void) {
         kernel_panic("GPU display driver registry self-test failed");
     }
 
+    if (!qemu_std_vga_selftest()) {
+        kernel_panic("QEMU Standard VGA driver self-test failed");
+    }
+
+    gpu_display_driver_registry_init();
+
+    if (!gpu_display_driver_register(
+            qemu_std_vga_driver())) {
+        kernel_panic("QEMU Standard VGA driver registration failed");
+    }
+
+    struct aurora_gpu_display_device qemu_gpu = {0};
+
+    if (qemu_std_vga_probe_pci(&qemu_gpu)) {
+        uint64_t qemu_lfb_physical = 0u;
+
+        if (!qemu_std_vga_bound_info(
+                &qemu_gpu,
+                &qemu_lfb_physical) ||
+            qemu_lfb_physical == 0u ||
+            !display_attach_native_gpu(&qemu_gpu) ||
+            !display_native_gpu_ready() ||
+            display_native_gpu_device() == NULL) {
+            kernel_panic("QEMU Standard VGA native candidate attach failed");
+        }
+
+        log_write("[display] QEMU std VGA BAR0 LFB: 0x");
+        log_hex64(qemu_lfb_physical);
+        log_line("");
+        log_line("[display] QEMU std VGA native backend candidate passed");
+    } else {
+        log_line("[display] QEMU std VGA not present; boot framebuffer fallback retained");
+    }
+
     log_line("[display] DDC/E-DDC EDID transport passed");
     log_line("[display] DisplayPort/eDP DPCD capability path passed");
     log_line("[display] HDMI EDID/CTA capability path passed");
@@ -204,6 +240,7 @@ void kmain(void) {
     log_line("[display] controller modeset/scanout contract passed");
     log_line("[display] PHY/link backend contract passed");
     log_line("[display] GPU display driver registry passed");
+    log_line("[display] native GPU candidate/fallback policy passed");
 #endif
 
     boot_ui_init(&framebuffer);
