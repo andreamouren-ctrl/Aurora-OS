@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <aurora/display_ddc.h>
 #include <aurora/display_identification.h>
 
 struct aurora_hdmi_sink_capabilities {
