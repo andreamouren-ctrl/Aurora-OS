@@ -59,7 +59,6 @@ static bool graphics_buffer_cap_retain(void *object) {
 
     if (!buffer_pointer_valid(buffer) ||
         buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
-        buffer->destroy_requested ||
         buffer->capability_refs == UINT32_MAX) {
         spinlock_unlock(&buffer_lock);
         return false;
@@ -316,7 +315,6 @@ bool graphics_buffer_retain_surface(
 
     if (!buffer_pointer_valid(buffer) ||
         buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
-        buffer->destroy_requested ||
         buffer->surface_refs == UINT32_MAX) {
         spinlock_unlock(&buffer_lock);
         return false;
