@@ -140,13 +140,17 @@ Implemented:
 - ordinary Ring 3 User Session Host bootstrap from the active session;
 - User Session Host receives only a private control IPC endpoint, stable user/session metadata, and a reduced profile capability;
 - login reaches session-active presentation only after the User Session Host publishes READY;
-- User Session Host is stopped and its delegated profile lease is revoked before Session Manager logout completes.
+- User Session Host is stopped and its delegated profile lease is revoked before Session Manager logout completes;
+- ACTIVE -> LOCKED lifecycle with immediate suspension/revocation of process-scoped profile leases;
+- fresh Identity authentication is required for unlock;
+- unlock grant must resolve to the same stable `user_id` already bound to the locked session;
+- wrong-user, replayed, expired, or unavailable grant paths remain fail-closed;
+- successful unlock preserves the same session generation and reboots the ordinary Ring 3 User Session Host with fresh delegated profile capability access.
 
 Remaining:
 
 - compositor/desktop process bootstrap above the User Session Host once M4 graphics foundations exist;
-- complete session lifecycle state machine beyond active/logout;
-- lock/unlock with fresh Identity authentication;
+- extended lifecycle states beyond active/locked/logout where needed;
 - purpose-bound re-authentication proofs for sensitive actions;
 - final profile/settings service bootstrap above the profile capability.
 
