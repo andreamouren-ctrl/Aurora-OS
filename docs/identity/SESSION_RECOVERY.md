@@ -93,7 +93,11 @@ Authentication success alone does not guarantee session startup if profile/stora
 
 Locking removes interactive access while preserving the underlying session according to Session Manager policy.
 
-Unlock requires fresh authentication through Aurora Identity.
+The current Phase F implementation preserves the stable `user_id`, profile source authority, and session generation inside Session Manager, while immediately revoking process-scoped delegated profile capabilities and stopping the ordinary Ring 3 User Session Host.
+
+Unlock requires fresh authentication through Aurora Identity. A new one-time grant must resolve to the **same stable `user_id`** already bound to the locked session. A valid grant for another local identity is rejected without changing the locked-session binding; replayed, expired, invalid, or unavailable grants remain fail-closed.
+
+After same-user authentication succeeds, the existing session generation is preserved and Aurora starts a fresh User Session Host with newly delegated reduced profile access. Aurora Key and verifier material never enter Session Manager or the User Session Host.
 
 The lock screen may display the current user's presentation because the active session identity is already known locally; this does not change the cold-boot no-enumeration rule.
 
