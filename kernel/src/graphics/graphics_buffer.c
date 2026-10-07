@@ -331,6 +331,53 @@ bool graphics_buffer_lookup(
     return true;
 }
 
+bool graphics_buffer_lookup_retain(
+    struct aurora_cap_table *table,
+    aurora_cap_handle handle,
+    uint64_t required_rights,
+    struct aurora_graphics_buffer **out_buffer,
+    struct aurora_capability_view *out_view
+) {
+    if (out_buffer == NULL || out_view == NULL) {
+        return false;
+    }
+
+    *out_buffer = NULL;
+    out_view->object = NULL;
+    out_view->type = AURORA_CAP_NONE;
+    out_view->rights = 0u;
+
+    if (!cap_lookup_retain(
+            table,
+            handle,
+            AURORA_CAP_GRAPHICS_BUFFER,
+            required_rights,
+            out_view)) {
+        return false;
+    }
+
+    struct aurora_graphics_buffer *buffer =
+        (struct aurora_graphics_buffer *)out_view->object;
+
+    spinlock_lock(&buffer_lock);
+    bool valid =
+        buffer_pointer_valid(buffer) &&
+        buffer->state != AURORA_GRAPHICS_BUFFER_FREE &&
+        buffer->memory != NULL;
+    spinlock_unlock(&buffer_lock);
+
+    if (!valid) {
+        cap_view_release(out_view);
+        out_view->object = NULL;
+        out_view->type = AURORA_CAP_NONE;
+        out_view->rights = 0u;
+        return false;
+    }
+
+    *out_buffer = buffer;
+    return true;
+}
+
 bool graphics_buffer_map_process(
     struct aurora_process *process,
     aurora_cap_handle handle,
@@ -346,22 +393,34 @@ bool graphics_buffer_map_process(
         (writable ? AURORA_RIGHT_WRITE : AURORA_RIGHT_READ);
 
     struct aurora_graphics_buffer *buffer = NULL;
+    struct aurora_capability_view view = {0};
 
-    if (!graphics_buffer_lookup(
+    if (!graphics_buffer_lookup_retain(
             &process->capabilities,
             handle,
             required,
-            &buffer) ||
-        buffer->memory == NULL) {
+            &buffer,
+            &view)) {
         return false;
     }
 
-    return process_shared_memory_map(
-        process,
-        buffer->memory,
-        writable,
-        out_address
-    );
+    struct aurora_memory_object *memory = NULL;
+
+    spinlock_lock(&buffer_lock);
+    memory = buffer->memory;
+    spinlock_unlock(&buffer_lock);
+
+    bool mapped =
+        memory != NULL &&
+        process_shared_memory_map(
+            process,
+            memory,
+            writable,
+            out_address
+        );
+
+    cap_view_release(&view);
+    return mapped;
 }
 
 bool graphics_buffer_unmap_process(
