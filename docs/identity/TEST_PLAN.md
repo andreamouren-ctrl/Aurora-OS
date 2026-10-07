@@ -68,7 +68,10 @@ Required cases:
 - expired grant fails;
 - wrong Session Manager/caller cannot consume grant;
 - logout invalidates session-scoped access;
+- lock revokes interactive delegated profile capabilities while preserving the underlying session binding;
 - lock requires fresh authentication;
+- unlock with a different valid user_id is rejected and leaves the original session locked;
+- same-user fresh authentication restores the session profile lease and user host;
 - purpose-bound re-auth proof cannot authorize another operation.
 
 ## 7. Identity Drive tests
