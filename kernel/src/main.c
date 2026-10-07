@@ -42,6 +42,7 @@
 #include <aurora/ps2_keyboard.h>
 #include <aurora/scheduler.h>
 #include <aurora/smp.h>
+#include <aurora/software_compositor.h>
 #include <aurora/syscall.h>
 #include <aurora/timer.h>
 #include <aurora/user_ipc_probe.h>
@@ -1450,6 +1451,12 @@ void kmain(void) {
     }
 
     log_line("[graphics] two isolated Ring 3 client capability gate passed");
+
+    if (!software_compositor_selftest()) {
+        kernel_panic("G3 software compositor deterministic self-test failed");
+    }
+
+    log_line("[compositor] scene/z-order/clipping/alpha/damage self-test passed");
 
     struct aurora_memory_object *shared_probe =
         memory_object_create(2u);
