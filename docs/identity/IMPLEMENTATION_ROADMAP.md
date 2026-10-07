@@ -120,16 +120,28 @@ A local user can reboot, enter a valid Aurora Key, authenticate fully offline, a
 
 ## Phase F — Session Manager and profile bootstrap
 
-Required:
+Status: **In progress**
 
-- Session Manager service;
-- one-time identity grant consumption;
-- profile reference/mount/open path;
-- user capability issuance;
-- session lifecycle;
-- lock/unlock;
-- logout;
-- re-authentication proofs for sensitive actions.
+Implemented:
+
+- separate Ring 3 Session Manager service;
+- one-time Identity session-grant consumption through the Identity Service;
+- stable `user_id` binding before session activation;
+- bounded service dependency-capability startup ABI;
+- fail-closed service-to-service grant rejection paths;
+- persistent profile-root mechanism on AuroraFS;
+- profile directory derived from stable `user_id`, never Aurora Key or display name;
+- `AURORA_CAP_FILE` profile capability issued only after successful Identity binding;
+- validation probe confirming the transferred profile capability is bound to the authenticated `user_id`.
+
+Remaining:
+
+- desktop/user process capability delegation from the active session;
+- complete session lifecycle state machine;
+- lock/unlock with fresh Identity authentication;
+- logout and revocation of every session-scoped capability;
+- purpose-bound re-authentication proofs for sensitive actions;
+- final profile/settings service bootstrap above the profile capability.
 
 Acceptance gate:
 
