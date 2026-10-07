@@ -25,6 +25,17 @@ enum aurora_compositor_surface_class {
     AURORA_COMPOSITOR_SURFACE_PRE_SESSION
 };
 
+enum aurora_compositor_scene_event {
+    AURORA_COMPOSITOR_SCENE_NODE_REMOVED = 1,
+    AURORA_COMPOSITOR_SCENE_SECURITY_POLICY_CHANGED
+};
+
+typedef void (*aurora_compositor_scene_observer)(
+    void *context,
+    enum aurora_compositor_scene_event event,
+    uint64_t node_id
+);
+
 struct aurora_compositor_damage {
     uint32_t x;
     uint32_t y;
@@ -57,6 +68,8 @@ struct aurora_software_compositor {
     uint32_t output_index;
     uint64_t next_node_id;
     uint32_t last_occluded_nodes;
+    aurora_compositor_scene_observer scene_observer;
+    void *scene_observer_context;
     bool secure_scene_active;
     bool initialized;
 };
@@ -120,6 +133,12 @@ bool software_compositor_set_secure_scene(
     struct aurora_cap_table *authority_caps,
     aurora_cap_handle display_control_handle,
     bool active
+);
+
+bool software_compositor_set_scene_observer(
+    struct aurora_software_compositor *compositor,
+    aurora_compositor_scene_observer observer,
+    void *context
 );
 
 bool software_compositor_hit_test(
