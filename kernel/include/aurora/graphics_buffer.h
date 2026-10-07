@@ -1,0 +1,60 @@
+#ifndef AURORA_GRAPHICS_BUFFER_H
+#define AURORA_GRAPHICS_BUFFER_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include <aurora/capability.h>
+#include <aurora/display_output.h>
+#include <aurora/spinlock.h>
+
+#define AURORA_GRAPHICS_BUFFER_MAX_OBJECTS 64u
+#define AURORA_GRAPHICS_BUFFER_MAX_DIMENSION 8192u
+#define AURORA_GRAPHICS_BUFFER_MAX_BYTES (64ull * 1024ull * 1024ull)
+
+enum aurora_graphics_buffer_state {
+    AURORA_GRAPHICS_BUFFER_FREE = 0,
+    AURORA_GRAPHICS_BUFFER_READY,
+    AURORA_GRAPHICS_BUFFER_COMMITTED,
+    AURORA_GRAPHICS_BUFFER_IN_USE,
+    AURORA_GRAPHICS_BUFFER_RELEASED
+};
+
+struct aurora_graphics_buffer {
+    uint64_t object_id;
+    uint32_t generation;
+    enum aurora_graphics_buffer_state state;
+    uint8_t *pixels;
+    uint64_t width;
+    uint64_t height;
+    uint64_t stride;
+    uint64_t byte_length;
+    struct aurora_display_pixel_format format;
+};
+
+bool graphics_buffer_system_init(void);
+
+struct aurora_graphics_buffer *graphics_buffer_create(
+    uint64_t width,
+    uint64_t height,
+    const struct aurora_display_pixel_format *format
+);
+
+bool graphics_buffer_destroy(
+    struct aurora_graphics_buffer *buffer
+);
+
+aurora_cap_handle graphics_buffer_grant(
+    struct aurora_cap_table *table,
+    struct aurora_graphics_buffer *buffer,
+    uint64_t rights
+);
+
+bool graphics_buffer_lookup(
+    struct aurora_cap_table *table,
+    aurora_cap_handle handle,
+    uint64_t required_rights,
+    struct aurora_graphics_buffer **out_buffer
+);
+
+#endif
