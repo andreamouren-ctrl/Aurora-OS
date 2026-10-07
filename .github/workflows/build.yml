@@ -81,6 +81,9 @@ jobs:
             -m 512M \
             -smp 4,sockets=1,cores=2,threads=2 \
             -vga std \
+            -device qemu-xhci,id=xhci \
+            -device usb-kbd,bus=xhci.0 \
+            -device usb-mouse,bus=xhci.0 \
             -cdrom build/AuroraOS-x86_64.iso \
             -drive file="$STORAGE_IMAGE",format=raw,if=none,id=aurora_disk \
             -device ide-hd,drive=aurora_disk \
@@ -132,6 +135,7 @@ jobs:
           grep -F "[color-management] ST2084/ICC/calibration/perceptual-tone-map self-test passed" "$SERIAL_LOG"
           grep -F "[compositor] scene/z-order/clipping/alpha/damage self-test passed" "$SERIAL_LOG"
           grep -F "[graphics-input] normalized mouse + hit-test focus isolation self-test passed" "$SERIAL_LOG"
+          grep -F "[xhci] PCI/BAR/MMIO capability probe passed" "$SERIAL_LOG"
           grep -F "[input] PS/2 mouse IRQ path online" "$SERIAL_LOG"
 
           if ! grep -F \
