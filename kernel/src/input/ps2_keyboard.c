@@ -95,6 +95,8 @@ static void consume_scancode(uint8_t scancode) {
     }
 
     struct aurora_input_event event = {
+        .type = AURORA_INPUT_EVENT_KEY,
+        .source = AURORA_INPUT_SOURCE_PS2_KEYBOARD,
         .key = key,
         .pressed = pressed
     };
