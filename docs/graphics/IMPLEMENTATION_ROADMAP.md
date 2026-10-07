@@ -55,13 +55,18 @@ Remaining:
 - [x] bounded frame-callback core tied to commit/presentation serials;
 - [x] capability-gated Ring 3 graphics-buffer map/unmap syscall path;
 - [x] strict 32-bit RGB mask, stride, size and backing metadata validation;
-- [ ] Ring 3 frame-callback request/delivery ABI.
+- [x] Ring 3 frame-callback request/delivery ABI.
 
 Acceptance gate:
 
 Two isolated Ring 3 clients can independently submit surfaces; neither can map or corrupt the other's buffer.
 
-Acceptance probe: **implemented; runtime verification pending CI**. Ring 3 surface attach/damage/commit syscall ABI is now defined.
+Acceptance probe: **runtime verified in QEMU**. Two isolated Ring 3 clients now execute buffer map/unmap, surface attach/damage/commit and frame-callback request/delivery through the real SYSCALL/SYSRET path; cross-client handle attempts cannot map or attach the other client's buffer.
+
+Audit blockers before declaring G2 complete:
+
+- [ ] capability-aware surface lifetime, destruction and slot recycling;
+- [ ] explicit cancellation/cleanup semantics for pending and queued frame callbacks when a surface is destroyed.
 
 ## Phase G3 — Software compositor
 
