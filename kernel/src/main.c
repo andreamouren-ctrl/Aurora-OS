@@ -670,7 +670,9 @@ void kmain(void) {
         kernel_panic("Graphics capability refcount probe failed");
     }
 
-    if (!graphics_buffer_release_owner(recycle_buffer) ||
+    if (!graphics_buffer_release_owner(
+            recycle_buffer,
+            recycle_generation) ||
         !recycle_buffer->destroy_requested ||
         recycle_buffer->owner_refs != 0u ||
         recycle_buffer->state == AURORA_GRAPHICS_BUFFER_FREE) {
@@ -741,7 +743,15 @@ void kmain(void) {
         kernel_panic("Graphics capability-safe slot reuse probe failed");
     }
 
-    if (!graphics_buffer_release_owner(reused_buffer)) {
+    if (graphics_buffer_release_owner(
+            reused_buffer,
+            recycle_generation)) {
+        kernel_panic("Graphics stale owner generation rejection failed");
+    }
+
+    if (!graphics_buffer_release_owner(
+            reused_buffer,
+            reused_buffer->generation)) {
         kernel_panic("Graphics recycled buffer cleanup failed");
     }
 
@@ -755,7 +765,8 @@ void kmain(void) {
             &graphics_probe_caps,
             graphics_buffer_handle) ||
         !graphics_buffer_release_owner(
-            graphics_probe_buffer)) {
+            graphics_probe_buffer,
+            graphics_probe_buffer->generation)) {
         kernel_panic("Graphics primary buffer lifetime cleanup failed");
     }
 
