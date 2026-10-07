@@ -87,9 +87,9 @@ uint32_t color_st2084_eotf_nits_q16(uint16_t encoded_q16);
 bool color_management_transform_rgb8(
     uint32_t output_index,
     const struct aurora_color_description *source_color,
-    uint16_t red_encoded_q16,
-    uint16_t green_encoded_q16,
-    uint16_t blue_encoded_q16,
+    uint32_t red_encoded_q16,
+    uint32_t green_encoded_q16,
+    uint32_t blue_encoded_q16,
     uint8_t *out_red,
     uint8_t *out_green,
     uint8_t *out_blue
