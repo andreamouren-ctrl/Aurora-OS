@@ -92,65 +92,6 @@ static void clear_buffer(struct aurora_graphics_buffer *buffer) {
     for (uint64_t i = 0u; i < sizeof(*buffer); ++i) bytes[i] = 0u;
 }
 
-static bool ranges_overlap(
-    uint8_t shift_a,
-    uint8_t size_a,
-    uint8_t shift_b,
-    uint8_t size_b
-) {
-    uint16_t end_a =
-        (uint16_t)shift_a + (uint16_t)size_a;
-    uint16_t end_b =
-        (uint16_t)shift_b + (uint16_t)size_b;
-
-    return (uint16_t)shift_a < end_b &&
-        (uint16_t)shift_b < end_a;
-}
-
-static bool format_valid(
-    const struct aurora_display_pixel_format *format
-) {
-    if (format == NULL ||
-        format->bits_per_pixel != 32u ||
-        format->red_mask_size != 8u ||
-        format->green_mask_size != 8u ||
-        format->blue_mask_size != 8u) {
-        return false;
-    }
-
-    if ((uint16_t)format->red_mask_shift +
-            (uint16_t)format->red_mask_size >
-            format->bits_per_pixel ||
-        (uint16_t)format->green_mask_shift +
-            (uint16_t)format->green_mask_size >
-            format->bits_per_pixel ||
-        (uint16_t)format->blue_mask_shift +
-            (uint16_t)format->blue_mask_size >
-            format->bits_per_pixel) {
-        return false;
-    }
-
-    if (ranges_overlap(
-            format->red_mask_shift,
-            format->red_mask_size,
-            format->green_mask_shift,
-            format->green_mask_size) ||
-        ranges_overlap(
-            format->red_mask_shift,
-            format->red_mask_size,
-            format->blue_mask_shift,
-            format->blue_mask_size) ||
-        ranges_overlap(
-            format->green_mask_shift,
-            format->green_mask_size,
-            format->blue_mask_shift,
-            format->blue_mask_size)) {
-        return false;
-    }
-
-    return true;
-}
-
 bool graphics_buffer_metadata_valid(
     const struct aurora_graphics_buffer *buffer
 ) {
@@ -162,7 +103,8 @@ bool graphics_buffer_metadata_valid(
         buffer->height == 0u ||
         buffer->width > AURORA_GRAPHICS_BUFFER_MAX_DIMENSION ||
         buffer->height > AURORA_GRAPHICS_BUFFER_MAX_DIMENSION ||
-        !format_valid(&buffer->format)) {
+        !display_pixel_format_valid(&buffer->format) ||
+        !display_color_description_valid(&buffer->color)) {
         return false;
     }
 
@@ -229,12 +171,34 @@ struct aurora_graphics_buffer *graphics_buffer_create(
     uint64_t height,
     const struct aurora_display_pixel_format *format
 ) {
+    const struct aurora_color_description sdr = {
+        .primaries = AURORA_COLOR_PRIMARIES_SRGB,
+        .transfer = AURORA_COLOR_TRANSFER_SRGB,
+        .range = AURORA_COLOR_RANGE_FULL,
+        .hdr_static = { .valid = false }
+    };
+
+    return graphics_buffer_create_ex(
+        width,
+        height,
+        format,
+        &sdr
+    );
+}
+
+struct aurora_graphics_buffer *graphics_buffer_create_ex(
+    uint64_t width,
+    uint64_t height,
+    const struct aurora_display_pixel_format *format,
+    const struct aurora_color_description *color
+) {
     if (!initialized ||
         width == 0u ||
         height == 0u ||
         width > AURORA_GRAPHICS_BUFFER_MAX_DIMENSION ||
         height > AURORA_GRAPHICS_BUFFER_MAX_DIMENSION ||
-        !format_valid(format)) {
+        !display_pixel_format_valid(format) ||
+        !display_color_description_valid(color)) {
         return NULL;
     }
 
@@ -312,6 +276,7 @@ struct aurora_graphics_buffer *graphics_buffer_create(
     slot->stride = stride;
     slot->byte_length = byte_length;
     slot->format = *format;
+    slot->color = *color;
     spinlock_unlock(&buffer_lock);
 
     return slot;
