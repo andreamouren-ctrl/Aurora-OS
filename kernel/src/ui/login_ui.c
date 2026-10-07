@@ -370,6 +370,9 @@ static const char *login_status_text(void) {
         case AURORA_LOGIN_THROTTLED:
             return "TOO MANY ATTEMPTS - TRY AGAIN LATER";
 
+        case AURORA_LOGIN_SESSION_ACTIVE:
+            return "AUTHENTICATED SESSION ACTIVE";
+
         case AURORA_LOGIN_IDLE:
         default:
             return "LOCAL OFFLINE ACCESS";
@@ -377,6 +380,10 @@ static const char *login_status_text(void) {
 }
 
 static const char *login_prompt_text(void) {
+    if (login_state == AURORA_LOGIN_SESSION_ACTIVE) {
+        return "AURORA IDENTITY VERIFIED";
+    }
+
     return login_state == AURORA_LOGIN_CREATE_ENTRY ||
            login_state == AURORA_LOGIN_CREATING
         ? "ENTER A NEW AURORA KEY"
@@ -394,6 +401,9 @@ static const char *login_instruction_text(void) {
 
         case AURORA_LOGIN_UNKNOWN_IDENTITY:
             return "";
+
+        case AURORA_LOGIN_SESSION_ACTIVE:
+            return "SESSION MANAGER BOUND TO LOCAL IDENTITY";
 
         default:
             return "PRESS ENTER TO CONTINUE";
