@@ -61,6 +61,30 @@ bool display_hdmi_query_sink(
             cta.bt2020_rgb ||
             cta.bt2020_ycc ||
             cta.bt2020_cycc;
+        out->hdmi_vsdb |= cta.hdmi_vsdb;
+        out->hdmi_forum_vsdb |= cta.hdmi_forum_vsdb;
+        out->scdc_present |= cta.scdc_present;
+        out->read_request_capable |= cta.read_request_capable;
+        out->allm |= cta.allm;
+        out->fast_vactive |= cta.fast_vactive;
+        out->dsc_1p2 |= cta.dsc_1p2;
+
+        if (cta.max_tmds_clock_khz > out->max_tmds_clock_khz) {
+            out->max_tmds_clock_khz = cta.max_tmds_clock_khz;
+        }
+
+        if (cta.max_frl_rate_code > out->max_frl_rate_code) {
+            out->max_frl_rate_code = cta.max_frl_rate_code;
+            out->max_frl_lanes = cta.max_frl_lanes;
+            out->max_frl_gbps_per_lane =
+                cta.max_frl_gbps_per_lane;
+        }
+
+        if (cta.vrr_supported) {
+            out->vrr_supported = true;
+            out->vrr_min_hz = cta.vrr_min_hz;
+            out->vrr_max_hz = cta.vrr_max_hz;
+        }
 
         if (!display_cta861_apply_capabilities(
                 &cta,
