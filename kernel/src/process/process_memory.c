@@ -100,6 +100,8 @@ static bool reserve_range(
     reserved->base = candidate;
     reserved->page_count = page_count;
     reserved->state = AURORA_PROCESS_ANON_RESERVED;
+    reserved->kind = AURORA_PROCESS_MEMORY_NONE;
+    reserved->shared_object = NULL;
     process->anonymous_page_count += page_count;
 
     *out_slot = free_slot;
@@ -122,6 +124,8 @@ static void release_reservation(
         range->base = 0u;
         range->page_count = 0u;
         range->state = AURORA_PROCESS_ANON_FREE;
+        range->kind = AURORA_PROCESS_MEMORY_NONE;
+        range->shared_object = NULL;
         if (process->anonymous_page_count >= page_count)
             process->anonymous_page_count -= page_count;
     }
@@ -202,6 +206,8 @@ bool process_user_memory_allocate(
         return false;
     }
     process->anonymous_ranges[slot].state = AURORA_PROCESS_ANON_ACTIVE;
+    process->anonymous_ranges[slot].kind = AURORA_PROCESS_MEMORY_PRIVATE;
+    process->anonymous_ranges[slot].shared_object = NULL;
     spinlock_unlock(&process->anonymous_lock);
 
     *out_address = base;
@@ -225,7 +231,9 @@ bool process_user_memory_free(
 
     for (uint32_t i = 0u; i < AURORA_PROCESS_ANON_MAX_RANGES; ++i) {
         struct aurora_process_anon_range *range = &process->anonymous_ranges[i];
-        if (range->state == AURORA_PROCESS_ANON_ACTIVE && range->base == address) {
+        if (range->state == AURORA_PROCESS_ANON_ACTIVE &&
+            range->kind == AURORA_PROCESS_MEMORY_PRIVATE &&
+            range->base == address) {
             slot = i;
             page_count = range->page_count;
             range->state = AURORA_PROCESS_ANON_RESERVED;
@@ -268,9 +276,189 @@ bool process_user_memory_free(
     range->base = 0u;
     range->page_count = 0u;
     range->state = AURORA_PROCESS_ANON_FREE;
+    range->kind = AURORA_PROCESS_MEMORY_NONE;
+    range->shared_object = NULL;
     if (process->anonymous_page_count >= page_count)
         process->anonymous_page_count -= page_count;
     spinlock_unlock(&process->anonymous_lock);
+    return true;
+}
+
+bool process_shared_memory_map(
+    struct aurora_process *process,
+    struct aurora_memory_object *object,
+    bool writable,
+    uint64_t *out_address
+) {
+    if (out_address != NULL) *out_address = 0u;
+    if (process == NULL ||
+        object == NULL ||
+        out_address == NULL ||
+        process_state(process) != AURORA_PROCESS_RUNNING ||
+        object->page_count == 0u ||
+        object->page_count > AURORA_PROCESS_ANON_MAX_RANGE_PAGES) {
+        return false;
+    }
+
+    uint32_t slot = 0u;
+    uint64_t base = 0u;
+
+    if (!reserve_range(
+            process,
+            object->page_count,
+            &slot,
+            &base)) {
+        return false;
+    }
+
+    if (!memory_object_mapping_acquire(object)) {
+        release_reservation(process, slot, object->page_count);
+        return false;
+    }
+
+    uint64_t flags = VMM_FLAG_USER;
+    if (writable) flags |= VMM_FLAG_WRITE;
+
+    uint32_t mapped = 0u;
+    for (; mapped < object->page_count; ++mapped) {
+        uint64_t physical = 0u;
+        if (!memory_object_page_at(object, mapped, &physical) ||
+            !vmm_map_page_in(
+                &process->address_space,
+                base + (uint64_t)mapped * AURORA_PAGE_SIZE,
+                physical,
+                flags)) {
+            break;
+        }
+    }
+
+    if (mapped != object->page_count) {
+        for (uint32_t page = 0u; page < mapped; ++page) {
+            (void)vmm_unmap_page_in(
+                &process->address_space,
+                base + (uint64_t)page * AURORA_PAGE_SIZE
+            );
+        }
+
+        (void)memory_object_mapping_release(object);
+        release_reservation(process, slot, object->page_count);
+        return false;
+    }
+
+    spinlock_lock(&process->anonymous_lock);
+    struct aurora_process_anon_range *range =
+        &process->anonymous_ranges[slot];
+
+    if (range->state != AURORA_PROCESS_ANON_RESERVED ||
+        range->base != base ||
+        range->page_count != object->page_count) {
+        spinlock_unlock(&process->anonymous_lock);
+
+        for (uint32_t page = 0u; page < object->page_count; ++page) {
+            (void)vmm_unmap_page_in(
+                &process->address_space,
+                base + (uint64_t)page * AURORA_PAGE_SIZE
+            );
+        }
+
+        (void)memory_object_mapping_release(object);
+        release_reservation(process, slot, object->page_count);
+        return false;
+    }
+
+    range->kind = AURORA_PROCESS_MEMORY_SHARED;
+    range->shared_object = object;
+    range->state = AURORA_PROCESS_ANON_ACTIVE;
+    spinlock_unlock(&process->anonymous_lock);
+
+    *out_address = base;
+    return true;
+}
+
+bool process_shared_memory_unmap(
+    struct aurora_process *process,
+    uint64_t address
+) {
+    if (process == NULL ||
+        address < AURORA_USER_ANON_BASE ||
+        address >= AURORA_USER_ANON_LIMIT ||
+        (address & (AURORA_PAGE_SIZE - 1u)) != 0u ||
+        process_state(process) != AURORA_PROCESS_RUNNING) {
+        return false;
+    }
+
+    spinlock_lock(&process->anonymous_lock);
+
+    uint32_t slot = AURORA_PROCESS_ANON_MAX_RANGES;
+    uint32_t page_count = 0u;
+    struct aurora_memory_object *object = NULL;
+
+    for (uint32_t i = 0u; i < AURORA_PROCESS_ANON_MAX_RANGES; ++i) {
+        struct aurora_process_anon_range *range =
+            &process->anonymous_ranges[i];
+
+        if (range->state == AURORA_PROCESS_ANON_ACTIVE &&
+            range->kind == AURORA_PROCESS_MEMORY_SHARED &&
+            range->base == address) {
+            slot = i;
+            page_count = range->page_count;
+            object = range->shared_object;
+            range->state = AURORA_PROCESS_ANON_RESERVED;
+            break;
+        }
+    }
+
+    spinlock_unlock(&process->anonymous_lock);
+
+    if (slot == AURORA_PROCESS_ANON_MAX_RANGES ||
+        page_count == 0u ||
+        object == NULL) {
+        return false;
+    }
+
+    for (uint32_t page = 0u; page < page_count; ++page) {
+        uint64_t expected = 0u;
+        uint64_t actual = 0u;
+
+        if (!memory_object_page_at(object, page, &expected) ||
+            !vmm_translate_in(
+                &process->address_space,
+                address + (uint64_t)page * AURORA_PAGE_SIZE,
+                &actual) ||
+            (actual & ~(AURORA_PAGE_SIZE - 1u)) != expected) {
+            spinlock_lock(&process->anonymous_lock);
+            process->anonymous_ranges[slot].state =
+                AURORA_PROCESS_ANON_ACTIVE;
+            spinlock_unlock(&process->anonymous_lock);
+            return false;
+        }
+    }
+
+    for (uint32_t page = 0u; page < page_count; ++page) {
+        if (!vmm_unmap_page_in(
+                &process->address_space,
+                address + (uint64_t)page * AURORA_PAGE_SIZE)) {
+            return false;
+        }
+    }
+
+    if (!memory_object_mapping_release(object)) {
+        return false;
+    }
+
+    spinlock_lock(&process->anonymous_lock);
+    struct aurora_process_anon_range *range =
+        &process->anonymous_ranges[slot];
+    range->base = 0u;
+    range->page_count = 0u;
+    range->state = AURORA_PROCESS_ANON_FREE;
+    range->kind = AURORA_PROCESS_MEMORY_NONE;
+    range->shared_object = NULL;
+    if (process->anonymous_page_count >= page_count) {
+        process->anonymous_page_count -= page_count;
+    }
+    spinlock_unlock(&process->anonymous_lock);
+
     return true;
 }
 
@@ -286,9 +474,15 @@ bool process_user_memory_preflight(
         if (range->state == AURORA_PROCESS_ANON_FREE) continue;
         if (range->state != AURORA_PROCESS_ANON_ACTIVE ||
             range->page_count == 0u ||
+            range->kind == AURORA_PROCESS_MEMORY_NONE ||
             range->base < AURORA_USER_ANON_BASE ||
             range->base >= AURORA_USER_ANON_LIMIT ||
             range_bytes(range->page_count) > AURORA_USER_ANON_LIMIT - range->base) {
+            return false;
+        }
+
+        if (range->kind == AURORA_PROCESS_MEMORY_SHARED &&
+            range->shared_object == NULL) {
             return false;
         }
 
@@ -304,6 +498,17 @@ bool process_user_memory_preflight(
                 (physical & (AURORA_PAGE_SIZE - 1u)) != 0u) {
                 return false;
             }
+
+            if (range->kind == AURORA_PROCESS_MEMORY_SHARED) {
+                uint64_t expected = 0u;
+                if (!memory_object_page_at(
+                        range->shared_object,
+                        page,
+                        &expected) ||
+                    (physical & ~(AURORA_PAGE_SIZE - 1u)) != expected) {
+                    return false;
+                }
+            }
         }
     }
 
@@ -317,19 +522,35 @@ void process_user_memory_reap(struct aurora_process *process) {
         struct aurora_process_anon_range *range = &process->anonymous_ranges[i];
         if (range->state != AURORA_PROCESS_ANON_ACTIVE) continue;
 
-        for (uint32_t page = 0u; page < range->page_count; ++page) {
-            uint64_t physical = 0u;
-            uint64_t virtual_address =
-                range->base + (uint64_t)page * AURORA_PAGE_SIZE;
-            if (vmm_translate_in(&process->address_space, virtual_address, &physical)) {
-                clear_bytes(pmm_phys_to_virt(physical), (size_t)AURORA_PAGE_SIZE);
-                pmm_free_page(physical);
+        if (range->kind == AURORA_PROCESS_MEMORY_PRIVATE) {
+            for (uint32_t page = 0u; page < range->page_count; ++page) {
+                uint64_t physical = 0u;
+                uint64_t virtual_address =
+                    range->base + (uint64_t)page * AURORA_PAGE_SIZE;
+                if (vmm_translate_in(
+                        &process->address_space,
+                        virtual_address,
+                        &physical)) {
+                    clear_bytes(
+                        pmm_phys_to_virt(
+                            physical & ~(AURORA_PAGE_SIZE - 1u)),
+                        (size_t)AURORA_PAGE_SIZE
+                    );
+                    pmm_free_page(
+                        physical & ~(AURORA_PAGE_SIZE - 1u)
+                    );
+                }
             }
+        } else if (range->kind == AURORA_PROCESS_MEMORY_SHARED &&
+                   range->shared_object != NULL) {
+            (void)memory_object_mapping_release(range->shared_object);
         }
 
         range->base = 0u;
         range->page_count = 0u;
         range->state = AURORA_PROCESS_ANON_FREE;
+        range->kind = AURORA_PROCESS_MEMORY_NONE;
+        range->shared_object = NULL;
     }
 
     process->anonymous_page_count = 0u;
