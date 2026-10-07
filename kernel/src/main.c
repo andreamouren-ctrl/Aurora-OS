@@ -9,6 +9,7 @@
 #include <aurora/capability.h>
 #include <aurora/cpu_local.h>
 #include <aurora/display.h>
+#include <aurora/display_identification.h>
 #include <aurora/display_backbuffer.h>
 #include <aurora/framebuffer.h>
 #include <aurora/graphics_buffer.h>
@@ -135,6 +136,14 @@ void kmain(void) {
     log_u64(boot_mode->pitch);
     log_line("");
     log_line("[display] boot framebuffer geometry discovery passed");
+
+    if (!display_identification_selftest()) {
+        kernel_panic("EDID/CTA/DisplayID parser self-test failed");
+    }
+
+    log_line("[display] EDID base parser passed");
+    log_line("[display] CTA-861 HDR/color parser passed");
+    log_line("[display] DisplayID block parser passed");
 #endif
 
     boot_ui_init(&framebuffer);
