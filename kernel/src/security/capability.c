@@ -3,9 +3,81 @@
 
 #include <aurora/capability.h>
 
+struct cap_lifecycle_hooks {
+    aurora_cap_retain_fn retain;
+    aurora_cap_release_fn release;
+};
+
+static struct cap_lifecycle_hooks lifecycle[AURORA_CAP_TYPE_COUNT];
+static aurora_spinlock lifecycle_lock = AURORA_SPINLOCK_INIT;
+
 static bool cap_type_valid(enum aurora_cap_type type) {
     return type > AURORA_CAP_NONE && type < AURORA_CAP_TYPE_COUNT;
 }
+
+static bool lifecycle_retain(
+    enum aurora_cap_type type,
+    void *object
+) {
+    if (!cap_type_valid(type) || object == NULL) {
+        return false;
+    }
+
+    aurora_cap_retain_fn retain = NULL;
+
+    spinlock_lock(&lifecycle_lock);
+    retain = lifecycle[type].retain;
+    spinlock_unlock(&lifecycle_lock);
+
+    return retain == NULL || retain(object);
+}
+
+static void lifecycle_release(
+    enum aurora_cap_type type,
+    void *object
+) {
+    if (!cap_type_valid(type) || object == NULL) {
+        return;
+    }
+
+    aurora_cap_release_fn release = NULL;
+
+    spinlock_lock(&lifecycle_lock);
+    release = lifecycle[type].release;
+    spinlock_unlock(&lifecycle_lock);
+
+    if (release != NULL) {
+        release(object);
+    }
+}
+
+bool cap_lifecycle_register(
+    enum aurora_cap_type type,
+    aurora_cap_retain_fn retain,
+    aurora_cap_release_fn release
+) {
+    if (!cap_type_valid(type) ||
+        (retain == NULL) != (release == NULL)) {
+        return false;
+    }
+
+    spinlock_lock(&lifecycle_lock);
+
+    if ((lifecycle[type].retain != NULL ||
+         lifecycle[type].release != NULL) &&
+        (lifecycle[type].retain != retain ||
+         lifecycle[type].release != release)) {
+        spinlock_unlock(&lifecycle_lock);
+        return false;
+    }
+
+    lifecycle[type].retain = retain;
+    lifecycle[type].release = release;
+
+    spinlock_unlock(&lifecycle_lock);
+    return true;
+}
+
 
 static aurora_cap_handle make_handle(
     uint32_t slot,
@@ -92,6 +164,40 @@ void cap_table_init(
     }
 }
 
+void cap_table_destroy(
+    struct aurora_cap_table *table
+) {
+    if (table == NULL) return;
+
+    for (uint32_t i = 0u; i < AURORA_CAPABILITY_SLOTS; ++i) {
+        void *object = NULL;
+        enum aurora_cap_type type = AURORA_CAP_NONE;
+
+        spinlock_lock(&table->lock);
+
+        struct aurora_cap_entry *entry = &table->entries[i];
+
+        if (entry->occupied && entry->object != NULL &&
+            entry->type > (uint16_t)AURORA_CAP_NONE &&
+            entry->type < (uint16_t)AURORA_CAP_TYPE_COUNT) {
+            object = entry->object;
+            type = (enum aurora_cap_type)entry->type;
+
+            entry->occupied = false;
+            entry->object = NULL;
+            entry->rights = 0u;
+            entry->type = AURORA_CAP_NONE;
+            entry->generation = next_generation(entry->generation);
+        }
+
+        spinlock_unlock(&table->lock);
+
+        if (object != NULL) {
+            lifecycle_release(type, object);
+        }
+    }
+}
+
 aurora_cap_handle cap_grant(
     struct aurora_cap_table *table,
     void *object,
@@ -101,6 +207,10 @@ aurora_cap_handle cap_grant(
     if (table == NULL ||
         object == NULL ||
         !cap_type_valid(type)) {
+        return AURORA_CAP_INVALID;
+    }
+
+    if (!lifecycle_retain(type, object)) {
         return AURORA_CAP_INVALID;
     }
 
@@ -144,6 +254,7 @@ aurora_cap_handle cap_grant(
         &table->lock
     );
 
+    lifecycle_release(type, object);
     return AURORA_CAP_INVALID;
 }
 
@@ -240,6 +351,10 @@ bool cap_revoke(
         return false;
     }
 
+    void *object = entry->object;
+    enum aurora_cap_type type =
+        (enum aurora_cap_type)entry->type;
+
     entry->occupied = false;
     entry->object = NULL;
     entry->rights = 0;
@@ -254,6 +369,7 @@ bool cap_revoke(
         &table->lock
     );
 
+    lifecycle_release(type, object);
     return true;
 }
 
@@ -385,6 +501,12 @@ aurora_cap_handle cap_delegate(
 
         if (target->generation == 0) {
             target->generation = 1;
+        }
+
+        if (!lifecycle_retain(
+                (enum aurora_cap_type)source->type,
+                source->object)) {
+            break;
         }
 
         target->object =
