@@ -23,7 +23,7 @@ jobs:
             qemu-system-x86 dosfstools mtools exfatprogs exfat-fuse
 
       - name: Build Aurora OS
-        run: make iso
+        run: make BOOT_VALIDATION=1 iso
 
       - name: Prepare AHCI filesystem image
         run: |

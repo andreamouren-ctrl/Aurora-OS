@@ -2,6 +2,7 @@
 
 #include <aurora/bootstrap_probe.h>
 #include <aurora/entropy.h>
+#include <aurora/clock.h>
 #include <aurora/entropy_ring3_probe.h>
 #include <aurora/identity_auth_probe.h>
 #include <aurora/identity_client.h>
@@ -24,7 +25,6 @@
 
 static char credential_buffer[AURORA_KEY_MAX_LENGTH + 1u];
 static size_t credential_length;
-static bool native_artwork_attempted;
 static bool create_offer_active;
 static bool create_entry_mode;
 static bool creation_notice_active;
@@ -241,6 +241,7 @@ static void handle_pressed_key(
             : AURORA_LOGIN_IDLE);
 }
 
+#if AURORA_BOOT_VALIDATION
 static void protected_state_bootstrap_probe(void) {
     struct aurora_vfs_stat system_stat;
 
@@ -288,20 +289,30 @@ static void protected_state_bootstrap_probe(void) {
     log_line("[service-supervisor] bounded Identity restart + fresh capability bootstrap passed");
 }
 
+#endif
 void login_input_init(void) {
     /*
-     * Temporary M1 bootstrap hook: execute storage and trusted-service contracts
-     * before the login surface starts accepting credentials. This policy moves
-     * out of the UI path when Aurora gains the production Service Manager.
+     * Production boot performs only initialization required by the live
+     * system. Deep storage/service/IPC probes remain available in validation
+     * builds used by CI.
      */
+    log_write("[boot-perf] storage init start at ");
+    log_u64(clock_now_ns() / UINT64_C(1000000));
+    log_line(" ms");
+
     bootstrap_storage_probe();
     nvme_bootstrap_probe();
+
+    log_write("[boot-perf] storage discovery complete at ");
+    log_u64(clock_now_ns() / UINT64_C(1000000));
+    log_line(" ms");
 
     struct aurora_block_device *nvme = nvme_namespace_block_device();
     if (nvme != NULL) {
         bootstrap_storage_probe_device(nvme, "NVMe");
     }
 
+#if AURORA_BOOT_VALIDATION
     if (!ipc_wait_ring3_self_test()) {
         kernel_panic("Ring 3 IPC blocking wait/wakeup self-test failed");
     }
@@ -318,9 +329,9 @@ void login_input_init(void) {
     }
 
     protected_state_bootstrap_probe();
+#endif
 
     credential_length = 0u;
-    native_artwork_attempted = false;
     create_offer_active = false;
     create_entry_mode = false;
     creation_notice_active = false;
@@ -329,27 +340,50 @@ void login_input_init(void) {
         credential_buffer[i] = '\0';
     }
 
-    login_ui_set_masked_length(0u);
+    log_write("[boot-perf] Identity client start at ");
+    log_u64(clock_now_ns() / UINT64_C(1000000));
+    log_line(" ms");
 
-    if (identity_client_init()) {
+    bool identity_ready = identity_client_init();
+
+    log_write("[boot-perf] Identity client ready at ");
+    log_u64(clock_now_ns() / UINT64_C(1000000));
+    log_line(" ms");
+
+    /*
+     * Decode and publish the final artwork exactly once, after the live
+     * Identity service initialization. Until this point the boot splash stays
+     * on screen, so the emergency fallback never flashes during a normal boot.
+     */
+    log_write("[boot-perf] Identity artwork decode start at ");
+    log_u64(clock_now_ns() / UINT64_C(1000000));
+    log_line(" ms");
+
+    if (login_ui_activate_native_artwork()) {
+        log_line("[identity-gui] full-quality PNG artwork active");
+    } else {
+        log_line("[identity-gui] native artwork unavailable; procedural fallback active");
+        login_ui_render();
+    }
+
+    log_write("[boot-perf] Identity artwork ready at ");
+    log_u64(clock_now_ns() / UINT64_C(1000000));
+    log_line(" ms");
+
+    if (identity_ready) {
         log_line("[identity-client] production Ring 3 Identity service connected to login input");
         login_ui_set_state(AURORA_LOGIN_IDLE);
     } else {
         log_line("[identity-client] Identity service unavailable; login remains fail-closed");
         login_ui_set_state(AURORA_LOGIN_ERROR);
     }
+
+    log_write("[boot] Identity login ready at ");
+    log_u64(clock_now_ns() / UINT64_C(1000000));
+    log_line(" ms");
 }
 
 void login_input_pump(void) {
-    if (!native_artwork_attempted) {
-        native_artwork_attempted = true;
-        if (login_ui_activate_native_artwork()) {
-            log_line("[identity-gui] full-quality PNG artwork active");
-        } else {
-            log_line("[identity-gui] native artwork unavailable; procedural fallback active");
-        }
-    }
-
     synchronize_identity_state();
 
     struct aurora_input_event event;

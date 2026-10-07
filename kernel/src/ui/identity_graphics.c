@@ -97,6 +97,24 @@ static void cover_geometry(
 }
 
 static void render_background(const struct aurora_png_image *image) {
+    if (image->width == identity_fb.width &&
+        image->height == identity_fb.height &&
+        (image->channels == 3u || image->channels == 4u)) {
+        const uint8_t *source = image->pixels;
+        size_t pixel_count =
+            (size_t)identity_fb.width * (size_t)identity_fb.height;
+
+        for (size_t i = 0u; i < pixel_count; ++i) {
+            identity_surface[i] = framebuffer_rgb(
+                &identity_fb,
+                source[0],
+                source[1],
+                source[2]);
+            source += image->channels;
+        }
+        return;
+    }
+
     uint64_t crop_x_fp;
     uint64_t crop_y_fp;
     uint64_t step_x_fp;

@@ -129,6 +129,7 @@ static void verify_aurora_fs_v2_mount(const struct aurora_partition *system_part
         kernel_panic("AuroraFS v2 common filesystem mount failed");
     }
 
+#if AURORA_BOOT_VALIDATION
     static const char probe_path[] = "/system/aurora.boot-probe";
     static const uint8_t expected[] = "AURORA-FS-V2-PERSIST";
     if (!verify_vfs_file(probe_path, expected, sizeof(expected) - 1u)) {
@@ -164,8 +165,10 @@ static void verify_aurora_fs_v2_mount(const struct aurora_partition *system_part
         kernel_panic("AuroraFS v2 mounted-path directory mutation verification failed");
     }
 
-    log_line("[aurorafs-v2] mounted at /system via common filesystem framework");
     log_line("[vfs] AuroraFS v2 mounted-path mutation routing verified");
+#endif
+
+    log_line("[aurorafs-v2] mounted at /system via common filesystem framework");
 }
 
 static void verify_fat32_partition(const struct aurora_partition *partition) {
@@ -259,7 +262,9 @@ static void bootstrap_native_fs_probe(
     }
 
     verify_aurora_fs_v2_mount(&system_partition);
+#if AURORA_BOOT_VALIDATION
     bootstrap_foreign_fs_probe(device);
+#endif
 }
 
 void bootstrap_storage_probe_device(
@@ -277,10 +282,10 @@ void bootstrap_storage_probe_device(
 }
 
 void bootstrap_storage_probe(void) {
+#if AURORA_BOOT_VALIDATION
     if (!block_device_self_test())
         kernel_panic("Block-device abstraction self-test failed");
     log_line("[storage] block-device abstraction + registry/flush self-test passed");
-    block_device_registry_init();
 
     if (!partition_self_test())
         kernel_panic("GPT integrity/backup partition self-test failed");
@@ -297,7 +302,9 @@ void bootstrap_storage_probe(void) {
     if (!aurora_fs_4kn_self_test())
         kernel_panic("AuroraFS regression self-test failed");
     log_line("[aurorafs] legacy + v2 filesystem regression self-tests passed");
+#endif
 
+    block_device_registry_init();
     fs_driver_registry_init();
     fs_mount_manager_init();
     if (!vfs_init()) kernel_panic("VFS bootstrap initialization failed");
@@ -354,17 +361,20 @@ void bootstrap_storage_probe(void) {
                 block_device_find("ahci-sata0") != ahci_disk)
                 kernel_panic("AHCI block-device registry integration failed");
 
+            log_line("[storage] block device registered: ahci-sata0");
+
+#if AURORA_BOOT_VALIDATION
             uint8_t first_block[4096];
             if (ahci_disk->block_size > sizeof(first_block) ||
                 !block_device_read(ahci_disk, 0u, 1u, first_block))
                 kernel_panic("AHCI READ DMA EXT LBA0 verification failed");
 
-            log_line("[storage] block device registered: ahci-sata0");
             log_line("[ahci] READ DMA EXT LBA0 via block layer verified");
             if (ahci_rw_signed_probe())
                 log_line("[ahci] signed WRITE DMA EXT + FLUSH CACHE EXT probe passed and restored");
             else
                 log_line("[ahci] signed write/flush probe skipped: CI signature absent or verification failed");
+#endif
 
             bootstrap_storage_probe_device(ahci_disk, "AHCI");
         }
@@ -393,6 +403,8 @@ void bootstrap_storage_probe(void) {
         log_line("[ata] primary PIO disk unavailable");
     }
 
+#if AURORA_BOOT_VALIDATION
     if (!vfs_self_test()) kernel_panic("VFS bootstrap self-test failed");
     log_line("[vfs] volatile bootstrap filesystem self-test passed");
+#endif
 }

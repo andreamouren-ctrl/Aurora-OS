@@ -36,7 +36,7 @@ jobs:
             exfat-fuse
 
       - name: Build kernel and ISO
-        run: make iso
+        run: make BOOT_VALIDATION=1 iso
 
       - name: Inspect kernel
         run: |

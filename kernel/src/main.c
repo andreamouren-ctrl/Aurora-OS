@@ -33,9 +33,19 @@
 #include <aurora/version.h>
 #include <aurora/vmm.h>
 
+#if AURORA_BOOT_VALIDATION
 static volatile uint64_t scheduler_probe_value;
 static struct aurora_ipc_channel ring3_ipc_probe_channel;
 static struct aurora_cap_table ring3_ipc_kernel_caps;
+#endif
+
+static void boot_perf_log(const char *stage) {
+    log_write("[boot-perf] ");
+    log_write(stage);
+    log_write(" at ");
+    log_u64(clock_now_ns() / UINT64_C(1000000));
+    log_line(" ms");
+}
 
 static const char *lapic_mode_name(void) {
     switch (lapic_current_mode()) {
@@ -50,6 +60,7 @@ static const char *lapic_mode_name(void) {
     }
 }
 
+#if AURORA_BOOT_VALIDATION
 static void scheduler_probe_thread(
     void *argument
 ) {
@@ -61,6 +72,7 @@ static void scheduler_probe_thread(
             0x4155524F52414F53ull;
     }
 }
+#endif
 
 void kmain(void) {
     arch_early_init();
@@ -259,6 +271,7 @@ void kmain(void) {
     log_write("[timer] mode: ");
     log_line(timer_mode_name());
 
+#if AURORA_BOOT_VALIDATION
     uint64_t timer_before =
         timer_interrupt_count();
 
@@ -283,6 +296,7 @@ void kmain(void) {
     }
 
     log_line("[timer] one-shot interrupt probe passed");
+#endif
 
     boot_ui_stage(
         AURORA_BOOT_STAGE_TIMER
@@ -291,7 +305,9 @@ void kmain(void) {
     if (!kheap_init()) {
         kernel_panic("Kernel heap initialization failed");
     }
+    boot_perf_log("heap ready");
 
+#if AURORA_BOOT_VALIDATION
     void *probe = kheap_alloc(128, 16);
 
     if (probe == 0) {
@@ -318,26 +334,31 @@ void kmain(void) {
     }
 
     log_line("[clock] 1 ms monotonic probe passed");
+#endif
 
     boot_ui_stage(
         AURORA_BOOT_STAGE_HEAP
     );
 
+#if AURORA_BOOT_VALIDATION
     if (!capability_self_test()) {
         kernel_panic("Capability security self-test failed");
     }
 
     log_line("[cap] typed capability self-test passed");
+#endif
 
     boot_ui_stage(
         AURORA_BOOT_STAGE_CAPABILITIES
     );
 
+#if AURORA_BOOT_VALIDATION
     if (!ipc_self_test()) {
         kernel_panic("IPC capability-transfer self-test failed");
     }
 
     log_line("[ipc] bounded capability-transfer self-test passed");
+#endif
 
     boot_ui_stage(
         AURORA_BOOT_STAGE_IPC
@@ -346,6 +367,7 @@ void kmain(void) {
     if (!scheduler_init()) {
         kernel_panic("Scheduler initialization failed");
     }
+    boot_perf_log("scheduler initialized");
 
     for (uint32_t i = 0u; i < smp_cpu_count(); ++i) {
         const struct aurora_cpu_runtime *cpu = smp_cpu_at(i);
@@ -356,7 +378,9 @@ void kmain(void) {
             kernel_panic("Could not prepare AP scheduler idle ownership");
         }
     }
+    boot_perf_log("AP scheduler contexts prepared");
 
+#if AURORA_BOOT_VALIDATION
     scheduler_probe_value = 0;
 
     aurora_thread_id probe_thread =
@@ -371,19 +395,28 @@ void kmain(void) {
             "Could not create scheduler probe thread"
         );
     }
+#endif
 
     if (!scheduler_start()) {
         kernel_panic("Could not start scheduler");
     }
+    boot_perf_log("scheduler started");
 
     smp_release_scheduler_aps();
 
     uint64_t smp_scheduler_deadline =
         clock_now_ns() + 250000000ull;
 
+    /*
+     * Do not HLT here. With no non-idle BSP thread yet, scheduler_start()
+     * intentionally leaves the BSP timer disarmed. AP ownership completion is
+     * a shared-memory handoff and does not itself raise an interrupt, so HLT
+     * could sleep forever after the APs have already published completion.
+     * This is a short, bounded bootstrap rendezvous; PAUSE is the correct wait.
+     */
     while (smp_scheduler_owned_cpu_count() != smp_online_cpu_count() &&
            clock_now_ns() < smp_scheduler_deadline) {
-        arch_idle();
+        __asm__ volatile ("pause");
     }
 
     if (smp_scheduler_owned_cpu_count() != smp_online_cpu_count()) {
@@ -393,7 +426,9 @@ void kmain(void) {
     log_write("[sched] scheduler-owned CPUs: ");
     log_u64(smp_scheduler_owned_cpu_count());
     log_line("");
+    boot_perf_log("all CPUs scheduler-owned");
 
+#if AURORA_BOOT_VALIDATION
     uint32_t expected_ap_timer_cpus =
         smp_online_cpu_count() > 0u
             ? smp_online_cpu_count() - 1u
@@ -457,11 +492,13 @@ void kmain(void) {
     log_line("");
 
     log_line("[sched] preemptive kernel thread probe passed");
+#endif
 
     boot_ui_stage(
         AURORA_BOOT_STAGE_SCHEDULER
     );
 
+#if AURORA_BOOT_VALIDATION
     struct aurora_process *user_process =
         process_create_image(
             "ring3-probe",
@@ -640,6 +677,7 @@ void kmain(void) {
     }
 
     log_line("[ring3-ipc] capability-gated send/receive syscall round-trip passed");
+#endif
 
     boot_ui_stage(
         AURORA_BOOT_STAGE_USERSPACE
@@ -654,7 +692,9 @@ void kmain(void) {
     }
 
     boot_ui_complete();
+    boot_perf_log("boot UI handoff");
     login_input_init();
+    boot_perf_log("login input initialized");
 
     log_line("[kernel] M1 user-space bootstrap reached successfully");
 

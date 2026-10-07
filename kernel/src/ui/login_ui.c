@@ -597,7 +597,10 @@ void login_ui_init(
     login_state = AURORA_LOGIN_IDLE;
     masked_key_length = 0u;
 
-    login_ui_render();
+    /*
+     * Keep the boot surface visible until native Identity artwork is decoded.
+     * This prevents a visible flash of the emergency procedural fallback.
+     */
 }
 
 bool login_ui_is_initialized(void) {

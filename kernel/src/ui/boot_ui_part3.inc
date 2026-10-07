@@ -61,7 +61,9 @@ void boot_ui_stage(enum aurora_boot_stage stage) {
     current_phrase =
         stage_visuals[stage].phrase_index;
 
+#if AURORA_BOOT_VALIDATION
     render_progress();
+#endif
 }
 
 void boot_ui_complete(void) {
@@ -77,6 +79,7 @@ void boot_ui_complete(void) {
             1u
         );
 
+#if AURORA_BOOT_VALIDATION
     render_progress();
 
     draw_text_shadowed_centered(
@@ -85,6 +88,7 @@ void boot_ui_complete(void) {
         active_fb.width >= 1200u ? 2u : 1u,
         rgb(169, 244, 255)
     );
+#endif
 
     /*
      * Bootstrap hand-off: until Aurora has its compositor/session service,
