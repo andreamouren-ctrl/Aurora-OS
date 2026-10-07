@@ -658,50 +658,50 @@ bool software_compositor_compose_present(
     struct aurora_compositor_damage damage =
         compositor->pending_damage;
 
-    struct aurora_graphics_surface_snapshot snapshots[
-        AURORA_COMPOSITOR_MAX_NODES
-    ];
-    bool have_snapshot[AURORA_COMPOSITOR_MAX_NODES] = {0};
+    uint64_t observed_commit[AURORA_COMPOSITOR_MAX_NODES] = {0};
     bool new_commit[AURORA_COMPOSITOR_MAX_NODES] = {0};
 
+    /*
+     * First pass only gathers bounded metadata and releases each retained
+     * snapshot immediately. This keeps per-frame stack use small and fixed.
+     */
     for (uint32_t i = 0u; i < AURORA_COMPOSITOR_MAX_NODES; ++i) {
-        snapshots[i] =
-            (struct aurora_graphics_surface_snapshot){0};
-
         struct aurora_compositor_node *node =
             &compositor->nodes[i];
 
         if (!node->used || !node->visible) continue;
 
+        struct aurora_graphics_surface_snapshot snapshot = {0};
+
         if (!graphics_surface_read_committed(
                 &compositor->surface_caps,
                 node->surface_handle,
-                &snapshots[i])) {
+                &snapshot)) {
             continue;
         }
 
-        have_snapshot[i] = true;
+        observed_commit[i] = snapshot.commit_serial;
 
-        if (snapshots[i].commit_serial !=
+        if (snapshot.commit_serial !=
             node->last_commit_serial) {
             new_commit[i] = true;
 
-            if (snapshots[i].damage_count == 0u) {
+            if (snapshot.damage_count == 0u) {
                 (void)damage_union(
                     &damage,
                     node->x,
                     node->y,
-                    snapshots[i].buffer->width,
-                    snapshots[i].buffer->height,
+                    snapshot.buffer->width,
+                    snapshot.buffer->height,
                     mode->width,
                     mode->height
                 );
             } else {
                 for (uint32_t r = 0u;
-                     r < snapshots[i].damage_count;
+                     r < snapshot.damage_count;
                      ++r) {
                     const struct aurora_graphics_rect *rect =
-                        &snapshots[i].damage[r];
+                        &snapshot.damage[r];
 
                     (void)damage_union(
                         &damage,
@@ -715,14 +715,11 @@ bool software_compositor_compose_present(
                 }
             }
         }
+
+        graphics_surface_snapshot_release(&snapshot);
     }
 
     if (!damage.valid) {
-        for (uint32_t i = 0u; i < AURORA_COMPOSITOR_MAX_NODES; ++i) {
-            if (have_snapshot[i]) {
-                graphics_surface_snapshot_release(&snapshots[i]);
-            }
-        }
         return true;
     }
 
@@ -739,11 +736,6 @@ bool software_compositor_compose_present(
 
         if (begin > compositor->backbuffer.byte_length ||
             bytes > compositor->backbuffer.byte_length - begin) {
-            for (uint32_t i = 0u; i < AURORA_COMPOSITOR_MAX_NODES; ++i) {
-                if (have_snapshot[i]) {
-                    graphics_surface_snapshot_release(&snapshots[i]);
-                }
-            }
             return false;
         }
 
@@ -772,18 +764,43 @@ bool software_compositor_compose_present(
         struct aurora_compositor_node *node =
             &compositor->nodes[index];
 
-        if (have_snapshot[index] &&
-            !compose_snapshot(
-                compositor,
-                node,
-                &snapshots[index],
-                &damage)) {
-            for (uint32_t i = 0u; i < AURORA_COMPOSITOR_MAX_NODES; ++i) {
-                if (have_snapshot[i]) {
-                    graphics_surface_snapshot_release(&snapshots[i]);
-                }
+        struct aurora_graphics_surface_snapshot snapshot = {0};
+
+        if (graphics_surface_read_committed(
+                &compositor->surface_caps,
+                node->surface_handle,
+                &snapshot)) {
+            /*
+             * If a client commits between metadata collection and raster,
+             * abort this frame rather than mixing two atomic surface states.
+             * The next call will recompute damage from the newer serial.
+             */
+            if (observed_commit[index] != 0u &&
+                snapshot.commit_serial != observed_commit[index]) {
+                graphics_surface_snapshot_release(&snapshot);
+                compositor->pending_damage = (struct aurora_compositor_damage){
+                    .x = 0u,
+                    .y = 0u,
+                    .width = (uint32_t)mode->width,
+                    .height = (uint32_t)mode->height,
+                    .valid = true
+                };
+                return false;
             }
-            return false;
+
+            bool composed =
+                compose_snapshot(
+                    compositor,
+                    node,
+                    &snapshot,
+                    &damage
+                );
+
+            graphics_surface_snapshot_release(&snapshot);
+
+            if (!composed) {
+                return false;
+            }
         }
 
         first = false;
@@ -804,13 +821,12 @@ bool software_compositor_compose_present(
             (struct aurora_compositor_damage){0};
 
         for (uint32_t i = 0u; i < AURORA_COMPOSITOR_MAX_NODES; ++i) {
-            if (!have_snapshot[i] || !new_commit[i]) continue;
+            if (!new_commit[i] || observed_commit[i] == 0u) continue;
 
             struct aurora_compositor_node *node =
                 &compositor->nodes[i];
 
-            node->last_commit_serial =
-                snapshots[i].commit_serial;
+            node->last_commit_serial = observed_commit[i];
 
             struct aurora_graphics_surface *surface = NULL;
             if (graphics_surface_lookup(
@@ -820,16 +836,10 @@ bool software_compositor_compose_present(
                     &surface)) {
                 (void)graphics_surface_complete_frame(
                     surface,
-                    snapshots[i].commit_serial,
+                    observed_commit[i],
                     serial
                 );
             }
-        }
-    }
-
-    for (uint32_t i = 0u; i < AURORA_COMPOSITOR_MAX_NODES; ++i) {
-        if (have_snapshot[i]) {
-            graphics_surface_snapshot_release(&snapshots[i]);
         }
     }
 
