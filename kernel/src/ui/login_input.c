@@ -3,6 +3,7 @@
 #include <aurora/bootstrap_probe.h>
 #include <aurora/entropy.h>
 #include <aurora/clock.h>
+#include <aurora/display_ring3_probe.h>
 #include <aurora/entropy_ring3_probe.h>
 #include <aurora/identity_auth_probe.h>
 #include <aurora/identity_client.h>
@@ -604,6 +605,13 @@ void login_input_init(void) {
      * system. Deep storage/service/IPC probes remain available in validation
      * builds used by CI.
      */
+#if AURORA_BOOT_VALIDATION
+    if (!display_ring3_self_test()) {
+        kernel_panic("Ring 3 Display Service acceptance probe failed");
+    }
+    log_line("[display-ring3] capability-gated repeated present acceptance gate passed");
+#endif
+
     log_write("[boot-perf] storage init start at ");
     log_u64(clock_now_ns() / UINT64_C(1000000));
     log_line(" ms");
