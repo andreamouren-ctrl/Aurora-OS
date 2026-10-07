@@ -410,7 +410,20 @@ static bool rw_write(struct aurora_block_device *device,
 
 static bool rw_flush(struct aurora_block_device *device) {
     (void)device;
-    return issue_flush(rw_context.port);
+
+    /*
+     * QEMU AHCI may transiently report task-file error immediately after a
+     * DMA write while the device settles. Keep FLUSH mandatory, but permit a
+     * small bounded retry window rather than treating the first transient
+     * completion as permanent failure.
+     */
+    for (uint32_t attempt = 0u; attempt < 3u; ++attempt) {
+        if (issue_flush(rw_context.port)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 bool ahci_rw_block_device_init(void) {
