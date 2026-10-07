@@ -124,4 +124,14 @@ bool graphics_surface_commit(
     uint64_t *out_commit_serial
 );
 
+bool graphics_surface_read_committed(
+    struct aurora_cap_table *table,
+    aurora_cap_handle surface_handle,
+    struct aurora_graphics_surface_snapshot *out_snapshot
+);
+
+void graphics_surface_snapshot_release(
+    struct aurora_graphics_surface_snapshot *snapshot
+);
+
 #endif
