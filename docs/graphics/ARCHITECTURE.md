@@ -155,11 +155,15 @@ Graphics consumes normalized device-independent input events rather than device-
 G4 currently includes:
 
 - normalized keyboard events;
-- initial normalized pointer path;
-- PS/2 mouse IRQ12 packet decoding;
+- normalized pointer events;
+- live PS/2 mouse IRQ12 packet decoding;
+- secure-scene-aware compositor hit testing;
+- pointer and keyboard focus routing;
+- private per-target input queues;
+- runtime no-leakage/focus-isolation validation;
 - separation between pointer events and Aurora Identity credential input.
 
-Still pending are complete compositor hit testing, keyboard/pointer focus, capture revocation and USB HID.
+Still pending are explicit pointer-capture/capture-revocation semantics, final focus teardown integration with window/session lifecycle, and USB HID.
 
 ## 9. Performance direction
 
