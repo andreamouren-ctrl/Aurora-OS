@@ -36,6 +36,20 @@ SESSION_ACTIVE
 
 The Session Manager never receives the Aurora Key, Identity Drive secret, recovery credential, or private authenticator key.
 
+### Current profile-bootstrap implementation
+
+After a one-time grant is consumed successfully, the Ring 3 Session Manager asks the kernel profile mechanism to open or create the persistent profile backing directory for the authenticated stable `user_id`.
+
+The current v1 backing layout is:
+
+```text
+/system/users/<stable-user-id-hex>
+```
+
+The path is storage representation only; it is **not** authorization. The Session Manager receives a capability-gated profile handle and transfers a reduced `AURORA_CAP_FILE` authority to the session bridge. The capability is validated against the same authenticated `user_id` before the session becomes active.
+
+Aurora Key, display name, or a guessed path can never substitute for that capability.
+
 ## 3. Session grant
 
 A normal login session grant is:
