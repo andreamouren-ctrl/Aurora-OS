@@ -97,6 +97,17 @@ jobs:
           dd if="$EXFAT_IMAGE" of="$IMAGE" bs=512 seek="$EXFAT_START" \
             conv=notrunc status=none
 
+          python3 - "$IMAGE" <<'PY'
+          import sys
+          path = sys.argv[1]
+          signature = b"AURORA-AHCI-RW-TEST-V1"
+          with open(path, "r+b") as f:
+              f.seek(-512, 2)
+              sector = bytearray(512)
+              sector[:len(signature)] = signature
+              f.write(sector)
+          PY
+
       - name: AHCI partition filesystem VFS smoke boot
         run: |
           set -u
@@ -135,9 +146,10 @@ jobs:
 
           grep -F "[storage] block device registered: ahci-sata0" "$SERIAL_LOG"
           grep -F "[ahci] READ DMA EXT LBA0 via block layer verified" "$SERIAL_LOG"
-          grep -F "[aurorafs] transport: AHCI" "$SERIAL_LOG"
-          grep -F "[aurorafs] mounted at /system via common filesystem framework" "$SERIAL_LOG"
-          grep -F "[vfs] AuroraFS mounted-path routing verified" "$SERIAL_LOG"
+          grep -F "[ahci] signed WRITE DMA EXT + FLUSH CACHE EXT probe passed and restored" "$SERIAL_LOG"
+          grep -F "[aurorafs-v2] transport: AHCI" "$SERIAL_LOG"
+          grep -F "[aurorafs-v2] mounted at /system via common filesystem framework" "$SERIAL_LOG"
+          grep -F "[vfs] AuroraFS v2 mounted-path mutation routing verified" "$SERIAL_LOG"
           grep -F "[partition] discovered: 2" "$SERIAL_LOG"
           grep -F "[fs] detected FAT32 on partition 1" "$SERIAL_LOG"
           grep -F "[fat32] external file read verified" "$SERIAL_LOG"
