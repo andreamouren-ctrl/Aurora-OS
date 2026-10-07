@@ -400,10 +400,11 @@ bool graphics_input_router_selftest(void) {
         return false;
     }
 
-    struct aurora_software_compositor compositor;
-    if (!software_compositor_init(&compositor, 0u)) return false;
+    static struct aurora_software_compositor compositor;
+    static struct aurora_cap_table caps;
+    static struct aurora_graphics_input_router router;
 
-    struct aurora_cap_table caps;
+    if (!software_compositor_init(&compositor, 0u)) return false;
     cap_table_init(&caps);
 
     struct aurora_graphics_buffer *a_buf =
@@ -465,7 +466,6 @@ bool graphics_input_router_selftest(void) {
         return false;
     }
 
-    struct aurora_graphics_input_router router;
     if (!graphics_input_router_init(&router, &compositor) ||
         !graphics_input_register_target(&router, 101u, an) ||
         !graphics_input_register_target(&router, 202u, bn) ||
