@@ -36,7 +36,15 @@ enum aurora_syscall_number {
     AURORA_SYS_GRAPHICS_SURFACE_ATTACH = 17,
     AURORA_SYS_GRAPHICS_SURFACE_DAMAGE = 18,
     AURORA_SYS_GRAPHICS_SURFACE_COMMIT = 19,
-    AURORA_SYS_DISPLAY_PRESENT = 20
+    AURORA_SYS_DISPLAY_PRESENT = 20,
+    AURORA_SYS_GRAPHICS_FRAME_CALLBACK_REQUEST = 21,
+    AURORA_SYS_GRAPHICS_FRAME_CALLBACK_TAKE = 22
+};
+
+struct aurora_sys_graphics_frame_callback {
+    uint64_t request_id;
+    uint64_t commit_serial;
+    uint64_t presentation_serial;
 };
 
 struct aurora_sys_ipc_transfer {
