@@ -12,6 +12,8 @@ struct session_runtime_context {
     uint64_t supervisor_endpoint;
     uint64_t identity_endpoint;
     uint64_t identity_session_authority;
+    uint64_t profile_root_authority;
+    uint64_t profile_handle;
     bool active;
     uint64_t generation;
     uint8_t user_id[AURORA_SESSION_MANAGER_USER_ID_SIZE];
@@ -38,6 +40,18 @@ static bool bytes_all_zero(const uint8_t *bytes, size_t size) {
     uint8_t combined = 0u;
     for (size_t i = 0u; i < size; ++i) combined |= bytes[i];
     return combined == 0u;
+}
+
+static uint64_t syscall1(uint64_t number, uint64_t a1) {
+    register uint64_t rax __asm__("rax") = number;
+    register uint64_t rdi __asm__("rdi") = a1;
+    __asm__ volatile (
+        "syscall"
+        : "+a"(rax)
+        : "D"(rdi)
+        : "rcx", "r11", "memory"
+    );
+    return rax;
 }
 
 static uint64_t syscall2(uint64_t number, uint64_t a1, uint64_t a2) {
@@ -166,7 +180,8 @@ static bool send_manager_result(
     uint32_t state,
     uint32_t public_error,
     uint64_t generation,
-    const uint8_t *user_id
+    const uint8_t *user_id,
+    uint64_t profile_handle
 ) {
     struct aurora_session_manager_result result;
     secure_zero(&result, sizeof(result));
@@ -179,7 +194,29 @@ static bool send_manager_result(
     if (user_id != NULL) {
         copy_bytes(result.user_id, user_id, sizeof(result.user_id));
     }
-    bool sent = send_payload(endpoint, &result, sizeof(result));
+
+    bool sent;
+    if (profile_handle != 0u) {
+        const struct aurora_sys_ipc_transfer transfer = {
+            .handle = profile_handle,
+            .rights =
+                AURORA_RIGHT_READ |
+                AURORA_RIGHT_WRITE |
+                AURORA_RIGHT_ENUMERATE |
+                AURORA_RIGHT_TRANSFER
+        };
+        sent = syscall5(
+            AURORA_SYS_IPC_SEND,
+            endpoint,
+            (uint64_t)(uintptr_t)&result,
+            sizeof(result),
+            (uint64_t)(uintptr_t)&transfer,
+            1u
+        ) == 0u;
+    } else {
+        sent = send_payload(endpoint, &result, sizeof(result));
+    }
+
     secure_zero(&result, sizeof(result));
     return sent;
 }
@@ -212,12 +249,13 @@ static bool validate_startup(
         startup->ipc_endpoint == 0u ||
         startup->protected_state == 0u ||
         startup->entropy_seed != 0u ||
-        startup->extra_capability_count != 2u) {
+        startup->extra_capability_count != 3u) {
         return false;
     }
 
     uint64_t identity_endpoint = startup->extra_capabilities[0];
     uint64_t session_authority = startup->extra_capabilities[1];
+    uint64_t profile_root = startup->extra_capabilities[2];
 
     if (!capability_has(
             startup->ipc_endpoint,
@@ -256,6 +294,17 @@ static bool validate_startup(
             session_authority,
             AURORA_CAP_IDENTITY_SESSION,
             AURORA_RIGHT_CONTROL | AURORA_RIGHT_TRANSFER)) {
+        return false;
+    }
+
+    if (!capability_has(
+            profile_root,
+            AURORA_CAP_PROFILE_ROOT,
+            AURORA_RIGHT_CONTROL) ||
+        capability_has(
+            profile_root,
+            AURORA_CAP_PROFILE_ROOT,
+            AURORA_RIGHT_TRANSFER)) {
         return false;
     }
 
@@ -342,7 +391,8 @@ static bool begin_session(
             AURORA_SESSION_MANAGER_STATE_BUSY,
             AURORA_SESSION_MANAGER_ERROR_BUSY,
             context->generation,
-            NULL);
+            NULL,
+            0u);
     }
 
     uint8_t grant[AURORA_SESSION_MANAGER_GRANT_SIZE];
@@ -356,7 +406,8 @@ static bool begin_session(
             AURORA_SESSION_MANAGER_STATE_REJECTED,
             AURORA_SESSION_MANAGER_ERROR_IDENTITY_REJECTED,
             context->generation,
-            NULL);
+            NULL,
+            0u);
     }
 
     if (!send_identity_consume(context, request_id, grant)) {
@@ -367,7 +418,8 @@ static bool begin_session(
             AURORA_SESSION_MANAGER_STATE_SERVICE_ERROR,
             AURORA_SESSION_MANAGER_ERROR_INTERNAL_FAILURE,
             context->generation,
-            NULL);
+            NULL,
+            0u);
     }
     secure_zero(grant, sizeof(grant));
 
@@ -381,7 +433,8 @@ static bool begin_session(
             AURORA_SESSION_MANAGER_STATE_SERVICE_ERROR,
             AURORA_SESSION_MANAGER_ERROR_INTERNAL_FAILURE,
             context->generation,
-            NULL);
+            NULL,
+            0u);
     }
 
     if (identity_result.state ==
@@ -389,21 +442,69 @@ static bool begin_session(
         identity_result.public_error ==
             AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE &&
         !bytes_all_zero(identity_result.user_id, sizeof(identity_result.user_id))) {
+        uint8_t verified_user_id[AURORA_SESSION_MANAGER_USER_ID_SIZE];
+        copy_bytes(
+            verified_user_id,
+            identity_result.user_id,
+            sizeof(verified_user_id));
+        secure_zero(&identity_result, sizeof(identity_result));
+
+        uint64_t profile_handle = syscall2(
+            AURORA_SYS_PROFILE_OPEN_OR_CREATE,
+            context->profile_root_authority,
+            (uint64_t)(uintptr_t)verified_user_id
+        );
+
+        if (profile_handle == AURORA_SYS_RESULT_ERROR ||
+            !capability_has(
+                profile_handle,
+                AURORA_CAP_FILE,
+                AURORA_RIGHT_READ |
+                AURORA_RIGHT_WRITE |
+                AURORA_RIGHT_ENUMERATE |
+                AURORA_RIGHT_CONTROL |
+                AURORA_RIGHT_TRANSFER)) {
+            secure_zero(verified_user_id, sizeof(verified_user_id));
+            if (profile_handle != AURORA_SYS_RESULT_ERROR &&
+                profile_handle != 0u) {
+                (void)syscall1(AURORA_SYS_CAP_REVOKE, profile_handle);
+            }
+            return send_manager_result(
+                context->supervisor_endpoint,
+                request_id,
+                AURORA_SESSION_MANAGER_STATE_SERVICE_ERROR,
+                AURORA_SESSION_MANAGER_ERROR_INTERNAL_FAILURE,
+                context->generation,
+                NULL,
+                0u);
+        }
+
+        context->profile_handle = profile_handle;
         context->active = true;
         ++context->generation;
         if (context->generation == 0u) ++context->generation;
         copy_bytes(
             context->user_id,
-            identity_result.user_id,
+            verified_user_id,
             sizeof(context->user_id));
-        secure_zero(&identity_result, sizeof(identity_result));
-        return send_manager_result(
+        secure_zero(verified_user_id, sizeof(verified_user_id));
+
+        bool sent = send_manager_result(
             context->supervisor_endpoint,
             request_id,
             AURORA_SESSION_MANAGER_STATE_ACTIVE,
             AURORA_SESSION_MANAGER_ERROR_NONE,
             context->generation,
-            context->user_id);
+            context->user_id,
+            context->profile_handle);
+
+        if (!sent) {
+            (void)syscall1(AURORA_SYS_CAP_REVOKE, context->profile_handle);
+            context->profile_handle = 0u;
+            context->active = false;
+            secure_zero(context->user_id, sizeof(context->user_id));
+        }
+        return sent;
     }
 
     uint32_t state = AURORA_SESSION_MANAGER_STATE_REJECTED;
@@ -424,7 +525,8 @@ static bool begin_session(
         state,
         error,
         context->generation,
-        NULL);
+        NULL,
+        0u);
 }
 
 static bool logout_session(
@@ -438,6 +540,10 @@ static bool logout_session(
         return false;
     }
 
+    if (context->profile_handle != 0u) {
+        (void)syscall1(AURORA_SYS_CAP_REVOKE, context->profile_handle);
+        context->profile_handle = 0u;
+    }
     context->active = false;
     secure_zero(context->user_id, sizeof(context->user_id));
     return send_logout_result(
@@ -460,6 +566,7 @@ int64_t session_manager_runtime_main(uint64_t initial_rsp) {
     context.supervisor_endpoint = startup->ipc_endpoint;
     context.identity_endpoint = startup->extra_capabilities[0];
     context.identity_session_authority = startup->extra_capabilities[1];
+    context.profile_root_authority = startup->extra_capabilities[2];
 
     if (!send_manager_message(
             context.supervisor_endpoint,
