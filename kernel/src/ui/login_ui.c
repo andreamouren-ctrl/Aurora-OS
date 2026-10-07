@@ -370,6 +370,15 @@ static const char *login_status_text(void) {
         case AURORA_LOGIN_THROTTLED:
             return "TOO MANY ATTEMPTS - TRY AGAIN LATER";
 
+        case AURORA_LOGIN_LOCKING:
+            return "LOCKING SESSION...";
+
+        case AURORA_LOGIN_LOCKED:
+            return "SESSION LOCKED";
+
+        case AURORA_LOGIN_UNLOCKING:
+            return "VERIFYING TO UNLOCK...";
+
         case AURORA_LOGIN_LOGGING_OUT:
             return "LOGGING OUT...";
 
@@ -385,6 +394,13 @@ static const char *login_status_text(void) {
 static const char *login_prompt_text(void) {
     if (login_state == AURORA_LOGIN_SESSION_ACTIVE) {
         return "AURORA IDENTITY VERIFIED";
+    }
+    if (login_state == AURORA_LOGIN_LOCKED ||
+        login_state == AURORA_LOGIN_UNLOCKING) {
+        return "ENTER YOUR AURORA KEY TO UNLOCK";
+    }
+    if (login_state == AURORA_LOGIN_LOCKING) {
+        return "SECURING LOCAL SESSION";
     }
     if (login_state == AURORA_LOGIN_LOGGING_OUT) {
         return "ENDING LOCAL SESSION";
@@ -408,11 +424,20 @@ static const char *login_instruction_text(void) {
         case AURORA_LOGIN_UNKNOWN_IDENTITY:
             return "";
 
+        case AURORA_LOGIN_LOCKING:
+            return "REVOKING INTERACTIVE PROFILE ACCESS";
+
+        case AURORA_LOGIN_LOCKED:
+            return "ENTER UNLOCK     ESC LOG OUT";
+
+        case AURORA_LOGIN_UNLOCKING:
+            return "FRESH IDENTITY AUTHENTICATION REQUIRED";
+
         case AURORA_LOGIN_LOGGING_OUT:
             return "REVOKING SESSION ACCESS";
 
         case AURORA_LOGIN_SESSION_ACTIVE:
-            return "PRESS ESC TO LOG OUT";
+            return "ENTER LOCK     ESC LOG OUT";
 
         default:
             return "PRESS ENTER TO CONTINUE";
@@ -546,7 +571,8 @@ void login_ui_render(void) {
         field_height,
         2u,
         login_state == AURORA_LOGIN_AUTHENTICATING ||
-        login_state == AURORA_LOGIN_CREATING
+        login_state == AURORA_LOGIN_CREATING ||
+        login_state == AURORA_LOGIN_UNLOCKING
             ? field_border_active
             : field_border
     );
