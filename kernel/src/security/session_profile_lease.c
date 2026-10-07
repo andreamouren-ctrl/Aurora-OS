@@ -208,6 +208,26 @@ bool session_profile_lease_revoke_process(
     return found && revoked;
 }
 
+void session_profile_lease_suspend(void) {
+    ensure_initialized();
+
+    spinlock_lock(&lease_lock);
+    for (size_t i = 0u; i < AURORA_SESSION_PROFILE_LEASE_MAX; ++i) {
+        if (leases[i].occupied &&
+            leases[i].process != NULL &&
+            leases[i].handle != AURORA_CAP_INVALID) {
+            (void)cap_revoke(
+                &leases[i].process->capabilities,
+                leases[i].handle);
+        }
+
+        leases[i].occupied = false;
+        leases[i].process = NULL;
+        leases[i].handle = AURORA_CAP_INVALID;
+    }
+    spinlock_unlock(&lease_lock);
+}
+
 void session_profile_lease_end(void) {
     ensure_initialized();
 
