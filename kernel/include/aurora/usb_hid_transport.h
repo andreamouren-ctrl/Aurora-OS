@@ -2,6 +2,7 @@
 #define AURORA_USB_HID_TRANSPORT_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include <aurora/usb_hid.h>
@@ -45,6 +46,18 @@ bool usb_hid_transport_bind(
     enum aurora_usb_hid_protocol protocol,
     aurora_usb_hid_binding_handle *out_handle,
     uint64_t *out_device_id
+);
+
+bool usb_hid_transport_submit_report(
+    struct aurora_usb_hid_transport *transport,
+    aurora_usb_hid_binding_handle handle,
+    const uint8_t *report,
+    size_t report_size
+);
+
+bool usb_hid_transport_unbind(
+    struct aurora_usb_hid_transport *transport,
+    aurora_usb_hid_binding_handle handle
 );
 
 bool usb_hid_transport_selftest(void);
