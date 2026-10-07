@@ -1938,7 +1938,7 @@ static void xyz_to_device_linear(
     uint32_t y,
     uint32_t z,
     uint32_t target_peak,
-    uint32_t rgb[3]
+    int32_t rgb[3]
 ) {
     if (profile == NULL || rgb == NULL || target_peak == 0u) return;
 
@@ -1959,29 +1959,62 @@ static void xyz_to_device_linear(
             (int64_t)profile->pcs_to_device_q16[row * 3u + 1u] * yn +
             (int64_t)profile->pcs_to_device_q16[row * 3u + 2u] * zn;
 
-        rgb[row] =
-            clamp_u32_i64((value + 32768) >> 16, 131070u);
+        value = (value + (value >= 0 ? 32768 : -32768)) >> 16;
+
+        if (value > INT32_MAX) value = INT32_MAX;
+        if (value < INT32_MIN) value = INT32_MIN;
+        rgb[row] = (int32_t)value;
     }
 }
 
-static void perceptual_gamut_compress(uint32_t rgb[3]) {
-    uint32_t max = rgb[0];
-    if (rgb[1] > max) max = rgb[1];
-    if (rgb[2] > max) max = rgb[2];
-
-    if (max <= 65535u) return;
+static void perceptual_gamut_compress(
+    const int32_t input_rgb[3],
+    uint32_t rgb[3]
+) {
+    if (input_rgb == NULL || rgb == NULL) return;
 
     /*
-     * Preserve hue ratios by scaling all channels by the same factor.
-     * This is deterministic and avoids hard per-channel clipping.
+     * Compress along a line toward a bounded neutral luminance. Retaining
+     * signed device-linear channels until this point avoids hue-destroying
+     * pre-clamps for colors that transform outside the monitor gamut.
      */
-    uint32_t scale =
-        (uint32_t)(((uint64_t)65535u << 16) / max);
+    int64_t neutral_raw =
+        ((int64_t)input_rgb[0] * 13933 +
+         (int64_t)input_rgb[1] * 46871 +
+         (int64_t)input_rgb[2] * 4732 +
+         32768) >> 16;
+    uint32_t neutral =
+        clamp_u32_i64(neutral_raw, 65535u);
+    uint32_t scale_q16 = 65535u;
 
     for (uint32_t i = 0u; i < 3u; ++i) {
-        rgb[i] =
-            q16_mul_unsigned(rgb[i], scale);
-        if (rgb[i] > 65535u) rgb[i] = 65535u;
+        int64_t delta =
+            (int64_t)input_rgb[i] - (int64_t)neutral;
+
+        if (input_rgb[i] > 65535 && delta > 0) {
+            uint64_t headroom = 65535u - neutral;
+            uint32_t candidate =
+                (uint32_t)((headroom << 16) / (uint64_t)delta);
+            if (candidate < scale_q16) scale_q16 = candidate;
+        } else if (input_rgb[i] < 0 && delta < 0) {
+            uint64_t magnitude = (uint64_t)(-delta);
+            uint32_t candidate =
+                magnitude == 0u
+                    ? 65535u
+                    : (uint32_t)(((uint64_t)neutral << 16) / magnitude);
+            if (candidate < scale_q16) scale_q16 = candidate;
+        }
+    }
+
+    for (uint32_t i = 0u; i < 3u; ++i) {
+        int64_t delta =
+            (int64_t)input_rgb[i] - (int64_t)neutral;
+        int64_t mapped =
+            (int64_t)neutral +
+            ((delta * scale_q16 +
+              (delta >= 0 ? 32768 : -32768)) >> 16);
+
+        rgb[i] = clamp_u32_i64(mapped, 65535u);
     }
 }
 
@@ -2193,15 +2226,20 @@ bool color_management_transform_rgb8(
         profile->target_peak_nits_q16
     );
 
+    int32_t device_linear_rgb[3] = {0, 0, 0};
     uint32_t linear_rgb[3] = {0u, 0u, 0u};
+
     xyz_to_device_linear(
         profile,
         x, y, z,
         profile->target_peak_nits_q16,
-        linear_rgb
+        device_linear_rgb
     );
 
-    perceptual_gamut_compress(linear_rgb);
+    perceptual_gamut_compress(
+        device_linear_rgb,
+        linear_rgb
+    );
 
     perceptual_highlight_chroma_rolloff(
         linear_rgb,
