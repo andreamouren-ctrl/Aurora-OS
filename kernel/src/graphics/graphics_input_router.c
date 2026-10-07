@@ -90,6 +90,65 @@ static bool target_node_still_hittable(
     return false;
 }
 
+static void graphics_input_scene_event(
+    void *context,
+    enum aurora_compositor_scene_event event,
+    uint64_t node_id
+) {
+    struct aurora_graphics_input_router *router =
+        (struct aurora_graphics_input_router *)context;
+
+    if (router == NULL || !router->initialized) return;
+
+    if (event == AURORA_COMPOSITOR_SCENE_NODE_REMOVED) {
+        uint64_t target_id = target_for_node(router, node_id);
+
+        if (target_id == 0u) return;
+
+        if (router->pointer_focus_target == target_id) {
+            router->pointer_focus_target = 0u;
+        }
+        if (router->keyboard_focus_target == target_id) {
+            router->keyboard_focus_target = 0u;
+        }
+        if (router->capture_target == target_id) {
+            router->capture_target = 0u;
+        }
+
+        struct aurora_graphics_input_target *target =
+            find_target(router, target_id);
+
+        if (target != NULL) {
+            *target = (struct aurora_graphics_input_target){0};
+        }
+
+        return;
+    }
+
+    if (event == AURORA_COMPOSITOR_SCENE_SECURITY_POLICY_CHANGED) {
+        if (router->pointer_focus_target != 0u &&
+            !target_node_still_hittable(
+                router,
+                router->pointer_focus_target)) {
+            router->pointer_focus_target = 0u;
+        }
+
+        if (router->keyboard_focus_target != 0u &&
+            !target_node_still_hittable(
+                router,
+                router->keyboard_focus_target)) {
+            router->keyboard_focus_target = 0u;
+        }
+
+        if (router->capture_target != 0u &&
+            !target_node_still_hittable(
+                router,
+                router->capture_target)) {
+            router->capture_target = 0u;
+        }
+    }
+}
+
 bool graphics_input_router_init(
     struct aurora_graphics_input_router *router,
     struct aurora_software_compositor *compositor
@@ -103,6 +162,15 @@ bool graphics_input_router_init(
     clear_bytes(router, sizeof(*router));
     router->compositor = compositor;
     router->initialized = true;
+
+    if (!software_compositor_set_scene_observer(
+            compositor,
+            graphics_input_scene_event,
+            router)) {
+        clear_bytes(router, sizeof(*router));
+        return false;
+    }
+
     return true;
 }
 
@@ -184,18 +252,50 @@ bool graphics_input_set_keyboard_focus(
     return true;
 }
 
-bool graphics_input_set_capture(
+bool graphics_input_request_capture(
     struct aurora_graphics_input_router *router,
     uint64_t target_id
 ) {
     if (router == NULL ||
         !router->initialized ||
+        target_id == 0u ||
+        router->pointer_focus_target != target_id ||
         !target_node_still_hittable(router, target_id)) {
+        return false;
+    }
+
+    if (router->capture_target != 0u &&
+        router->capture_target != target_id) {
         return false;
     }
 
     router->capture_target = target_id;
     return true;
+}
+
+bool graphics_input_release_capture(
+    struct aurora_graphics_input_router *router,
+    uint64_t target_id
+) {
+    if (router == NULL ||
+        !router->initialized ||
+        target_id == 0u ||
+        router->capture_target != target_id) {
+        return false;
+    }
+
+    router->capture_target = 0u;
+    return true;
+}
+
+bool graphics_input_set_capture(
+    struct aurora_graphics_input_router *router,
+    uint64_t target_id
+) {
+    return graphics_input_request_capture(
+        router,
+        target_id
+    );
 }
 
 void graphics_input_revoke_capture(
