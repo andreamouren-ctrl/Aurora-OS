@@ -9,6 +9,21 @@
 #include <aurora/graphics_surface.h>
 
 #define AURORA_COMPOSITOR_MAX_NODES 64u
+#define AURORA_COMPOSITOR_MAX_SCALE 4u
+
+enum aurora_compositor_transform {
+    AURORA_COMPOSITOR_TRANSFORM_NORMAL = 0,
+    AURORA_COMPOSITOR_TRANSFORM_ROTATE_90,
+    AURORA_COMPOSITOR_TRANSFORM_ROTATE_180,
+    AURORA_COMPOSITOR_TRANSFORM_ROTATE_270
+};
+
+enum aurora_compositor_surface_class {
+    AURORA_COMPOSITOR_SURFACE_NORMAL = 0,
+    AURORA_COMPOSITOR_SURFACE_SYSTEM_OVERLAY,
+    AURORA_COMPOSITOR_SURFACE_CURSOR,
+    AURORA_COMPOSITOR_SURFACE_PRE_SESSION
+};
 
 struct aurora_compositor_damage {
     uint32_t x;
@@ -25,8 +40,12 @@ struct aurora_compositor_node {
     int32_t y;
     int32_t z;
     uint8_t opacity;
+    uint8_t scale;
+    enum aurora_compositor_transform transform;
+    enum aurora_compositor_surface_class surface_class;
     bool visible;
     bool used;
+    bool fully_opaque;
     uint64_t last_commit_serial;
 };
 
@@ -37,6 +56,7 @@ struct aurora_software_compositor {
     struct aurora_compositor_damage pending_damage;
     uint32_t output_index;
     uint64_t next_node_id;
+    bool secure_scene_active;
     bool initialized;
 };
 
@@ -59,6 +79,19 @@ bool software_compositor_add_surface(
     uint64_t *out_node_id
 );
 
+bool software_compositor_add_privileged_surface(
+    struct aurora_software_compositor *compositor,
+    struct aurora_cap_table *authority_caps,
+    aurora_cap_handle display_control_handle,
+    struct aurora_graphics_surface *surface,
+    enum aurora_compositor_surface_class surface_class,
+    int32_t x,
+    int32_t y,
+    int32_t z,
+    uint8_t opacity,
+    uint64_t *out_node_id
+);
+
 bool software_compositor_remove_surface(
     struct aurora_software_compositor *compositor,
     uint64_t node_id
@@ -72,6 +105,20 @@ bool software_compositor_set_node(
     int32_t z,
     uint8_t opacity,
     bool visible
+);
+
+bool software_compositor_set_transform(
+    struct aurora_software_compositor *compositor,
+    uint64_t node_id,
+    enum aurora_compositor_transform transform,
+    uint8_t scale
+);
+
+bool software_compositor_set_secure_scene(
+    struct aurora_software_compositor *compositor,
+    struct aurora_cap_table *authority_caps,
+    aurora_cap_handle display_control_handle,
+    bool active
 );
 
 bool software_compositor_compose_present(
