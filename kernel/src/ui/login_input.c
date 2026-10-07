@@ -296,8 +296,16 @@ void login_input_init(void) {
      * system. Deep storage/service/IPC probes remain available in validation
      * builds used by CI.
      */
+    log_write("[boot-perf] storage init start at ");
+    log_u64(clock_now_ns() / UINT64_C(1000000));
+    log_line(" ms");
+
     bootstrap_storage_probe();
     nvme_bootstrap_probe();
+
+    log_write("[boot-perf] storage discovery complete at ");
+    log_u64(clock_now_ns() / UINT64_C(1000000));
+    log_line(" ms");
 
     struct aurora_block_device *nvme = nvme_namespace_block_device();
     if (nvme != NULL) {
@@ -332,19 +340,35 @@ void login_input_init(void) {
         credential_buffer[i] = '\0';
     }
 
+    log_write("[boot-perf] Identity client start at ");
+    log_u64(clock_now_ns() / UINT64_C(1000000));
+    log_line(" ms");
+
     bool identity_ready = identity_client_init();
+
+    log_write("[boot-perf] Identity client ready at ");
+    log_u64(clock_now_ns() / UINT64_C(1000000));
+    log_line(" ms");
 
     /*
      * Decode and publish the final artwork exactly once, after the live
      * Identity service initialization. Until this point the boot splash stays
      * on screen, so the emergency fallback never flashes during a normal boot.
      */
+    log_write("[boot-perf] Identity artwork decode start at ");
+    log_u64(clock_now_ns() / UINT64_C(1000000));
+    log_line(" ms");
+
     if (login_ui_activate_native_artwork()) {
         log_line("[identity-gui] full-quality PNG artwork active");
     } else {
         log_line("[identity-gui] native artwork unavailable; procedural fallback active");
         login_ui_render();
     }
+
+    log_write("[boot-perf] Identity artwork ready at ");
+    log_u64(clock_now_ns() / UINT64_C(1000000));
+    log_line(" ms");
 
     if (identity_ready) {
         log_line("[identity-client] production Ring 3 Identity service connected to login input");
