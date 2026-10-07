@@ -52,10 +52,6 @@ static uint8_t xhci_read8(uint32_t offset) {
     return *(volatile uint8_t *)(xhci_capability_base + offset);
 }
 
-static uint16_t xhci_read16(uint32_t offset) {
-    return *(volatile uint16_t *)(xhci_capability_base + offset);
-}
-
 static uint32_t xhci_read32(uint32_t offset) {
     return *(volatile uint32_t *)(xhci_capability_base + offset);
 }
@@ -93,8 +89,9 @@ bool xhci_probe(struct aurora_xhci_probe_result *out_result) {
         return false;
     }
 
-    uint8_t cap_length = xhci_read8(XHCI_CAP_CAPLENGTH);
-    uint16_t version = xhci_read16(XHCI_CAP_HCIVERSION);
+    uint32_t capbase = xhci_read32(XHCI_CAP_CAPLENGTH);
+    uint8_t cap_length = (uint8_t)(capbase & 0xFFu);
+    uint16_t version = (uint16_t)(capbase >> 16u);
     uint32_t hcsparams1 = xhci_read32(XHCI_CAP_HCSPARAMS1);
     uint32_t dboff = xhci_read32(XHCI_CAP_DBOFF) & ~0x3u;
     uint32_t rtsoff = xhci_read32(XHCI_CAP_RTSOFF) & ~0x1Fu;
