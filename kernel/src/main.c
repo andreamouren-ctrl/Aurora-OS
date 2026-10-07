@@ -7,6 +7,7 @@
 #include <aurora/boot_ui.h>
 #include <aurora/clock.h>
 #include <aurora/capability.h>
+#include <aurora/color_management.h>
 #include <aurora/cpu_local.h>
 #include <aurora/display.h>
 #include <aurora/display_ddc.h>
@@ -1451,6 +1452,12 @@ void kmain(void) {
     }
 
     log_line("[graphics] two isolated Ring 3 client capability gate passed");
+
+    if (!color_management_selftest()) {
+        kernel_panic("G3 mastering color-management self-test failed");
+    }
+
+    log_line("[color-management] ST2084/ICC/calibration/perceptual-tone-map self-test passed");
 
     if (!software_compositor_selftest()) {
         kernel_panic("G3 software compositor deterministic self-test failed");
