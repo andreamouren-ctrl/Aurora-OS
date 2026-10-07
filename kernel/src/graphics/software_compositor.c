@@ -409,15 +409,19 @@ static bool compose_snapshot(
     uint32_t damage_bottom = damage->y + damage->height;
 
     for (uint32_t dy = damage->y; dy < damage_bottom; ++dy) {
-        int64_t sy64 = (int64_t)dy - (int64_t)node->y;
-        if (sy64 < 0 || (uint64_t)sy64 >= buffer->height) continue;
-
         for (uint32_t dx = damage->x; dx < damage_right; ++dx) {
-            int64_t sx64 = (int64_t)dx - (int64_t)node->x;
-            if (sx64 < 0 || (uint64_t)sx64 >= buffer->width) continue;
+            uint64_t sx = 0u;
+            uint64_t sy = 0u;
 
-            uint64_t sx = (uint64_t)sx64;
-            uint64_t sy = (uint64_t)sy64;
+            if (!destination_to_source(
+                    node,
+                    buffer,
+                    dx,
+                    dy,
+                    &sx,
+                    &sy)) {
+                continue;
+            }
 
             if (sy > UINT64_MAX / buffer->stride ||
                 sx > (UINT64_MAX - sy * buffer->stride) / 4u) {
@@ -990,6 +994,86 @@ bool software_compositor_set_secure_scene(
     return true;
 }
 
+static bool node_fully_occluded(
+    struct aurora_software_compositor *compositor,
+    uint32_t index,
+    const struct aurora_graphics_surface_snapshot *snapshot
+) {
+    if (compositor == NULL ||
+        snapshot == NULL ||
+        snapshot->buffer == NULL ||
+        index >= AURORA_COMPOSITOR_MAX_NODES) {
+        return false;
+    }
+
+    const struct aurora_compositor_node *node =
+        &compositor->nodes[index];
+
+    uint64_t node_width = 0u;
+    uint64_t node_height = 0u;
+
+    if (!transformed_extent(
+            node,
+            snapshot->buffer->width,
+            snapshot->buffer->height,
+            &node_width,
+            &node_height)) {
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < AURORA_COMPOSITOR_MAX_NODES; ++i) {
+        if (i == index) continue;
+
+        struct aurora_compositor_node *upper =
+            &compositor->nodes[i];
+
+        if (!node_allowed_in_scene(compositor, upper) ||
+            !upper->fully_opaque ||
+            (upper->z < node->z) ||
+            (upper->z == node->z &&
+             upper->node_id <= node->node_id)) {
+            continue;
+        }
+
+        struct aurora_graphics_surface_snapshot upper_snapshot = {0};
+
+        if (!graphics_surface_read_committed(
+                &compositor->surface_caps,
+                upper->surface_handle,
+                &upper_snapshot)) {
+            continue;
+        }
+
+        uint64_t upper_width = 0u;
+        uint64_t upper_height = 0u;
+
+        bool covers =
+            transformed_extent(
+                upper,
+                upper_snapshot.buffer->width,
+                upper_snapshot.buffer->height,
+                &upper_width,
+                &upper_height
+            ) &&
+            rect_fully_covers(
+                upper->x,
+                upper->y,
+                upper_width,
+                upper_height,
+                node->x,
+                node->y,
+                node_width,
+                node_height
+            );
+
+        graphics_surface_snapshot_release(&upper_snapshot);
+
+        if (covers) return true;
+    }
+
+    return false;
+}
+
 static bool next_node_after(
     const struct aurora_software_compositor *compositor,
     int32_t previous_z,
@@ -1008,7 +1092,7 @@ static bool next_node_after(
         const struct aurora_compositor_node *node =
             &compositor->nodes[i];
 
-        if (!node->used || !node->visible) continue;
+        if (!node_allowed_in_scene(compositor, node)) continue;
 
         bool after =
             first ||
@@ -1065,7 +1149,7 @@ bool software_compositor_compose_present(
         struct aurora_compositor_node *node =
             &compositor->nodes[i];
 
-        if (!node->used || !node->visible) continue;
+        if (!node_allowed_in_scene(compositor, node)) continue;
 
         struct aurora_graphics_surface_snapshot snapshot = {0};
 
@@ -1082,13 +1166,28 @@ bool software_compositor_compose_present(
             node->last_commit_serial) {
             new_commit[i] = true;
 
-            if (snapshot.damage_count == 0u) {
+            uint64_t transformed_width = 0u;
+            uint64_t transformed_height = 0u;
+
+            if (!transformed_extent(
+                    node,
+                    snapshot.buffer->width,
+                    snapshot.buffer->height,
+                    &transformed_width,
+                    &transformed_height)) {
+                graphics_surface_snapshot_release(&snapshot);
+                return false;
+            }
+
+            if (snapshot.damage_count == 0u ||
+                node->transform != AURORA_COMPOSITOR_TRANSFORM_NORMAL ||
+                node->scale != 1u) {
                 (void)damage_union(
                     &damage,
                     node->x,
                     node->y,
-                    snapshot.buffer->width,
-                    snapshot.buffer->height,
+                    transformed_width,
+                    transformed_height,
                     mode->width,
                     mode->height
                 );
@@ -1184,13 +1283,20 @@ bool software_compositor_compose_present(
                 return false;
             }
 
-            bool composed =
-                compose_snapshot(
+            bool composed = true;
+
+            if (!node_fully_occluded(
                     compositor,
-                    node,
-                    &snapshot,
-                    &damage
-                );
+                    index,
+                    &snapshot)) {
+                composed =
+                    compose_snapshot(
+                        compositor,
+                        node,
+                        &snapshot,
+                        &damage
+                    );
+            }
 
             graphics_surface_snapshot_release(&snapshot);
 
