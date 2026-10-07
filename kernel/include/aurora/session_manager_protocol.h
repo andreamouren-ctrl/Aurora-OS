@@ -1,0 +1,60 @@
+#ifndef AURORA_SESSION_MANAGER_PROTOCOL_H
+#define AURORA_SESSION_MANAGER_PROTOCOL_H
+
+#include <stdint.h>
+
+#define AURORA_SESSION_MANAGER_PROTOCOL_VERSION 1u
+#define AURORA_SESSION_MANAGER_MESSAGE_SIZE 16u
+#define AURORA_SESSION_MANAGER_GRANT_SIZE 32u
+#define AURORA_SESSION_MANAGER_USER_ID_SIZE 16u
+
+enum aurora_session_manager_message_type {
+    AURORA_SESSION_MANAGER_READY = 1,
+    AURORA_SESSION_MANAGER_SHUTDOWN = 2,
+    AURORA_SESSION_MANAGER_SHUTDOWN_ACK = 3,
+
+    AURORA_SESSION_MANAGER_BEGIN_SESSION = 16,
+    AURORA_SESSION_MANAGER_SESSION_RESULT = 17,
+    AURORA_SESSION_MANAGER_LOGOUT = 18,
+    AURORA_SESSION_MANAGER_LOGOUT_RESULT = 19,
+
+    AURORA_SESSION_MANAGER_ERROR = 255
+};
+
+enum aurora_session_manager_state {
+    AURORA_SESSION_MANAGER_STATE_ACTIVE = 1,
+    AURORA_SESSION_MANAGER_STATE_REJECTED,
+    AURORA_SESSION_MANAGER_STATE_BUSY,
+    AURORA_SESSION_MANAGER_STATE_SERVICE_ERROR,
+    AURORA_SESSION_MANAGER_STATE_LOGGED_OUT
+};
+
+enum aurora_session_manager_public_error {
+    AURORA_SESSION_MANAGER_ERROR_NONE = 0,
+    AURORA_SESSION_MANAGER_ERROR_INVALID_REQUEST,
+    AURORA_SESSION_MANAGER_ERROR_BUSY,
+    AURORA_SESSION_MANAGER_ERROR_IDENTITY_REJECTED,
+    AURORA_SESSION_MANAGER_ERROR_IDENTITY_UNAVAILABLE,
+    AURORA_SESSION_MANAGER_ERROR_INTERNAL_FAILURE
+};
+
+struct aurora_session_manager_message {
+    uint32_t version;
+    uint32_t type;
+    uint64_t request_id;
+};
+
+struct aurora_session_manager_begin_session {
+    struct aurora_session_manager_message header;
+    uint8_t session_grant[AURORA_SESSION_MANAGER_GRANT_SIZE];
+};
+
+struct aurora_session_manager_result {
+    struct aurora_session_manager_message header;
+    uint32_t state;
+    uint32_t public_error;
+    uint64_t session_generation;
+    uint8_t user_id[AURORA_SESSION_MANAGER_USER_ID_SIZE];
+};
+
+#endif
