@@ -501,8 +501,9 @@ bool color_management_parse_icc(
         return false;
     }
 
-    struct aurora_color_output_profile profile;
-    profile_identity(&profile);
+    profile_identity(out_profile);
+    struct aurora_color_output_profile *profile =
+        out_profile;
 
     const uint32_t tags[6] = {
         UINT32_C(0x7258595A), /* rXYZ */
@@ -543,7 +544,7 @@ bool color_management_parse_icc(
 
     if (!invert_matrix_q16(
             device_to_pcs,
-            profile.pcs_to_device_q16)) {
+            profile->pcs_to_device_q16)) {
         return false;
     }
 
@@ -551,13 +552,13 @@ bool color_management_parse_icc(
         if (!sample_curve_tag(
                 tag_data[3u + c],
                 tag_size[3u + c],
-                profile.encode_trc[c])) {
+                profile->encode_trc[c])) {
             return false;
         }
     }
 
-    profile.has_icc_matrix = true;
-    profile.has_icc_trc = true;
+    profile->has_icc_matrix = true;
+    profile->has_icc_trc = true;
 
     const uint8_t *vcgt = NULL;
     uint32_t vcgt_size = 0u;
@@ -568,12 +569,11 @@ bool color_management_parse_icc(
             UINT32_C(0x76636774),
             &vcgt,
             &vcgt_size)) {
-        if (!parse_vcgt(vcgt, vcgt_size, &profile)) {
+        if (!parse_vcgt(vcgt, vcgt_size, profile)) {
             return false;
         }
     }
 
-    *out_profile = profile;
     return true;
 }
 
@@ -1203,7 +1203,7 @@ bool color_management_selftest(void) {
         }
     }
 
-    struct aurora_color_output_profile parsed;
+    static struct aurora_color_output_profile parsed;
     if (!build_and_parse_test_icc(&parsed) ||
         !parsed.valid ||
         !parsed.has_icc_matrix ||
@@ -1239,7 +1239,7 @@ bool color_management_selftest(void) {
 
     parsed.target_peak_nits_q16 = 203u * 65536u;
 
-    struct aurora_color_output_profile saved;
+    static struct aurora_color_output_profile saved;
     if (!color_management_get_output_profile(0u, &saved) ||
         !color_management_set_output_profile(0u, &parsed)) {
         return false;
