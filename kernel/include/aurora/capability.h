@@ -63,6 +63,18 @@ bool cap_lookup(
     struct aurora_capability_view *out
 );
 
+bool cap_lookup_retain(
+    struct aurora_cap_table *table,
+    aurora_cap_handle handle,
+    enum aurora_cap_type expected_type,
+    uint64_t required_rights,
+    struct aurora_capability_view *out
+);
+
+void cap_view_release(
+    const struct aurora_capability_view *view
+);
+
 bool cap_revoke(
     struct aurora_cap_table *table,
     aurora_cap_handle handle
