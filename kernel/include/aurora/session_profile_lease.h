@@ -26,6 +26,8 @@ bool session_profile_lease_revoke_process(
     struct aurora_process *process
 );
 
+void session_profile_lease_suspend(void);
+
 void session_profile_lease_end(void);
 
 bool session_profile_lease_active(void);
