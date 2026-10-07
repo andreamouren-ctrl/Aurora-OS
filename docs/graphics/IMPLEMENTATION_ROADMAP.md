@@ -184,5 +184,8 @@ Hardware/runtime integration still pending:
 - [x] hardware-facing display-controller mode-set/scanout contract;
 - [x] HDMI/DP/eDP PHY/link backend contract over bounded training;
 - [x] PCI display-class GPU driver registry with match/bind lifecycle;
+- [x] QEMU Standard VGA / Bochs VBE native driver foundation;
+- [x] runtime PCI display-class probe + BAR0 LFB validation;
+- [x] native GPU candidate attachment with boot-framebuffer fallback preserved;
 - [ ] vendor GPU scanout/color-pipeline programming;
 - [ ] compositor color conversion and HDR tone mapping.
