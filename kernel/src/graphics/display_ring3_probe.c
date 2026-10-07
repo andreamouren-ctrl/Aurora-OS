@@ -10,6 +10,7 @@
 #include <aurora/display_user_probe.h>
 #include <aurora/process.h>
 #include <aurora/scheduler.h>
+#include <aurora/syscall_abi.h>
 #include <aurora/usercopy.h>
 
 #define DISPLAY_RING3_TEST_TIMEOUT_NS 1000000000ull
