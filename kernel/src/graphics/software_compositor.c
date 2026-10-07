@@ -124,6 +124,173 @@ static bool damage_union(
     return true;
 }
 
+static bool transformed_extent(
+    const struct aurora_compositor_node *node,
+    uint64_t source_width,
+    uint64_t source_height,
+    uint64_t *out_width,
+    uint64_t *out_height
+) {
+    if (node == NULL ||
+        out_width == NULL ||
+        out_height == NULL ||
+        node->scale == 0u ||
+        node->scale > AURORA_COMPOSITOR_MAX_SCALE) {
+        return false;
+    }
+
+    uint64_t logical_width = source_width;
+    uint64_t logical_height = source_height;
+
+    if (node->transform == AURORA_COMPOSITOR_TRANSFORM_ROTATE_90 ||
+        node->transform == AURORA_COMPOSITOR_TRANSFORM_ROTATE_270) {
+        logical_width = source_height;
+        logical_height = source_width;
+    } else if (node->transform != AURORA_COMPOSITOR_TRANSFORM_NORMAL &&
+               node->transform != AURORA_COMPOSITOR_TRANSFORM_ROTATE_180) {
+        return false;
+    }
+
+    if (logical_width > UINT64_MAX / node->scale ||
+        logical_height > UINT64_MAX / node->scale) {
+        return false;
+    }
+
+    *out_width = logical_width * node->scale;
+    *out_height = logical_height * node->scale;
+    return true;
+}
+
+static bool destination_to_source(
+    const struct aurora_compositor_node *node,
+    const struct aurora_graphics_buffer *buffer,
+    uint32_t dx,
+    uint32_t dy,
+    uint64_t *out_sx,
+    uint64_t *out_sy
+) {
+    if (node == NULL ||
+        buffer == NULL ||
+        out_sx == NULL ||
+        out_sy == NULL ||
+        node->scale == 0u ||
+        node->scale > AURORA_COMPOSITOR_MAX_SCALE) {
+        return false;
+    }
+
+    int64_t lx = (int64_t)dx - (int64_t)node->x;
+    int64_t ly = (int64_t)dy - (int64_t)node->y;
+
+    if (lx < 0 || ly < 0) return false;
+
+    uint64_t ux = (uint64_t)lx / node->scale;
+    uint64_t uy = (uint64_t)ly / node->scale;
+    uint64_t sx = 0u;
+    uint64_t sy = 0u;
+
+    switch (node->transform) {
+        case AURORA_COMPOSITOR_TRANSFORM_NORMAL:
+            sx = ux;
+            sy = uy;
+            break;
+
+        case AURORA_COMPOSITOR_TRANSFORM_ROTATE_90:
+            if (ux >= buffer->height || uy >= buffer->width) return false;
+            sx = uy;
+            sy = buffer->height - 1u - ux;
+            break;
+
+        case AURORA_COMPOSITOR_TRANSFORM_ROTATE_180:
+            if (ux >= buffer->width || uy >= buffer->height) return false;
+            sx = buffer->width - 1u - ux;
+            sy = buffer->height - 1u - uy;
+            break;
+
+        case AURORA_COMPOSITOR_TRANSFORM_ROTATE_270:
+            if (ux >= buffer->height || uy >= buffer->width) return false;
+            sx = buffer->width - 1u - uy;
+            sy = ux;
+            break;
+
+        default:
+            return false;
+    }
+
+    if (sx >= buffer->width || sy >= buffer->height) {
+        return false;
+    }
+
+    *out_sx = sx;
+    *out_sy = sy;
+    return true;
+}
+
+static bool display_control_authorized(
+    struct aurora_cap_table *authority_caps,
+    aurora_cap_handle display_control_handle,
+    uint32_t output_index
+) {
+    struct aurora_capability_view view;
+
+    if (authority_caps == NULL ||
+        !cap_lookup(
+            authority_caps,
+            display_control_handle,
+            AURORA_CAP_DISPLAY,
+            AURORA_RIGHT_CONTROL,
+            &view)) {
+        return false;
+    }
+
+    return view.object == (void *)display_output_at(output_index);
+}
+
+static bool node_is_secure(
+    const struct aurora_compositor_node *node
+) {
+    return node != NULL &&
+        (node->surface_class == AURORA_COMPOSITOR_SURFACE_SYSTEM_OVERLAY ||
+         node->surface_class == AURORA_COMPOSITOR_SURFACE_PRE_SESSION);
+}
+
+static bool node_allowed_in_scene(
+    const struct aurora_software_compositor *compositor,
+    const struct aurora_compositor_node *node
+) {
+    if (compositor == NULL || node == NULL || !node->used || !node->visible) {
+        return false;
+    }
+
+    if (!compositor->secure_scene_active) return true;
+
+    return node_is_secure(node) ||
+        node->surface_class == AURORA_COMPOSITOR_SURFACE_CURSOR;
+}
+
+static bool rect_fully_covers(
+    int64_t ax,
+    int64_t ay,
+    uint64_t aw,
+    uint64_t ah,
+    int64_t bx,
+    int64_t by,
+    uint64_t bw,
+    uint64_t bh
+) {
+    if (aw == 0u || ah == 0u || bw == 0u || bh == 0u) return false;
+    if (aw > (uint64_t)INT64_MAX || ah > (uint64_t)INT64_MAX ||
+        bw > (uint64_t)INT64_MAX || bh > (uint64_t)INT64_MAX) {
+        return false;
+    }
+
+    int64_t ar = ax + (int64_t)aw;
+    int64_t ab = ay + (int64_t)ah;
+    int64_t br = bx + (int64_t)bw;
+    int64_t bb = by + (int64_t)bh;
+
+    return ax <= bx && ay <= by && ar >= br && ab >= bb;
+}
+
 static struct aurora_compositor_node *find_node(
     struct aurora_software_compositor *compositor,
     uint64_t node_id
