@@ -407,9 +407,16 @@ void kmain(void) {
     uint64_t smp_scheduler_deadline =
         clock_now_ns() + 250000000ull;
 
+    /*
+     * Do not HLT here. With no non-idle BSP thread yet, scheduler_start()
+     * intentionally leaves the BSP timer disarmed. AP ownership completion is
+     * a shared-memory handoff and does not itself raise an interrupt, so HLT
+     * could sleep forever after the APs have already published completion.
+     * This is a short, bounded bootstrap rendezvous; PAUSE is the correct wait.
+     */
     while (smp_scheduler_owned_cpu_count() != smp_online_cpu_count() &&
            clock_now_ns() < smp_scheduler_deadline) {
-        arch_idle();
+        __asm__ volatile ("pause");
     }
 
     if (smp_scheduler_owned_cpu_count() != smp_online_cpu_count()) {
