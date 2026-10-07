@@ -7,4 +7,6 @@ bool user_session_host_start(void);
 bool user_session_host_stop(void);
 bool user_session_host_active(void);
 
+bool user_session_host_self_test(void);
+
 #endif
