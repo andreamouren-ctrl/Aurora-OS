@@ -15,7 +15,18 @@ bool display_vrr_program_output(
         !display_vrr_range_valid(
             output->vrr_policy.min_millihz,
             output->vrr_policy.max_millihz) ||
-        (output->capabilities.flags & AURORA_DISPLAY_CAP_VRR) == 0u) {
+        (output->capabilities.flags & AURORA_DISPLAY_CAP_VRR) == 0u ||
+        !display_vrr_range_valid(
+            output->capabilities.vrr_min_millihz,
+            output->capabilities.vrr_max_millihz) ||
+        output->vrr_policy.min_millihz <
+            output->capabilities.vrr_min_millihz ||
+        output->vrr_policy.max_millihz >
+            output->capabilities.vrr_max_millihz ||
+        output->vrr_policy.preferred_millihz <
+            output->vrr_policy.min_millihz ||
+        output->vrr_policy.preferred_millihz >
+            output->vrr_policy.max_millihz) {
         return false;
     }
 
