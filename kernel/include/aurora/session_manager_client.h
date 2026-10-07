@@ -13,6 +13,9 @@ enum aurora_session_manager_client_state {
     AURORA_SESSION_CLIENT_READY,
     AURORA_SESSION_CLIENT_STARTING,
     AURORA_SESSION_CLIENT_ACTIVE,
+    AURORA_SESSION_CLIENT_LOCKING,
+    AURORA_SESSION_CLIENT_LOCKED,
+    AURORA_SESSION_CLIENT_UNLOCKING,
     AURORA_SESSION_CLIENT_LOGGING_OUT,
     AURORA_SESSION_CLIENT_REJECTED,
     AURORA_SESSION_CLIENT_UNAVAILABLE,
@@ -22,6 +25,12 @@ enum aurora_session_manager_client_state {
 bool session_manager_client_init(void);
 
 bool session_manager_client_begin(
+    const uint8_t grant[AURORA_SESSION_MANAGER_GRANT_SIZE]
+);
+
+bool session_manager_client_lock(void);
+
+bool session_manager_client_unlock(
     const uint8_t grant[AURORA_SESSION_MANAGER_GRANT_SIZE]
 );
 
