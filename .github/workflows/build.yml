@@ -129,6 +129,7 @@ jobs:
           grep -F "[service-supervisor] bounded Identity restart + fresh capability bootstrap passed" "$SERIAL_LOG"
           grep -F "[display-ring3] capability-gated repeated present acceptance gate passed" "$SERIAL_LOG"
           grep -F "[graphics-ring3] two-client syscall isolation + frame callback acceptance gate passed" "$SERIAL_LOG"
+          grep -F "[compositor] scene/z-order/clipping/alpha/damage self-test passed" "$SERIAL_LOG"
 
           if ! grep -F \
             "[kernel] M1 user-space bootstrap reached successfully" \
