@@ -968,6 +968,174 @@ void kmain(void) {
         kernel_panic("Graphics primary buffer lifetime cleanup failed");
     }
 
+    uint32_t graphics_probe_surface_generation =
+        graphics_probe_surface->generation;
+
+    if (!cap_revoke(
+            &graphics_probe_caps,
+            graphics_readonly_surface_handle) ||
+        !cap_revoke(
+            &graphics_probe_caps,
+            graphics_surface_handle) ||
+        !graphics_surface_release_owner(
+            graphics_probe_surface,
+            graphics_probe_surface_generation) ||
+        graphics_probe_surface->state != AURORA_GRAPHICS_SURFACE_FREE) {
+        kernel_panic("Graphics primary surface lifetime cleanup failed");
+    }
+
+    static struct aurora_cap_table surface_recycle_caps;
+    cap_table_init(&surface_recycle_caps);
+
+    struct aurora_graphics_buffer *surface_recycle_buffer =
+        graphics_buffer_create(
+            24u,
+            24u,
+            &display_probe_mode->format
+        );
+    struct aurora_graphics_surface *surface_recycle =
+        graphics_surface_create();
+
+    if (surface_recycle_buffer == NULL ||
+        surface_recycle == NULL) {
+        kernel_panic("Graphics surface recycle allocation failed");
+    }
+
+    uint32_t surface_recycle_generation =
+        surface_recycle->generation;
+    uint32_t surface_recycle_buffer_generation =
+        surface_recycle_buffer->generation;
+
+    aurora_cap_handle surface_recycle_buffer_handle =
+        graphics_buffer_grant(
+            &surface_recycle_caps,
+            surface_recycle_buffer,
+            AURORA_RIGHT_READ
+        );
+    aurora_cap_handle surface_recycle_handle =
+        graphics_surface_grant(
+            &surface_recycle_caps,
+            surface_recycle,
+            AURORA_RIGHT_READ | AURORA_RIGHT_WRITE
+        );
+
+    struct aurora_graphics_rect surface_recycle_damage = {
+        .x = 0u,
+        .y = 0u,
+        .width = 24u,
+        .height = 24u
+    };
+
+    uint64_t surface_recycle_commit = 0u;
+
+    if (surface_recycle_buffer_handle == AURORA_CAP_INVALID ||
+        surface_recycle_handle == AURORA_CAP_INVALID ||
+        !graphics_surface_attach(
+            &surface_recycle_caps,
+            surface_recycle_handle,
+            surface_recycle_buffer_handle) ||
+        !graphics_surface_damage(
+            &surface_recycle_caps,
+            surface_recycle_handle,
+            &surface_recycle_damage) ||
+        !graphics_surface_request_frame_callback(
+            &surface_recycle_caps,
+            surface_recycle_handle,
+            UINT64_C(0xD001)) ||
+        !graphics_surface_commit(
+            &surface_recycle_caps,
+            surface_recycle_handle,
+            &surface_recycle_commit) ||
+        surface_recycle_commit == 0u ||
+        !graphics_surface_request_frame_callback(
+            &surface_recycle_caps,
+            surface_recycle_handle,
+            UINT64_C(0xD002))) {
+        kernel_panic("Graphics surface callback cleanup setup failed");
+    }
+
+    uint32_t surface_refs_before_destroy =
+        surface_recycle_buffer->surface_refs;
+
+    if (surface_refs_before_destroy < 2u ||
+        !surface_recycle->pending_frame_callback) {
+        kernel_panic("Graphics surface destruction precondition failed");
+    }
+
+    if (!graphics_surface_release_owner(
+            surface_recycle,
+            surface_recycle_generation) ||
+        !surface_recycle->destroy_requested ||
+        surface_recycle->state == AURORA_GRAPHICS_SURFACE_FREE ||
+        graphics_surface_grant(
+            &surface_recycle_caps,
+            surface_recycle,
+            AURORA_RIGHT_READ) != AURORA_CAP_INVALID) {
+        kernel_panic("Graphics surface deferred destroy policy failed");
+    }
+
+    struct aurora_graphics_surface *surviving_surface = NULL;
+    if (!graphics_surface_lookup(
+            &surface_recycle_caps,
+            surface_recycle_handle,
+            AURORA_RIGHT_READ,
+            &surviving_surface) ||
+        surviving_surface != surface_recycle) {
+        kernel_panic("Graphics existing surface capability survival failed");
+    }
+
+    if (!cap_revoke(
+            &surface_recycle_caps,
+            surface_recycle_handle) ||
+        surface_recycle->state != AURORA_GRAPHICS_SURFACE_FREE ||
+        surface_recycle->generation == surface_recycle_generation ||
+        surface_recycle->pending_frame_callback ||
+        surface_recycle->pending_frame_request_id != 0u ||
+        surface_recycle_buffer->surface_refs != 0u) {
+        kernel_panic("Graphics final surface destruction cleanup failed");
+    }
+
+    for (uint32_t i = 0u;
+         i < AURORA_GRAPHICS_SURFACE_MAX_FRAME_CALLBACKS;
+         ++i) {
+        if (surface_recycle->frame_callbacks[i].state !=
+                AURORA_GRAPHICS_FRAME_CALLBACK_FREE ||
+            surface_recycle->frame_callbacks[i].request_id != 0u ||
+            surface_recycle->frame_callbacks[i].commit_serial != 0u ||
+            surface_recycle->frame_callbacks[i].presentation_serial != 0u) {
+            kernel_panic("Graphics destroyed surface retained frame callback state");
+        }
+    }
+
+    struct aurora_graphics_surface *surface_reused =
+        graphics_surface_create();
+
+    if (surface_reused == NULL ||
+        surface_reused != surface_recycle ||
+        surface_reused->generation == surface_recycle_generation ||
+        surface_reused->pending_frame_callback) {
+        kernel_panic("Graphics surface slot recycling probe failed");
+    }
+
+    if (graphics_surface_release_owner(
+            surface_reused,
+            surface_recycle_generation) ||
+        !graphics_surface_release_owner(
+            surface_reused,
+            surface_reused->generation) ||
+        !cap_revoke(
+            &surface_recycle_caps,
+            surface_recycle_buffer_handle) ||
+        !graphics_buffer_release_owner(
+            surface_recycle_buffer,
+            surface_recycle_buffer_generation)) {
+        kernel_panic("Graphics surface recycle cleanup failed");
+    }
+
+    log_line("[graphics] capability-aware surface lifetime passed");
+    log_line("[graphics] surface destroy/recycle stale-generation rejection passed");
+    log_line("[graphics] destroyed surface callback and buffer cleanup passed");
+
     struct aurora_display_pixel_format hdr10_format = {
         .encoding = AURORA_PIXEL_ENCODING_UNORM_PACKED,
         .bits_per_pixel = 32u,
@@ -1251,13 +1419,23 @@ void kmain(void) {
         client_a_buffer->generation;
     uint32_t client_b_generation =
         client_b_buffer->generation;
+    uint32_t client_a_surface_generation =
+        client_a_surface->generation;
+    uint32_t client_b_surface_generation =
+        client_b_surface->generation;
 
     if (!graphics_buffer_release_owner(
             client_a_buffer,
             client_a_generation) ||
         !graphics_buffer_release_owner(
             client_b_buffer,
-            client_b_generation)) {
+            client_b_generation) ||
+        !graphics_surface_release_owner(
+            client_a_surface,
+            client_a_surface_generation) ||
+        !graphics_surface_release_owner(
+            client_b_surface,
+            client_b_surface_generation)) {
         kernel_panic("Graphics two-client owner release failed");
     }
 
