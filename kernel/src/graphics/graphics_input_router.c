@@ -5,6 +5,7 @@
 #include <aurora/graphics_buffer.h>
 #include <aurora/graphics_input_router.h>
 #include <aurora/graphics_surface.h>
+#include <aurora/pmm.h>
 
 static void clear_bytes(void *ptr, uint64_t size) {
     uint8_t *p = (uint8_t *)ptr;
