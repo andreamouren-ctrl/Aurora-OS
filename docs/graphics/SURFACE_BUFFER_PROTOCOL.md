@@ -23,7 +23,7 @@ Required metadata:
 - storage type;
 - release state.
 
-Initial required format: premultiplied 32-bit RGBA/BGRA-class format selected by implementation and frozen before ABI stabilization.
+Canonical buffer formats include 8-bit packed RGB/RGBA, RGB10A2, 12-bit RGB and RGBA16F. Buffer metadata also carries color primaries, transfer function, range and optional static HDR metadata. The compositor must never infer HDR or color space from bit depth alone.
 
 ### Surface
 
