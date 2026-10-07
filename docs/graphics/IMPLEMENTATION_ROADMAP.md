@@ -163,6 +163,12 @@ Implemented foundation:
 - [x] canonical 8-bit packed RGB/RGBA, RGB10A2, RGB12 and RGBA16F formats are validated;
 - [x] output capabilities expose SDR/HDR/PQ/HLG/wide-gamut/VRR/DSC flags, bit-depth limits and VRR range.
 
+Link/discovery foundation:
+
+- [x] DDC / E-DDC transport abstraction with bounded EDID block reads;
+- [x] DisplayPort/eDP AUX-DPCD base link capability path;
+- [x] HDMI digital sink capability path through EDID/CTA;
+
 Hardware/runtime integration still pending:
 
 - [x] EDID base / CTA-861 HDR-color / DisplayID structural parsing;
