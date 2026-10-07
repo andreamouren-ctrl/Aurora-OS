@@ -10,6 +10,9 @@
 #include <aurora/cpu_local.h>
 #include <aurora/display.h>
 #include <aurora/display_ddc.h>
+#include <aurora/gpu_display_driver.h>
+#include <aurora/display_phy.h>
+#include <aurora/display_controller.h>
 #include <aurora/display_vrr_backend.h>
 #include <aurora/display_link_training.h>
 #include <aurora/display_dsc.h>
@@ -179,6 +182,18 @@ void kmain(void) {
         kernel_panic("Display link training self-test failed");
     }
 
+    if (!display_controller_selftest()) {
+        kernel_panic("Display controller/scanout self-test failed");
+    }
+
+    if (!display_phy_selftest()) {
+        kernel_panic("Display PHY/link backend self-test failed");
+    }
+
+    if (!gpu_display_driver_selftest()) {
+        kernel_panic("GPU display driver registry self-test failed");
+    }
+
     log_line("[display] DDC/E-DDC EDID transport passed");
     log_line("[display] DisplayPort/eDP DPCD capability path passed");
     log_line("[display] HDMI EDID/CTA capability path passed");
@@ -186,6 +201,9 @@ void kmain(void) {
     log_line("[display] DSC capability/config validation passed");
     log_line("[display] VRR hardware programming contract passed");
     log_line("[display] DP/HDMI bounded link training passed");
+    log_line("[display] controller modeset/scanout contract passed");
+    log_line("[display] PHY/link backend contract passed");
+    log_line("[display] GPU display driver registry passed");
 #endif
 
     boot_ui_init(&framebuffer);
