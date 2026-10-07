@@ -93,7 +93,12 @@ Implemented and runtime verified in the second/third G3 blocks:
 - [x] DISPLAY|CONTROL-gated privileged surface classes and secure-scene exclusion rules;
 - [x] RGB10A2 composition into the SDR backbuffer;
 - [x] 48-bit RGB12 composition into the SDR backbuffer;
-- [x] RGBA16F decoding with fixed-point gamut/transfer handling and baseline HDR-to-SDR tone mapping.
+- [x] RGBA16F decoding through the dedicated color-management engine;
+- [x] direct 65,536-entry SMPTE ST.2084 EOTF path with exact 16-bit endpoint mapping;
+- [x] BT.2100 reference HLG inverse-OETF + 1000-nit system-gamma path;
+- [x] ICC v2/v4 RGB matrix-shaper import with sampled and parametricCurveType 0-4 TRCs;
+- [x] monitor calibration through VCGT 1D ramps and optional bounded 17^3 3D LUT;
+- [x] perceptual HDR shoulder, hue-preserving gamut compression and highlight chroma roll-off.
 
 Acceptance gate:
 
@@ -101,7 +106,9 @@ Multiple moving/overlapping surfaces render correctly in QEMU with bounded memor
 
 Current gate status: **G3 runtime verified in QEMU**. Moving/overlapping surfaces, clipping, alpha, damage, occlusion, transforms/scaling, secure-scene exclusion and RGB10A2/RGB12/RGBA16F composition all pass the mandatory boot validation gate.
 
-Color accuracy note: the current HDR-to-SDR path is a bounded integer/fixed-point baseline intended for compositor correctness and safe fallback. Production mastering-grade transfer functions, calibration and perceptual tone mapping remain performance/color-management hardening work rather than a G3 correctness blocker.
+Color-management status: **mastering-grade matrix-shaper software path runtime verified in QEMU**. The kernel remains FPU/SIMD-free: PQ/HLG transfer evaluation, ICC transforms, calibration and tone mapping use generated LUTs plus bounded fixed-point math.
+
+Explicit limits: ICC LUT-based A2B/B2A/CLUT profile transforms are not yet imported, and vendor GPU hardware LUT/degamma/gamma programming remains part of later native-GPU integration. Those limits do not affect the current software compositor's calibrated matrix-shaper path.
 
 ## Phase G4 — Pointer and modern input
 
@@ -211,4 +218,6 @@ Hardware/runtime integration still pending:
 - [x] runtime PCI display-class probe + BAR0 LFB validation;
 - [x] native GPU candidate attachment with boot-framebuffer fallback preserved;
 - [ ] vendor GPU scanout/color-pipeline programming;
-- [x] baseline compositor color conversion and fixed-point HDR-to-SDR tone mapping.
+- [x] mastering-grade software color conversion for matrix-shaper monitor profiles, including direct ST.2084, BT.2100 HLG, ICC TRCs, VCGT/3D calibration and perceptual HDR-to-SDR tone mapping;
+- [ ] ICC LUT-based A2B/B2A profile import;
+- [ ] vendor GPU hardware color-pipeline/LUT programming.
