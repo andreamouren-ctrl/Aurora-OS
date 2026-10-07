@@ -1,7 +1,7 @@
 # Aurora OS Native Boot UI
 
-Status: **Implemented prototype**
-Version: **0.1**
+Status: **Implemented bootstrap/recovery UI**
+Version: **0.2**
 
 Aurora OS renders its boot experience directly from the kernel framebuffer.
 
@@ -51,6 +51,10 @@ Serial output remains the authoritative technical diagnostic channel.
 
 A panic that occurs before a usable framebuffer exists can only be reported through early serial logging.
 
-## Future evolution
+## Current role and evolution
 
-When Aurora has a filesystem, image loader and compositor, the same boot-state API can drive a richer image-backed or animated boot experience without changing the milestone semantics.
+Aurora now has a persistent filesystem stack and an M4 software compositor, but the boot UI intentionally remains independent of those higher-level services.
+
+That independence is a recovery property: early boot and panic diagnostics must still work when the normal filesystem, compositor, Identity System App or Desktop Shell is unavailable.
+
+Normal pre-session presentation will migrate toward the compositor-backed Identity path in a later M4 phase. The framebuffer renderer remains the fallback/recovery surface rather than being removed.
