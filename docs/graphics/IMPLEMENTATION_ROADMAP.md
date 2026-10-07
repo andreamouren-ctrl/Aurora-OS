@@ -112,15 +112,27 @@ Explicit limits: ICC LUT-based A2B/B2A/CLUT profile transforms are not yet impor
 
 ## Phase G4 — Pointer and modern input
 
-Implement:
+Status: **In progress**
 
-- mouse/pointer device path;
-- normalized device-independent events;
-- compositor hit testing;
-- pointer focus;
-- keyboard focus routing;
-- focus/capture revocation;
-- USB HID input foundation where transport dependencies are ready.
+Implemented foundation:
+
+- [x] normalized device-independent input event model;
+- [x] sequenced/bounded normalized event queue;
+- [x] PS/2 keyboard emits normalized keyboard events;
+- [x] dedicated PS/2 mouse interrupt vector/stub;
+- [x] IRQ12 PS/2 mouse packet decoder;
+- [x] Identity credential handling remains isolated from pointer events;
+- [x] graphics input-router foundation present.
+
+Remaining:
+
+- [ ] compositor hit testing;
+- [ ] pointer focus;
+- [ ] keyboard focus routing;
+- [ ] focus/capture revocation;
+- [ ] multi-client no-leakage runtime gate;
+- [ ] USB HID input foundation once xHCI/USB transport exists;
+- [ ] touch/pen/gamepad and accessibility/input-method layers later.
 
 Acceptance gate:
 
