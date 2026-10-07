@@ -5,6 +5,7 @@
 #include <aurora/clock.h>
 #include <aurora/display_ring3_probe.h>
 #include <aurora/entropy_ring3_probe.h>
+#include <aurora/graphics_ring3_probe.h>
 #include <aurora/identity_auth_probe.h>
 #include <aurora/identity_client.h>
 #include <aurora/identity_create_probe.h>
@@ -610,6 +611,13 @@ void login_input_init(void) {
         kernel_panic("Ring 3 Display Service acceptance probe failed");
     }
     log_line("[display-ring3] capability-gated repeated present acceptance gate passed");
+#endif
+
+#if AURORA_BOOT_VALIDATION
+    if (!graphics_ring3_two_client_self_test()) {
+        kernel_panic("G2 two-client Ring 3 graphics acceptance probe failed");
+    }
+    log_line("[graphics-ring3] two-client syscall isolation + frame callback acceptance gate passed");
 #endif
 
     log_write("[boot-perf] storage init start at ");
