@@ -42,6 +42,20 @@ struct aurora_cta861_info {
     uint8_t max_luminance_code;
     uint8_t max_fall_code;
     uint8_t min_luminance_code;
+    bool hdmi_vsdb;
+    bool hdmi_forum_vsdb;
+    bool scdc_present;
+    bool read_request_capable;
+    bool allm;
+    bool fast_vactive;
+    bool dsc_1p2;
+    uint32_t max_tmds_clock_khz;
+    uint8_t max_frl_rate_code;
+    uint8_t max_frl_lanes;
+    uint8_t max_frl_gbps_per_lane;
+    bool vrr_supported;
+    uint16_t vrr_min_hz;
+    uint16_t vrr_max_hz;
 };
 
 struct aurora_displayid_info {
