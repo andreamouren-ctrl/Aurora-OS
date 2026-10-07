@@ -6,6 +6,7 @@
 
 #include <aurora/capability.h>
 #include <aurora/process.h>
+#include <aurora/profile_session.h>
 
 #define AURORA_SESSION_PROFILE_LEASE_MAX 16u
 
