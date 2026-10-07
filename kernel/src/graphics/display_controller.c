@@ -39,6 +39,7 @@ bool display_controller_modeset(
         return false;
     }
 
+    controller->programmed_mode = *mode;
     controller->mode_programmed = true;
     controller->scanout_programmed = false;
     return true;
@@ -54,6 +55,44 @@ bool display_controller_set_scanout(
         !controller->mode_programmed ||
         controller->enabled ||
         !scanout_valid(scanout)) {
+        return false;
+    }
+
+    const struct aurora_display_mode *mode =
+        &controller->programmed_mode;
+
+    if (scanout->format.encoding != mode->format.encoding ||
+        scanout->format.bits_per_pixel != mode->format.bits_per_pixel ||
+        scanout->format.red_mask_size != mode->format.red_mask_size ||
+        scanout->format.red_mask_shift != mode->format.red_mask_shift ||
+        scanout->format.green_mask_size != mode->format.green_mask_size ||
+        scanout->format.green_mask_shift != mode->format.green_mask_shift ||
+        scanout->format.blue_mask_size != mode->format.blue_mask_size ||
+        scanout->format.blue_mask_shift != mode->format.blue_mask_shift ||
+        scanout->format.alpha_mask_size != mode->format.alpha_mask_size ||
+        scanout->format.alpha_mask_shift != mode->format.alpha_mask_shift) {
+        return false;
+    }
+
+    uint64_t bytes_per_pixel =
+        (uint64_t)mode->format.bits_per_pixel / 8u;
+
+    if (mode->width > UINT64_MAX / bytes_per_pixel) {
+        return false;
+    }
+
+    uint64_t visible_row_bytes =
+        mode->width * bytes_per_pixel;
+
+    if (scanout->pitch < visible_row_bytes ||
+        mode->height > UINT64_MAX / scanout->pitch) {
+        return false;
+    }
+
+    uint64_t required_bytes =
+        mode->height * scanout->pitch;
+
+    if (scanout->byte_length < required_bytes) {
         return false;
     }
 
@@ -211,6 +250,11 @@ bool display_controller_selftest(void) {
         !display_controller_set_scanout(
             &controller,
             &scanout) ||
+        ((scanout.byte_length = 4096u),
+         display_controller_set_scanout(
+            &controller,
+            &scanout)) ||
+        ((scanout.byte_length = UINT64_C(8294400)), false) ||
         !display_controller_enable(&controller) ||
         display_controller_modeset(
             &controller,
