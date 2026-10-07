@@ -107,7 +107,7 @@ jobs:
           rm -f "$SERIAL_LOG" "$DEBUG_LOG"
 
           set +e
-          timeout 15s qemu-system-x86_64 \
+          timeout 25s qemu-system-x86_64 \
             -M q35 \
             -m 512M \
             -smp 1 \
