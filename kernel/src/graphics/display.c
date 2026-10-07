@@ -8,6 +8,8 @@ static struct aurora_boot_framebuffer_backend boot_backend;
 static const struct aurora_display_output *outputs[AURORA_DISPLAY_MAX_OUTPUTS];
 static uint32_t output_count;
 static struct aurora_display_present_state present_states[AURORA_DISPLAY_MAX_OUTPUTS];
+static struct aurora_gpu_display_device native_gpu_device;
+static bool native_gpu_attached;
 
 static void clear_registry(void) {
     for (uint32_t i = 0u; i < AURORA_DISPLAY_MAX_OUTPUTS; ++i) {
@@ -18,6 +20,8 @@ static void clear_registry(void) {
     }
 
     output_count = 0u;
+    native_gpu_device = (struct aurora_gpu_display_device){0};
+    native_gpu_attached = false;
 }
 
 static bool register_output(
@@ -180,4 +184,28 @@ bool display_present_state(
 
     *out_state = present_states[output_index];
     return true;
+}
+
+bool display_attach_native_gpu(
+    const struct aurora_gpu_display_device *device
+) {
+    if (device == NULL ||
+        !device->bound ||
+        device->driver_name == NULL ||
+        device->controller.ops == NULL ||
+        native_gpu_attached) {
+        return false;
+    }
+
+    native_gpu_device = *device;
+    native_gpu_attached = true;
+    return true;
+}
+
+bool display_native_gpu_ready(void) {
+    return native_gpu_attached;
+}
+
+const struct aurora_gpu_display_device *display_native_gpu_device(void) {
+    return native_gpu_attached ? &native_gpu_device : NULL;
 }
