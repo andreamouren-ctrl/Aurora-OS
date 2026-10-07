@@ -17,7 +17,6 @@
 #define XHCI_PAGE_SIZE              4096ull
 
 #define XHCI_CAP_CAPLENGTH          0x00u
-#define XHCI_CAP_HCIVERSION         0x02u
 #define XHCI_CAP_HCSPARAMS1         0x04u
 #define XHCI_CAP_DBOFF              0x14u
 #define XHCI_CAP_RTSOFF             0x18u
@@ -46,10 +45,6 @@ static bool xhci_map_capability_page(uint64_t physical) {
         );
 
     return true;
-}
-
-static uint8_t xhci_read8(uint32_t offset) {
-    return *(volatile uint8_t *)(xhci_capability_base + offset);
 }
 
 static uint32_t xhci_read32(uint32_t offset) {
