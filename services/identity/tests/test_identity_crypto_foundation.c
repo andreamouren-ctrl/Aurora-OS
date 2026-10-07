@@ -116,10 +116,12 @@ static bool test_provider_domains_and_random(void) {
     struct aurora_identity_hmac_provider provider;
     struct aurora_identity_random_ops random_ops;
     struct aurora_identity_session_grant_crypto_ops grant_ops;
+    struct aurora_identity_reauth_crypto_ops reauth_ops;
     uint8_t entropy[32];
     uint8_t nonce[16];
     uint8_t lookup_key[32];
     uint8_t session_key[32];
+    uint8_t reauth_key[32];
     static const char normalized_key[] = "AUR7K4PN9Q2XM6D";
     uint8_t token[AURORA_IDENTITY_SESSION_GRANT_TOKEN_SIZE];
     static const uint8_t expected_lookup[32] = {
@@ -136,6 +138,8 @@ static bool test_provider_domains_and_random(void) {
     };
     uint8_t lookup_tag[32];
     uint8_t grant_tag[32];
+    uint8_t reauth_tag[32];
+    uint8_t reauth_tag_second[32];
     uint8_t random_bytes[32];
     size_t i;
 
@@ -143,6 +147,7 @@ static bool test_provider_domains_and_random(void) {
         entropy[i] = (uint8_t)(0xa0u + i);
         lookup_key[i] = (uint8_t)i;
         session_key[i] = (uint8_t)(32u + i);
+        reauth_key[i] = (uint8_t)(64u + i);
         token[i] = (uint8_t)i;
     }
     for (i = 0u; i < 16u; ++i) {
@@ -152,7 +157,7 @@ static bool test_provider_domains_and_random(void) {
     CHECK(aurora_identity_hmac_drbg_instantiate(
         &drbg, entropy, sizeof(entropy), nonce, sizeof(nonce), NULL, 0u));
     CHECK(aurora_identity_hmac_provider_init(
-        &provider, lookup_key, session_key, &drbg));
+        &provider, lookup_key, session_key, reauth_key, &drbg));
 
     CHECK(aurora_identity_hmac_provider_derive_lookup_tag(
         &provider,
@@ -169,6 +174,19 @@ static bool test_provider_domains_and_random(void) {
     CHECK(memcmp(grant_tag, expected_session, sizeof(grant_tag)) == 0);
     CHECK(memcmp(lookup_tag, grant_tag, sizeof(lookup_tag)) != 0);
 
+    reauth_ops = aurora_identity_hmac_provider_reauth_crypto_ops(&provider);
+    CHECK(reauth_ops.derive_token_tag(
+        reauth_ops.context,
+        token,
+        reauth_tag));
+    CHECK(reauth_ops.derive_token_tag(
+        reauth_ops.context,
+        token,
+        reauth_tag_second));
+    CHECK(memcmp(reauth_tag, reauth_tag_second, sizeof(reauth_tag)) == 0);
+    CHECK(memcmp(reauth_tag, grant_tag, sizeof(reauth_tag)) != 0);
+    CHECK(memcmp(reauth_tag, lookup_tag, sizeof(reauth_tag)) != 0);
+
     random_ops = aurora_identity_hmac_provider_random_ops(&provider);
     CHECK(random_ops.fill_random(random_ops.context, random_bytes, sizeof(random_bytes)));
     CHECK(memcmp(random_bytes, token, sizeof(random_bytes)) != 0);
@@ -184,6 +202,7 @@ static bool test_provider_entropy_degraded_mode(void) {
     struct aurora_identity_random_ops random_ops;
     uint8_t lookup_key[32];
     uint8_t session_key[32];
+    uint8_t reauth_key[32];
     uint8_t lookup_tag[32];
     uint8_t random_bytes[16];
     static const char normalized_key[] = "AUR7K4PN9Q2XM6D";
@@ -192,13 +211,14 @@ static bool test_provider_entropy_degraded_mode(void) {
     for (i = 0u; i < sizeof(lookup_key); ++i) {
         lookup_key[i] = (uint8_t)i;
         session_key[i] = (uint8_t)(32u + i);
+        reauth_key[i] = (uint8_t)(64u + i);
     }
     memset(&provider, 0, sizeof(provider));
     memset(lookup_tag, 0, sizeof(lookup_tag));
     memset(random_bytes, 0, sizeof(random_bytes));
 
     CHECK(aurora_identity_hmac_provider_init(
-        &provider, lookup_key, session_key, NULL));
+        &provider, lookup_key, session_key, reauth_key, NULL));
     CHECK(provider.initialized);
     CHECK(provider.drbg == NULL);
     CHECK(aurora_identity_hmac_provider_derive_lookup_tag(
