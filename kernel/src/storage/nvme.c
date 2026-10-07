@@ -742,7 +742,14 @@ static bool signed_rw_probe(struct aurora_block_device *device) {
     return true;
 }
 
+static bool nvme_bootstrap_complete;
+
 void nvme_bootstrap_probe(void) {
+    if (nvme_bootstrap_complete) {
+        log_line("[nvme] bootstrap already complete; reusing active namespace");
+        return;
+    }
+
     struct aurora_nvme_probe_result result;
 
     if (!nvme_probe(&result)) {
@@ -832,4 +839,6 @@ void nvme_bootstrap_probe(void) {
         return;
     }
 #endif
+
+    nvme_bootstrap_complete = true;
 }
