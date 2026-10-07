@@ -20,6 +20,7 @@ static uint64_t next_request_id = UINT64_C(0x4C4F47494E000001);
 static uint64_t retry_after_ms;
 static uint64_t auth_authority_object;
 static uint64_t create_authority_object;
+static uint8_t pending_session_grant[AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE];
 
 static void clear_bytes(void *buffer, size_t size) {
     uint8_t *bytes = (uint8_t *)buffer;
@@ -94,12 +95,12 @@ static void apply_auth_result(
             return;
 
         case AURORA_IDENTITY_SERVICE_AUTH_STATE_SUCCESS:
-            /*
-             * The opaque grant is intentionally not retained in kernel UI
-             * state. A future Session Manager will own grant consumption and
-             * session establishment. Until then, successful verification is
-             * visible to the login surface but cannot fabricate a session.
-             */
+            clear_bytes(
+                pending_session_grant,
+                sizeof(pending_session_grant));
+            for (size_t i = 0u; i < sizeof(pending_session_grant); ++i) {
+                pending_session_grant[i] = result->session_grant[i];
+            }
             client_state = AURORA_IDENTITY_CLIENT_VERIFIED;
             return;
 
@@ -174,6 +175,7 @@ bool identity_client_init(void) {
     };
 
     clear_bytes(&identity_supervisor, sizeof(identity_supervisor));
+    clear_bytes(pending_session_grant, sizeof(pending_session_grant));
     current_request_id = 0u;
     retry_after_ms = 0u;
 
@@ -426,4 +428,34 @@ enum aurora_identity_client_state identity_client_state(void) {
 
 uint64_t identity_client_retry_after_ms(void) {
     return retry_after_ms;
+}
+
+
+bool identity_client_take_session_grant(
+    uint8_t out_grant[AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE]
+) {
+    if (out_grant == NULL ||
+        client_state != AURORA_IDENTITY_CLIENT_VERIFIED) {
+        return false;
+    }
+
+    uint8_t combined = 0u;
+    for (size_t i = 0u; i < sizeof(pending_session_grant); ++i) {
+        combined |= pending_session_grant[i];
+    }
+    if (combined == 0u) return false;
+
+    for (size_t i = 0u; i < sizeof(pending_session_grant); ++i) {
+        out_grant[i] = pending_session_grant[i];
+    }
+    clear_bytes(pending_session_grant, sizeof(pending_session_grant));
+    client_state = AURORA_IDENTITY_CLIENT_READY;
+    return true;
+}
+
+struct aurora_ipc_endpoint *identity_client_session_peer_endpoint(void) {
+    if (identity_supervisor.state != AURORA_SERVICE_SUPERVISOR_RUNNING) {
+        return NULL;
+    }
+    return identity_supervisor.service.supervisor_endpoint;
 }
