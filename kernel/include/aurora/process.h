@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include <aurora/capability.h>
+#include <aurora/memory_object.h>
 #include <aurora/vmm.h>
 
 #define AURORA_USER_IMAGE_BASE 0x0000000000400000ull
@@ -33,10 +34,18 @@ enum aurora_process_anon_state {
     AURORA_PROCESS_ANON_ACTIVE
 };
 
+enum aurora_process_memory_kind {
+    AURORA_PROCESS_MEMORY_NONE = 0,
+    AURORA_PROCESS_MEMORY_PRIVATE,
+    AURORA_PROCESS_MEMORY_SHARED
+};
+
 struct aurora_process_anon_range {
     uint64_t base;
     uint32_t page_count;
     uint32_t state;
+    uint32_t kind;
+    struct aurora_memory_object *shared_object;
 };
 
 struct aurora_process_result {
@@ -126,6 +135,18 @@ bool process_user_memory_allocate(
 
 /* Free one complete anonymous mapping previously returned by allocate(). */
 bool process_user_memory_free(
+    struct aurora_process *process,
+    uint64_t address
+);
+
+bool process_shared_memory_map(
+    struct aurora_process *process,
+    struct aurora_memory_object *object,
+    bool writable,
+    uint64_t *out_address
+);
+
+bool process_shared_memory_unmap(
     struct aurora_process *process,
     uint64_t address
 );
