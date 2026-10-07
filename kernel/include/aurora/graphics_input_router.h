@@ -74,6 +74,10 @@ void graphics_input_revoke_all_focus(
     struct aurora_graphics_input_router *router
 );
 
+void graphics_input_revoke_session(
+    struct aurora_graphics_input_router *router
+);
+
 bool graphics_input_route_event(
     struct aurora_graphics_input_router *router,
     const struct aurora_input_event *event
