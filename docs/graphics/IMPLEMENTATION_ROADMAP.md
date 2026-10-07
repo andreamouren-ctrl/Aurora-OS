@@ -28,13 +28,12 @@ Implemented:
 
 - [x] output object with bounded mode table and validated pixel geometry;
 - [x] boot-framebuffer display backend adapter;
-- [x] output and mode/geometry discovery registry with boot validation probe.
+- [x] output and mode/geometry discovery registry with boot validation probe;
+- [x] compositor-owned heap backbuffer with checked size/lifecycle;
+- [x] safe bounded present operation for the boot-framebuffer backend;
+- [x] monotonic presentation serials and explicit buffer-release signaling.
 
-Remaining:
-
-- [ ] compositor-owned backbuffer;
-- [ ] safe present operation;
-- [ ] presentation/release signaling.
+Foundation item set: **implemented**. The phase remains **In progress** until the Ring 3 acceptance gate below is satisfied.
 
 Acceptance gate:
 

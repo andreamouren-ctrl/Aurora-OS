@@ -103,8 +103,7 @@ bool display_boot_framebuffer_present(
         !backend->ready ||
         buffer == NULL ||
         !buffer->ready ||
-        buffer->pixels == NULL ||
-        buffer->in_flight) {
+        buffer->pixels == NULL) {
         return false;
     }
 

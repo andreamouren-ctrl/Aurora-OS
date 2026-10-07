@@ -9,6 +9,7 @@
 #include <aurora/capability.h>
 #include <aurora/cpu_local.h>
 #include <aurora/display.h>
+#include <aurora/display_backbuffer.h>
 #include <aurora/framebuffer.h>
 #include <aurora/gdt.h>
 #include <aurora/heap.h>
@@ -349,6 +350,80 @@ void kmain(void) {
     boot_perf_log("heap ready");
 
 #if AURORA_BOOT_VALIDATION
+    const struct aurora_display_mode *display_probe_mode =
+        display_mode_at(0u, 0u);
+    struct aurora_display_backbuffer display_probe_buffer;
+
+    if (display_probe_mode == NULL ||
+        !display_backbuffer_init(
+            &display_probe_buffer,
+            display_probe_mode)) {
+        kernel_panic("Display backbuffer allocation probe failed");
+    }
+
+    uint64_t display_bytes_per_pixel =
+        (uint64_t)display_probe_mode->format.bits_per_pixel / 8u;
+
+    if (display_bytes_per_pixel == 0u ||
+        display_probe_mode->width > UINT64_MAX / display_bytes_per_pixel) {
+        kernel_panic("Display probe row geometry overflow");
+    }
+
+    uint64_t display_visible_row_bytes =
+        display_probe_mode->width * display_bytes_per_pixel;
+
+    if (display_visible_row_bytes > display_probe_buffer.pitch) {
+        kernel_panic("Display probe row exceeds backbuffer pitch");
+    }
+
+    volatile const uint8_t *display_probe_source =
+        (volatile const uint8_t *)framebuffer.address;
+
+    for (uint64_t row = 0u;
+         row < display_probe_buffer.height;
+         ++row) {
+        uint8_t *destination_row =
+            display_probe_buffer.pixels +
+            row * display_probe_buffer.pitch;
+        volatile const uint8_t *source_row =
+            display_probe_source +
+            row * framebuffer.pitch;
+
+        for (uint64_t byte = 0u;
+             byte < display_visible_row_bytes;
+             ++byte) {
+            destination_row[byte] = source_row[byte];
+        }
+    }
+
+    uint64_t display_present_serial = 0u;
+
+    if (!display_present(
+            0u,
+            &display_probe_buffer,
+            &display_present_serial)) {
+        kernel_panic("Display safe present probe failed");
+    }
+
+    struct aurora_display_present_state display_state;
+
+    if (display_present_serial == 0u ||
+        !display_present_state(0u, &display_state) ||
+        display_state.last_presented_serial != display_present_serial ||
+        display_state.last_released_serial != display_present_serial ||
+        display_probe_buffer.in_flight ||
+        display_probe_buffer.generation != 2u) {
+        kernel_panic("Display presentation/release signaling probe failed");
+    }
+
+    if (!display_backbuffer_release(&display_probe_buffer)) {
+        kernel_panic("Display backbuffer release probe failed");
+    }
+
+    log_line("[display] compositor backbuffer allocation passed");
+    log_line("[display] bounded framebuffer present passed");
+    log_line("[display] presentation/release signaling passed");
+
     void *probe = kheap_alloc(128, 16);
 
     if (probe == 0) {
