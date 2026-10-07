@@ -18,6 +18,8 @@ enum aurora_session_manager_client_state {
     AURORA_SESSION_CLIENT_LOCKED,
     AURORA_SESSION_CLIENT_UNLOCKING,
     AURORA_SESSION_CLIENT_LOGGING_OUT,
+    AURORA_SESSION_CLIENT_TERMINATING,
+    AURORA_SESSION_CLIENT_TERMINATED,
     AURORA_SESSION_CLIENT_REJECTED,
     AURORA_SESSION_CLIENT_UNAVAILABLE,
     AURORA_SESSION_CLIENT_ERROR
@@ -36,6 +38,8 @@ bool session_manager_client_unlock(
 );
 
 bool session_manager_client_logout(void);
+
+bool session_manager_client_terminate(void);
 
 void session_manager_client_pump(void);
 
