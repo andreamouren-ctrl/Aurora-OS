@@ -616,8 +616,10 @@ void login_input_init(void) {
     log_line(" ms");
 
     struct aurora_block_device *nvme = nvme_namespace_block_device();
-    if (nvme != NULL) {
+    if (nvme != NULL && !nvme_namespace_reserved_for_rw_probe()) {
         bootstrap_storage_probe_device(nvme, "NVMe");
+    } else if (nvme != NULL) {
+        log_line("[nvme] dedicated reversible-probe media; filesystem bootstrap skipped");
     }
 
 #if AURORA_BOOT_VALIDATION
