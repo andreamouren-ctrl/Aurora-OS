@@ -72,6 +72,13 @@ isr_stub_tlb_shootdown:
     pushq $66
     jmp isr_common
 
+.global isr_stub_mouse
+.type isr_stub_mouse, @function
+isr_stub_mouse:
+    pushq $0
+    pushq $67
+    jmp isr_common
+
 .global isr_stub_spurious
 .type isr_stub_spurious, @function
 isr_stub_spurious:
