@@ -15,6 +15,7 @@ struct session_runtime_context {
     uint64_t profile_root_authority;
     uint64_t profile_handle;
     bool active;
+    bool locked;
     uint64_t generation;
     uint8_t user_id[AURORA_SESSION_MANAGER_USER_ID_SIZE];
 };
@@ -40,6 +41,13 @@ static bool bytes_all_zero(const uint8_t *bytes, size_t size) {
     uint8_t combined = 0u;
     for (size_t i = 0u; i < size; ++i) combined |= bytes[i];
     return combined == 0u;
+}
+
+static bool bytes_equal(const uint8_t *a, const uint8_t *b, size_t size) {
+    if (a == NULL || b == NULL) return false;
+    uint8_t diff = 0u;
+    for (size_t i = 0u; i < size; ++i) diff |= (uint8_t)(a[i] ^ b[i]);
+    return diff == 0u;
 }
 
 static uint64_t syscall1(uint64_t number, uint64_t a1) {
@@ -234,6 +242,48 @@ static bool send_logout_result(
     result.state = AURORA_SESSION_MANAGER_STATE_LOGGED_OUT;
     result.public_error = AURORA_SESSION_MANAGER_ERROR_NONE;
     result.session_generation = generation;
+    bool sent = send_payload(endpoint, &result, sizeof(result));
+    secure_zero(&result, sizeof(result));
+    return sent;
+}
+
+static bool send_lock_result(
+    uint64_t endpoint,
+    uint64_t request_id,
+    uint64_t generation,
+    const uint8_t *user_id
+) {
+    struct aurora_session_manager_result result;
+    secure_zero(&result, sizeof(result));
+    result.header.version = AURORA_SESSION_MANAGER_PROTOCOL_VERSION;
+    result.header.type = AURORA_SESSION_MANAGER_LOCK_RESULT;
+    result.header.request_id = request_id;
+    result.state = AURORA_SESSION_MANAGER_STATE_LOCKED;
+    result.public_error = AURORA_SESSION_MANAGER_ERROR_NONE;
+    result.session_generation = generation;
+    if (user_id != NULL) copy_bytes(result.user_id, user_id, sizeof(result.user_id));
+    bool sent = send_payload(endpoint, &result, sizeof(result));
+    secure_zero(&result, sizeof(result));
+    return sent;
+}
+
+static bool send_unlock_result(
+    uint64_t endpoint,
+    uint64_t request_id,
+    uint32_t state,
+    uint32_t public_error,
+    uint64_t generation,
+    const uint8_t *user_id
+) {
+    struct aurora_session_manager_result result;
+    secure_zero(&result, sizeof(result));
+    result.header.version = AURORA_SESSION_MANAGER_PROTOCOL_VERSION;
+    result.header.type = AURORA_SESSION_MANAGER_UNLOCK_RESULT;
+    result.header.request_id = request_id;
+    result.state = state;
+    result.public_error = public_error;
+    result.session_generation = generation;
+    if (user_id != NULL) copy_bytes(result.user_id, user_id, sizeof(result.user_id));
     bool sent = send_payload(endpoint, &result, sizeof(result));
     secure_zero(&result, sizeof(result));
     return sent;
@@ -481,6 +531,7 @@ static bool begin_session(
 
         context->profile_handle = profile_handle;
         context->active = true;
+        context->locked = false;
         ++context->generation;
         if (context->generation == 0u) ++context->generation;
         copy_bytes(
@@ -529,6 +580,134 @@ static bool begin_session(
         0u);
 }
 
+static bool lock_session(
+    struct session_runtime_context *context,
+    const struct aurora_session_manager_message *request
+) {
+    if (context == NULL || request == NULL ||
+        request->version != AURORA_SESSION_MANAGER_PROTOCOL_VERSION ||
+        request->type != AURORA_SESSION_MANAGER_LOCK ||
+        request->request_id == 0u) {
+        return false;
+    }
+
+    if (!context->active || context->locked || context->profile_handle == 0u) {
+        return send_unlock_result(
+            context->supervisor_endpoint,
+            request->request_id,
+            AURORA_SESSION_MANAGER_STATE_BUSY,
+            AURORA_SESSION_MANAGER_ERROR_BUSY,
+            context->generation,
+            NULL);
+    }
+
+    context->locked = true;
+    return send_lock_result(
+        context->supervisor_endpoint,
+        request->request_id,
+        context->generation,
+        context->user_id);
+}
+
+static bool unlock_session(
+    struct session_runtime_context *context,
+    const struct aurora_session_manager_unlock *request
+) {
+    if (context == NULL || request == NULL ||
+        request->header.version != AURORA_SESSION_MANAGER_PROTOCOL_VERSION ||
+        request->header.type != AURORA_SESSION_MANAGER_UNLOCK ||
+        request->header.request_id == 0u) {
+        return false;
+    }
+
+    uint64_t request_id = request->header.request_id;
+    if (!context->active || !context->locked || context->profile_handle == 0u) {
+        return send_unlock_result(
+            context->supervisor_endpoint,
+            request_id,
+            AURORA_SESSION_MANAGER_STATE_BUSY,
+            AURORA_SESSION_MANAGER_ERROR_BUSY,
+            context->generation,
+            NULL);
+    }
+
+    uint8_t grant[AURORA_SESSION_MANAGER_GRANT_SIZE];
+    copy_bytes(grant, request->session_grant, sizeof(grant));
+    if (bytes_all_zero(grant, sizeof(grant))) {
+        secure_zero(grant, sizeof(grant));
+        return send_unlock_result(
+            context->supervisor_endpoint,
+            request_id,
+            AURORA_SESSION_MANAGER_STATE_REJECTED,
+            AURORA_SESSION_MANAGER_ERROR_IDENTITY_REJECTED,
+            context->generation,
+            NULL);
+    }
+
+    if (!send_identity_consume(context, request_id, grant)) {
+        secure_zero(grant, sizeof(grant));
+        return send_unlock_result(
+            context->supervisor_endpoint,
+            request_id,
+            AURORA_SESSION_MANAGER_STATE_SERVICE_ERROR,
+            AURORA_SESSION_MANAGER_ERROR_INTERNAL_FAILURE,
+            context->generation,
+            NULL);
+    }
+    secure_zero(grant, sizeof(grant));
+
+    struct aurora_identity_service_session_grant_result identity_result;
+    secure_zero(&identity_result, sizeof(identity_result));
+    if (!receive_identity_result(context, request_id, &identity_result)) {
+        return send_unlock_result(
+            context->supervisor_endpoint,
+            request_id,
+            AURORA_SESSION_MANAGER_STATE_SERVICE_ERROR,
+            AURORA_SESSION_MANAGER_ERROR_INTERNAL_FAILURE,
+            context->generation,
+            NULL);
+    }
+
+    if (identity_result.state ==
+            AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_SUCCESS &&
+        identity_result.public_error ==
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE &&
+        bytes_equal(
+            identity_result.user_id,
+            context->user_id,
+            sizeof(context->user_id))) {
+        context->locked = false;
+        secure_zero(&identity_result, sizeof(identity_result));
+        return send_unlock_result(
+            context->supervisor_endpoint,
+            request_id,
+            AURORA_SESSION_MANAGER_STATE_ACTIVE,
+            AURORA_SESSION_MANAGER_ERROR_NONE,
+            context->generation,
+            context->user_id);
+    }
+
+    uint32_t state = AURORA_SESSION_MANAGER_STATE_REJECTED;
+    uint32_t error = AURORA_SESSION_MANAGER_ERROR_IDENTITY_REJECTED;
+    if (identity_result.state ==
+            AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_SERVICE_ERROR) {
+        state = AURORA_SESSION_MANAGER_STATE_SERVICE_ERROR;
+        error = identity_result.public_error ==
+                AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE
+            ? AURORA_SESSION_MANAGER_ERROR_IDENTITY_UNAVAILABLE
+            : AURORA_SESSION_MANAGER_ERROR_INTERNAL_FAILURE;
+    }
+
+    secure_zero(&identity_result, sizeof(identity_result));
+    return send_unlock_result(
+        context->supervisor_endpoint,
+        request_id,
+        state,
+        error,
+        context->generation,
+        NULL);
+}
+
 static bool logout_session(
     struct session_runtime_context *context,
     const struct aurora_session_manager_message *request
@@ -545,6 +724,7 @@ static bool logout_session(
         context->profile_handle = 0u;
     }
     context->active = false;
+    context->locked = false;
     secure_zero(context->user_id, sizeof(context->user_id));
     return send_logout_result(
         context->supervisor_endpoint,
@@ -628,6 +808,34 @@ int64_t session_manager_runtime_main(uint64_t initial_rsp) {
             secure_zero(&received, sizeof(received));
             secure_zero(&header, sizeof(header));
             bool ok = begin_session(&context, &request);
+            secure_zero(&request, sizeof(request));
+            if (!ok) {
+                secure_zero(&context, sizeof(context));
+                return 1;
+            }
+            continue;
+        }
+
+        if (header.type == AURORA_SESSION_MANAGER_LOCK &&
+            received.length == sizeof(struct aurora_session_manager_message)) {
+            secure_zero(&received, sizeof(received));
+            bool ok = lock_session(&context, &header);
+            secure_zero(&header, sizeof(header));
+            if (!ok) {
+                secure_zero(&context, sizeof(context));
+                return 1;
+            }
+            continue;
+        }
+
+        if (header.type == AURORA_SESSION_MANAGER_UNLOCK &&
+            received.length == sizeof(struct aurora_session_manager_unlock)) {
+            struct aurora_session_manager_unlock request;
+            secure_zero(&request, sizeof(request));
+            copy_bytes(&request, received.data, sizeof(request));
+            secure_zero(&received, sizeof(received));
+            secure_zero(&header, sizeof(header));
+            bool ok = unlock_session(&context, &request);
             secure_zero(&request, sizeof(request));
             if (!ok) {
                 secure_zero(&context, sizeof(context));
