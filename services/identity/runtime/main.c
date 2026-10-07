@@ -280,6 +280,28 @@ static bool send_create_result(
     return sent;
 }
 
+static bool send_session_grant_result(
+    uint64_t endpoint,
+    uint64_t request_id,
+    uint32_t state,
+    uint32_t public_error,
+    const struct aurora_identity_user_id *user_id
+) {
+    struct aurora_identity_service_session_grant_result result;
+    secure_zero(&result, sizeof(result));
+    result.header.version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION;
+    result.header.type = AURORA_IDENTITY_SERVICE_SESSION_GRANT_RESULT;
+    result.header.request_id = request_id;
+    result.state = state;
+    result.public_error = public_error;
+    if (user_id != NULL) {
+        copy_bytes(result.user_id, user_id->bytes, sizeof(result.user_id));
+    }
+    bool sent = send_payload(endpoint, &result, sizeof(result));
+    secure_zero(&result, sizeof(result));
+    return sent;
+}
+
 static bool receive_message(
     uint64_t endpoint,
     struct aurora_sys_ipc_received *received
@@ -736,11 +758,122 @@ static bool create_authority_is_valid(uint64_t handle) {
         !capability_has(handle, AURORA_CAP_IDENTITY_CREATE, AURORA_RIGHT_TRANSFER);
 }
 
+static bool session_authority_is_valid(uint64_t handle) {
+    return handle != 0u &&
+        capability_has(handle, AURORA_CAP_IDENTITY_SESSION, AURORA_RIGHT_CONTROL) &&
+        !capability_has(handle, AURORA_CAP_IDENTITY_SESSION, AURORA_RIGHT_TRANSFER);
+}
+
 static bool sensitive_job_busy(
     const struct identity_runtime_persistent_context *context
 ) {
     return context != NULL &&
         (context->auth_job.occupied || context->create_job.occupied);
+}
+
+static bool handle_consume_session_grant(
+    uint64_t endpoint,
+    const struct aurora_sys_ipc_received *received,
+    struct identity_runtime_persistent_context *context
+) {
+    struct aurora_identity_service_consume_session_grant request;
+    struct aurora_identity_session_grant_token token;
+    secure_zero(&request, sizeof(request));
+    secure_zero(&token, sizeof(token));
+
+    if (received == NULL || context == NULL ||
+        received->length != sizeof(request) ||
+        received->capability_count != 1u) {
+        revoke_received_capabilities(received);
+        return send_session_grant_result(
+            endpoint,
+            0u,
+            AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST,
+            NULL);
+    }
+
+    copy_bytes(&request, received->data, sizeof(request));
+    uint64_t authority = received->capabilities[0];
+    bool authorized = session_authority_is_valid(authority);
+    bool revoked = revoke_capability(authority);
+    uint64_t request_id = request.header.request_id;
+
+    if (!authorized || !revoked) {
+        secure_zero(&request, sizeof(request));
+        return send_session_grant_result(
+            endpoint,
+            request_id,
+            AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_UNAUTHORIZED,
+            NULL);
+    }
+
+    if (request.header.version != AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION ||
+        request.header.type != AURORA_IDENTITY_SERVICE_CONSUME_SESSION_GRANT ||
+        request_id == 0u) {
+        secure_zero(&request, sizeof(request));
+        return send_session_grant_result(
+            endpoint,
+            request_id,
+            AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST,
+            NULL);
+    }
+
+    if (!context->session_grant_ready) {
+        secure_zero(&request, sizeof(request));
+        return send_session_grant_result(
+            endpoint,
+            request_id,
+            AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE,
+            NULL);
+    }
+
+    copy_bytes(token.bytes, request.session_grant, sizeof(token.bytes));
+    secure_zero(&request, sizeof(request));
+
+    struct aurora_identity_session_grant_consume_result consumed =
+        aurora_identity_session_grant_consume(
+            &context->session_grant_core,
+            &token);
+    secure_zero(&token, sizeof(token));
+
+    if (consumed.result == AURORA_IDENTITY_SESSION_GRANT_OK) {
+        bool sent = send_session_grant_result(
+            endpoint,
+            request_id,
+            AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_SUCCESS,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE,
+            &consumed.user_id);
+        secure_zero(&consumed, sizeof(consumed));
+        return sent;
+    }
+
+    if (consumed.result == AURORA_IDENTITY_SESSION_GRANT_NOT_FOUND ||
+        consumed.result == AURORA_IDENTITY_SESSION_GRANT_EXPIRED ||
+        consumed.result == AURORA_IDENTITY_SESSION_GRANT_INVALID_ARGUMENT) {
+        secure_zero(&consumed, sizeof(consumed));
+        return send_session_grant_result(
+            endpoint,
+            request_id,
+            AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_REJECTED,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_AUTH_FAILED,
+            NULL);
+    }
+
+    uint32_t public_error =
+        consumed.result == AURORA_IDENTITY_SESSION_GRANT_BACKEND_ERROR
+            ? AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE
+            : AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INTERNAL_FAILURE;
+    secure_zero(&consumed, sizeof(consumed));
+    return send_session_grant_result(
+        endpoint,
+        request_id,
+        AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_SERVICE_ERROR,
+        public_error,
+        NULL);
 }
 
 static bool handle_begin_key_auth(
@@ -1284,6 +1417,17 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
 
         if (request.type == AURORA_IDENTITY_SERVICE_BEGIN_CREATE) {
             if (!handle_begin_create(
+                    startup->ipc_endpoint,
+                    &received,
+                    persistent_context)) {
+                release_persistent_context(persistent_context);
+                return 1;
+            }
+            continue;
+        }
+
+        if (request.type == AURORA_IDENTITY_SERVICE_CONSUME_SESSION_GRANT) {
+            if (!handle_consume_session_grant(
                     startup->ipc_endpoint,
                     &received,
                     persistent_context)) {
