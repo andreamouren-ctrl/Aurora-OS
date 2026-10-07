@@ -79,6 +79,8 @@ static bool send_query(uint32_t type) {
 static void apply_auth_result(
     const struct aurora_identity_service_auth_result *result
 ) {
+    clear_bytes(pending_session_grant, sizeof(pending_session_grant));
+
     if (result == NULL || result->header.request_id != current_request_id) {
         client_state = AURORA_IDENTITY_CLIENT_ERROR;
         return;
@@ -320,13 +322,16 @@ void identity_client_pump(void) {
     if (client_state == AURORA_IDENTITY_CLIENT_UNINITIALIZED) return;
 
     if (!service_supervisor_step(&identity_supervisor)) {
+        clear_bytes(pending_session_grant, sizeof(pending_session_grant));
         client_state = AURORA_IDENTITY_CLIENT_ERROR;
         return;
     }
 
     if (identity_supervisor.state != AURORA_SERVICE_SUPERVISOR_RUNNING) {
+        clear_bytes(pending_session_grant, sizeof(pending_session_grant));
         if (client_state == AURORA_IDENTITY_CLIENT_AUTHENTICATING ||
-            client_state == AURORA_IDENTITY_CLIENT_CREATING) {
+            client_state == AURORA_IDENTITY_CLIENT_CREATING ||
+            client_state == AURORA_IDENTITY_CLIENT_VERIFIED) {
             client_state = AURORA_IDENTITY_CLIENT_UNAVAILABLE;
         }
         return;
@@ -414,6 +419,7 @@ void identity_client_reset_result(void) {
         client_state == AURORA_IDENTITY_CLIENT_CREATE_EXISTS ||
         client_state == AURORA_IDENTITY_CLIENT_CREATE_DENIED ||
         client_state == AURORA_IDENTITY_CLIENT_ERROR) {
+        clear_bytes(pending_session_grant, sizeof(pending_session_grant));
         retry_after_ms = 0u;
         current_request_id = 0u;
         client_state = identity_supervisor.state == AURORA_SERVICE_SUPERVISOR_RUNNING
