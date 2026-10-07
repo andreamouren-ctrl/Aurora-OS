@@ -9,6 +9,8 @@ static aurora_spinlock buffer_lock = AURORA_SPINLOCK_INIT;
 static uint64_t next_object_id;
 static bool initialized;
 
+static void clear_buffer(struct aurora_graphics_buffer *buffer);
+
 static bool buffer_pointer_valid(
     const struct aurora_graphics_buffer *buffer
 ) {
@@ -321,7 +323,6 @@ bool graphics_buffer_lookup(
     if (buffer < &buffers[0] ||
         buffer >= &buffers[AURORA_GRAPHICS_BUFFER_MAX_OBJECTS] ||
         buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
-        buffer->destroy_requested ||
         buffer->memory == NULL) {
         return false;
     }

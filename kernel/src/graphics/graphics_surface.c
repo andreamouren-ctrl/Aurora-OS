@@ -182,6 +182,53 @@ bool graphics_surface_attach(
     return true;
 }
 
+bool graphics_surface_detach_buffers(
+    struct aurora_cap_table *table,
+    aurora_cap_handle surface_handle
+) {
+    struct aurora_graphics_surface *surface = NULL;
+
+    if (!graphics_surface_lookup(
+            table,
+            surface_handle,
+            AURORA_RIGHT_WRITE,
+            &surface)) {
+        return false;
+    }
+
+    struct aurora_graphics_buffer *pending = NULL;
+    struct aurora_graphics_buffer *committed = NULL;
+
+    spinlock_lock(&surface_lock);
+
+    pending = surface->pending.buffer;
+    committed = surface->committed.buffer;
+
+    surface->pending.buffer = NULL;
+    surface->pending.damage_count = 0u;
+    surface->pending.commit_serial = 0u;
+
+    surface->committed.buffer = NULL;
+    surface->committed.damage_count = 0u;
+    surface->committed.commit_serial = 0u;
+
+    if (surface->state != AURORA_GRAPHICS_SURFACE_FREE) {
+        surface->state = AURORA_GRAPHICS_SURFACE_READY;
+    }
+
+    spinlock_unlock(&surface_lock);
+
+    if (pending != NULL) {
+        graphics_buffer_release_surface(pending);
+    }
+
+    if (committed != NULL) {
+        graphics_buffer_release_surface(committed);
+    }
+
+    return true;
+}
+
 bool graphics_surface_damage(
     struct aurora_cap_table *table,
     aurora_cap_handle surface_handle,

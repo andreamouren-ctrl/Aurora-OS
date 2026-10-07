@@ -51,7 +51,7 @@ Implemented:
 
 Remaining:
 
-- [ ] safe buffer release/lifetime and object reuse;
+- [x] capability-aware buffer lifetime, deferred destroy and safe object reuse;
 - [ ] frame callbacks;
 - [x] capability-gated Ring 3 graphics-buffer map/unmap syscall path;
 - [ ] full strict metadata/pixel-format validation.

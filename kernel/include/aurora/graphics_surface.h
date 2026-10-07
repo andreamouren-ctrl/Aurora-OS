@@ -61,6 +61,11 @@ bool graphics_surface_attach(
     aurora_cap_handle buffer_handle
 );
 
+bool graphics_surface_detach_buffers(
+    struct aurora_cap_table *table,
+    aurora_cap_handle surface_handle
+);
+
 bool graphics_surface_damage(
     struct aurora_cap_table *table,
     aurora_cap_handle surface_handle,

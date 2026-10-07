@@ -627,6 +627,142 @@ void kmain(void) {
 
     log_line("[graphics] memory-object backed buffer mapping passed");
 
+    static struct aurora_cap_table recycle_source_caps;
+    static struct aurora_cap_table recycle_target_caps;
+
+    cap_table_init(&recycle_source_caps);
+    cap_table_init(&recycle_target_caps);
+
+    struct aurora_graphics_buffer *recycle_buffer =
+        graphics_buffer_create(
+            32u,
+            32u,
+            &display_probe_mode->format
+        );
+
+    if (recycle_buffer == NULL) {
+        kernel_panic("Graphics recycle buffer allocation failed");
+    }
+
+    uint32_t recycle_generation =
+        recycle_buffer->generation;
+
+    aurora_cap_handle recycle_source =
+        graphics_buffer_grant(
+            &recycle_source_caps,
+            recycle_buffer,
+            AURORA_RIGHT_READ |
+            AURORA_RIGHT_TRANSFER
+        );
+
+    aurora_cap_handle recycle_target =
+        cap_delegate(
+            &recycle_source_caps,
+            recycle_source,
+            &recycle_target_caps,
+            AURORA_RIGHT_READ
+        );
+
+    if (recycle_source == AURORA_CAP_INVALID ||
+        recycle_target == AURORA_CAP_INVALID ||
+        recycle_buffer->capability_refs != 2u ||
+        recycle_buffer->owner_refs != 1u) {
+        kernel_panic("Graphics capability refcount probe failed");
+    }
+
+    if (!graphics_buffer_release_owner(recycle_buffer) ||
+        !recycle_buffer->destroy_requested ||
+        recycle_buffer->owner_refs != 0u ||
+        recycle_buffer->state == AURORA_GRAPHICS_BUFFER_FREE) {
+        kernel_panic("Graphics deferred owner release probe failed");
+    }
+
+    struct aurora_graphics_buffer *existing_holder_view = NULL;
+
+    if (!graphics_buffer_lookup(
+            &recycle_target_caps,
+            recycle_target,
+            AURORA_RIGHT_READ,
+            &existing_holder_view) ||
+        existing_holder_view != recycle_buffer) {
+        kernel_panic("Graphics existing capability survival probe failed");
+    }
+
+    if (graphics_buffer_grant(
+            &recycle_source_caps,
+            recycle_buffer,
+            AURORA_RIGHT_READ) != AURORA_CAP_INVALID) {
+        kernel_panic("Graphics destroy-pending new grant rejection failed");
+    }
+
+    if (!cap_revoke(
+            &recycle_source_caps,
+            recycle_source) ||
+        recycle_buffer->capability_refs != 1u ||
+        recycle_buffer->state == AURORA_GRAPHICS_BUFFER_FREE) {
+        kernel_panic("Graphics partial capability release probe failed");
+    }
+
+    if (!cap_revoke(
+            &recycle_target_caps,
+            recycle_target) ||
+        recycle_buffer->state != AURORA_GRAPHICS_BUFFER_FREE ||
+        recycle_buffer->generation == recycle_generation) {
+        kernel_panic("Graphics final recycle probe failed");
+    }
+
+    struct aurora_capability_view stale_view;
+
+    if (cap_lookup(
+            &recycle_source_caps,
+            recycle_source,
+            AURORA_CAP_GRAPHICS_BUFFER,
+            AURORA_RIGHT_READ,
+            &stale_view) ||
+        cap_lookup(
+            &recycle_target_caps,
+            recycle_target,
+            AURORA_CAP_GRAPHICS_BUFFER,
+            AURORA_RIGHT_READ,
+            &stale_view)) {
+        kernel_panic("Graphics stale capability invalidation probe failed");
+    }
+
+    struct aurora_graphics_buffer *reused_buffer =
+        graphics_buffer_create(
+            32u,
+            32u,
+            &display_probe_mode->format
+        );
+
+    if (reused_buffer == NULL ||
+        reused_buffer != recycle_buffer ||
+        reused_buffer->generation == recycle_generation) {
+        kernel_panic("Graphics capability-safe slot reuse probe failed");
+    }
+
+    if (!graphics_buffer_release_owner(reused_buffer)) {
+        kernel_panic("Graphics recycled buffer cleanup failed");
+    }
+
+    if (!graphics_surface_detach_buffers(
+            &graphics_probe_caps,
+            graphics_surface_handle)) {
+        kernel_panic("Graphics surface buffer detach probe failed");
+    }
+
+    if (!cap_revoke(
+            &graphics_probe_caps,
+            graphics_buffer_handle) ||
+        !graphics_buffer_release_owner(
+            graphics_probe_buffer)) {
+        kernel_panic("Graphics primary buffer lifetime cleanup failed");
+    }
+
+    log_line("[graphics] capability lifetime accounting passed");
+    log_line("[graphics] deferred destroy and stale-handle rejection passed");
+    log_line("[graphics] capability-safe buffer slot reuse passed");
+
     struct aurora_memory_object *shared_probe =
         memory_object_create(2u);
 
