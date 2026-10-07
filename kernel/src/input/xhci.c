@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <aurora/log.h>
 #include <aurora/pci.h>
 #include <aurora/vmm.h>
 #include <aurora/xhci.h>
@@ -71,14 +72,24 @@ bool xhci_probe(struct aurora_xhci_probe_result *out_result) {
             PCI_SUBCLASS_USB,
             PCI_PROGIF_XHCI,
             &device)) {
+        log_line("[xhci] probe fail: PCI class 0C/03/30 not found");
         return false;
     }
 
     uint64_t mmio = 0u;
 
-    if (!pci_read_bar64(&device, 0u, &mmio) ||
-        !pci_enable_memory_bus_master(&device) ||
-        !xhci_map_capability_page(mmio)) {
+    if (!pci_read_bar64(&device, 0u, &mmio)) {
+        log_line("[xhci] probe fail: BAR0 decode");
+        return false;
+    }
+
+    if (!pci_enable_memory_bus_master(&device)) {
+        log_line("[xhci] probe fail: PCI memory/bus-master enable");
+        return false;
+    }
+
+    if (!xhci_map_capability_page(mmio)) {
+        log_line("[xhci] probe fail: capability MMIO mapping");
         return false;
     }
 
@@ -100,6 +111,21 @@ bool xhci_probe(struct aurora_xhci_probe_result *out_result) {
         ports == 0u ||
         dboff < cap_length ||
         rtsoff < cap_length) {
+        log_write("[xhci] probe fail: capability validation caplen=");
+        log_u64(cap_length);
+        log_write(" version=");
+        log_hex64(version);
+        log_write(" slots=");
+        log_u64(slots);
+        log_write(" intr=");
+        log_u64(interrupters);
+        log_write(" ports=");
+        log_u64(ports);
+        log_write(" dboff=");
+        log_hex64(dboff);
+        log_write(" rtsoff=");
+        log_hex64(rtsoff);
+        log_line("");
         return false;
     }
 
