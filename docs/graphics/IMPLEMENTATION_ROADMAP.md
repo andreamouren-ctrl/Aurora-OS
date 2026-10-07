@@ -151,3 +151,23 @@ Measure and improve:
 - input-to-present latency.
 
 Later acceleration may add GPU-backed rendering without replacing the client protocol.
+
+
+## Extended color / HDR / output capability foundation
+
+Status: **In progress**
+
+Implemented foundation:
+
+- [x] color primaries, transfer function, range and HDR static metadata are first-class buffer/mode metadata;
+- [x] canonical 8-bit packed RGB/RGBA, RGB10A2, RGB12 and RGBA16F formats are validated;
+- [x] output capabilities expose SDR/HDR/PQ/HLG/wide-gamut/VRR/DSC flags, bit-depth limits and VRR range.
+
+Hardware/runtime integration still pending:
+
+- [ ] EDID / CTA-861 / DisplayID parsing;
+- [ ] native HDMI / DisplayPort / eDP link backends;
+- [ ] VRR / Adaptive-Sync programming;
+- [ ] DSC programming;
+- [ ] GPU scanout/color-pipeline programming;
+- [ ] compositor color conversion and HDR tone mapping.
