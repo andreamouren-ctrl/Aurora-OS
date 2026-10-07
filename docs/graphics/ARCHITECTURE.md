@@ -162,9 +162,11 @@ G4 currently includes:
 - immediate revocation for hidden/destroyed surfaces and secure-scene transitions;
 - full session/compositor teardown revocation;
 - bounded per-target queues with adjacent motion coalescing that preserves key/button/scroll ordering;
+- stable device identity carried by normalized input events;
+- transport-independent USB HID boot keyboard/mouse report decoders with device lifecycle events;
 - separation between pointer events and Aurora Identity credential input.
 
-The current G4 foundation is runtime verified in four-CPU QEMU. USB HID remains pending until Aurora has an xHCI/USB transport; touch, pen, gamepad, accessibility and input-method layers remain later work.
+The current G4 foundation is runtime verified in four-CPU QEMU. The HID decoder layer is implemented and executable without a controller-specific dependency, while live USB HID hardware binding remains pending until Aurora has an xHCI/USB host transport. Touch, pen, gamepad, accessibility and input-method layers remain later work.
 
 ## 9. Performance direction
 
