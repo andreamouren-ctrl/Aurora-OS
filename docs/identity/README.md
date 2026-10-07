@@ -148,25 +148,39 @@ Horizon 2/3/4 features must not delay or weaken the core offline identity path.
 
 ## Current repository state
 
-Already implemented:
+Implemented and connected to the live OS:
 
-- boot-to-login framebuffer handoff;
-- native Aurora Identity framebuffer login prototype;
-- generic kernel input-event queue;
-- IRQ-driven PS/2 keyboard prototype;
-- alphanumeric Aurora Key entry, masking, Backspace, Enter and Esc handling.
+- boot-to-login framebuffer recovery/fallback path;
+- native Aurora Identity credential entry and status UI;
+- normalized input-event foundation with PS/2 keyboard and initial PS/2 mouse path;
+- kernel entropy seed foundation and controlled Ring 3 entropy handoff;
+- HMAC-DRBG and machine-root-secret foundation;
+- pinned Argon2id verifier provider;
+- persistent Identity database and protected lookup tags;
+- first-user persistent identity creation policy;
+- capability-authorized Ring 3 Aurora Identity Service;
+- asynchronous AUTH/CREATE request path;
+- one-time session grants;
+- separate Ring 3 Session Manager;
+- stable `user_id` -> AuroraFS profile binding;
+- reduced profile capability delegation;
+- ordinary Ring 3 User Session Host;
+- logout authority revocation;
+- lock/unlock requiring fresh same-user authentication;
+- fail-closed abnormal session termination;
+- purpose-bound single-use re-authentication proof core.
 
-Not yet implemented:
+Still incomplete:
 
-- persistent Aurora Identity Service;
-- secure random service suitable for credential generation;
-- audited Argon2id verifier path;
-- persistent identity database;
-- enforced local role/file-access policy;
-- removable-storage stack required for Aurora Identity Drive;
-- session manager and authenticated profile bootstrap;
 - compositor-backed Aurora Identity System App;
-- full recovery environment.
+- profile/account/security management UI;
+- production use of re-auth proofs for every sensitive management operation;
+- full recovery credential/environment;
+- USB/xHCI/removable-media stack required for Aurora Identity Drive;
+- secure hardware authenticator transport;
+- hardware-backed machine-secret sealing/TPM integration;
+- complete audit/security-activity pipeline;
+- broad fuzzing/security review and real-hardware certification.
 
 ## Documentation completion gate
 
