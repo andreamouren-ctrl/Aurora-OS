@@ -77,9 +77,15 @@ This API is not a general `mmap` implementation. It does not currently provide:
 
 Those features, if added later, require separate ownership and authorization contracts.
 
-## Identity relationship
+## Identity and graphics relationship
 
-This foundation removes the memory blocker for linking the real `services/identity` core and Argon2id provider into the compiled Ring 3 Identity Service. It does not by itself make Identity authentication live; the subsequent integration must wire the DRBG, Machine Secret, Aurora-native persistent store, Argon2id provider and real authentication IPC protocol into the service runtime.
+This foundation is now consumed by live subsystems.
+
+The Ring 3 Identity Service uses anonymous user memory for working sets such as Argon2id allocations, while lifecycle reclaim guarantees that leaked service allocations are scrubbed/reclaimed when a service generation terminates.
+
+The shared-memory foundation is also used by M4 graphics buffers so isolated Ring 3 clients can map authorized shared backing without receiving arbitrary physical-memory authority.
+
+This does not make Aurora's memory manager equivalent to a mature Linux/Windows VM subsystem; general file-backed mappings, demand paging, swap/pagefile and broader shared-memory APIs remain future work.
 
 
 ## Shared-memory ownership
