@@ -150,16 +150,22 @@ Implemented and runtime-verified lifecycle hardening:
 - [x] compositor teardown/restart notification revokes all registered input authority before compositor state destruction;
 - [x] bounded per-target queue backpressure coalesces only immediately-consecutive pointer motion while preserving key/button/scroll ordering.
 
+Implemented and runtime-verified modern-input decoder foundation:
+
+- [x] stable per-device identity in normalized input events;
+- [x] transport-agnostic USB HID boot-keyboard report decoding with press/release state;
+- [x] transport-agnostic USB HID boot-mouse motion/button/wheel decoding and device lifecycle events.
+
 Remaining transport/extended-device work:
 
-- [ ] USB HID input foundation once xHCI/USB transport exists;
+- [ ] xHCI/USB host transport and live USB HID device binding;
 - [ ] touch/pen/gamepad and accessibility/input-method layers later.
 
 Acceptance gate:
 
 Mouse and keyboard interact with multiple surfaces without cross-client event leakage.
 
-Current G4 gate status: **runtime verified in four-CPU QEMU for the available PS/2 + normalized routing foundation**. Hit testing, pointer/keyboard focus, capture ownership, hidden/destroyed-surface revocation, secure-scene revocation, session/compositor teardown and queue-pressure motion coalescing all execute inside the mandatory graphics-input self-test. G4 remains **In progress** because USB HID depends on a future xHCI/USB transport and the extended input classes are intentionally later work.
+Current G4 gate status: **runtime verified in four-CPU QEMU for PS/2 routing plus the transport-independent USB HID decoder foundation**. Hit testing, pointer/keyboard focus, capture ownership, hidden/destroyed-surface revocation, secure-scene revocation, session/compositor teardown, queue-pressure motion coalescing, stable device identity and HID boot keyboard/mouse report decoding all execute inside mandatory boot validation. G4 remains **In progress** because live USB HID hardware binding still depends on the future xHCI/USB host stack and the extended input classes are intentionally later work.
 
 ## Phase G5 — Window protocol and Shell
 
