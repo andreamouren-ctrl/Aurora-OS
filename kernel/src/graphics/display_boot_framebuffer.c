@@ -81,3 +81,81 @@ const struct aurora_framebuffer *display_boot_framebuffer_native(
 
     return &backend->framebuffer;
 }
+
+static bool same_format(
+    const struct aurora_display_pixel_format *a,
+    const struct aurora_display_pixel_format *b
+) {
+    return a->bits_per_pixel == b->bits_per_pixel &&
+        a->red_mask_size == b->red_mask_size &&
+        a->red_mask_shift == b->red_mask_shift &&
+        a->green_mask_size == b->green_mask_size &&
+        a->green_mask_shift == b->green_mask_shift &&
+        a->blue_mask_size == b->blue_mask_size &&
+        a->blue_mask_shift == b->blue_mask_shift;
+}
+
+bool display_boot_framebuffer_present(
+    const struct aurora_boot_framebuffer_backend *backend,
+    const struct aurora_display_backbuffer *buffer
+) {
+    if (backend == NULL ||
+        !backend->ready ||
+        buffer == NULL ||
+        !buffer->ready ||
+        buffer->pixels == NULL ||
+        buffer->in_flight) {
+        return false;
+    }
+
+    const struct aurora_display_mode *mode =
+        display_output_current_mode(&backend->output);
+
+    if (mode == NULL ||
+        buffer->width != mode->width ||
+        buffer->height != mode->height ||
+        buffer->pitch != mode->pitch ||
+        !same_format(&buffer->format, &mode->format) ||
+        mode->format.bits_per_pixel == 0u ||
+        (mode->format.bits_per_pixel % 8u) != 0u) {
+        return false;
+    }
+
+    uint64_t bytes_per_pixel =
+        (uint64_t)mode->format.bits_per_pixel / 8u;
+
+    if (mode->width > UINT64_MAX / bytes_per_pixel) {
+        return false;
+    }
+
+    uint64_t visible_row_bytes =
+        mode->width * bytes_per_pixel;
+
+    if (visible_row_bytes > mode->pitch ||
+        mode->height > UINT64_MAX / mode->pitch ||
+        buffer->byte_length < mode->height * mode->pitch) {
+        return false;
+    }
+
+    volatile uint8_t *destination =
+        (volatile uint8_t *)backend->framebuffer.address;
+
+    if (destination == NULL) {
+        return false;
+    }
+
+    for (uint64_t row = 0u; row < mode->height; ++row) {
+        const uint8_t *source_row =
+            buffer->pixels + row * buffer->pitch;
+        volatile uint8_t *destination_row =
+            destination + row * backend->framebuffer.pitch;
+
+        for (uint64_t byte = 0u;
+             byte < visible_row_bytes;
+             ++byte) {
+            destination_row[byte] = source_row[byte];
+        }
+    }
+
+    return true;
+}
