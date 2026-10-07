@@ -423,6 +423,54 @@ static uint64_t dispatch_graphics_surface_commit(
     return serial;
 }
 
+static uint64_t dispatch_graphics_frame_callback_request(
+    struct aurora_process *process,
+    uint64_t surface_handle,
+    uint64_t request_id
+) {
+    if (process == NULL || request_id == 0u ||
+        !graphics_surface_request_frame_callback(
+            &process->capabilities,
+            (aurora_cap_handle)surface_handle,
+            request_id)) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    return 0u;
+}
+
+static uint64_t dispatch_graphics_frame_callback_take(
+    struct aurora_process *process,
+    uint64_t surface_handle,
+    uint64_t user_output
+) {
+    if (process == NULL || user_output == 0u) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    struct aurora_graphics_frame_callback callback = {0};
+
+    if (!graphics_surface_take_frame_callback(
+            &process->capabilities,
+            (aurora_cap_handle)surface_handle,
+            &callback)) {
+        return AURORA_SYS_RESULT_NOT_FOUND;
+    }
+
+    struct aurora_sys_graphics_frame_callback output = {
+        .request_id = callback.request_id,
+        .commit_serial = callback.commit_serial,
+        .presentation_serial = callback.presentation_serial
+    };
+
+    return copy_to_user(
+        process,
+        user_output,
+        &output,
+        sizeof(output)
+    ) ? 0u : AURORA_SYS_RESULT_ERROR;
+}
+
 static uint64_t dispatch_display_present(
     struct aurora_process *process,
     uint64_t display_handle,
@@ -669,6 +717,20 @@ struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
                 frame->rdi,
                 frame->rsi,
                 frame->rdx
+            );
+            break;
+        case AURORA_SYS_GRAPHICS_FRAME_CALLBACK_REQUEST:
+            frame->rax = dispatch_graphics_frame_callback_request(
+                process,
+                frame->rdi,
+                frame->rsi
+            );
+            break;
+        case AURORA_SYS_GRAPHICS_FRAME_CALLBACK_TAKE:
+            frame->rax = dispatch_graphics_frame_callback_take(
+                process,
+                frame->rdi,
+                frame->rsi
             );
             break;
         default:
