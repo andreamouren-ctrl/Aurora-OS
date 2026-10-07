@@ -3,12 +3,13 @@
 
 #include <stdint.h>
 
-#define AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION 4u
+#define AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION 5u
 #define AURORA_IDENTITY_SERVICE_MESSAGE_SIZE 16u
 #define AURORA_IDENTITY_SERVICE_KEY_MAX_LEN 32u
 #define AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE 32u
 #define AURORA_IDENTITY_SERVICE_USER_ID_SIZE 16u
 #define AURORA_IDENTITY_SERVICE_CREDENTIAL_ID_SIZE 16u
+#define AURORA_IDENTITY_SERVICE_REAUTH_PROOF_SIZE 32u
 
 enum aurora_identity_service_message_type {
     AURORA_IDENTITY_SERVICE_READY = 1,
@@ -33,6 +34,13 @@ enum aurora_identity_service_message_type {
 
     AURORA_IDENTITY_SERVICE_CONSUME_SESSION_GRANT = 48,
     AURORA_IDENTITY_SERVICE_SESSION_GRANT_RESULT = 49,
+
+    AURORA_IDENTITY_SERVICE_BEGIN_REAUTH = 64,
+    AURORA_IDENTITY_SERVICE_REAUTH_PENDING = 65,
+    AURORA_IDENTITY_SERVICE_QUERY_REAUTH = 66,
+    AURORA_IDENTITY_SERVICE_REAUTH_RESULT = 67,
+    AURORA_IDENTITY_SERVICE_CANCEL_REAUTH = 68,
+    AURORA_IDENTITY_SERVICE_REAUTH_CANCELLED = 69,
 
     AURORA_IDENTITY_SERVICE_ERROR = 255
 };
@@ -59,6 +67,15 @@ enum aurora_identity_service_session_grant_state {
     AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_SUCCESS = 1,
     AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_REJECTED,
     AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_SERVICE_ERROR
+};
+
+enum aurora_identity_service_reauth_state {
+    AURORA_IDENTITY_SERVICE_REAUTH_STATE_PENDING = 1,
+    AURORA_IDENTITY_SERVICE_REAUTH_STATE_SUCCESS,
+    AURORA_IDENTITY_SERVICE_REAUTH_STATE_FAILED,
+    AURORA_IDENTITY_SERVICE_REAUTH_STATE_THROTTLED,
+    AURORA_IDENTITY_SERVICE_REAUTH_STATE_SERVICE_ERROR,
+    AURORA_IDENTITY_SERVICE_REAUTH_STATE_CANCELLED
 };
 
 enum aurora_identity_service_public_error {
@@ -121,6 +138,25 @@ struct aurora_identity_service_session_grant_result {
     uint32_t state;
     uint32_t public_error;
     uint8_t user_id[AURORA_IDENTITY_SERVICE_USER_ID_SIZE];
+};
+
+struct aurora_identity_service_begin_reauth {
+    struct aurora_identity_service_message header;
+    uint32_t key_length;
+    uint32_t purpose;
+    uint8_t expected_user_id[AURORA_IDENTITY_SERVICE_USER_ID_SIZE];
+    char key[AURORA_IDENTITY_SERVICE_KEY_MAX_LEN];
+};
+
+struct aurora_identity_service_reauth_result {
+    struct aurora_identity_service_message header;
+    uint32_t state;
+    uint32_t public_error;
+    uint64_t retry_after_ms;
+    uint64_t expires_at_ms;
+    uint32_t purpose;
+    uint32_t reserved;
+    uint8_t proof[AURORA_IDENTITY_SERVICE_REAUTH_PROOF_SIZE];
 };
 
 #endif
