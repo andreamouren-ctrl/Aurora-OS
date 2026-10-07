@@ -511,9 +511,9 @@ static bool decode_unorm_sample8(
     return true;
 }
 
-static uint32_t clamp_q16_signed(int64_t value) {
+static uint32_t clamp_extended_q16_signed(int64_t value) {
     if (value <= 0) return 0u;
-    if (value >= 65535) return 65535u;
+    if ((uint64_t)value >= UINT32_MAX) return UINT32_MAX;
     return (uint32_t)value;
 }
 
@@ -583,19 +583,25 @@ static uint32_t transfer_to_linear_q16(
                 (x * x + 32767u) / 65535u
             );
 
-        case AURORA_COLOR_TRANSFER_PQ_ST2084:
+        case AURORA_COLOR_TRANSFER_PQ_ST2084: {
             /*
              * Fail-closed monotonic PQ baseline. Preserve encoded ordering,
              * expand highlights, then let the SDR tone mapper compress them.
              */
-            return (uint32_t)(
-                ((x * x + 32767u) / 65535u) * 4u
-            );
+            uint64_t value =
+                ((x * x + 32767u) / 65535u) * 4u;
+            return value > UINT32_MAX
+                ? UINT32_MAX
+                : (uint32_t)value;
+        }
 
-        case AURORA_COLOR_TRANSFER_HLG:
-            return (uint32_t)(
-                ((x * x + 32767u) / 65535u) * 2u
-            );
+        case AURORA_COLOR_TRANSFER_HLG: {
+            uint64_t value =
+                ((x * x + 32767u) / 65535u) * 2u;
+            return value > UINT32_MAX
+                ? UINT32_MAX
+                : (uint32_t)value;
+        }
 
         default:
             return 0u;
@@ -628,9 +634,9 @@ static void gamut_to_srgb_q16(
         out_b = (-298 * r - 1648 * g + 18329 * b) >> 14;
     }
 
-    *red = clamp_q16_signed(out_r);
-    *green = clamp_q16_signed(out_g);
-    *blue = clamp_q16_signed(out_b);
+    *red = clamp_extended_q16_signed(out_r);
+    *green = clamp_extended_q16_signed(out_g);
+    *blue = clamp_extended_q16_signed(out_b);
 }
 
 static uint32_t tone_map_sdr_q16(uint32_t value) {
