@@ -379,6 +379,138 @@ static uint8_t blend_channel(
     return (uint8_t)(mixed / 255u);
 }
 
+struct aurora_compositor_sample8 {
+    uint8_t red;
+    uint8_t green;
+    uint8_t blue;
+    uint8_t alpha;
+};
+
+static bool buffer_read_le_u64(
+    const struct aurora_graphics_buffer *buffer,
+    uint64_t byte_offset,
+    uint32_t byte_count,
+    uint64_t *out_value
+) {
+    if (buffer == NULL ||
+        out_value == NULL ||
+        buffer->memory == NULL ||
+        byte_count == 0u ||
+        byte_count > 8u ||
+        byte_offset > buffer->byte_length ||
+        buffer->byte_length - byte_offset < byte_count) {
+        return false;
+    }
+
+    uint64_t value = 0u;
+
+    for (uint32_t i = 0u; i < byte_count; ++i) {
+        uint64_t offset = byte_offset + i;
+        uint64_t page_index = offset / AURORA_PAGE_SIZE;
+        uint64_t page_offset = offset % AURORA_PAGE_SIZE;
+        uint64_t physical = 0u;
+
+        if (page_index > UINT32_MAX ||
+            !memory_object_page_at(
+                buffer->memory,
+                (uint32_t)page_index,
+                &physical)) {
+            return false;
+        }
+
+        uint8_t byte = *(volatile const uint8_t *)(
+            (uintptr_t)pmm_phys_to_virt(physical) +
+            (uintptr_t)page_offset
+        );
+
+        value |= (uint64_t)byte << (i * 8u);
+    }
+
+    *out_value = value;
+    return true;
+}
+
+static uint8_t unorm_to_u8(
+    uint64_t value,
+    uint8_t bits
+) {
+    if (bits == 0u || bits > 16u) return 0u;
+
+    uint64_t max_value = (UINT64_C(1) << bits) - 1u;
+    if (value > max_value) value = max_value;
+
+    return (uint8_t)(
+        (value * 255u + max_value / 2u) /
+        max_value
+    );
+}
+
+static bool decode_unorm_sample8(
+    const struct aurora_graphics_buffer *buffer,
+    uint64_t byte_offset,
+    struct aurora_compositor_sample8 *out_sample
+) {
+    if (buffer == NULL ||
+        out_sample == NULL ||
+        buffer->format.encoding != AURORA_PIXEL_ENCODING_UNORM_PACKED ||
+        !display_pixel_format_valid(&buffer->format)) {
+        return false;
+    }
+
+    uint32_t byte_count =
+        (uint32_t)buffer->format.bits_per_pixel / 8u;
+
+    if (byte_count == 0u || byte_count > 8u) {
+        return false;
+    }
+
+    uint64_t pixel = 0u;
+    if (!buffer_read_le_u64(
+            buffer,
+            byte_offset,
+            byte_count,
+            &pixel)) {
+        return false;
+    }
+
+    const struct aurora_display_pixel_format *format =
+        &buffer->format;
+
+    uint64_t red_mask =
+        (UINT64_C(1) << format->red_mask_size) - 1u;
+    uint64_t green_mask =
+        (UINT64_C(1) << format->green_mask_size) - 1u;
+    uint64_t blue_mask =
+        (UINT64_C(1) << format->blue_mask_size) - 1u;
+
+    out_sample->red = unorm_to_u8(
+        (pixel >> format->red_mask_shift) & red_mask,
+        format->red_mask_size
+    );
+    out_sample->green = unorm_to_u8(
+        (pixel >> format->green_mask_shift) & green_mask,
+        format->green_mask_size
+    );
+    out_sample->blue = unorm_to_u8(
+        (pixel >> format->blue_mask_shift) & blue_mask,
+        format->blue_mask_size
+    );
+
+    if (format->alpha_mask_size == 0u) {
+        out_sample->alpha = 255u;
+    } else {
+        uint64_t alpha_mask =
+            (UINT64_C(1) << format->alpha_mask_size) - 1u;
+
+        out_sample->alpha = unorm_to_u8(
+            (pixel >> format->alpha_mask_shift) & alpha_mask,
+            format->alpha_mask_size
+        );
+    }
+
+    return true;
+}
+
 static bool compose_snapshot(
     struct aurora_software_compositor *compositor,
     const struct aurora_compositor_node *node,
@@ -399,9 +531,10 @@ static bool compose_snapshot(
     const struct aurora_display_pixel_format *dst_format =
         &compositor->backbuffer.format;
 
-    if (!format_is_supported_8888(src_format) ||
-        !format_is_supported_8888(dst_format) ||
-        !rgb_layout_equal(src_format, dst_format)) {
+    if (!format_is_supported_8888(dst_format) ||
+        !display_pixel_format_valid(src_format) ||
+        (src_format->encoding == AURORA_PIXEL_ENCODING_UNORM_PACKED &&
+         src_format->bits_per_pixel != 32u)) {
         return false;
     }
 
@@ -423,19 +556,26 @@ static bool compose_snapshot(
                 continue;
             }
 
-            if (sy > UINT64_MAX / buffer->stride ||
-                sx > (UINT64_MAX - sy * buffer->stride) / 4u) {
+            uint64_t src_bytes_per_pixel =
+                (uint64_t)src_format->bits_per_pixel / 8u;
+
+            if (src_bytes_per_pixel == 0u ||
+                sy > UINT64_MAX / buffer->stride ||
+                sx > (UINT64_MAX - sy * buffer->stride) /
+                    src_bytes_per_pixel) {
                 return false;
             }
 
             uint64_t src_offset =
-                sy * buffer->stride + sx * 4u;
+                sy * buffer->stride +
+                sx * src_bytes_per_pixel;
 
-            uint32_t src = 0u;
-            if (!buffer_read_u32(
+            struct aurora_compositor_sample8 sample = {0};
+
+            if (!decode_unorm_sample8(
                     buffer,
                     src_offset,
-                    &src)) {
+                    &sample)) {
                 return false;
             }
 
@@ -462,29 +602,26 @@ static bool compose_snapshot(
                 );
             uint32_t dst = *dst_pixel;
 
-            uint32_t source_alpha =
-                src_format->alpha_mask_size == 8u
-                    ? channel(src, src_format->alpha_mask_shift)
-                    : 255u;
             uint32_t alpha =
-                (source_alpha * (uint32_t)node->opacity + 127u) / 255u;
+                ((uint32_t)sample.alpha *
+                 (uint32_t)node->opacity + 127u) / 255u;
 
             if (alpha == 255u) {
                 uint32_t out = dst;
                 out = replace_channel(
                     out,
                     dst_format->red_mask_shift,
-                    channel(src, src_format->red_mask_shift)
+                    sample.red
                 );
                 out = replace_channel(
                     out,
                     dst_format->green_mask_shift,
-                    channel(src, src_format->green_mask_shift)
+                    sample.green
                 );
                 out = replace_channel(
                     out,
                     dst_format->blue_mask_shift,
-                    channel(src, src_format->blue_mask_shift)
+                    sample.blue
                 );
                 *dst_pixel = out;
                 continue;
@@ -497,7 +634,7 @@ static bool compose_snapshot(
                 out,
                 dst_format->red_mask_shift,
                 blend_channel(
-                    channel(src, src_format->red_mask_shift),
+                    sample.red,
                     channel(dst, dst_format->red_mask_shift),
                     alpha
                 )
@@ -506,7 +643,7 @@ static bool compose_snapshot(
                 out,
                 dst_format->green_mask_shift,
                 blend_channel(
-                    channel(src, src_format->green_mask_shift),
+                    sample.green,
                     channel(dst, dst_format->green_mask_shift),
                     alpha
                 )
@@ -515,7 +652,7 @@ static bool compose_snapshot(
                 out,
                 dst_format->blue_mask_shift,
                 blend_channel(
-                    channel(src, src_format->blue_mask_shift),
+                    sample.blue,
                     channel(dst, dst_format->blue_mask_shift),
                     alpha
                 )
