@@ -155,6 +155,7 @@ static bool release_address_space(struct aurora_process *process) {
 static void discard_new_process(struct aurora_process *process) {
     if (process == NULL) return;
     (void)release_address_space(process);
+    cap_table_destroy(&process->capabilities);
     clear_bytes(process, sizeof(*process));
     (void)kheap_free_sized(process, sizeof(*process));
 }
@@ -274,6 +275,8 @@ bool process_reap(
     };
 
     if (!release_address_space(process)) return false;
+
+    cap_table_destroy(&process->capabilities);
 
     process->entry_point = 0u;
     process->user_stack_top = 0u;
