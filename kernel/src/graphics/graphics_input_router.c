@@ -315,6 +315,19 @@ void graphics_input_revoke_all_focus(
     router->capture_target = 0u;
 }
 
+void graphics_input_revoke_session(
+    struct aurora_graphics_input_router *router
+) {
+    if (router == NULL || !router->initialized) return;
+
+    graphics_input_revoke_all_focus(router);
+
+    for (uint32_t i = 0u; i < AURORA_GRAPHICS_INPUT_MAX_TARGETS; ++i) {
+        router->targets[i] =
+            (struct aurora_graphics_input_target){0};
+    }
+}
+
 static void clamp_pointer(
     struct aurora_graphics_input_router *router
 ) {
@@ -700,7 +713,12 @@ bool graphics_input_router_selftest(void) {
         return false;
     }
 
-    if (!graphics_input_unregister_target(&router, 101u) ||
+    graphics_input_revoke_session(&router);
+
+    if (find_target(&router, 101u) != NULL ||
+        router.pointer_focus_target != 0u ||
+        router.keyboard_focus_target != 0u ||
+        router.capture_target != 0u ||
         !software_compositor_remove_surface(&compositor, an) ||
         !software_compositor_set_scene_observer(
             &compositor,
