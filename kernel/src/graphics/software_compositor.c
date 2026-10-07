@@ -534,7 +534,8 @@ static bool compose_snapshot(
     if (!format_is_supported_8888(dst_format) ||
         !display_pixel_format_valid(src_format) ||
         (src_format->encoding == AURORA_PIXEL_ENCODING_UNORM_PACKED &&
-         src_format->bits_per_pixel != 32u)) {
+         src_format->bits_per_pixel != 32u &&
+         src_format->bits_per_pixel != 48u)) {
         return false;
     }
 
