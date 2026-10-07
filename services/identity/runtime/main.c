@@ -1335,6 +1335,8 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
 
     if (startup->abi_version != AURORA_SERVICE_STARTUP_ABI_VERSION ||
         startup->flags != 0u ||
+        startup->extra_capability_count != 0u ||
+        startup->reserved != 0u ||
         !validate_authority(startup)) {
         return 1;
     }
