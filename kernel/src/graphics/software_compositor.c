@@ -1240,6 +1240,8 @@ bool software_compositor_compose_present(
         );
     }
 
+    compositor->last_occluded_nodes = 0u;
+
     bool first = true;
     int32_t previous_z = 0;
     uint64_t previous_id = 0u;
@@ -1285,10 +1287,14 @@ bool software_compositor_compose_present(
 
             bool composed = true;
 
-            if (!node_fully_occluded(
+            if (node_fully_occluded(
                     compositor,
                     index,
                     &snapshot)) {
+                if (compositor->last_occluded_nodes != UINT32_MAX) {
+                    ++compositor->last_occluded_nodes;
+                }
+            } else {
                 composed =
                     compose_snapshot(
                         compositor,
