@@ -227,12 +227,20 @@ static bool setup_command(uint8_t port,
     return true;
 }
 
-static bool issue_write_sector(uint8_t port,
-                               uint64_t lba,
-                               uint32_t sector_size,
-                               const void *buffer) {
-    if (buffer == NULL || sector_size == 0u || sector_size > AURORA_PAGE_SIZE ||
-        lba > 0x0000FFFFFFFFFFFFull) {
+static bool issue_write_blocks(
+    uint8_t port,
+    uint64_t lba,
+    uint32_t sector_size,
+    uint16_t sector_count,
+    const void *buffer
+) {
+    if (buffer == NULL ||
+        sector_size == 0u ||
+        sector_count == 0u ||
+        sector_size > AURORA_PAGE_SIZE ||
+        (uint64_t)sector_size * sector_count > AURORA_PAGE_SIZE ||
+        lba > 0x0000FFFFFFFFFFFFull ||
+        (uint64_t)sector_count - 1u > 0x0000FFFFFFFFFFFFull - lba) {
         return false;
     }
 
@@ -248,7 +256,8 @@ static bool issue_write_sector(uint8_t port,
         return false;
     }
 
-    copy_bytes(pmm_phys_to_virt(data_phys), buffer, sector_size);
+    uint32_t byte_count = sector_size * (uint32_t)sector_count;
+    copy_bytes(pmm_phys_to_virt(data_phys), buffer, byte_count);
 
     uint32_t base;
     struct ahci_command_header *header;
@@ -263,7 +272,7 @@ static bool issue_write_sector(uint8_t port,
 
     table->prdt[0].dba = (uint32_t)data_phys;
     table->prdt[0].dbau = (uint32_t)(data_phys >> 32);
-    table->prdt[0].dbc_i = sector_size - 1u;
+    table->prdt[0].dbc_i = byte_count - 1u;
 
     uint8_t *cfis = table->cfis;
     cfis[0] = FIS_TYPE_REG_H2D;
@@ -276,7 +285,8 @@ static bool issue_write_sector(uint8_t port,
     cfis[8] = (uint8_t)(lba >> 24);
     cfis[9] = (uint8_t)(lba >> 32);
     cfis[10] = (uint8_t)(lba >> 40);
-    cfis[12] = 1u;
+    cfis[12] = (uint8_t)sector_count;
+    cfis[13] = (uint8_t)(sector_count >> 8);
 
     start_port(base);
     if (!wait_port_ready(base)) goto fail_running;
@@ -364,14 +374,36 @@ static bool rw_write(struct aurora_block_device *device,
     }
 
     const uint8_t *source = (const uint8_t *)buffer;
-    for (uint32_t block = 0u; block < block_count; ++block) {
-        if (!issue_write_sector(rw_context.port,
-                                lba + block,
-                                device->block_size,
-                                source + (size_t)block * device->block_size)) {
+    uint32_t blocks_per_command =
+        AURORA_PAGE_SIZE / device->block_size;
+
+    if (blocks_per_command == 0u) {
+        return false;
+    }
+
+    uint32_t written = 0u;
+
+    while (written < block_count) {
+        uint32_t remaining = block_count - written;
+        uint32_t chunk =
+            remaining < blocks_per_command
+                ? remaining
+                : blocks_per_command;
+
+        if (chunk > UINT16_MAX ||
+            !issue_write_blocks(
+                rw_context.port,
+                lba + written,
+                device->block_size,
+                (uint16_t)chunk,
+                source +
+                    (size_t)written * device->block_size)) {
             return false;
         }
+
+        written += chunk;
     }
+
     return true;
 }
 
