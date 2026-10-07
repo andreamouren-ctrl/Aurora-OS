@@ -1,0 +1,144 @@
+name: Aurora Identity Visual Proof
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  visual-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install proof dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y             clang             lld             make             xorriso             curl             git             binutils             python3             qemu-system-x86             qemu-system-gui             xvfb             ffmpeg             socat
+
+      - name: Build Aurora OS ISO
+        run: make iso
+
+      - name: Record real QEMU boot to Identity login
+        run: |
+          set -eu
+
+          mkdir -p build/visual-proof
+          SERIAL_LOG=build/visual-proof/qemu-serial.log
+          DEBUG_LOG=build/visual-proof/qemu-debug.log
+          STORAGE_IMAGE=build/visual-proof/aurora-visual-storage.img
+          MONITOR_SOCKET=build/visual-proof/qemu-monitor.sock
+          VIDEO=build/visual-proof/aurora-boot-to-login.mp4
+
+          rm -f "$SERIAL_LOG" "$DEBUG_LOG" "$STORAGE_IMAGE" "$MONITOR_SOCKET" "$VIDEO"
+          truncate -s 16M "$STORAGE_IMAGE"
+
+          python3 - "$STORAGE_IMAGE" <<'PY'
+          import sys
+          path = sys.argv[1]
+          signature = b"AURORA-AHCI-RW-TEST-V1"
+          with open(path, "r+b") as f:
+              f.seek(-512, 2)
+              sector = bytearray(512)
+              sector[:len(signature)] = signature
+              f.write(sector)
+          PY
+
+          Xvfb :99 -screen 0 1280x720x24 -nolisten tcp >build/visual-proof/xvfb.log 2>&1 &
+          XVFB_PID=$!
+          export DISPLAY=:99
+
+          sleep 1
+
+          ffmpeg -y             -f x11grab             -framerate 15             -video_size 1280x720             -i :99.0             -c:v libx264             -preset veryfast             -pix_fmt yuv420p             "$VIDEO"             >build/visual-proof/ffmpeg.log 2>&1 &
+          FFMPEG_PID=$!
+
+          qemu-system-x86_64             -M q35             -cpu max             -m 512M             -smp 4,sockets=1,cores=2,threads=2             -vga std             -cdrom build/AuroraOS-x86_64.iso             -drive file="$STORAGE_IMAGE",format=raw,if=none,id=aurora_disk             -device ide-hd,drive=aurora_disk             -serial file:"$SERIAL_LOG"             -d int,cpu_reset             -D "$DEBUG_LOG"             -monitor unix:"$MONITOR_SOCKET",server=on,wait=off             -display gtk,show-tabs=off,zoom-to-fit=on             -full-screen             -no-reboot             -no-shutdown             >build/visual-proof/qemu-stdout.log 2>&1 &
+          QEMU_PID=$!
+
+          cleanup() {
+            kill "$QEMU_PID" 2>/dev/null || true
+            sleep 1
+            kill -INT "$FFMPEG_PID" 2>/dev/null || true
+            sleep 1
+            kill "$FFMPEG_PID" 2>/dev/null || true
+            kill "$XVFB_PID" 2>/dev/null || true
+            wait "$QEMU_PID" 2>/dev/null || true
+            wait "$FFMPEG_PID" 2>/dev/null || true
+            wait "$XVFB_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for i in $(seq 1 50); do
+            [ -S "$MONITOR_SOCKET" ] && break
+            sleep 0.1
+          done
+
+          if [ ! -S "$MONITOR_SOCKET" ]; then
+            echo "QEMU monitor socket did not appear" >&2
+            exit 1
+          fi
+
+          sleep 2
+          printf 'screendump build/visual-proof/boot-early.ppm\n' |             socat - UNIX-CONNECT:"$MONITOR_SOCKET" || true
+
+          sleep 4
+          printf 'screendump build/visual-proof/boot-mid.ppm\n' |             socat - UNIX-CONNECT:"$MONITOR_SOCKET" || true
+
+          FOUND=0
+          for i in $(seq 1 45); do
+            if [ -f "$SERIAL_LOG" ] &&                grep -Fq "[identity-gui] full-quality PNG artwork active" "$SERIAL_LOG"; then
+              FOUND=1
+              break
+            fi
+            sleep 0.5
+          done
+
+          if [ "$FOUND" -ne 1 ]; then
+            echo "Identity GUI marker was not reached" >&2
+            cat "$SERIAL_LOG" >&2 || true
+            exit 1
+          fi
+
+          printf 'screendump build/visual-proof/login-final.ppm\n' |             socat - UNIX-CONNECT:"$MONITOR_SOCKET"
+
+          sleep 3
+
+          grep -F "[identity-service] long-lived blocking IPC request loop passed" "$SERIAL_LOG"
+          grep -F "[service-supervisor] bounded Identity restart + fresh capability bootstrap passed" "$SERIAL_LOG"
+          grep -F "[kernel] M1 user-space bootstrap reached successfully" "$SERIAL_LOG"
+          grep -F "[identity-gui] full-quality PNG artwork active" "$SERIAL_LOG"
+
+          for image in boot-early boot-mid login-final; do
+            if [ -f "build/visual-proof/$image.ppm" ]; then
+              ffmpeg -y                 -i "build/visual-proof/$image.ppm"                 "build/visual-proof/$image.png"                 >/dev/null 2>&1
+            fi
+          done
+
+          cleanup
+          trap - EXIT
+
+          test -s "$VIDEO"
+          test -s build/visual-proof/login-final.png
+
+          ffprobe -v error             -show_entries format=duration,size             -of default=noprint_wrappers=1             "$VIDEO"
+
+      - name: Upload visual proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aurora-Identity-Visual-Proof
+          if-no-files-found: error
+          compression-level: 0
+          path: |
+            build/visual-proof/aurora-boot-to-login.mp4
+            build/visual-proof/boot-early.png
+            build/visual-proof/boot-mid.png
+            build/visual-proof/login-final.png
+            build/visual-proof/qemu-serial.log
+            build/visual-proof/qemu-debug.log
+            build/visual-proof/qemu-stdout.log
+            build/visual-proof/ffmpeg.log
