@@ -84,4 +84,12 @@ bool graphics_buffer_lookup(
     struct aurora_graphics_buffer **out_buffer
 );
 
+bool graphics_buffer_lookup_retain(
+    struct aurora_cap_table *table,
+    aurora_cap_handle handle,
+    uint64_t required_rights,
+    struct aurora_graphics_buffer **out_buffer,
+    struct aurora_capability_view *out_view
+);
+
 #endif
