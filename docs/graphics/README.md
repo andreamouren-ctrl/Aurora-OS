@@ -81,7 +81,7 @@ Current G1-G3 foundations include:
 - display capability/link foundations for EDID/CTA/DisplayID, HDMI, DisplayPort, VRR and DSC;
 - QEMU Standard VGA / Bochs VBE native-driver foundation.
 
-G4 now adds the runtime-verified PS/2 + normalized routing foundation: secure hit testing, isolated pointer/keyboard focus, owned capture with lifecycle revocation, session/compositor teardown cleanup and bounded motion coalescing under queue pressure. USB HID remains gated on a future xHCI/USB transport.
+G4 now adds the runtime-verified PS/2 + normalized routing foundation: secure hit testing, isolated pointer/keyboard focus, owned capture with lifecycle revocation, session/compositor teardown cleanup and bounded motion coalescing under queue pressure. Normalized events now carry stable device identity, and transport-independent USB HID boot keyboard/mouse decoders are runtime verified in QEMU. Live USB HID hardware binding remains gated on a future xHCI/USB host transport.
 
 ## Canonical documents
 
