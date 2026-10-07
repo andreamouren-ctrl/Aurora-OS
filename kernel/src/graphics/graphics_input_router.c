@@ -821,6 +821,25 @@ bool graphics_input_router_selftest(void) {
         return false;
     }
 
+    if (!software_compositor_set_node(
+            &compositor,
+            an,
+            4, 4, 0, 255u, false) ||
+        router.pointer_focus_target != 0u ||
+        router.keyboard_focus_target != 0u ||
+        router.capture_target != 0u ||
+        find_target(&router, 101u) == NULL ||
+        !software_compositor_set_node(
+            &compositor,
+            an,
+            4, 4, 0, 255u, true) ||
+        !graphics_input_route_event(&router, &to_a) ||
+        router.pointer_focus_target != 101u ||
+        !graphics_input_set_keyboard_focus(&router, 101u) ||
+        !graphics_input_request_capture(&router, 101u)) {
+        return false;
+    }
+
     if (!software_compositor_set_secure_scene(
             &compositor,
             &authority_caps,
@@ -852,18 +871,15 @@ bool graphics_input_router_selftest(void) {
         return false;
     }
 
-    graphics_input_revoke_session(&router);
-
-    if (find_target(&router, 101u) != NULL ||
+    if (!graphics_input_route_event(&router, &to_a) ||
+        router.pointer_focus_target != 101u ||
+        !graphics_input_set_keyboard_focus(&router, 101u) ||
+        !graphics_input_request_capture(&router, 101u) ||
+        !software_compositor_destroy(&compositor) ||
+        find_target(&router, 101u) != NULL ||
         router.pointer_focus_target != 0u ||
         router.keyboard_focus_target != 0u ||
-        router.capture_target != 0u ||
-        !software_compositor_remove_surface(&compositor, an) ||
-        !software_compositor_set_scene_observer(
-            &compositor,
-            NULL,
-            NULL) ||
-        !software_compositor_destroy(&compositor)) {
+        router.capture_target != 0u) {
         return false;
     }
 
