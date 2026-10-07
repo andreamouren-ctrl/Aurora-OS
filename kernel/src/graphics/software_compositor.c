@@ -511,6 +511,323 @@ static bool decode_unorm_sample8(
     return true;
 }
 
+static uint32_t clamp_q16_signed(int64_t value) {
+    if (value <= 0) return 0u;
+    if (value >= 65535) return 65535u;
+    return (uint32_t)value;
+}
+
+static uint32_t half_to_q16(uint16_t half) {
+    uint32_t sign = (uint32_t)(half >> 15);
+    uint32_t exponent = (uint32_t)((half >> 10) & 0x1Fu);
+    uint32_t fraction = (uint32_t)(half & 0x03FFu);
+
+    if (sign != 0u) return 0u;
+
+    if (exponent == 0x1Fu) {
+        return fraction == 0u ? UINT32_MAX : 0u;
+    }
+
+    if (exponent == 0u) {
+        if (fraction == 0u) return 0u;
+        /*
+         * subnormal = fraction / 2^10 * 2^-14
+         * Q16 => fraction / 256, rounded.
+         */
+        return (fraction + 128u) >> 8;
+    }
+
+    int32_t unbiased = (int32_t)exponent - 15;
+    uint32_t mantissa = 1024u + fraction;
+
+    if (unbiased >= 15) {
+        return UINT32_MAX;
+    }
+
+    if (unbiased >= 0) {
+        uint64_t value =
+            (uint64_t)mantissa << (unbiased + 6);
+        return value > UINT32_MAX ? UINT32_MAX : (uint32_t)value;
+    }
+
+    uint32_t shift = (uint32_t)(-unbiased);
+    if (shift >= 22u) return 0u;
+
+    uint64_t numerator = (uint64_t)mantissa << 6;
+    uint64_t rounding =
+        shift == 0u ? 0u : (UINT64_C(1) << (shift - 1u));
+
+    return (uint32_t)((numerator + rounding) >> shift);
+}
+
+static uint32_t transfer_to_linear_q16(
+    uint32_t encoded,
+    enum aurora_color_transfer transfer
+) {
+    if (encoded == UINT32_MAX) return UINT32_MAX;
+
+    uint64_t x = encoded;
+
+    switch (transfer) {
+        case AURORA_COLOR_TRANSFER_LINEAR:
+            return encoded;
+
+        case AURORA_COLOR_TRANSFER_SRGB:
+        case AURORA_COLOR_TRANSFER_GAMMA22:
+        case AURORA_COLOR_TRANSFER_BT1886:
+            /*
+             * Integer-only approximation to gamma ~2.0-2.4.
+             * This is a compositor baseline, not a mastering transform.
+             */
+            return (uint32_t)(
+                (x * x + 32767u) / 65535u
+            );
+
+        case AURORA_COLOR_TRANSFER_PQ_ST2084:
+            /*
+             * Fail-closed monotonic PQ baseline. Preserve encoded ordering,
+             * expand highlights, then let the SDR tone mapper compress them.
+             */
+            return (uint32_t)(
+                ((x * x + 32767u) / 65535u) * 4u
+            );
+
+        case AURORA_COLOR_TRANSFER_HLG:
+            return (uint32_t)(
+                ((x * x + 32767u) / 65535u) * 2u
+            );
+
+        default:
+            return 0u;
+    }
+}
+
+static void gamut_to_srgb_q16(
+    enum aurora_color_primaries primaries,
+    uint32_t *red,
+    uint32_t *green,
+    uint32_t *blue
+) {
+    if (red == NULL || green == NULL || blue == NULL) return;
+
+    int64_t r = *red;
+    int64_t g = *green;
+    int64_t b = *blue;
+
+    int64_t out_r = r;
+    int64_t out_g = g;
+    int64_t out_b = b;
+
+    if (primaries == AURORA_COLOR_PRIMARIES_DISPLAY_P3_D65) {
+        out_r = (20066 * r - 3685 * g + 3 * b) >> 14;
+        out_g = (-689 * r + 17073 * g + 0 * b) >> 14;
+        out_b = (-322 * r - 1289 * g + 17995 * b) >> 14;
+    } else if (primaries == AURORA_COLOR_PRIMARIES_BT2020) {
+        out_r = (27206 * r - 9627 * g - 1193 * b) >> 14;
+        out_g = (-2042 * r + 18561 * g - 136 * b) >> 14;
+        out_b = (-298 * r - 1648 * g + 18329 * b) >> 14;
+    }
+
+    *red = clamp_q16_signed(out_r);
+    *green = clamp_q16_signed(out_g);
+    *blue = clamp_q16_signed(out_b);
+}
+
+static uint32_t tone_map_sdr_q16(uint32_t value) {
+    if (value == UINT32_MAX) return 65535u;
+
+    /*
+     * Reference-white-preserving Reinhard-style baseline:
+     * y = x / (x + 0.25), normalized to Q16.
+     * SDR values around 0.25 map near 0.5, highlights compress smoothly.
+     */
+    uint64_t denominator = (uint64_t)value + 16384u;
+    if (denominator == 0u) return 0u;
+
+    uint64_t mapped =
+        ((uint64_t)value * 65535u + denominator / 2u) /
+        denominator;
+
+    return mapped > 65535u ? 65535u : (uint32_t)mapped;
+}
+
+static uint32_t integer_sqrt_u32(uint32_t value) {
+    uint32_t result = 0u;
+    uint32_t bit = UINT32_C(1) << 30;
+
+    while (bit > value) bit >>= 2;
+
+    while (bit != 0u) {
+        if (value >= result + bit) {
+            value -= result + bit;
+            result = (result >> 1) + bit;
+        } else {
+            result >>= 1;
+        }
+        bit >>= 2;
+    }
+
+    return result;
+}
+
+static uint8_t linear_q16_to_srgb8(uint32_t linear) {
+    if (linear >= 65535u) return 255u;
+
+    /*
+     * Integer sqrt is a bounded gamma~2 encoding approximation suitable for
+     * the initial SDR compositor path.
+     */
+    uint32_t root =
+        integer_sqrt_u32(linear * 65535u);
+
+    return (uint8_t)((root * 255u + 32767u) / 65535u);
+}
+
+static bool decode_float16_sample8(
+    const struct aurora_graphics_buffer *buffer,
+    uint64_t byte_offset,
+    struct aurora_compositor_sample8 *out_sample
+) {
+    if (buffer == NULL ||
+        out_sample == NULL ||
+        buffer->format.encoding != AURORA_PIXEL_ENCODING_FLOAT16 ||
+        buffer->format.bits_per_pixel != 64u ||
+        !display_pixel_format_valid(&buffer->format) ||
+        !display_color_description_valid(&buffer->color)) {
+        return false;
+    }
+
+    uint64_t pixel = 0u;
+    if (!buffer_read_le_u64(
+            buffer,
+            byte_offset,
+            8u,
+            &pixel)) {
+        return false;
+    }
+
+    uint16_t r16 =
+        (uint16_t)((pixel >> buffer->format.red_mask_shift) & 0xFFFFu);
+    uint16_t g16 =
+        (uint16_t)((pixel >> buffer->format.green_mask_shift) & 0xFFFFu);
+    uint16_t b16 =
+        (uint16_t)((pixel >> buffer->format.blue_mask_shift) & 0xFFFFu);
+    uint16_t a16 =
+        (uint16_t)((pixel >> buffer->format.alpha_mask_shift) & 0xFFFFu);
+
+    uint32_t r = transfer_to_linear_q16(
+        half_to_q16(r16),
+        buffer->color.transfer
+    );
+    uint32_t g = transfer_to_linear_q16(
+        half_to_q16(g16),
+        buffer->color.transfer
+    );
+    uint32_t b = transfer_to_linear_q16(
+        half_to_q16(b16),
+        buffer->color.transfer
+    );
+    uint32_t a = half_to_q16(a16);
+
+    gamut_to_srgb_q16(
+        buffer->color.primaries,
+        &r,
+        &g,
+        &b
+    );
+
+    bool hdr =
+        buffer->color.transfer == AURORA_COLOR_TRANSFER_PQ_ST2084 ||
+        buffer->color.transfer == AURORA_COLOR_TRANSFER_HLG ||
+        buffer->color.hdr_static.valid ||
+        r > 65535u ||
+        g > 65535u ||
+        b > 65535u;
+
+    if (hdr) {
+        r = tone_map_sdr_q16(r);
+        g = tone_map_sdr_q16(g);
+        b = tone_map_sdr_q16(b);
+    } else {
+        if (r > 65535u) r = 65535u;
+        if (g > 65535u) g = 65535u;
+        if (b > 65535u) b = 65535u;
+    }
+
+    out_sample->red = linear_q16_to_srgb8(r);
+    out_sample->green = linear_q16_to_srgb8(g);
+    out_sample->blue = linear_q16_to_srgb8(b);
+    out_sample->alpha =
+        a >= 65535u
+            ? 255u
+            : (uint8_t)((a * 255u + 32767u) / 65535u);
+
+    return true;
+}
+
+static bool decode_source_sample8(
+    const struct aurora_graphics_buffer *buffer,
+    uint64_t byte_offset,
+    struct aurora_compositor_sample8 *out_sample
+) {
+    if (buffer == NULL || out_sample == NULL) return false;
+
+    if (buffer->format.encoding == AURORA_PIXEL_ENCODING_FLOAT16) {
+        return decode_float16_sample8(
+            buffer,
+            byte_offset,
+            out_sample
+        );
+    }
+
+    if (!decode_unorm_sample8(
+            buffer,
+            byte_offset,
+            out_sample)) {
+        return false;
+    }
+
+    /*
+     * UNORM RGB10A2/RGB12 are normalized here. Full transfer/gamut conversion
+     * for integer HDR sources is performed using the same baseline by lifting
+     * the decoded channels into Q16.
+     */
+    uint32_t r = (uint32_t)out_sample->red * 257u;
+    uint32_t g = (uint32_t)out_sample->green * 257u;
+    uint32_t b = (uint32_t)out_sample->blue * 257u;
+
+    r = transfer_to_linear_q16(r, buffer->color.transfer);
+    g = transfer_to_linear_q16(g, buffer->color.transfer);
+    b = transfer_to_linear_q16(b, buffer->color.transfer);
+
+    gamut_to_srgb_q16(
+        buffer->color.primaries,
+        &r,
+        &g,
+        &b
+    );
+
+    bool hdr =
+        buffer->color.transfer == AURORA_COLOR_TRANSFER_PQ_ST2084 ||
+        buffer->color.transfer == AURORA_COLOR_TRANSFER_HLG ||
+        buffer->color.hdr_static.valid;
+
+    if (hdr) {
+        r = tone_map_sdr_q16(r);
+        g = tone_map_sdr_q16(g);
+        b = tone_map_sdr_q16(b);
+    }
+
+    if (r > 65535u) r = 65535u;
+    if (g > 65535u) g = 65535u;
+    if (b > 65535u) b = 65535u;
+
+    out_sample->red = linear_q16_to_srgb8(r);
+    out_sample->green = linear_q16_to_srgb8(g);
+    out_sample->blue = linear_q16_to_srgb8(b);
+    return true;
+}
+
 static bool compose_snapshot(
     struct aurora_software_compositor *compositor,
     const struct aurora_compositor_node *node,
@@ -535,7 +852,9 @@ static bool compose_snapshot(
         !display_pixel_format_valid(src_format) ||
         (src_format->encoding == AURORA_PIXEL_ENCODING_UNORM_PACKED &&
          src_format->bits_per_pixel != 32u &&
-         src_format->bits_per_pixel != 48u)) {
+         src_format->bits_per_pixel != 48u) ||
+        (src_format->encoding == AURORA_PIXEL_ENCODING_FLOAT16 &&
+         src_format->bits_per_pixel != 64u)) {
         return false;
     }
 
@@ -573,7 +892,7 @@ static bool compose_snapshot(
 
             struct aurora_compositor_sample8 sample = {0};
 
-            if (!decode_unorm_sample8(
+            if (!decode_source_sample8(
                     buffer,
                     src_offset,
                     &sample)) {
