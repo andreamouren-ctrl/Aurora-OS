@@ -3,7 +3,10 @@
 
 #include <aurora/display_identification.h>
 
+#define CTA_DB_VENDOR_SPECIFIC 3u
 #define CTA_DB_EXTENDED_TAG 7u
+#define CTA_HDMI_OUI UINT32_C(0x000C03)
+#define CTA_HDMI_FORUM_OUI UINT32_C(0xC45DD8)
 #define CTA_EXT_COLORIMETRY 5u
 #define CTA_EXT_HDR_STATIC_METADATA 6u
 #define CTA_EXT_Y420_VIDEO 14u
@@ -171,6 +174,100 @@ bool display_cta861_parse(
         }
 
         const uint8_t *payload = &block[index];
+
+        if (tag == CTA_DB_VENDOR_SPECIFIC && length >= 3u) {
+            uint32_t oui =
+                (uint32_t)payload[0] |
+                ((uint32_t)payload[1] << 8) |
+                ((uint32_t)payload[2] << 16);
+
+            if (oui == CTA_HDMI_OUI) {
+                out->hdmi_vsdb = true;
+
+                if (length >= 7u && payload[6] != 0u) {
+                    out->max_tmds_clock_khz =
+                        (uint32_t)payload[6] * UINT32_C(5000);
+                }
+            } else if (oui == CTA_HDMI_FORUM_OUI) {
+                out->hdmi_forum_vsdb = true;
+
+                if (length >= 5u && payload[4] != 0u) {
+                    uint32_t forum_tmds =
+                        (uint32_t)payload[4] * UINT32_C(5000);
+                    if (forum_tmds > out->max_tmds_clock_khz) {
+                        out->max_tmds_clock_khz = forum_tmds;
+                    }
+                }
+
+                if (length >= 6u) {
+                    out->scdc_present =
+                        (payload[5] & 0x80u) != 0u;
+                    out->read_request_capable =
+                        (payload[5] & 0x40u) != 0u;
+                }
+
+                if (length >= 7u) {
+                    uint8_t frl =
+                        (payload[6] >> 4) & 0x0Fu;
+                    out->max_frl_rate_code = frl;
+
+                    switch (frl) {
+                        case 1u:
+                            out->max_frl_lanes = 3u;
+                            out->max_frl_gbps_per_lane = 3u;
+                            break;
+                        case 2u:
+                            out->max_frl_lanes = 3u;
+                            out->max_frl_gbps_per_lane = 6u;
+                            break;
+                        case 3u:
+                            out->max_frl_lanes = 4u;
+                            out->max_frl_gbps_per_lane = 6u;
+                            break;
+                        case 4u:
+                            out->max_frl_lanes = 4u;
+                            out->max_frl_gbps_per_lane = 8u;
+                            break;
+                        case 5u:
+                            out->max_frl_lanes = 4u;
+                            out->max_frl_gbps_per_lane = 10u;
+                            break;
+                        case 6u:
+                            out->max_frl_lanes = 4u;
+                            out->max_frl_gbps_per_lane = 12u;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+
+                if (length >= 8u) {
+                    out->allm = (payload[7] & 0x02u) != 0u;
+                    out->fast_vactive =
+                        (payload[7] & 0x04u) != 0u;
+                }
+
+                if (length >= 10u) {
+                    uint16_t min_hz =
+                        (uint16_t)(payload[8] & 0x3Fu);
+                    uint16_t max_hz =
+                        (uint16_t)(((uint16_t)(payload[8] & 0xC0u) << 2) |
+                                   payload[9]);
+
+                    out->vrr_min_hz = min_hz;
+                    out->vrr_max_hz = max_hz;
+                    out->vrr_supported =
+                        min_hz > 0u &&
+                        min_hz <= 48u &&
+                        (max_hz == 0u || max_hz >= 100u);
+                }
+
+                if (length >= 11u) {
+                    out->dsc_1p2 =
+                        (payload[10] & 0x80u) != 0u;
+                }
+            }
+        }
 
         if (tag == CTA_DB_EXTENDED_TAG) {
             uint8_t ext_tag = payload[0];
@@ -360,6 +457,22 @@ bool display_cta861_apply_capabilities(
             AURORA_DISPLAY_CAP_HLG;
         capabilities->transfer_mask |=
             (1u << AURORA_COLOR_TRANSFER_HLG);
+    }
+
+    if (cta->max_frl_rate_code != 0u) {
+        capabilities->flags |= AURORA_DISPLAY_CAP_HDMI_FRL;
+    }
+
+    if (cta->dsc_1p2) {
+        capabilities->flags |= AURORA_DISPLAY_CAP_DSC;
+    }
+
+    if (cta->vrr_supported && cta->vrr_max_hz != 0u) {
+        capabilities->flags |= AURORA_DISPLAY_CAP_VRR;
+        capabilities->vrr_min_millihz =
+            (uint32_t)cta->vrr_min_hz * 1000u;
+        capabilities->vrr_max_millihz =
+            (uint32_t)cta->vrr_max_hz * 1000u;
     }
 
     return true;
