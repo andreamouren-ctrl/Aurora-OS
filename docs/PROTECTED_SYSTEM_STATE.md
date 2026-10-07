@@ -9,7 +9,7 @@ Protected System State is Aurora OS's privileged durable-storage boundary for se
 
 It exists so that knowing a pathname is not sufficient authority to read or modify sensitive state. Ordinary applications must not gain access to Identity secrets, service credentials, trust databases, recovery state, or equivalent system-owned records merely because they can guess where those bytes live.
 
-The first planned consumer is Aurora Identity.
+Aurora Identity is the first live consumer of this boundary.
 
 ## Canonical namespace
 
@@ -39,7 +39,7 @@ Current rights are:
 - `WRITE` — create, write, truncate, durability-sync, and publish create-once records;
 - `CONTROL` — rename or remove records.
 
-`TRANSFER` is deliberately not accepted by `protected_state_grant()`. A future Service Manager must make any cross-process authority assignment explicit rather than allowing a service to hand privileged system-state authority to arbitrary applications.
+`TRANSFER` is deliberately not accepted by `protected_state_grant()`. Trusted service bootstrap assigns Protected State authority explicitly; ordinary services/applications cannot arbitrarily re-delegate it.
 
 ## Filesystem boundary
 
@@ -95,17 +95,18 @@ The final name is never overwritten. If it is positively observed as already pre
 
 The staging name is deterministic and publication is serialized inside the kernel. If a crash happens before rename begins, a later attempt removes a stale staging file only when it can positively observe it. If a crash happens during rename, AuroraFS v2's namespace transaction/recovery machinery resolves the operation to the pre-publication or post-publication namespace image. Because the staging inode is fully synced before rename, a published final name refers to complete staged record contents rather than a partially written destination file.
 
-This primitive is intentionally different from a generic atomic-replace operation. The transactional Identity database still needs a separately specified durable replacement primitive before its rotating dual-slot snapshots move onto Protected State.
+This primitive is intentionally different from generic replacement. Aurora now also exposes a separately bounded durable replacement path (`AURORA_SYS_PROTECTED_STATE_REPLACE_DURABLE`) for mutable trusted-service state whose publication contract requires replacement semantics.
 
 ## Bounded Ring 3 record bridge
 
 Aurora exposes a deliberately narrow Ring 3 bridge for service processes that already hold a Protected State capability. The bridge does **not** expose general VFS pathname operations.
 
-Two syscalls are currently defined:
+Three syscalls are currently defined:
 
 ```text
 AURORA_SYS_PROTECTED_STATE_READ = 6
 AURORA_SYS_PROTECTED_STATE_CREATE_ONCE = 7
+AURORA_SYS_PROTECTED_STATE_REPLACE_DURABLE = 10
 ```
 
 Both calls authorize against the current process capability table. The capability must be type `AURORA_CAP_PROTECTED_STATE`, must be bound to the exact namespace object, and must contain the required right.
@@ -154,7 +155,7 @@ The current service bridge intentionally uses smaller limits than the internal P
 
 ```text
 record name <= 64 bytes
-record I/O   <= 512 bytes
+record I/O   <= 8192 bytes
 ```
 
 This is sufficient for the 84-byte Aurora Identity Machine Secret record while keeping kernel syscall stack buffers bounded. The limits can be revised only through an explicit ABI change.
@@ -204,7 +205,7 @@ If `/system` is unavailable, Protected State runtime tests are skipped. Absence 
 
 ## Identity integration
 
-The intended Identity layout is conceptually:
+The live Identity layout is conceptually:
 
 ```text
 /system/.protected/identity/
@@ -215,11 +216,11 @@ The intended Identity layout is conceptually:
     ...
 ```
 
-The Aurora Identity Machine Secret layer already has a service-side transport adapter with `read_record` and `create_record_once_durable` operations. The Ring 3 bridge now supplies matching kernel primitives for a future Identity Service process.
+The supervised Ring 3 Identity Service receives the exact Protected State authority required by its manifest. Its machine-secret and persistent identity-state transports use this boundary rather than unrestricted VFS path authority.
 
-This does **not** yet mean the live login path uses the Identity Service. A trusted service/bootstrap manager still has to instantiate the long-lived Identity process, bind the `identity` namespace, grant its non-transferable capability, and connect login/session IPC to it.
+Login/session IPC is already connected to the live Identity Service, and one-time session grants are consumed by the separate Ring 3 Session Manager.
 
-The mutable Identity database remains separate until durable atomic replacement is available.
+The important invariant is that ordinary applications never receive the Identity Protected State capability.
 
 ## Security limits
 
@@ -230,9 +231,11 @@ It does **not** yet provide:
 - TPM or secure-hardware sealing;
 - encryption of protected records at rest;
 - resistance to an offline attacker with unrestricted raw-disk access;
-- a production Service Manager that launches/restarts Identity and grants its namespace capability;
-- resource reclamation required for restartable long-lived services;
-- a generic durable atomic-replace primitive for mutable transactional service state;
-- general filesystem syscall mediation, which remains a separate future subsystem.
+- a complete general-purpose production Service Manager;
+- broad filesystem syscall mediation for ordinary applications;
+- hardware-backed authorization roots;
+- production certification against physical fault/power-loss matrices.
+
+Service supervision, process reclamation and a bounded durable replacement primitive now exist and are no longer blockers for the live Identity path.
 
 These are separate future hardening/integration stages.
