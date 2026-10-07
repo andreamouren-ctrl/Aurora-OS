@@ -1,9 +1,9 @@
 # Aurora Identity One-Time Session Grant Implementation
 
 Status: **isolated implementation foundation**
-Version: **0.1**
+Version: **0.2**
 
-This document records the first executable Aurora Identity session-grant contract. It remains intentionally isolated from the live Aurora OS login/session path.
+This document records the executable Aurora Identity session-grant contract and its production Ring 3 consume boundary. Session Manager itself remains the next integration milestone.
 
 ## 1. Purpose
 
@@ -36,7 +36,7 @@ The current isolated module guarantees:
 
 The low-level grant module does **not** decide whether a caller is allowed to request a session. The future Aurora Identity Service is responsible for calling it only after successful authentication and policy checks.
 
-Likewise, possession of a token is not the only production authorization requirement. The future IPC endpoint must also require the dedicated Session Manager capability (`identity.session.consume-grant`) described by the canonical IPC design.
+Likewise, possession of a token is not the only production authorization requirement. The Ring 3 Identity Service consume endpoint requires the dedicated `AURORA_CAP_IDENTITY_SESSION` capability with `CONTROL`; the delegated receiver handle must not retain `TRANSFER`.
 
 ## 4. Token representation
 
@@ -139,7 +139,19 @@ Production grant storage must therefore be cleared when:
 
 Grant records must not be restored from normal identity database backups.
 
-## 10. Current test coverage
+## 10. Ring 3 consume protocol
+
+Protocol v4 adds:
+
+- `CONSUME_SESSION_GRANT` request carrying only the 32-byte opaque grant;
+- exactly one transferred `AURORA_CAP_IDENTITY_SESSION` authority;
+- immediate revocation of the received request authority after validation;
+- `SESSION_GRANT_RESULT` returning only a coarse state/public error and, on success, the bound 16-byte `user_id`;
+- no credential, verifier, token tag, Aurora Key, or raw grant is returned.
+
+Missing/expired/replayed grants collapse to the same public rejected state. Storage/crypto failures remain fail-closed.
+
+## 11. Current test coverage
 
 Host-side tests verify:
 
@@ -159,22 +171,17 @@ Host-side tests verify:
 
 All providers in the host test are stand-ins and are not production cryptography or storage.
 
-## 11. Deliberately not implemented yet
+## 12. Deliberately not implemented yet
 
 This milestone does not implement:
 
-- production CSPRNG;
-- production token-tag cryptographic provider;
-- Aurora-native transient grant store;
-- Identity Service Ring 3 process;
 - Session Manager Ring 3 process;
-- capability-authorized IPC;
 - profile opening/capability issuance;
 - live boot/login integration;
 - lock/unlock session lifecycle;
 - graphical UI.
 
-## 12. Integration gate
+## 13. Integration gate
 
 The module can be connected to the real login path only after:
 
