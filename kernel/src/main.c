@@ -49,6 +49,7 @@
 #include <aurora/syscall.h>
 #include <aurora/timer.h>
 #include <aurora/usb_hid.h>
+#include <aurora/usb_hid_transport.h>
 #include <aurora/user_ipc_probe.h>
 #include <aurora/user_probe.h>
 #include <aurora/usercopy.h>
@@ -1471,12 +1472,14 @@ void kmain(void) {
     if (!input_selftest() ||
         !ps2_mouse_selftest() ||
         !usb_hid_selftest() ||
+        !usb_hid_transport_selftest() ||
         !graphics_input_router_selftest()) {
         kernel_panic("G4 normalized input/mouse/HID/focus routing self-test failed");
     }
 
     log_line("[graphics-input] normalized mouse + hit-test focus isolation self-test passed");
     log_line("[usb-hid] transport-independent boot keyboard/mouse decoder self-test passed");
+    log_line("[usb-hid-transport] binding/dispatch/stale-handle/disconnect self-test passed");
 
     struct aurora_memory_object *shared_probe =
         memory_object_create(2u);
