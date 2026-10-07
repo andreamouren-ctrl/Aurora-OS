@@ -490,6 +490,7 @@ static bool begin_session(
             }
             return send_manager_result(
                 context->supervisor_endpoint,
+                AURORA_SESSION_MANAGER_SESSION_RESULT,
                 request_id,
                 AURORA_SESSION_MANAGER_STATE_SERVICE_ERROR,
                 AURORA_SESSION_MANAGER_ERROR_INTERNAL_FAILURE,
@@ -541,6 +542,7 @@ static bool begin_session(
     secure_zero(&identity_result, sizeof(identity_result));
     return send_manager_result(
         context->supervisor_endpoint,
+        AURORA_SESSION_MANAGER_SESSION_RESULT,
         request_id,
         state,
         error,
