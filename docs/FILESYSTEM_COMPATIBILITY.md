@@ -25,7 +25,8 @@ Recognition alone must never be presented as full filesystem support.
 
 | Filesystem | Detected | Read-only | Read-write | CI verification |
 | --- | --- | --- | --- | --- |
-| AuroraFS bootstrap v1 | **Yes** | **Yes** | **Existing bootstrap files only** | **Yes — ATA/AHCI/NVMe paths + common VFS + synthetic 4096-byte logical block** |
+| AuroraFS v2 | **Yes** | **Yes** | **Yes** | **Yes — real `/system` mount, mutation/recovery/metadata/ACL/durability gates + ATA/AHCI/NVMe regression coverage** |
+| AuroraFS bootstrap v1 | **Yes** | **Yes** | **Compatibility/bootstrap writes only** | **Yes — retained compatibility coverage** |
 | FAT32 / VFAT | Yes | **Yes** | No | **Yes — ATA/AHCI/NVMe paths + Unicode LFN + synthetic 4096-byte logical-block probe/mount** |
 | exFAT | Yes | **Yes** | No | **Yes — ATA/AHCI/NVMe paths + synthetic 4096-byte probe/mount** |
 | FAT12 | Yes | Pending | No | Pending |
@@ -65,25 +66,35 @@ GPT entries that cross a logical-block boundary are assembled from adjacent bloc
 
 The partition layer is **runtime-verified on both 512-byte and 4096-byte logical-block synthetic devices**. FAT32, exFAT, and AuroraFS bootstrap also have filesystem-layer 4096-byte synthetic verification. This still does not prove support for every physical 4Kn transport; hardware transport validation remains separate.
 
+## AuroraFS v2
+
+AuroraFS v2 is now the active native read-write system filesystem path rather than a self-test-only layout.
+
+Runtime-verified capabilities include:
+
+- real mount at `/system`;
+- 4 KiB filesystem blocks;
+- scalable bitmap allocation;
+- nested directories;
+- inline extents and bounded Level-1/2/3 extent trees;
+- general create/mkdir/write/truncate/remove/rename operations;
+- free-space reclaim;
+- crash-consistent namespace transaction/recovery path;
+- integrity/corruption gates;
+- ownership, mode and timestamps;
+- persistent ACLs;
+- explicit `fsync`, `fdatasync` and `sync` durability semantics;
+- persistence/reopen regression coverage across the storage validation matrix.
+
+The bounded Level-3 hierarchy is intentionally closed at the documented maximum mapping. Raising that bound would be a new on-disk-format milestone rather than an implicit extension.
+
+AuroraFS v2 is still an experimental filesystem under active hardening. Sparse-file semantics, mature repair tooling, quotas, broad performance tuning, production defragmentation, encryption/compression integration and long-term real-hardware failure exposure remain future work.
+
 ## AuroraFS bootstrap v1
 
-Runtime-verified common-driver capabilities:
+AuroraFS v1 is retained as a compatibility/bootstrap format and as historical regression coverage.
 
-- filesystem probe;
-- common registry registration;
-- common mount manager integration;
-- mount at `/system` through a synthetic whole-device partition view;
-- root-directory `stat`;
-- root-directory enumeration;
-- file reads through the VFS;
-- writes to existing bootstrap files;
-- persistence verification across reboot;
-- synthetic 4096-byte logical-block format/create/reopen/mount/read verification;
-- runtime traversal over ATA PIO, AHCI and NVMe block devices in QEMU.
-
-AuroraFS v1 preserves its existing 512-byte **logical filesystem block** on disk. The driver does not require the underlying block device to expose 512-byte blocks: it translates filesystem byte offsets to 512/1024/2048/4096-byte device blocks and uses read-modify-write when a 512-byte AuroraFS block occupies only part of a larger device block. This keeps compatibility with existing v1 volumes while removing the device-level 512-byte assumption.
-
-Current write support does not imply a production filesystem. AuroraFS bootstrap v1 still lacks general create/remove operations through the filesystem-driver contract, scalable allocation, nested directories, multi-block files, sparse files, extents, crash-consistent transactions, permissions, ownership, timestamps, and recovery structures.
+It preserves a 512-byte logical filesystem block and translates correctly over 512/1024/2048/4096-byte underlying logical blocks. Its intentionally small layout is not the current production-direction capability baseline and must not be used to describe AuroraFS v2 limits.
 
 ## FAT32 / VFAT
 
