@@ -137,23 +137,28 @@ bool graphics_surface_attach(
 ) {
     struct aurora_graphics_surface *surface = NULL;
     struct aurora_graphics_buffer *buffer = NULL;
+    struct aurora_capability_view buffer_view = {0};
 
     if (!graphics_surface_lookup(
             table,
             surface_handle,
             AURORA_RIGHT_WRITE,
             &surface) ||
-        !graphics_buffer_lookup(
+        !graphics_buffer_lookup_retain(
             table,
             buffer_handle,
             AURORA_RIGHT_READ,
-            &buffer)) {
+            &buffer,
+            &buffer_view)) {
         return false;
     }
 
     if (!graphics_buffer_retain_surface(buffer)) {
+        cap_view_release(&buffer_view);
         return false;
     }
+
+    cap_view_release(&buffer_view);
 
     struct aurora_graphics_buffer *old_pending = NULL;
 
