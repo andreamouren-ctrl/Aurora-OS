@@ -507,7 +507,7 @@ The strongest differentiators today are:
 
 The highest-priority maturity gaps are:
 
-1. finish G4 input focus/capture and USB HID;
+1. finish G4 capture/revocation and USB HID;
 2. implement G5 window protocol/Desktop Shell;
 3. vendor GPU acceleration and production display programming;
 4. networking;
