@@ -48,6 +48,27 @@ static bool manifest_valid(
         return false;
     }
 
+    if (manifest->extra_capability_count >
+        AURORA_SERVICE_STARTUP_MAX_EXTRA_CAPABILITIES) {
+        return false;
+    }
+
+    if (manifest->extra_capability_count != 0u &&
+        manifest->extra_capabilities == NULL) {
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < manifest->extra_capability_count; ++i) {
+        const struct aurora_service_bootstrap_capability *dependency =
+            &manifest->extra_capabilities[i];
+        if (dependency->object == NULL ||
+            dependency->type <= AURORA_CAP_NONE ||
+            dependency->type >= AURORA_CAP_TYPE_COUNT ||
+            dependency->rights == 0u) {
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -115,12 +136,31 @@ bool service_bootstrap_start_trusted(
         if (service->entropy_seed_handle == AURORA_CAP_INVALID) return false;
     }
 
+    service->extra_capability_count = manifest->extra_capability_count;
+    for (uint32_t i = 0u; i < manifest->extra_capability_count; ++i) {
+        const struct aurora_service_bootstrap_capability *dependency =
+            &manifest->extra_capabilities[i];
+        service->extra_capability_handles[i] = cap_grant(
+            &service->process->capabilities,
+            dependency->object,
+            dependency->type,
+            dependency->rights
+        );
+        if (service->extra_capability_handles[i] == AURORA_CAP_INVALID) {
+            return false;
+        }
+    }
+
     struct aurora_service_startup_block startup;
     clear_bytes(&startup, sizeof(startup));
     startup.abi_version = AURORA_SERVICE_STARTUP_ABI_VERSION;
     startup.ipc_endpoint = service->service_endpoint_handle;
     startup.protected_state = service->protected_state_handle;
     startup.entropy_seed = service->entropy_seed_handle;
+    startup.extra_capability_count = service->extra_capability_count;
+    for (uint32_t i = 0u; i < service->extra_capability_count; ++i) {
+        startup.extra_capabilities[i] = service->extra_capability_handles[i];
+    }
 
     if (sizeof(startup) > AURORA_SERVICE_STARTUP_STACK_OFFSET ||
         service->process->user_stack_top < AURORA_SERVICE_STARTUP_STACK_OFFSET) {
