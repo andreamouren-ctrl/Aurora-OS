@@ -184,7 +184,7 @@ static void profile_identity(
 
     profile->valid = true;
     profile->has_icc_matrix = true;
-    profile->has_icc_trc = true;
+    profile->has_icc_trc = false;
     profile->has_calibration_1d = true;
 
     /* D50 PCS XYZ -> linear sRGB, Bradford-adapted approximation. */
@@ -215,6 +215,8 @@ static void profile_identity(
 }
 
 bool color_management_init(void) {
+    if (initialized) return true;
+
     for (uint32_t i = 0u; i < AURORA_DISPLAY_MAX_OUTPUTS; ++i) {
         profile_identity(&output_profiles[i]);
     }
