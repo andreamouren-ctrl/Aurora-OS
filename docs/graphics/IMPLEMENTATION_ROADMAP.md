@@ -141,16 +141,25 @@ Implemented and runtime-gated foundation:
 - [x] private per-target event queues;
 - [x] multi-client focus/no-leakage runtime gate.
 
-Remaining:
+Implemented and runtime-verified lifecycle hardening:
 
-- [ ] explicit pointer capture semantics and revocation;
-- [ ] focus/capture teardown on all surface/session destruction paths;
+- [x] explicit owned pointer capture request/release semantics with foreign-release rejection;
+- [x] immediate focus/capture revocation when a target surface is hidden or destroyed;
+- [x] secure-scene policy changes revoke targets that are no longer hittable;
+- [x] session teardown purges target queues and all graphics-input authority;
+- [x] compositor teardown/restart notification revokes all registered input authority before compositor state destruction;
+- [x] bounded per-target queue backpressure coalesces only immediately-consecutive pointer motion while preserving key/button/scroll ordering.
+
+Remaining transport/extended-device work:
+
 - [ ] USB HID input foundation once xHCI/USB transport exists;
 - [ ] touch/pen/gamepad and accessibility/input-method layers later.
 
 Acceptance gate:
 
 Mouse and keyboard interact with multiple surfaces without cross-client event leakage.
+
+Current G4 gate status: **runtime verified in four-CPU QEMU for the available PS/2 + normalized routing foundation**. Hit testing, pointer/keyboard focus, capture ownership, hidden/destroyed-surface revocation, secure-scene revocation, session/compositor teardown and queue-pressure motion coalescing all execute inside the mandatory graphics-input self-test. G4 remains **In progress** because USB HID depends on a future xHCI/USB transport and the extended input classes are intentionally later work.
 
 ## Phase G5 — Window protocol and Shell
 

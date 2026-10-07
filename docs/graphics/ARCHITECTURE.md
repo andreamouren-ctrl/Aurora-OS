@@ -154,12 +154,17 @@ Graphics consumes normalized device-independent input events rather than device-
 
 G4 currently includes:
 
-- normalized keyboard events;
-- initial normalized pointer path;
-- PS/2 mouse IRQ12 packet decoding;
+- normalized keyboard and pointer events;
+- PS/2 keyboard plus IRQ12 PS/2 mouse decoding;
+- secure-scene-aware compositor hit testing;
+- isolated keyboard and pointer focus routing;
+- owned/revocable pointer capture;
+- immediate revocation for hidden/destroyed surfaces and secure-scene transitions;
+- full session/compositor teardown revocation;
+- bounded per-target queues with adjacent motion coalescing that preserves key/button/scroll ordering;
 - separation between pointer events and Aurora Identity credential input.
 
-Still pending are complete compositor hit testing, keyboard/pointer focus, capture revocation and USB HID.
+The current G4 foundation is runtime verified in four-CPU QEMU. USB HID remains pending until Aurora has an xHCI/USB transport; touch, pen, gamepad, accessibility and input-method layers remain later work.
 
 ## 9. Performance direction
 
@@ -194,7 +199,7 @@ The following are not yet production-complete:
 - vendor GPU acceleration;
 - GPU scheduling/virtual memory;
 - production multi-monitor/hotplug;
-- full G4 focus/capture input routing;
+- G4 USB HID and extended modern-input transports/classes;
 - G5 window protocol;
 - Desktop Shell;
 - normal compositor-backed Identity pre-session UI;
