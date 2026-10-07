@@ -37,6 +37,7 @@ struct aurora_display_controller_ops {
 struct aurora_display_controller {
     const struct aurora_display_controller_ops *ops;
     void *context;
+    struct aurora_display_mode programmed_mode;
     bool mode_programmed;
     bool scanout_programmed;
     bool enabled;
