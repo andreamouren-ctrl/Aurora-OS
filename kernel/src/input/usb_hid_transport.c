@@ -288,7 +288,7 @@ bool usb_hid_transport_selftest(void) {
         0u, 0u, 0x04u, 0u, 0u, 0u, 0u, 0u
     };
     const uint8_t mouse_motion[4] = {
-        0u, 3u, (uint8_t)-2, 0u
+        0x01u, 3u, (uint8_t)-2, 0u
     };
 
     if (usb_hid_transport_submit_report(
@@ -323,16 +323,47 @@ bool usb_hid_transport_selftest(void) {
         return false;
     }
 
-    bool saw_key = false;
+    aurora_usb_hid_binding_handle replacement =
+        AURORA_USB_HID_BINDING_INVALID;
+    uint64_t replacement_id = 0u;
+
+    if (!usb_hid_transport_bind(
+            &transport,
+            AURORA_USB_HID_PROTOCOL_BOOT_KEYBOARD,
+            &replacement,
+            &replacement_id) ||
+        replacement == keyboard ||
+        replacement_id == keyboard_id ||
+        usb_hid_transport_submit_report(
+            &transport,
+            keyboard,
+            keyboard_press,
+            sizeof(keyboard_press)) ||
+        !usb_hid_transport_unbind(
+            &transport,
+            replacement)) {
+        return false;
+    }
+
+    bool saw_key_down = false;
+    bool saw_key_up_before_remove = false;
     bool saw_motion = false;
-    uint32_t removed = 0u;
+    bool saw_button_down = false;
+    bool saw_button_up_before_remove = false;
+    bool keyboard_removed = false;
+    bool mouse_removed = false;
+    bool replacement_added = false;
+    bool replacement_removed = false;
 
     while (input_poll_event(&event)) {
         if (event.type == AURORA_INPUT_EVENT_KEY &&
             event.device_id == keyboard_id &&
-            event.key == AURORA_KEY_A &&
-            event.pressed) {
-            saw_key = true;
+            event.key == AURORA_KEY_A) {
+            if (event.pressed) {
+                saw_key_down = true;
+            } else if (!keyboard_removed) {
+                saw_key_up_before_remove = true;
+            }
         }
 
         if (event.type == AURORA_INPUT_EVENT_POINTER_RELATIVE &&
@@ -342,12 +373,45 @@ bool usb_hid_transport_selftest(void) {
             saw_motion = true;
         }
 
+        if (event.type == AURORA_INPUT_EVENT_POINTER_BUTTON &&
+            event.device_id == mouse_id &&
+            event.button == AURORA_POINTER_BUTTON_LEFT) {
+            if (event.pressed) {
+                saw_button_down = true;
+            } else if (!mouse_removed) {
+                saw_button_up_before_remove = true;
+            }
+        }
+
         if (event.type == AURORA_INPUT_EVENT_DEVICE_REMOVED &&
-            (event.device_id == keyboard_id ||
-             event.device_id == mouse_id)) {
-            ++removed;
+            event.device_id == keyboard_id) {
+            keyboard_removed = true;
+        }
+
+        if (event.type == AURORA_INPUT_EVENT_DEVICE_REMOVED &&
+            event.device_id == mouse_id) {
+            mouse_removed = true;
+        }
+
+        if (event.type == AURORA_INPUT_EVENT_DEVICE_ADDED &&
+            event.device_id == replacement_id) {
+            replacement_added = true;
+        }
+
+        if (event.type == AURORA_INPUT_EVENT_DEVICE_REMOVED &&
+            event.device_id == replacement_id) {
+            replacement_removed = true;
         }
     }
 
-    return saw_key && saw_motion && removed == 2u;
+    return
+        saw_key_down &&
+        saw_key_up_before_remove &&
+        saw_motion &&
+        saw_button_down &&
+        saw_button_up_before_remove &&
+        keyboard_removed &&
+        mouse_removed &&
+        replacement_added &&
+        replacement_removed;
 }
