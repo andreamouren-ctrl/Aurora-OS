@@ -61,8 +61,15 @@ static bool qemu_set_mode(
         mode->width > UINT16_MAX ||
         mode->height > UINT16_MAX ||
         (mode->format.bits_per_pixel != 32u &&
-         mode->format.bits_per_pixel != 24u &&
-         mode->format.bits_per_pixel != 16u)) {
+         mode->format.bits_per_pixel != 24u)) {
+        return false;
+    }
+
+    uint64_t bytes_per_pixel =
+        (uint64_t)mode->format.bits_per_pixel / 8u;
+
+    if (mode->width > UINT64_MAX / bytes_per_pixel ||
+        mode->pitch != mode->width * bytes_per_pixel) {
         return false;
     }
 
