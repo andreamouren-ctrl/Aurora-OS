@@ -136,11 +136,15 @@ Implemented:
 - logout path that revokes the Session Manager's source profile authority and the session bridge's delegated profile capability before returning to pre-session login;
 - session-scoped profile capability delegation to user/desktop processes with reduced rights;
 - bounded lease tracking for delegated profile capabilities;
-- explicit revocation of all delegated process profile capabilities before the active session profile authority is dropped.
+- explicit revocation of all delegated process profile capabilities before the active session profile authority is dropped;
+- ordinary Ring 3 User Session Host bootstrap from the active session;
+- User Session Host receives only a private control IPC endpoint, stable user/session metadata, and a reduced profile capability;
+- login reaches session-active presentation only after the User Session Host publishes READY;
+- User Session Host is stopped and its delegated profile lease is revoked before Session Manager logout completes.
 
 Remaining:
 
-- actual desktop/user process bootstrap using the delegated profile capability;
+- compositor/desktop process bootstrap above the User Session Host once M4 graphics foundations exist;
 - complete session lifecycle state machine beyond active/logout;
 - lock/unlock with fresh Identity authentication;
 - purpose-bound re-authentication proofs for sensitive actions;
