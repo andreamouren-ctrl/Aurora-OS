@@ -41,7 +41,7 @@ A Ring 3 graphics service repeatedly presents validated test frames through the 
 
 ## Phase G2 — Surface/buffer core
 
-Status: **In progress**
+Status: **Complete**
 
 Implemented:
 
@@ -63,10 +63,12 @@ Two isolated Ring 3 clients can independently submit surfaces; neither can map o
 
 Acceptance probe: **runtime verified in QEMU**. Two isolated Ring 3 clients now execute buffer map/unmap, surface attach/damage/commit and frame-callback request/delivery through the real SYSCALL/SYSRET path; cross-client handle attempts cannot map or attach the other client's buffer.
 
-Audit blockers before declaring G2 complete:
+Audit closure:
 
-- [ ] capability-aware surface lifetime, destruction and slot recycling;
-- [ ] explicit cancellation/cleanup semantics for pending and queued frame callbacks when a surface is destroyed.
+- [x] capability-aware surface lifetime, destruction and slot recycling;
+- [x] explicit cancellation/cleanup semantics for pending and queued frame callbacks when a surface is destroyed.
+
+G2 acceptance gate and lifecycle hardening are runtime verified in QEMU.
 
 ## Phase G3 — Software compositor
 
