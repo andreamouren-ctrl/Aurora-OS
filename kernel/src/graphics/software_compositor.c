@@ -366,6 +366,10 @@ bool software_compositor_init(
         display_mode_at(output_index, 0u);
 
     if (mode == NULL ||
+        mode->width == 0u ||
+        mode->height == 0u ||
+        mode->width > UINT32_MAX ||
+        mode->height > UINT32_MAX ||
         !format_is_supported_8888(&mode->format)) {
         return false;
     }
@@ -590,13 +594,15 @@ bool software_compositor_set_node(
     return true;
 }
 
-static int32_t next_z_after(
+static bool next_node_after(
     const struct aurora_software_compositor *compositor,
     int32_t previous_z,
     uint64_t previous_id,
     bool first,
     uint32_t *out_index
 ) {
+    if (compositor == NULL || out_index == NULL) return false;
+
     bool found = false;
     int32_t best_z = 0;
     uint64_t best_id = 0u;
@@ -627,10 +633,10 @@ static int32_t next_z_after(
         }
     }
 
-    if (!found) return INT32_MIN;
+    if (!found) return false;
 
     *out_index = best_index;
-    return best_z;
+    return true;
 }
 
 bool software_compositor_compose_present(
@@ -753,16 +759,15 @@ bool software_compositor_compose_present(
 
     for (;;) {
         uint32_t index = 0u;
-        int32_t z =
-            next_z_after(
+
+        if (!next_node_after(
                 compositor,
                 previous_z,
                 previous_id,
                 first,
-                &index
-            );
-
-        if (z == INT32_MIN) break;
+                &index)) {
+            break;
+        }
 
         struct aurora_compositor_node *node =
             &compositor->nodes[index];
