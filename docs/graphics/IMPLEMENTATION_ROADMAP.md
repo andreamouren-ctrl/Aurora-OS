@@ -97,7 +97,7 @@ Acceptance gate:
 
 Multiple moving/overlapping surfaces render correctly in QEMU with bounded memory growth and deterministic clipping tests.
 
-Current gate status: **core raster correctness runtime verified in QEMU**. Final G3 completion remains blocked by the remaining scene/security features above.
+Current gate status: **core raster plus occlusion/transform/security correctness runtime verified in QEMU**. Final G3 completion remains blocked by the wider color/format composition path above.
 
 ## Phase G4 — Pointer and modern input
 
