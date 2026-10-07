@@ -34,6 +34,9 @@ static bool create_entry_mode;
 static bool creation_notice_active;
 static bool session_active_announced;
 static bool logout_in_progress;
+static bool unlock_failed_visible;
+static bool unlock_throttled_visible;
+static bool unlock_request_in_flight;
 
 static void clear_credential(void) {
     for (size_t i = 0u; i < sizeof(credential_buffer); ++i) {
@@ -64,6 +67,8 @@ static void synchronize_identity_state(void) {
 
     enum aurora_session_manager_client_state session_state =
         session_manager_client_state();
+    enum aurora_identity_client_state identity_state =
+        identity_client_state();
 
     if (session_state == AURORA_SESSION_CLIENT_ACTIVE) {
         if (!user_session_host_active()) {
@@ -82,6 +87,9 @@ static void synchronize_identity_state(void) {
         create_entry_mode = false;
         creation_notice_active = false;
         logout_in_progress = false;
+        unlock_failed_visible = false;
+        unlock_throttled_visible = false;
+        unlock_request_in_flight = false;
         login_ui_set_state(AURORA_LOGIN_SESSION_ACTIVE);
         if (!session_active_announced) {
             session_active_announced = true;
@@ -92,6 +100,93 @@ static void synchronize_identity_state(void) {
         return;
     }
 
+    if (session_state == AURORA_SESSION_CLIENT_LOCKING) {
+        clear_credential();
+        login_ui_set_state(AURORA_LOGIN_LOCKING);
+        return;
+    }
+
+    if (session_state == AURORA_SESSION_CLIENT_UNLOCKING) {
+        login_ui_set_state(AURORA_LOGIN_UNLOCKING);
+        return;
+    }
+
+    if (session_state == AURORA_SESSION_CLIENT_LOCKED) {
+        if (unlock_request_in_flight) {
+            unlock_request_in_flight = false;
+            unlock_failed_visible = true;
+        }
+
+        switch (identity_state) {
+            case AURORA_IDENTITY_CLIENT_AUTHENTICATING:
+                unlock_failed_visible = false;
+                unlock_throttled_visible = false;
+                login_ui_set_state(AURORA_LOGIN_UNLOCKING);
+                return;
+
+            case AURORA_IDENTITY_CLIENT_VERIFIED: {
+                uint8_t grant[AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE];
+                for (size_t i = 0u; i < sizeof(grant); ++i) grant[i] = 0u;
+
+                bool transferred =
+                    identity_client_take_session_grant(grant) &&
+                    session_manager_client_unlock(grant);
+
+                for (size_t i = 0u; i < sizeof(grant); ++i) grant[i] = 0u;
+                clear_credential();
+
+                if (!transferred) {
+                    unlock_failed_visible = true;
+                    login_ui_set_state(AURORA_LOGIN_UNLOCK_FAILED);
+                    return;
+                }
+
+                unlock_request_in_flight = true;
+                unlock_failed_visible = false;
+                unlock_throttled_visible = false;
+                login_ui_set_state(AURORA_LOGIN_UNLOCKING);
+                return;
+            }
+
+            case AURORA_IDENTITY_CLIENT_AUTH_FAILED:
+                clear_credential();
+                unlock_failed_visible = true;
+                unlock_throttled_visible = false;
+                identity_client_reset_result();
+                login_ui_set_state(AURORA_LOGIN_UNLOCK_FAILED);
+                return;
+
+            case AURORA_IDENTITY_CLIENT_THROTTLED:
+                clear_credential();
+                unlock_failed_visible = false;
+                unlock_throttled_visible = true;
+                identity_client_reset_result();
+                login_ui_set_state(AURORA_LOGIN_THROTTLED);
+                return;
+
+            case AURORA_IDENTITY_CLIENT_UNAVAILABLE:
+            case AURORA_IDENTITY_CLIENT_ERROR:
+                clear_credential();
+                login_ui_set_state(AURORA_LOGIN_ERROR);
+                return;
+
+            case AURORA_IDENTITY_CLIENT_READY:
+                if (unlock_throttled_visible) {
+                    login_ui_set_state(AURORA_LOGIN_THROTTLED);
+                } else if (unlock_failed_visible) {
+                    login_ui_set_state(AURORA_LOGIN_UNLOCK_FAILED);
+                } else {
+                    login_ui_set_state(AURORA_LOGIN_LOCKED);
+                }
+                return;
+
+            case AURORA_IDENTITY_CLIENT_UNINITIALIZED:
+            default:
+                login_ui_set_state(AURORA_LOGIN_LOCKED);
+                return;
+        }
+    }
+
     if (session_state == AURORA_SESSION_CLIENT_LOGGING_OUT) {
         login_ui_set_state(AURORA_LOGIN_LOGGING_OUT);
         return;
@@ -100,6 +195,9 @@ static void synchronize_identity_state(void) {
     if (session_state == AURORA_SESSION_CLIENT_READY && logout_in_progress) {
         logout_in_progress = false;
         session_active_announced = false;
+        unlock_failed_visible = false;
+        unlock_throttled_visible = false;
+        unlock_request_in_flight = false;
         clear_credential();
         identity_client_reset_result();
         login_ui_set_state(AURORA_LOGIN_IDLE);
@@ -120,7 +218,7 @@ static void synchronize_identity_state(void) {
         return;
     }
 
-    switch (identity_client_state()) {
+    switch (identity_state) {
         case AURORA_IDENTITY_CLIENT_AUTH_FAILED:
             clear_credential();
             create_offer_active = true;
@@ -212,8 +310,21 @@ static void handle_pressed_key(
     enum aurora_identity_client_state state = identity_client_state();
     enum aurora_session_manager_client_state session_state =
         session_manager_client_state();
+
     if (session_state == AURORA_SESSION_CLIENT_ACTIVE) {
-        if (key == AURORA_KEY_ESCAPE) {
+        if (key == AURORA_KEY_ENTER) {
+            bool host_stopped =
+                !user_session_host_active() ||
+                user_session_host_stop();
+            if (host_stopped && session_manager_client_lock()) {
+                clear_credential();
+                unlock_failed_visible = false;
+                unlock_throttled_visible = false;
+                login_ui_set_state(AURORA_LOGIN_LOCKING);
+            } else {
+                login_ui_set_state(AURORA_LOGIN_ERROR);
+            }
+        } else if (key == AURORA_KEY_ESCAPE) {
             bool host_stopped =
                 !user_session_host_active() ||
                 user_session_host_stop();
@@ -227,10 +338,84 @@ static void handle_pressed_key(
         return;
     }
 
+    if (session_state == AURORA_SESSION_CLIENT_LOCKED) {
+        if (state == AURORA_IDENTITY_CLIENT_AUTHENTICATING ||
+            state == AURORA_IDENTITY_CLIENT_VERIFIED) {
+            return;
+        }
+
+        if (key == AURORA_KEY_ESCAPE) {
+            clear_credential();
+            unlock_failed_visible = false;
+            unlock_throttled_visible = false;
+            identity_client_reset_result();
+            if (session_manager_client_logout()) {
+                logout_in_progress = true;
+                login_ui_set_state(AURORA_LOGIN_LOGGING_OUT);
+            } else {
+                login_ui_set_state(AURORA_LOGIN_ERROR);
+            }
+            return;
+        }
+
+        if (key == AURORA_KEY_BACKSPACE) {
+            if (credential_length != 0u) {
+                --credential_length;
+                credential_buffer[credential_length] = '\0';
+                login_ui_set_masked_length(credential_length);
+            }
+            unlock_failed_visible = false;
+            unlock_throttled_visible = false;
+            identity_client_reset_result();
+            login_ui_set_state(AURORA_LOGIN_LOCKED);
+            return;
+        }
+
+        if (key == AURORA_KEY_ENTER) {
+            if (credential_length < AURORA_KEY_MIN_LENGTH) {
+                unlock_failed_visible = true;
+                login_ui_set_state(AURORA_LOGIN_UNLOCK_FAILED);
+                return;
+            }
+
+            if (!identity_client_begin_key_auth(
+                    credential_buffer,
+                    credential_length)) {
+                clear_credential();
+                unlock_failed_visible = true;
+                login_ui_set_state(AURORA_LOGIN_UNLOCK_FAILED);
+                return;
+            }
+
+            clear_credential();
+            unlock_failed_visible = false;
+            unlock_throttled_visible = false;
+            login_ui_set_state(AURORA_LOGIN_UNLOCKING);
+            return;
+        }
+
+        char normalized = key_to_normalized_character(key);
+        if (normalized == '\0' ||
+            credential_length >= AURORA_KEY_MAX_LENGTH) {
+            return;
+        }
+
+        identity_client_reset_result();
+        unlock_failed_visible = false;
+        unlock_throttled_visible = false;
+        credential_buffer[credential_length++] = normalized;
+        credential_buffer[credential_length] = '\0';
+        login_ui_set_masked_length(credential_length);
+        login_ui_set_state(AURORA_LOGIN_LOCKED);
+        return;
+    }
+
     if (state == AURORA_IDENTITY_CLIENT_AUTHENTICATING ||
         state == AURORA_IDENTITY_CLIENT_VERIFIED ||
         state == AURORA_IDENTITY_CLIENT_CREATING ||
         session_state == AURORA_SESSION_CLIENT_STARTING ||
+        session_state == AURORA_SESSION_CLIENT_LOCKING ||
+        session_state == AURORA_SESSION_CLIENT_UNLOCKING ||
         session_state == AURORA_SESSION_CLIENT_LOGGING_OUT) {
         return;
     }
@@ -449,6 +634,9 @@ void login_input_init(void) {
     creation_notice_active = false;
     session_active_announced = false;
     logout_in_progress = false;
+    unlock_failed_visible = false;
+    unlock_throttled_visible = false;
+    unlock_request_in_flight = false;
 
     for (size_t i = 0u; i < sizeof(credential_buffer); ++i) {
         credential_buffer[i] = '\0';
