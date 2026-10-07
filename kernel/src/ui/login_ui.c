@@ -373,6 +373,18 @@ static const char *login_status_text(void) {
         case AURORA_LOGIN_LOGGING_OUT:
             return "LOGGING OUT...";
 
+        case AURORA_LOGIN_LOCKING:
+            return "LOCKING SESSION...";
+
+        case AURORA_LOGIN_LOCKED:
+            return "SESSION LOCKED";
+
+        case AURORA_LOGIN_UNLOCKING:
+            return "VERIFYING SESSION OWNER...";
+
+        case AURORA_LOGIN_UNLOCK_FAILED:
+            return "UNLOCK FAILED - TRY AGAIN";
+
         case AURORA_LOGIN_SESSION_ACTIVE:
             return "AUTHENTICATED SESSION ACTIVE";
 
@@ -388,6 +400,14 @@ static const char *login_prompt_text(void) {
     }
     if (login_state == AURORA_LOGIN_LOGGING_OUT) {
         return "ENDING LOCAL SESSION";
+    }
+    if (login_state == AURORA_LOGIN_LOCKING) {
+        return "SECURING LOCAL SESSION";
+    }
+    if (login_state == AURORA_LOGIN_LOCKED ||
+        login_state == AURORA_LOGIN_UNLOCKING ||
+        login_state == AURORA_LOGIN_UNLOCK_FAILED) {
+        return "ENTER YOUR AURORA KEY";
     }
 
     return login_state == AURORA_LOGIN_CREATE_ENTRY ||
@@ -411,8 +431,18 @@ static const char *login_instruction_text(void) {
         case AURORA_LOGIN_LOGGING_OUT:
             return "REVOKING SESSION ACCESS";
 
+        case AURORA_LOGIN_LOCKING:
+            return "REVOKING INTERACTIVE ACCESS";
+
+        case AURORA_LOGIN_LOCKED:
+        case AURORA_LOGIN_UNLOCK_FAILED:
+            return "ENTER UNLOCK     ESC LOG OUT";
+
+        case AURORA_LOGIN_UNLOCKING:
+            return "FRESH AUTHENTICATION REQUIRED";
+
         case AURORA_LOGIN_SESSION_ACTIVE:
-            return "PRESS ESC TO LOG OUT";
+            return "ENTER LOCK     ESC LOG OUT";
 
         default:
             return "PRESS ENTER TO CONTINUE";
@@ -546,7 +576,8 @@ void login_ui_render(void) {
         field_height,
         2u,
         login_state == AURORA_LOGIN_AUTHENTICATING ||
-        login_state == AURORA_LOGIN_CREATING
+        login_state == AURORA_LOGIN_CREATING ||
+        login_state == AURORA_LOGIN_UNLOCKING
             ? field_border_active
             : field_border
     );
@@ -583,7 +614,8 @@ void login_ui_render(void) {
         1u,
         login_state == AURORA_LOGIN_ERROR ||
         login_state == AURORA_LOGIN_THROTTLED ||
-        login_state == AURORA_LOGIN_CREATE_DENIED
+        login_state == AURORA_LOGIN_CREATE_DENIED ||
+        login_state == AURORA_LOGIN_UNLOCK_FAILED
             ? login_rgb(255, 137, 175)
             : login_state == AURORA_LOGIN_CREATED
                 ? login_rgb(125, 236, 192)
