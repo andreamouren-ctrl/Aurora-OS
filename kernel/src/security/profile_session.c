@@ -83,7 +83,7 @@ static bool ensure_directory(const char *path, uint32_t mode) {
     }
     return vfs_chown(path, 0u, 0u) &&
         vfs_chmod(path, mode) &&
-        vfs_fsync(path);
+        vfs_sync(path);
 }
 
 static bool profile_store_ready(void) {
