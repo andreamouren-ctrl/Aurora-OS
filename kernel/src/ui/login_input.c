@@ -71,10 +71,9 @@ static void synchronize_identity_state(void) {
     if (session_state == AURORA_SESSION_CLIENT_ACTIVE) {
         if (!user_session_host_active()) {
             if (!user_session_host_start()) {
-                (void)session_manager_client_logout();
-                logout_in_progress = true;
-                login_ui_set_state(AURORA_LOGIN_LOGGING_OUT);
-                log_line("[user-session] bootstrap failed; session logout requested");
+                (void)session_manager_client_terminate();
+                login_ui_set_state(AURORA_LOGIN_TERMINATING);
+                log_line("[user-session] bootstrap/runtime failure; session termination requested");
                 return;
             }
             log_line("[user-session] Ring 3 user session host ready with delegated profile capability");
@@ -108,6 +107,28 @@ static void synchronize_identity_state(void) {
 
     if (session_state == AURORA_SESSION_CLIENT_LOGGING_OUT) {
         login_ui_set_state(AURORA_LOGIN_LOGGING_OUT);
+        return;
+    }
+
+    if (session_state == AURORA_SESSION_CLIENT_TERMINATING) {
+        if (user_session_host_active()) {
+            (void)user_session_host_stop();
+        }
+        clear_credential();
+        login_ui_set_state(AURORA_LOGIN_TERMINATING);
+        return;
+    }
+
+    if (session_state == AURORA_SESSION_CLIENT_TERMINATED) {
+        if (user_session_host_active()) {
+            (void)user_session_host_stop();
+        }
+        clear_credential();
+        session_active_announced = false;
+        logout_in_progress = false;
+        unlock_failed_notice = false;
+        identity_client_reset_result();
+        login_ui_set_state(AURORA_LOGIN_TERMINATED);
         return;
     }
 
@@ -290,6 +311,20 @@ static void handle_pressed_key(
     enum aurora_session_manager_client_state session_state =
         session_manager_client_state();
 
+    if (session_state == AURORA_SESSION_CLIENT_TERMINATED) {
+        if (key == AURORA_KEY_ENTER || key == AURORA_KEY_ESCAPE) {
+            clear_credential();
+            identity_client_reset_result();
+            if (session_manager_client_acknowledge_terminated()) {
+                login_ui_set_state(AURORA_LOGIN_IDLE);
+                log_line("[session-manager] terminated session acknowledged; pre-session login restored");
+            } else {
+                login_ui_set_state(AURORA_LOGIN_ERROR);
+            }
+        }
+        return;
+    }
+
     if (session_state == AURORA_SESSION_CLIENT_ACTIVE) {
         if (key == AURORA_KEY_ENTER) {
             bool host_stopped =
@@ -391,7 +426,8 @@ static void handle_pressed_key(
         session_state == AURORA_SESSION_CLIENT_STARTING ||
         session_state == AURORA_SESSION_CLIENT_LOCKING ||
         session_state == AURORA_SESSION_CLIENT_UNLOCKING ||
-        session_state == AURORA_SESSION_CLIENT_LOGGING_OUT) {
+        session_state == AURORA_SESSION_CLIENT_LOGGING_OUT ||
+        session_state == AURORA_SESSION_CLIENT_TERMINATING) {
         return;
     }
 

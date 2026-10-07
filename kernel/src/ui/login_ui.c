@@ -382,6 +382,12 @@ static const char *login_status_text(void) {
         case AURORA_LOGIN_LOGGING_OUT:
             return "LOGGING OUT...";
 
+        case AURORA_LOGIN_TERMINATING:
+            return "TERMINATING FAILED SESSION...";
+
+        case AURORA_LOGIN_TERMINATED:
+            return "SESSION TERMINATED SAFELY";
+
         case AURORA_LOGIN_SESSION_ACTIVE:
             return "AUTHENTICATED SESSION ACTIVE";
 
@@ -404,6 +410,12 @@ static const char *login_prompt_text(void) {
     }
     if (login_state == AURORA_LOGIN_LOGGING_OUT) {
         return "ENDING LOCAL SESSION";
+    }
+    if (login_state == AURORA_LOGIN_TERMINATING) {
+        return "REVOKING FAILED SESSION";
+    }
+    if (login_state == AURORA_LOGIN_TERMINATED) {
+        return "SESSION ACCESS HAS BEEN REVOKED";
     }
 
     return login_state == AURORA_LOGIN_CREATE_ENTRY ||
@@ -435,6 +447,12 @@ static const char *login_instruction_text(void) {
 
         case AURORA_LOGIN_LOGGING_OUT:
             return "REVOKING SESSION ACCESS";
+
+        case AURORA_LOGIN_TERMINATING:
+            return "REVOKING ALL SESSION CAPABILITIES";
+
+        case AURORA_LOGIN_TERMINATED:
+            return "PRESS ENTER TO RETURN TO SIGN IN";
 
         case AURORA_LOGIN_SESSION_ACTIVE:
             return "ENTER LOCK     ESC LOG OUT";
@@ -609,7 +627,8 @@ void login_ui_render(void) {
         1u,
         login_state == AURORA_LOGIN_ERROR ||
         login_state == AURORA_LOGIN_THROTTLED ||
-        login_state == AURORA_LOGIN_CREATE_DENIED
+        login_state == AURORA_LOGIN_CREATE_DENIED ||
+        login_state == AURORA_LOGIN_TERMINATED
             ? login_rgb(255, 137, 175)
             : login_state == AURORA_LOGIN_CREATED
                 ? login_rgb(125, 236, 192)

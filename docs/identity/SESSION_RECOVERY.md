@@ -124,6 +124,22 @@ The resulting proof is:
 - short-lived;
 - non-reusable for unrelated operations.
 
+## 6.1 Abnormal session termination
+
+An unexpected User Session Host failure or loss/restart of the Session Manager is not treated as an ordinary user-requested logout.
+
+Aurora transitions the affected session through:
+
+```text
+ACTIVE or LOCKED
+ -> TERMINATING
+ -> TERMINATED
+```
+
+At the start of termination, interactive profile leases are revoked. If the Session Manager is still reachable, the kernel bridge requests a normal server-side session teardown but preserves the abnormal-termination state locally. If the Session Manager has already failed, the kernel drops the active profile authority and treats the old session as irrecoverable.
+
+A terminated session may return to pre-session login only after the termination is acknowledged. When the Session Manager restarted, its new generation must publish READY before another login can be accepted. No previous `user_id`, profile capability, or session grant may survive this boundary.
+
 ## 7. Logout
 
 Logout should:
