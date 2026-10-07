@@ -1036,28 +1036,214 @@ bool color_management_transform_rgb8(
     return true;
 }
 
+static void write_be16(uint8_t *p, uint16_t value) {
+    p[0] = (uint8_t)(value >> 8);
+    p[1] = (uint8_t)(value & 0xFFu);
+}
+
+static void write_be32(uint8_t *p, uint32_t value) {
+    p[0] = (uint8_t)(value >> 24);
+    p[1] = (uint8_t)((value >> 16) & 0xFFu);
+    p[2] = (uint8_t)((value >> 8) & 0xFFu);
+    p[3] = (uint8_t)(value & 0xFFu);
+}
+
+static void build_test_xyz_tag(
+    uint8_t *data,
+    int32_t x,
+    int32_t y,
+    int32_t z
+) {
+    write_be32(data, UINT32_C(0x58595A20));
+    write_be32(data + 4u, 0u);
+    write_be32(data + 8u, (uint32_t)x);
+    write_be32(data + 12u, (uint32_t)y);
+    write_be32(data + 16u, (uint32_t)z);
+}
+
+static void build_test_curve_tag(uint8_t *data) {
+    write_be32(data, UINT32_C(0x63757276));
+    write_be32(data + 4u, 0u);
+    write_be32(data + 8u, 2u);
+    write_be16(data + 12u, 0u);
+    write_be16(data + 14u, 65535u);
+}
+
+static bool build_and_parse_test_icc(
+    struct aurora_color_output_profile *out_profile
+) {
+    if (out_profile == NULL) return false;
+
+    uint8_t icc[512] = {0};
+
+    write_be32(icc, sizeof(icc));
+    write_be32(icc + 36u, UINT32_C(0x61637370)); /* acsp */
+    write_be32(icc + 128u, 7u);
+
+    const uint32_t signatures[7] = {
+        UINT32_C(0x7258595A), /* rXYZ */
+        UINT32_C(0x6758595A), /* gXYZ */
+        UINT32_C(0x6258595A), /* bXYZ */
+        UINT32_C(0x72545243), /* rTRC */
+        UINT32_C(0x67545243), /* gTRC */
+        UINT32_C(0x62545243), /* bTRC */
+        UINT32_C(0x76636774)  /* vcgt */
+    };
+    const uint32_t offsets[7] = {
+        224u, 244u, 264u,
+        284u, 300u, 316u,
+        332u
+    };
+    const uint32_t sizes[7] = {
+        20u, 20u, 20u,
+        16u, 16u, 16u,
+        30u
+    };
+
+    for (uint32_t i = 0u; i < 7u; ++i) {
+        uint8_t *entry = icc + 132u + i * 12u;
+        write_be32(entry, signatures[i]);
+        write_be32(entry + 4u, offsets[i]);
+        write_be32(entry + 8u, sizes[i]);
+    }
+
+    /* Identity device RGB -> PCS XYZ for parser/inversion verification. */
+    build_test_xyz_tag(icc + 224u, 65536, 0, 0);
+    build_test_xyz_tag(icc + 244u, 0, 65536, 0);
+    build_test_xyz_tag(icc + 264u, 0, 0, 65536);
+
+    build_test_curve_tag(icc + 284u);
+    build_test_curve_tag(icc + 300u);
+    build_test_curve_tag(icc + 316u);
+
+    uint8_t *vcgt = icc + 332u;
+    write_be32(vcgt, UINT32_C(0x76636774));
+    write_be32(vcgt + 4u, 0u);
+    write_be32(vcgt + 8u, 0u);
+    write_be16(vcgt + 12u, 3u);
+    write_be16(vcgt + 14u, 2u);
+    write_be16(vcgt + 16u, 2u);
+
+    for (uint32_t channel = 0u; channel < 3u; ++channel) {
+        uint8_t *table = vcgt + 18u + channel * 4u;
+        write_be16(table, 0u);
+        write_be16(table + 2u, 65535u);
+    }
+
+    return color_management_parse_icc(
+        icc,
+        sizeof(icc),
+        out_profile
+    );
+}
+
+static bool build_identity_3d_lut(
+    uint16_t lut[AURORA_COLOR_3D_LUT_ENTRIES][3]
+) {
+    if (lut == NULL) return false;
+
+    for (uint32_t z = 0u; z < AURORA_COLOR_3D_LUT_EDGE; ++z) {
+        for (uint32_t y = 0u; y < AURORA_COLOR_3D_LUT_EDGE; ++y) {
+            for (uint32_t x = 0u; x < AURORA_COLOR_3D_LUT_EDGE; ++x) {
+                uint32_t index =
+                    z * AURORA_COLOR_3D_LUT_EDGE *
+                        AURORA_COLOR_3D_LUT_EDGE +
+                    y * AURORA_COLOR_3D_LUT_EDGE +
+                    x;
+
+                lut[index][0] = (uint16_t)(
+                    ((uint64_t)x * 65535u) /
+                    (AURORA_COLOR_3D_LUT_EDGE - 1u)
+                );
+                lut[index][1] = (uint16_t)(
+                    ((uint64_t)y * 65535u) /
+                    (AURORA_COLOR_3D_LUT_EDGE - 1u)
+                );
+                lut[index][2] = (uint16_t)(
+                    ((uint64_t)z * 65535u) /
+                    (AURORA_COLOR_3D_LUT_EDGE - 1u)
+                );
+            }
+        }
+    }
+
+    return true;
+}
+
 bool color_management_selftest(void) {
     if (!initialized && !color_management_init()) return false;
 
-    /* SMPTE ST 2084 published anchor: code 1.0 = 10000 cd/m^2. */
-    uint32_t pq_peak = color_st2084_eotf_nits_q16(65535u);
-    if (pq_peak < 655359000u || pq_peak > 655361000u) {
+    struct pq_vector {
+        uint16_t code;
+        uint32_t nits_q16;
+        uint32_t tolerance_q16;
+    };
+
+    static const struct pq_vector vectors[] = {
+        { 4085u,       6554u,       1311u }, /* 0.1 nit */
+        { 9827u,      65536u,       3277u }, /* 1 nit */
+        { 33297u,   6553600u,       6554u }, /* 100 nit */
+        { 49271u,  65536000u,      32768u }, /* 1000 nit */
+        { 65535u, 655360000u,       1024u }  /* 10000 nit */
+    };
+
+    for (uint32_t i = 0u;
+         i < sizeof(vectors) / sizeof(vectors[0]);
+         ++i) {
+        uint32_t actual =
+            color_st2084_eotf_nits_q16(vectors[i].code);
+        uint32_t expected = vectors[i].nits_q16;
+        uint32_t error =
+            actual > expected
+                ? actual - expected
+                : expected - actual;
+
+        if (error > vectors[i].tolerance_q16) {
+            return false;
+        }
+    }
+
+    struct aurora_color_output_profile parsed;
+    if (!build_and_parse_test_icc(&parsed) ||
+        !parsed.valid ||
+        !parsed.has_icc_matrix ||
+        !parsed.has_icc_trc ||
+        !parsed.has_calibration_1d) {
         return false;
     }
 
-    /*
-     * 0.508078... maps to approximately 100 nit. Allow <0.1 nit tolerance,
-     * substantially wider than the LUT interpolation error.
-     */
-    uint16_t pq_100_code = 33297u;
-    uint32_t pq_100 = color_st2084_eotf_nits_q16(pq_100_code);
-    uint32_t target_100 = 100u * 65536u;
-    uint32_t error =
-        pq_100 > target_100
-            ? pq_100 - target_100
-            : target_100 - pq_100;
+    for (uint32_t i = 0u; i < 9u; ++i) {
+        int32_t expected =
+            (i == 0u || i == 4u || i == 8u)
+                ? 65536
+                : 0;
+        int32_t delta =
+            parsed.pcs_to_device_q16[i] - expected;
 
-    if (error > 6554u) return false;
+        if (delta < -2 || delta > 2) {
+            return false;
+        }
+    }
+
+    static uint16_t identity_3d[
+        AURORA_COLOR_3D_LUT_ENTRIES
+    ][3];
+
+    if (!build_identity_3d_lut(identity_3d) ||
+        !color_management_set_3d_calibration(
+            &parsed,
+            identity_3d,
+            AURORA_COLOR_3D_LUT_ENTRIES)) {
+        return false;
+    }
+
+    parsed.target_peak_nits_q16 = 203u * 65536u;
+
+    struct aurora_color_output_profile saved;
+    if (!color_management_get_output_profile(0u, &saved) ||
+        !color_management_set_output_profile(0u, &parsed)) {
+        return false;
+    }
 
     struct aurora_color_description hdr = {
         .primaries = AURORA_COLOR_PRIMARIES_BT2020,
@@ -1072,19 +1258,49 @@ bool color_management_selftest(void) {
         }
     };
 
-    uint8_t r = 0u, g = 0u, b = 0u;
-    if (!color_management_transform_rgb8(
+    uint8_t low_r = 0u, low_g = 0u, low_b = 0u;
+    uint8_t high_r = 0u, high_g = 0u, high_b = 0u;
+
+    bool transformed =
+        color_management_transform_rgb8(
             0u,
             &hdr,
             33297u,
             33297u,
             33297u,
-            &r, &g, &b) ||
-        r == 0u ||
-        r != g ||
-        g != b) {
+            &low_r,
+            &low_g,
+            &low_b
+        ) &&
+        color_management_transform_rgb8(
+            0u,
+            &hdr,
+            49271u,
+            49271u,
+            49271u,
+            &high_r,
+            &high_g,
+            &high_b
+        );
+
+    bool restored =
+        color_management_set_output_profile(
+            0u,
+            &saved
+        );
+
+    if (!transformed ||
+        !restored ||
+        low_r == 0u ||
+        low_r != low_g ||
+        low_g != low_b ||
+        high_r <= low_r ||
+        high_r != high_g ||
+        high_g != high_b ||
+        high_r > 255u) {
         return false;
     }
 
     return true;
 }
+
