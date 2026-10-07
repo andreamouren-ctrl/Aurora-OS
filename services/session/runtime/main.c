@@ -662,12 +662,10 @@ static bool unlock_session(
             NULL);
     }
 
-    bool same_user = true;
-    for (size_t i = 0u; i < sizeof(context->user_id); ++i) {
-        if (identity_result.user_id[i] != context->user_id[i]) {
-            same_user = false;
-        }
-    }
+    bool same_user = bytes_equal(
+        identity_result.user_id,
+        context->user_id,
+        sizeof(context->user_id));
 
     if (identity_result.state ==
             AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_SUCCESS &&
