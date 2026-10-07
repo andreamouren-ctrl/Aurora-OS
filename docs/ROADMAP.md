@@ -278,8 +278,9 @@ Architecture contracts: [`graphics/README.md`](graphics/README.md).
 - [x] secure-scene-aware compositor hit testing
 - [x] pointer/keyboard focus routing with private target queues
 - [x] multi-client normalized-input isolation gate
-- [ ] explicit pointer capture/revocation completion
-- [ ] modern USB HID input path
+- [x] explicit pointer capture/revocation completion
+- [x] transport-agnostic USB HID boot keyboard/mouse decoder foundation
+- [ ] xHCI/USB host transport + live USB HID device binding
 - [ ] G5 window-management protocol and Desktop Shell
 - [ ] Activity Space prototype
 - [ ] persistent activity state
