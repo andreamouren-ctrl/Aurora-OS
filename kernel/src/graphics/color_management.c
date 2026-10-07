@@ -656,10 +656,12 @@ static void source_rgb_to_xyz_q16(
 
 static uint32_t source_to_linear_nits_q16(
     enum aurora_color_transfer transfer,
-    uint16_t encoded
+    uint32_t encoded
 ) {
     if (transfer == AURORA_COLOR_TRANSFER_PQ_ST2084) {
-        return color_st2084_eotf_nits_q16(encoded);
+        uint16_t bounded =
+            encoded > 65535u ? 65535u : (uint16_t)encoded;
+        return color_st2084_eotf_nits_q16(bounded);
     }
 
     uint32_t linear;
@@ -667,14 +669,18 @@ static uint32_t source_to_linear_nits_q16(
     if (transfer == AURORA_COLOR_TRANSFER_LINEAR) {
         linear = encoded;
     } else if (transfer == AURORA_COLOR_TRANSFER_SRGB) {
-        linear = lut_interp_u16(srgb_eotf_q16, encoded);
+        uint16_t bounded =
+            encoded > 65535u ? 65535u : (uint16_t)encoded;
+        linear = lut_interp_u16(srgb_eotf_q16, bounded);
     } else {
         /*
          * BT.1886/gamma2.2 fallback uses the sRGB high-precision LUT rather
          * than the old quadratic approximation. HLG is handled as a bounded
          * relative-light path until an absolute system-gamma target exists.
          */
-        linear = lut_interp_u16(srgb_eotf_q16, encoded);
+        uint16_t bounded =
+            encoded > 65535u ? 65535u : (uint16_t)encoded;
+        linear = lut_interp_u16(srgb_eotf_q16, bounded);
     }
 
     return (uint32_t)(
@@ -929,9 +935,9 @@ static void apply_3d_lut(
 bool color_management_transform_rgb8(
     uint32_t output_index,
     const struct aurora_color_description *source_color,
-    uint16_t red_encoded_q16,
-    uint16_t green_encoded_q16,
-    uint16_t blue_encoded_q16,
+    uint32_t red_encoded_q16,
+    uint32_t green_encoded_q16,
+    uint32_t blue_encoded_q16,
     uint8_t *out_red,
     uint8_t *out_green,
     uint8_t *out_blue
