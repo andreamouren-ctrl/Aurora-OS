@@ -62,3 +62,12 @@ The model is output-centric from v0.1 even if the first runtime target exposes o
 ## Recovery boundary
 
 The kernel/bootstrap framebuffer renderer is not a client of this service. Recovery rendering can remain available if the normal Display Service cannot start.
+
+
+## Color, HDR and refresh capabilities
+
+Outputs expose capabilities explicitly rather than inferring them from pixel depth. The capability record can advertise SDR, static HDR, PQ, HLG, wide gamut, VRR and DSC independently, with supported primaries/transfer functions, bits-per-component limits and VRR range.
+
+The boot framebuffer backend must fail closed and advertise only what boot information proves. Native GPU/display backends will populate these fields from EDID/CTA-861/DisplayID plus link and GPU capability discovery.
+
+Each display mode carries color primaries, transfer function, range and optional static HDR metadata. PQ/HLG modes require BT.2020 primaries.
