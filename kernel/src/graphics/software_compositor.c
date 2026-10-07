@@ -2638,8 +2638,321 @@ static bool software_compositor_advanced_selftest(void) {
             secure_buffer_generation);
 }
 
+static bool buffer_write_le_u64_test(
+    struct aurora_graphics_buffer *buffer,
+    uint64_t byte_offset,
+    uint32_t byte_count,
+    uint64_t value
+) {
+    if (buffer == NULL ||
+        buffer->memory == NULL ||
+        byte_count == 0u ||
+        byte_count > 8u ||
+        byte_offset > buffer->byte_length ||
+        buffer->byte_length - byte_offset < byte_count) {
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < byte_count; ++i) {
+        uint64_t offset = byte_offset + i;
+        uint64_t page_index = offset / AURORA_PAGE_SIZE;
+        uint64_t page_offset = offset % AURORA_PAGE_SIZE;
+        uint64_t physical = 0u;
+
+        if (page_index > UINT32_MAX ||
+            !memory_object_page_at(
+                buffer->memory,
+                (uint32_t)page_index,
+                &physical)) {
+            return false;
+        }
+
+        *(volatile uint8_t *)(
+            (uintptr_t)pmm_phys_to_virt(physical) +
+            (uintptr_t)page_offset
+        ) = (uint8_t)((value >> (i * 8u)) & 0xFFu);
+    }
+
+    return true;
+}
+
+static bool fill_test_buffer_le(
+    struct aurora_graphics_buffer *buffer,
+    uint32_t byte_count,
+    uint64_t pixel
+) {
+    if (buffer == NULL ||
+        byte_count == 0u ||
+        buffer->stride != buffer->width * byte_count) {
+        return false;
+    }
+
+    for (uint64_t y = 0u; y < buffer->height; ++y) {
+        for (uint64_t x = 0u; x < buffer->width; ++x) {
+            uint64_t offset =
+                y * buffer->stride +
+                x * byte_count;
+
+            if (!buffer_write_le_u64_test(
+                    buffer,
+                    offset,
+                    byte_count,
+                    pixel)) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+static bool software_compositor_color_selftest(void) {
+    const struct aurora_display_mode *mode =
+        display_mode_at(0u, 0u);
+
+    if (mode == NULL ||
+        mode->width < 20u ||
+        mode->height < 8u ||
+        !format_is_supported_8888(&mode->format)) {
+        return false;
+    }
+
+    struct aurora_display_pixel_format rgb10a2 = {
+        .encoding = AURORA_PIXEL_ENCODING_UNORM_PACKED,
+        .bits_per_pixel = 32u,
+        .red_mask_size = 10u,
+        .red_mask_shift = 0u,
+        .green_mask_size = 10u,
+        .green_mask_shift = 10u,
+        .blue_mask_size = 10u,
+        .blue_mask_shift = 20u,
+        .alpha_mask_size = 2u,
+        .alpha_mask_shift = 30u
+    };
+
+    struct aurora_display_pixel_format rgb12 = {
+        .encoding = AURORA_PIXEL_ENCODING_UNORM_PACKED,
+        .bits_per_pixel = 48u,
+        .red_mask_size = 12u,
+        .red_mask_shift = 0u,
+        .green_mask_size = 12u,
+        .green_mask_shift = 12u,
+        .blue_mask_size = 12u,
+        .blue_mask_shift = 24u,
+        .alpha_mask_size = 0u,
+        .alpha_mask_shift = 0u
+    };
+
+    struct aurora_display_pixel_format rgba16f = {
+        .encoding = AURORA_PIXEL_ENCODING_FLOAT16,
+        .bits_per_pixel = 64u,
+        .red_mask_size = 16u,
+        .red_mask_shift = 0u,
+        .green_mask_size = 16u,
+        .green_mask_shift = 16u,
+        .blue_mask_size = 16u,
+        .blue_mask_shift = 32u,
+        .alpha_mask_size = 16u,
+        .alpha_mask_shift = 48u
+    };
+
+    struct aurora_color_description sdr = {
+        .primaries = AURORA_COLOR_PRIMARIES_SRGB,
+        .transfer = AURORA_COLOR_TRANSFER_SRGB,
+        .range = AURORA_COLOR_RANGE_FULL,
+        .hdr_static = { .valid = false }
+    };
+
+    struct aurora_color_description hdr = {
+        .primaries = AURORA_COLOR_PRIMARIES_BT2020,
+        .transfer = AURORA_COLOR_TRANSFER_PQ_ST2084,
+        .range = AURORA_COLOR_RANGE_FULL,
+        .hdr_static = {
+            .valid = true,
+            .mastering_max_luminance_millinit = 1000000u,
+            .mastering_min_luminance_micrinit = 50u,
+            .max_cll_nits = 1000u,
+            .max_fall_nits = 400u
+        }
+    };
+
+    struct aurora_graphics_buffer *buffer10 =
+        graphics_buffer_create_ex(4u, 4u, &rgb10a2, &sdr);
+    struct aurora_graphics_buffer *buffer12 =
+        graphics_buffer_create_ex(4u, 4u, &rgb12, &sdr);
+    struct aurora_graphics_buffer *buffer16 =
+        graphics_buffer_create_ex(4u, 4u, &rgba16f, &hdr);
+
+    struct aurora_graphics_surface *surface10 =
+        graphics_surface_create();
+    struct aurora_graphics_surface *surface12 =
+        graphics_surface_create();
+    struct aurora_graphics_surface *surface16 =
+        graphics_surface_create();
+
+    if (buffer10 == NULL ||
+        buffer12 == NULL ||
+        buffer16 == NULL ||
+        surface10 == NULL ||
+        surface12 == NULL ||
+        surface16 == NULL) {
+        return false;
+    }
+
+    uint64_t red10 =
+        UINT64_C(1023) |
+        (UINT64_C(3) << 30);
+    uint64_t green12 =
+        UINT64_C(4095) << 12;
+    uint64_t white16 =
+        UINT64_C(0x3C00) |
+        (UINT64_C(0x3C00) << 16) |
+        (UINT64_C(0x3C00) << 32) |
+        (UINT64_C(0x3C00) << 48);
+
+    if (!fill_test_buffer_le(buffer10, 4u, red10) ||
+        !fill_test_buffer_le(buffer12, 6u, green12) ||
+        !fill_test_buffer_le(buffer16, 8u, white16)) {
+        return false;
+    }
+
+    struct aurora_cap_table caps;
+    cap_table_init(&caps);
+
+    aurora_cap_handle b10 =
+        graphics_buffer_grant(&caps, buffer10, AURORA_RIGHT_READ);
+    aurora_cap_handle b12 =
+        graphics_buffer_grant(&caps, buffer12, AURORA_RIGHT_READ);
+    aurora_cap_handle b16 =
+        graphics_buffer_grant(&caps, buffer16, AURORA_RIGHT_READ);
+
+    aurora_cap_handle s10 =
+        graphics_surface_grant(
+            &caps,
+            surface10,
+            AURORA_RIGHT_READ | AURORA_RIGHT_WRITE
+        );
+    aurora_cap_handle s12 =
+        graphics_surface_grant(
+            &caps,
+            surface12,
+            AURORA_RIGHT_READ | AURORA_RIGHT_WRITE
+        );
+    aurora_cap_handle s16 =
+        graphics_surface_grant(
+            &caps,
+            surface16,
+            AURORA_RIGHT_READ | AURORA_RIGHT_WRITE
+        );
+
+    if (b10 == AURORA_CAP_INVALID ||
+        b12 == AURORA_CAP_INVALID ||
+        b16 == AURORA_CAP_INVALID ||
+        s10 == AURORA_CAP_INVALID ||
+        s12 == AURORA_CAP_INVALID ||
+        s16 == AURORA_CAP_INVALID) {
+        return false;
+    }
+
+    struct aurora_graphics_rect damage = {
+        .x = 0u, .y = 0u, .width = 4u, .height = 4u
+    };
+    uint64_t commit = 0u;
+
+    if (!graphics_surface_attach(&caps, s10, b10) ||
+        !graphics_surface_damage(&caps, s10, &damage) ||
+        !graphics_surface_commit(&caps, s10, &commit) ||
+        !graphics_surface_attach(&caps, s12, b12) ||
+        !graphics_surface_damage(&caps, s12, &damage) ||
+        !graphics_surface_commit(&caps, s12, &commit) ||
+        !graphics_surface_attach(&caps, s16, b16) ||
+        !graphics_surface_damage(&caps, s16, &damage) ||
+        !graphics_surface_commit(&caps, s16, &commit)) {
+        return false;
+    }
+
+    struct aurora_software_compositor compositor;
+    if (!software_compositor_init(&compositor, 0u)) {
+        return false;
+    }
+
+    uint64_t n10 = 0u;
+    uint64_t n12 = 0u;
+    uint64_t n16 = 0u;
+
+    if (!software_compositor_add_surface(
+            &compositor,
+            surface10,
+            1, 1, 0, 255u,
+            &n10) ||
+        !software_compositor_add_surface(
+            &compositor,
+            surface12,
+            7, 1, 0, 255u,
+            &n12) ||
+        !software_compositor_add_surface(
+            &compositor,
+            surface16,
+            13, 1, 0, 255u,
+            &n16)) {
+        return false;
+    }
+
+    uint64_t present = 0u;
+    if (!software_compositor_compose_present(
+            &compositor,
+            &present) ||
+        present == 0u) {
+        return false;
+    }
+
+    uint32_t p10 =
+        backbuffer_pixel(&compositor.backbuffer, 1u, 1u);
+    uint32_t p12 =
+        backbuffer_pixel(&compositor.backbuffer, 7u, 1u);
+    uint32_t p16 =
+        backbuffer_pixel(&compositor.backbuffer, 13u, 1u);
+
+    bool pixels_ok =
+        channel(p10, mode->format.red_mask_shift) >= 245u &&
+        channel(p10, mode->format.green_mask_shift) <= 8u &&
+        channel(p10, mode->format.blue_mask_shift) <= 8u &&
+        channel(p12, mode->format.red_mask_shift) <= 8u &&
+        channel(p12, mode->format.green_mask_shift) >= 245u &&
+        channel(p12, mode->format.blue_mask_shift) <= 8u &&
+        channel(p16, mode->format.red_mask_shift) >= 220u &&
+        channel(p16, mode->format.green_mask_shift) >= 220u &&
+        channel(p16, mode->format.blue_mask_shift) >= 220u;
+
+    if (!pixels_ok ||
+        !software_compositor_remove_surface(&compositor, n10) ||
+        !software_compositor_remove_surface(&compositor, n12) ||
+        !software_compositor_remove_surface(&compositor, n16) ||
+        !software_compositor_destroy(&compositor)) {
+        return false;
+    }
+
+    uint32_t sg10 = surface10->generation;
+    uint32_t sg12 = surface12->generation;
+    uint32_t sg16 = surface16->generation;
+    uint32_t bg10 = buffer10->generation;
+    uint32_t bg12 = buffer12->generation;
+    uint32_t bg16 = buffer16->generation;
+
+    cap_table_destroy(&caps);
+
+    return
+        graphics_surface_release_owner(surface10, sg10) &&
+        graphics_surface_release_owner(surface12, sg12) &&
+        graphics_surface_release_owner(surface16, sg16) &&
+        graphics_buffer_release_owner(buffer10, bg10) &&
+        graphics_buffer_release_owner(buffer12, bg12) &&
+        graphics_buffer_release_owner(buffer16, bg16);
+}
+
 bool software_compositor_selftest(void) {
     return
         software_compositor_basic_selftest() &&
-        software_compositor_advanced_selftest();
+        software_compositor_advanced_selftest() &&
+        software_compositor_color_selftest();
 }
