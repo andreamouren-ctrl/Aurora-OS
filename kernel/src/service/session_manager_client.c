@@ -29,6 +29,17 @@ static void clear_bytes(void *buffer, size_t size) {
     for (size_t i = 0u; i < size; ++i) bytes[i] = 0u;
 }
 
+static void revoke_received_capabilities(
+    const struct aurora_ipc_received *received
+) {
+    if (received == NULL) return;
+    for (uint32_t i = 0u; i < received->capability_count; ++i) {
+        (void)cap_revoke(
+            &session_supervisor.service.supervisor_caps,
+            received->capabilities[i]);
+    }
+}
+
 static bool bytes_equal(const void *left, const void *right, size_t size) {
     const uint8_t *a = (const uint8_t *)left;
     const uint8_t *b = (const uint8_t *)right;
@@ -186,6 +197,7 @@ void session_manager_client_pump(void) {
     if (!service_supervisor_receive(&session_supervisor, &received)) return;
 
     if (received.length != sizeof(struct aurora_session_manager_result)) {
+        revoke_received_capabilities(&received);
         clear_bytes(&received, sizeof(received));
         client_state = AURORA_SESSION_CLIENT_ERROR;
         return;
@@ -200,6 +212,8 @@ void session_manager_client_pump(void) {
     if (result.header.version != AURORA_SESSION_MANAGER_PROTOCOL_VERSION ||
         result.header.type != AURORA_SESSION_MANAGER_SESSION_RESULT ||
         result.header.request_id != current_request_id) {
+        revoke_received_capabilities(&received);
+        clear_bytes(&received, sizeof(received));
         clear_bytes(&result, sizeof(result));
         client_state = AURORA_SESSION_CLIENT_ERROR;
         return;
@@ -248,11 +262,7 @@ void session_manager_client_pump(void) {
     }
 
     if (received.capability_count != 0u) {
-        for (uint32_t i = 0u; i < received.capability_count; ++i) {
-            (void)cap_revoke(
-                &session_supervisor.service.supervisor_caps,
-                (aurora_cap_handle)received.capabilities[i]);
-        }
+        revoke_received_capabilities(&received);
         clear_bytes(&received, sizeof(received));
         clear_bytes(&result, sizeof(result));
         client_state = AURORA_SESSION_CLIENT_ERROR;
