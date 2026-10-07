@@ -2,7 +2,7 @@
 
 Status: **Canonical status audit**
 Audit date: **2026-10-07**
-Repository baseline: `main` at `f928b52414ffd7af4f61134ad9a8ffc85f6410c9`
+Repository baseline: `main` audited through `f174b3e2476298c09d24ce6b5eaff306b660e6b3`
 
 This document records the implemented and runtime-verified state of Aurora OS and compares the current architecture with a contemporary Ubuntu/Linux and Windows baseline.
 
@@ -473,6 +473,8 @@ The largest functional gaps relative to Ubuntu/Linux and Windows are:
 These gaps dominate the current difference between Aurora and a daily-driver operating system.
 
 ## 18. Documentation audit findings
+
+The audit began at `f928b524...` and was reconciled against the later `f174b3e2...` main head after additional G4 input fixes landed during the documentation pass.
 
 The 2026-10-07 audit found material stale statements in canonical documentation:
 
