@@ -1322,8 +1322,6 @@ static bool handle_begin_reauth(
         context->reauth_job.key,
         request.key,
         context->reauth_job.key_length);
-    uint32_t purpose = request.purpose;
-
     secure_zero(&request, sizeof(request));
     secure_zero(&expected_user_id, sizeof(expected_user_id));
     return send_message(
