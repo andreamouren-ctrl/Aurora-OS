@@ -1314,7 +1314,7 @@ static bool sample_parametric_curve_tag(
     if (data == NULL ||
         out_curve == NULL ||
         size < 16u ||
-        read_be32(data) != UINT32_C(0x70617261)) /* para */) {
+        read_be32(data) != UINT32_C(0x70617261) /* para */) {
         return false;
     }
 
