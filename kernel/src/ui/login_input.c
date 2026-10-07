@@ -2,6 +2,7 @@
 
 #include <aurora/bootstrap_probe.h>
 #include <aurora/entropy.h>
+#include <aurora/clock.h>
 #include <aurora/entropy_ring3_probe.h>
 #include <aurora/identity_auth_probe.h>
 #include <aurora/identity_client.h>
@@ -352,6 +353,10 @@ void login_input_init(void) {
         log_line("[identity-client] Identity service unavailable; login remains fail-closed");
         login_ui_set_state(AURORA_LOGIN_ERROR);
     }
+
+    log_write("[boot] Identity login ready at ");
+    log_u64(clock_now_ns() / UINT64_C(1000000));
+    log_line(" ms");
 }
 
 void login_input_pump(void) {
