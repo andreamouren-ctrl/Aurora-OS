@@ -22,7 +22,7 @@ No runtime claim is implied.
 
 ## Phase G1 — Display foundation
 
-Status: **In progress**
+Status: **Complete**
 
 Implemented:
 
@@ -33,11 +33,11 @@ Implemented:
 - [x] safe bounded present operation for the boot-framebuffer backend;
 - [x] monotonic presentation serials and explicit buffer-release signaling.
 
-Foundation item set: **implemented**. The phase remains **In progress** until the Ring 3 acceptance gate below is satisfied.
+Foundation item set: **implemented**.
 
-Acceptance gate:
+Acceptance gate: **runtime verified in QEMU**.
 
-A Ring 3 graphics service can repeatedly present validated test frames through the display contract without direct client framebuffer access.
+A Ring 3 graphics service repeatedly presents validated test frames through the capability-gated display contract without direct client framebuffer access. The validation path requires two monotonically increasing presentation serials and verifies synchronous release state.
 
 ## Phase G2 — Surface/buffer core
 
