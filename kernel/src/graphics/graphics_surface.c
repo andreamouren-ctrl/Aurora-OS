@@ -9,17 +9,104 @@ static uint64_t next_surface_id;
 static uint64_t next_commit_serial;
 static bool initialized;
 
+static bool surface_pointer_valid(
+    const struct aurora_graphics_surface *surface
+) {
+    return surface >= &surfaces[0] &&
+        surface < &surfaces[AURORA_GRAPHICS_SURFACE_MAX_OBJECTS];
+}
+
 static void clear_surface(struct aurora_graphics_surface *surface) {
     uint8_t *bytes = (uint8_t *)surface;
     for (uint64_t i = 0u; i < sizeof(*surface); ++i) bytes[i] = 0u;
 }
 
+static void finalize_if_unreferenced(
+    struct aurora_graphics_surface *surface
+) {
+    struct aurora_graphics_buffer *pending = NULL;
+    struct aurora_graphics_buffer *committed = NULL;
+
+    spinlock_lock(&surface_lock);
+
+    if (!surface_pointer_valid(surface) ||
+        surface->state == AURORA_GRAPHICS_SURFACE_FREE ||
+        !surface->destroy_requested ||
+        surface->owner_refs != 0u ||
+        surface->capability_refs != 0u) {
+        spinlock_unlock(&surface_lock);
+        return;
+    }
+
+    pending = surface->pending.buffer;
+    committed = surface->committed.buffer;
+
+    uint32_t next_generation = surface->generation + 1u;
+    if (next_generation == 0u) next_generation = 1u;
+
+    clear_surface(surface);
+    surface->state = AURORA_GRAPHICS_SURFACE_FREE;
+    surface->generation = next_generation;
+
+    spinlock_unlock(&surface_lock);
+
+    if (pending != NULL) {
+        graphics_buffer_release_surface(pending);
+    }
+
+    if (committed != NULL) {
+        graphics_buffer_release_surface(committed);
+    }
+}
+
+static bool graphics_surface_cap_retain(void *object) {
+    struct aurora_graphics_surface *surface =
+        (struct aurora_graphics_surface *)object;
+
+    spinlock_lock(&surface_lock);
+
+    if (!surface_pointer_valid(surface) ||
+        surface->state == AURORA_GRAPHICS_SURFACE_FREE ||
+        surface->capability_refs == UINT32_MAX) {
+        spinlock_unlock(&surface_lock);
+        return false;
+    }
+
+    ++surface->capability_refs;
+    spinlock_unlock(&surface_lock);
+    return true;
+}
+
+static void graphics_surface_cap_release(void *object) {
+    struct aurora_graphics_surface *surface =
+        (struct aurora_graphics_surface *)object;
+
+    spinlock_lock(&surface_lock);
+
+    if (surface_pointer_valid(surface) &&
+        surface->state != AURORA_GRAPHICS_SURFACE_FREE &&
+        surface->capability_refs != 0u) {
+        --surface->capability_refs;
+    }
+
+    spinlock_unlock(&surface_lock);
+    finalize_if_unreferenced(surface);
+}
+
 bool graphics_surface_system_init(void) {
     spinlock_init(&surface_lock);
+
+    if (!cap_lifecycle_register(
+            AURORA_CAP_SURFACE,
+            graphics_surface_cap_retain,
+            graphics_surface_cap_release)) {
+        return false;
+    }
 
     for (uint32_t i = 0u; i < AURORA_GRAPHICS_SURFACE_MAX_OBJECTS; ++i) {
         clear_surface(&surfaces[i]);
         surfaces[i].state = AURORA_GRAPHICS_SURFACE_FREE;
+        surfaces[i].generation = 1u;
     }
 
     next_surface_id = 1u;
@@ -47,13 +134,44 @@ struct aurora_graphics_surface *graphics_surface_create(void) {
         return NULL;
     }
 
+    uint32_t generation =
+        slot->generation == 0u ? 1u : slot->generation;
+
     clear_surface(slot);
     slot->object_id = next_surface_id++;
     if (next_surface_id == 0u) next_surface_id = 1u;
+    slot->generation = generation;
+    slot->owner_refs = 1u;
+    slot->capability_refs = 0u;
+    slot->destroy_requested = false;
     slot->state = AURORA_GRAPHICS_SURFACE_READY;
 
     spinlock_unlock(&surface_lock);
     return slot;
+}
+
+bool graphics_surface_release_owner(
+    struct aurora_graphics_surface *surface,
+    uint32_t expected_generation
+) {
+    if (surface == NULL) return false;
+
+    spinlock_lock(&surface_lock);
+
+    if (!surface_pointer_valid(surface) ||
+        surface->state == AURORA_GRAPHICS_SURFACE_FREE ||
+        surface->generation != expected_generation ||
+        surface->owner_refs == 0u) {
+        spinlock_unlock(&surface_lock);
+        return false;
+    }
+
+    --surface->owner_refs;
+    surface->destroy_requested = true;
+
+    spinlock_unlock(&surface_lock);
+    finalize_if_unreferenced(surface);
+    return true;
 }
 
 aurora_cap_handle graphics_surface_grant(
@@ -64,6 +182,7 @@ aurora_cap_handle graphics_surface_grant(
     if (table == NULL ||
         surface == NULL ||
         surface->state == AURORA_GRAPHICS_SURFACE_FREE ||
+        surface->destroy_requested ||
         (rights & ~(AURORA_RIGHT_READ |
                     AURORA_RIGHT_WRITE |
                     AURORA_RIGHT_CONTROL |
