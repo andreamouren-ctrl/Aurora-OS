@@ -1,7 +1,7 @@
 # Aurora OS Entropy Seed Foundation
 
-Status: **kernel seed foundation + capability-gated Ring 3 handoff; production Identity DRBG integration still pending**
-Version: **0.2**
+Status: **kernel seed foundation + live capability-gated Ring 3 Identity handoff**
+Version: **0.3**
 
 ## 1. Purpose
 
@@ -180,7 +180,7 @@ Entropy seed capability (optional)
 
 Aurora Identity requests the entropy capability explicitly. On a supervised service restart the previous process and capability table are destroyed; the new generation receives a freshly granted process-local entropy handle rather than inheriting stale authority.
 
-This is an authority transport only. The current runtime probe does not yet instantiate the production `services/identity` HMAC-DRBG.
+This authority transport is now consumed by the live Ring 3 Identity runtime, which uses the trusted seed handoff to instantiate/reseed its HMAC-DRBG according to the Identity service policy.
 
 ## 9. Boot integration
 
@@ -221,29 +221,24 @@ A dedicated CI boot uses a QEMU CPU model exposing the trusted source and requir
 
 ## 11. Current limitations
 
-Version 0.2 intentionally does not yet provide:
+Version 0.3 intentionally does not yet provide:
 
-- a cryptographic multi-source conditioner/pool;
+- a reviewed cryptographic multi-source conditioner/pool;
 - entropy estimation from interrupt/timing sources;
 - TPM or firmware RNG integration;
-- complete VM/hypervisor trust policy for virtualized hardware RNG instructions;
+- a complete VM/hypervisor trust policy for virtualized hardware RNG instructions;
 - runtime source registration;
-- automatic long-lived-service DRBG reseed scheduling;
-- per-consumer DRBG instances provisioned by the real services;
+- sophisticated automatic reseed scheduling across every future trusted service;
 - hardware-backed sealing of Identity machine secrets;
-- production certification of Aurora Identity login.
+- production certification of the complete Identity subsystem.
 
-The capability-gated seed handoff exists, but Aurora Identity is not production-ready until the real service consumes it and implements the DRBG instantiate/reseed/failure lifecycle.
+The capability-gated seed handoff and the live Identity DRBG consumer exist, but the entropy subsystem should still be described as a conservative seed foundation rather than a complete general-purpose random subsystem.
 
 ## 12. Next milestones
 
-For Aurora Identity, the immediate sequence is now:
-
-1. bind the real `services/identity` runtime to the startup entropy capability;
-2. instantiate its HMAC-DRBG from trusted kernel seed material and define reseed/failure policy;
-3. finish the Aurora-native Protected State backend for the Identity database;
-4. load/provision the Machine Identity root secret from the real service;
-5. replace the runtime probe with the real Identity executable and route authentication IPC through it;
-6. add further independently reviewed entropy sources/conditioning where justified.
-
-Until the real Identity consumer lifecycle is complete, this component remains the **Aurora kernel entropy seed foundation with controlled Ring 3 handoff**, not a complete production random subsystem.
+1. define broader reseed cadence/failure policy for long-lived services;
+2. add further independently reviewed entropy sources/conditioning where justified;
+3. add TPM/firmware/hardware-backed integrations where available;
+4. strengthen virtual-machine trust policy for exposed RNG instructions;
+5. expand physical-hardware health/fault validation;
+6. keep Identity fail-closed when no qualified seed path is available.
