@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <aurora/display_output.h>
+
 #define AURORA_DP_DPCD_RECEIVER_CAP_SIZE 16u
 
 typedef bool (*aurora_dp_aux_read_fn)(
