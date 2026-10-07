@@ -144,12 +144,15 @@ Implemented:
 - session lock preserves the bound profile/user_id while revoking interactive delegated profile leases;
 - unlock requires a fresh one-time Identity grant for the same stable user_id;
 - wrong-user unlock grants are rejected without changing the locked session;
-- successful same-user unlock recreates the profile lease and restarts the ordinary Ring 3 User Session Host.
+- successful same-user unlock recreates the profile lease and restarts the ordinary Ring 3 User Session Host;
+- anomalous User Session Host failure transitions through `TERMINATING -> TERMINATED` instead of being masked as a normal logout;
+- Session Manager loss/restart during an active or locked session revokes profile leases and terminates the old session fail-closed;
+- a terminated session cannot return to pre-session login until the client has acknowledged termination and, after a service restart, observed READY from the new Session Manager generation.
 
 Remaining:
 
 - compositor/desktop process bootstrap above the User Session Host once M4 graphics foundations exist;
-- complete session lifecycle state machine beyond active/lock/unlock/logout;
+- complete session lifecycle state machine beyond active/lock/unlock/logout/termination;
 - purpose-bound re-authentication proofs for sensitive actions;
 - final profile/settings service bootstrap above the profile capability.
 
