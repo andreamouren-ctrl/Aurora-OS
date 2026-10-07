@@ -56,6 +56,7 @@ struct aurora_software_compositor {
     struct aurora_compositor_damage pending_damage;
     uint32_t output_index;
     uint64_t next_node_id;
+    uint32_t last_occluded_nodes;
     bool secure_scene_active;
     bool initialized;
 };
