@@ -196,7 +196,6 @@ void session_manager_client_pump(void) {
     for (size_t i = 0u; i < sizeof(result); ++i) {
         ((uint8_t *)&result)[i] = received.data[i];
     }
-    clear_bytes(&received, sizeof(received));
 
     if (result.header.version != AURORA_SESSION_MANAGER_PROTOCOL_VERSION ||
         result.header.type != AURORA_SESSION_MANAGER_SESSION_RESULT ||
