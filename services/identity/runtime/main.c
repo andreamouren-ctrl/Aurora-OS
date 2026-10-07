@@ -32,6 +32,39 @@
 void *malloc(size_t size);
 void free(void *pointer);
 
+_Static_assert(
+    (uint32_t)AURORA_IDENTITY_SERVICE_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY ==
+        (uint32_t)AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY,
+    "reauth purpose ABI mismatch");
+_Static_assert(
+    (uint32_t)AURORA_IDENTITY_SERVICE_REAUTH_PURPOSE_ENROLL_AUTHENTICATOR ==
+        (uint32_t)AURORA_IDENTITY_REAUTH_PURPOSE_ENROLL_AUTHENTICATOR,
+    "reauth purpose ABI mismatch");
+_Static_assert(
+    (uint32_t)AURORA_IDENTITY_SERVICE_REAUTH_PURPOSE_REVOKE_AUTHENTICATOR ==
+        (uint32_t)AURORA_IDENTITY_REAUTH_PURPOSE_REVOKE_AUTHENTICATOR,
+    "reauth purpose ABI mismatch");
+_Static_assert(
+    (uint32_t)AURORA_IDENTITY_SERVICE_REAUTH_PURPOSE_CHANGE_RECOVERY_POLICY ==
+        (uint32_t)AURORA_IDENTITY_REAUTH_PURPOSE_CHANGE_RECOVERY_POLICY,
+    "reauth purpose ABI mismatch");
+_Static_assert(
+    (uint32_t)AURORA_IDENTITY_SERVICE_REAUTH_PURPOSE_EXPORT_RECOVERY_MATERIAL ==
+        (uint32_t)AURORA_IDENTITY_REAUTH_PURPOSE_EXPORT_RECOVERY_MATERIAL,
+    "reauth purpose ABI mismatch");
+_Static_assert(
+    (uint32_t)AURORA_IDENTITY_SERVICE_REAUTH_PURPOSE_APPROVE_USER_CREATION ==
+        (uint32_t)AURORA_IDENTITY_REAUTH_PURPOSE_APPROVE_USER_CREATION,
+    "reauth purpose ABI mismatch");
+_Static_assert(
+    (uint32_t)AURORA_IDENTITY_SERVICE_REAUTH_PURPOSE_CHANGE_LOCAL_ROLE ==
+        (uint32_t)AURORA_IDENTITY_REAUTH_PURPOSE_CHANGE_LOCAL_ROLE,
+    "reauth purpose ABI mismatch");
+_Static_assert(
+    (uint32_t)AURORA_IDENTITY_SERVICE_REAUTH_PURPOSE_GRANT_RESOURCE_ACCESS ==
+        (uint32_t)AURORA_IDENTITY_REAUTH_PURPOSE_GRANT_RESOURCE_ACCESS,
+    "reauth purpose ABI mismatch");
+
 static const uint8_t identity_runtime_drbg_personalization[] =
     "AURORA.IDENTITY.RUNTIME.HMAC-DRBG.V1";
 static const uint8_t identity_runtime_session_grant_key_domain[] =
