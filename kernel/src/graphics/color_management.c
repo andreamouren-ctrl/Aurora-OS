@@ -2619,10 +2619,19 @@ static bool build_and_parse_test_icc(
         write_be32(entry + 8u, sizes[i]);
     }
 
-    /* Identity device RGB -> PCS XYZ for parser/inversion verification. */
-    build_test_xyz_tag(icc + 224u, 65536, 0, 0);
-    build_test_xyz_tag(icc + 244u, 0, 65536, 0);
-    build_test_xyz_tag(icc + 264u, 0, 0, 65536);
+    /* Bradford-adapted sRGB device RGB -> ICC PCS XYZ D50. */
+    build_test_xyz_tag(
+        icc + 224u,
+        28574, 14580, 913
+    );
+    build_test_xyz_tag(
+        icc + 244u,
+        25236, 46982, 6364
+    );
+    build_test_xyz_tag(
+        icc + 264u,
+        9379, 3974, 46815
+    );
 
     build_test_curve_tag(icc + 284u);
     build_test_curve_tag(icc + 300u);
@@ -2724,15 +2733,18 @@ bool color_management_selftest(void) {
         return false;
     }
 
-    for (uint32_t i = 0u; i < 9u; ++i) {
-        int32_t expected =
-            (i == 0u || i == 4u || i == 8u)
-                ? 65536
-                : 0;
-        int32_t delta =
-            parsed.pcs_to_device_q16[i] - expected;
+    static const int32_t expected_inverse[9] = {
+         205413, -105980,  -32158,
+         -64143,  125573,    2192,
+           4714,  -15004,   92072
+    };
 
-        if (delta < -2 || delta > 2) {
+    for (uint32_t i = 0u; i < 9u; ++i) {
+        int32_t delta =
+            parsed.pcs_to_device_q16[i] -
+            expected_inverse[i];
+
+        if (delta < -128 || delta > 128) {
             return false;
         }
     }
