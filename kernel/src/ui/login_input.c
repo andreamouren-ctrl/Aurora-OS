@@ -20,6 +20,7 @@
 #include <aurora/service_bootstrap.h>
 #include <aurora/service_supervisor.h>
 #include <aurora/session_manager_client.h>
+#include <aurora/session_manager_probe.h>
 #include <aurora/vfs.h>
 
 #define AURORA_KEY_MIN_LENGTH 12u
@@ -336,6 +337,12 @@ static void protected_state_bootstrap_probe(void) {
     }
 
     log_line("[identity-session] capability-authorized grant-consume gate + replay-safe rejection path passed");
+
+    if (!session_manager_ring3_self_test()) {
+        kernel_panic("Ring 3 Session Manager service-to-service self-test failed");
+    }
+
+    log_line("[session-manager] Ring 3 service-to-service Identity binding + degraded fail-closed path passed");
 
     if (!service_supervisor_self_test()) {
         kernel_panic("Trusted Ring 3 service supervisor restart self-test failed");
