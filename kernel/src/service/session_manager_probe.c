@@ -182,6 +182,82 @@ static bool wait_fake_identity_request(
     return false;
 }
 
+static bool fake_identity_complete_grant(
+    struct aurora_ipc_endpoint *identity_probe_endpoint,
+    struct aurora_cap_table *identity_caps,
+    uint64_t request_id,
+    const uint8_t user_id[AURORA_SESSION_MANAGER_USER_ID_SIZE]
+) {
+    if (identity_probe_endpoint == NULL ||
+        identity_caps == NULL ||
+        user_id == NULL) {
+        return false;
+    }
+
+    struct aurora_ipc_received identity_received;
+    clear_bytes(&identity_received, sizeof(identity_received));
+    if (!wait_fake_identity_request(
+            identity_probe_endpoint,
+            identity_caps,
+            &identity_received) ||
+        identity_received.length !=
+            sizeof(struct aurora_identity_service_consume_session_grant) ||
+        identity_received.capability_count != 1u) {
+        return false;
+    }
+
+    struct aurora_identity_service_consume_session_grant consume;
+    clear_bytes(&consume, sizeof(consume));
+    for (size_t i = 0u; i < sizeof(consume); ++i) {
+        ((uint8_t *)&consume)[i] = identity_received.data[i];
+    }
+
+    aurora_cap_handle authority = identity_received.capabilities[0];
+    struct aurora_capability_view authority_view;
+    bool valid =
+        consume.header.version == AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION &&
+        consume.header.type == AURORA_IDENTITY_SERVICE_CONSUME_SESSION_GRANT &&
+        consume.header.request_id == request_id &&
+        cap_lookup(
+            identity_caps,
+            authority,
+            AURORA_CAP_IDENTITY_SESSION,
+            AURORA_RIGHT_CONTROL,
+            &authority_view) &&
+        !cap_lookup(
+            identity_caps,
+            authority,
+            AURORA_CAP_IDENTITY_SESSION,
+            AURORA_RIGHT_TRANSFER,
+            &authority_view) &&
+        cap_revoke(identity_caps, authority);
+
+    clear_bytes(&consume, sizeof(consume));
+    clear_bytes(&identity_received, sizeof(identity_received));
+    if (!valid) return false;
+
+    struct aurora_identity_service_session_grant_result result;
+    clear_bytes(&result, sizeof(result));
+    result.header.version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION;
+    result.header.type = AURORA_IDENTITY_SERVICE_SESSION_GRANT_RESULT;
+    result.header.request_id = request_id;
+    result.state = AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_SUCCESS;
+    result.public_error = AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE;
+    for (size_t i = 0u; i < sizeof(result.user_id); ++i) {
+        result.user_id[i] = user_id[i];
+    }
+
+    bool sent = ipc_send(
+        identity_probe_endpoint,
+        identity_caps,
+        &result,
+        (uint32_t)sizeof(result),
+        NULL,
+        0u);
+    clear_bytes(&result, sizeof(result));
+    return sent;
+}
+
 static bool session_manager_profile_binding_self_test(void) {
     static struct aurora_trusted_service session;
     static struct aurora_service_bootstrap_capability dependencies[3];
