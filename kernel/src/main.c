@@ -39,6 +39,14 @@ static struct aurora_ipc_channel ring3_ipc_probe_channel;
 static struct aurora_cap_table ring3_ipc_kernel_caps;
 #endif
 
+static void boot_perf_log(const char *stage) {
+    log_write("[boot-perf] ");
+    log_write(stage);
+    log_write(" at ");
+    log_u64(clock_now_ns() / UINT64_C(1000000));
+    log_line(" ms");
+}
+
 static const char *lapic_mode_name(void) {
     switch (lapic_current_mode()) {
         case LAPIC_MODE_XAPIC:
@@ -297,6 +305,7 @@ void kmain(void) {
     if (!kheap_init()) {
         kernel_panic("Kernel heap initialization failed");
     }
+    boot_perf_log("heap ready");
 
 #if AURORA_BOOT_VALIDATION
     void *probe = kheap_alloc(128, 16);
@@ -358,6 +367,7 @@ void kmain(void) {
     if (!scheduler_init()) {
         kernel_panic("Scheduler initialization failed");
     }
+    boot_perf_log("scheduler initialized");
 
     for (uint32_t i = 0u; i < smp_cpu_count(); ++i) {
         const struct aurora_cpu_runtime *cpu = smp_cpu_at(i);
@@ -368,6 +378,7 @@ void kmain(void) {
             kernel_panic("Could not prepare AP scheduler idle ownership");
         }
     }
+    boot_perf_log("AP scheduler contexts prepared");
 
 #if AURORA_BOOT_VALIDATION
     scheduler_probe_value = 0;
@@ -389,6 +400,7 @@ void kmain(void) {
     if (!scheduler_start()) {
         kernel_panic("Could not start scheduler");
     }
+    boot_perf_log("scheduler started");
 
     smp_release_scheduler_aps();
 
@@ -407,6 +419,7 @@ void kmain(void) {
     log_write("[sched] scheduler-owned CPUs: ");
     log_u64(smp_scheduler_owned_cpu_count());
     log_line("");
+    boot_perf_log("all CPUs scheduler-owned");
 
 #if AURORA_BOOT_VALIDATION
     uint32_t expected_ap_timer_cpus =
@@ -672,7 +685,9 @@ void kmain(void) {
     }
 
     boot_ui_complete();
+    boot_perf_log("boot UI handoff");
     login_input_init();
+    boot_perf_log("login input initialized");
 
     log_line("[kernel] M1 user-space bootstrap reached successfully");
 
