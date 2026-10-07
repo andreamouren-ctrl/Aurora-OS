@@ -37,5 +37,6 @@ bool nvme_admin_identify(struct aurora_nvme_admin_result *out_result);
 bool nvme_namespace_block_device_init(const struct aurora_nvme_admin_result *identity);
 struct aurora_block_device *nvme_namespace_block_device(void);
 void nvme_bootstrap_probe(void);
+bool nvme_namespace_reserved_for_rw_probe(void);
 
 #endif
