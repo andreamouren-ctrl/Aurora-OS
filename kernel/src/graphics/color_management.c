@@ -1127,6 +1127,277 @@ static bool parse_xyz_tag(
     return true;
 }
 
+static int32_t q16_log2_unit(uint32_t x_q16) {
+    if (x_q16 == 0u) return INT32_MIN;
+
+    uint64_t z = (uint64_t)x_q16 << 14; /* Q30 */
+    int32_t integer = 0;
+
+    while (z < (UINT64_C(1) << 30)) {
+        z <<= 1;
+        --integer;
+        if (integer < -31) return INT32_MIN;
+    }
+
+    while (z >= (UINT64_C(2) << 30)) {
+        z >>= 1;
+        ++integer;
+        if (integer > 30) return INT32_MAX;
+    }
+
+    int32_t result = integer << 16;
+
+    for (uint32_t bit = 1u; bit <= 16u; ++bit) {
+        uint64_t squared =
+            (z * z + (UINT64_C(1) << 29)) >> 30;
+
+        if (squared >= (UINT64_C(2) << 30)) {
+            squared >>= 1;
+            result |= (int32_t)(1u << (16u - bit));
+        }
+
+        z = squared;
+    }
+
+    return result;
+}
+
+static uint32_t q16_exp2(int32_t exponent_q16) {
+    static const uint32_t roots_q30[16] = {
+        1518500250u, 1276901417u, 1170923762u, 1121280436u,
+        1097253708u, 1085434106u, 1079572136u, 1076653033u,
+        1075196443u, 1074468888u, 1074105294u, 1073923544u,
+        1073832680u, 1073787251u, 1073764537u, 1073753181u
+    };
+
+    int32_t integer = exponent_q16 / 65536;
+    int32_t remainder = exponent_q16 % 65536;
+
+    if (remainder < 0) {
+        remainder += 65536;
+        --integer;
+    }
+
+    uint64_t value_q30 = UINT64_C(1) << 30;
+    uint32_t fraction = (uint32_t)remainder;
+
+    for (uint32_t bit = 0u; bit < 16u; ++bit) {
+        uint32_t mask = 1u << (15u - bit);
+        if ((fraction & mask) == 0u) continue;
+
+        value_q30 =
+            (value_q30 * roots_q30[bit] +
+             (UINT64_C(1) << 29)) >> 30;
+    }
+
+    if (integer > 0) {
+        if (integer >= 16 ||
+            value_q30 > (UINT64_MAX >> integer)) {
+            return UINT32_MAX;
+        }
+        value_q30 <<= (uint32_t)integer;
+    } else if (integer < 0) {
+        uint32_t shift = (uint32_t)(-integer);
+        if (shift >= 63u) return 0u;
+        value_q30 >>= shift;
+    }
+
+    uint64_t q16 =
+        (value_q30 + (UINT64_C(1) << 13)) >> 14;
+
+    return q16 > UINT32_MAX
+        ? UINT32_MAX
+        : (uint32_t)q16;
+}
+
+static uint32_t q16_pow_unit(
+    uint32_t base_q16,
+    int32_t gamma_q16
+) {
+    if (base_q16 == 0u) return 0u;
+    if (gamma_q16 <= 0) return 65535u;
+
+    int32_t log2_q16 =
+        q16_log2_unit(base_q16);
+
+    if (log2_q16 == INT32_MIN) return 0u;
+
+    int64_t exponent =
+        ((int64_t)log2_q16 * gamma_q16 +
+         (log2_q16 >= 0 ? 32768 : -32768)) >> 16;
+
+    if (exponent > INT32_MAX) return UINT32_MAX;
+    if (exponent < INT32_MIN) return 0u;
+
+    return q16_exp2((int32_t)exponent);
+}
+
+static uint32_t eval_parametric_curve_q16(
+    uint16_t function_type,
+    const int32_t params[7],
+    uint32_t x_q16
+) {
+    if (params == NULL || x_q16 > 65535u) return 0u;
+
+    int32_t x = (int32_t)x_q16;
+    int32_t g = params[0];
+    int32_t a = params[1];
+    int32_t b = params[2];
+    int32_t cc = params[3];
+    int32_t d = params[4];
+    int32_t e = params[5];
+    int32_t ff = params[6];
+
+    int64_t y = 0;
+
+    switch (function_type) {
+        case 0u:
+            y = q16_pow_unit(x_q16, g);
+            break;
+
+        case 1u: {
+            int32_t axb =
+                q16_mul_signed(a, x) + b;
+            y = axb > 0
+                ? q16_pow_unit((uint32_t)axb, g)
+                : 0;
+            break;
+        }
+
+        case 2u: {
+            int32_t axb =
+                q16_mul_signed(a, x) + b;
+            int64_t power = axb > 0
+                ? q16_pow_unit((uint32_t)axb, g)
+                : 0;
+            y = power + cc;
+            break;
+        }
+
+        case 3u:
+            if (x >= d) {
+                int32_t axb =
+                    q16_mul_signed(a, x) + b;
+                y = axb > 0
+                    ? q16_pow_unit((uint32_t)axb, g)
+                    : 0;
+            } else {
+                y = q16_mul_signed(cc, x);
+            }
+            break;
+
+        case 4u:
+            if (x >= d) {
+                int32_t axb =
+                    q16_mul_signed(a, x) + b;
+                int64_t power = axb > 0
+                    ? q16_pow_unit((uint32_t)axb, g)
+                    : 0;
+                y = power + e;
+            } else {
+                y = (int64_t)q16_mul_signed(cc, x) + ff;
+            }
+            break;
+
+        default:
+            return 0u;
+    }
+
+    return clamp_u32_i64(y, 65535u);
+}
+
+static bool sample_parametric_curve_tag(
+    const uint8_t *data,
+    uint32_t size,
+    uint16_t out_curve[AURORA_COLOR_PROFILE_CURVE_SAMPLES]
+) {
+    if (data == NULL ||
+        out_curve == NULL ||
+        size < 16u ||
+        read_be32(data) != UINT32_C(0x70617261)) /* para */) {
+        return false;
+    }
+
+    uint16_t function_type = read_be16(data + 8u);
+    uint32_t parameter_count = 0u;
+
+    switch (function_type) {
+        case 0u: parameter_count = 1u; break;
+        case 1u: parameter_count = 3u; break;
+        case 2u: parameter_count = 4u; break;
+        case 3u: parameter_count = 5u; break;
+        case 4u: parameter_count = 7u; break;
+        default: return false;
+    }
+
+    if (12u + parameter_count * 4u > size) {
+        return false;
+    }
+
+    int32_t params[7] = {0};
+
+    for (uint32_t i = 0u; i < parameter_count; ++i) {
+        params[i] = read_s15fixed16(
+            data + 12u + i * 4u
+        );
+    }
+
+    if (params[0] <= 0) return false;
+
+    uint32_t previous = 0u;
+
+    for (uint32_t sample = 0u; sample <= 64u; ++sample) {
+        uint32_t x =
+            (sample * 65535u) / 64u;
+        uint32_t y =
+            eval_parametric_curve_q16(
+                function_type,
+                params,
+                x
+            );
+
+        if (sample != 0u && y < previous) {
+            return false;
+        }
+
+        previous = y;
+    }
+
+    for (uint32_t j = 0u;
+         j < AURORA_COLOR_PROFILE_CURVE_SAMPLES;
+         ++j) {
+        uint32_t target =
+            (uint32_t)(
+                ((uint64_t)j * 65535u) /
+                (AURORA_COLOR_PROFILE_CURVE_SAMPLES - 1u)
+            );
+
+        uint32_t lo = 0u;
+        uint32_t hi = 65535u;
+
+        while (lo < hi) {
+            uint32_t mid =
+                lo + (hi - lo) / 2u;
+            uint32_t y =
+                eval_parametric_curve_q16(
+                    function_type,
+                    params,
+                    mid
+                );
+
+            if (y < target) {
+                lo = mid + 1u;
+            } else {
+                hi = mid;
+            }
+        }
+
+        out_curve[j] = (uint16_t)lo;
+    }
+
+    return true;
+}
+
 static bool sample_curve_tag(
     const uint8_t *data,
     uint32_t size,
@@ -1135,6 +1406,14 @@ static bool sample_curve_tag(
     if (data == NULL || out_curve == NULL || size < 12u) return false;
 
     uint32_t type = read_be32(data);
+
+    if (type == UINT32_C(0x70617261)) /* para */ {
+        return sample_parametric_curve_tag(
+            data,
+            size,
+            out_curve
+        );
+    }
 
     if (type != UINT32_C(0x63757276)) /* curv */ {
         return false;
