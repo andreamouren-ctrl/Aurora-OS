@@ -840,10 +840,450 @@ bool software_compositor_compose_present(
     return presented;
 }
 
-/*
- * Detailed compositor runtime coverage is wired by the validation bootstrap.
- * This symbol remains a lightweight contract check for non-boot callers.
- */
+static uint32_t make_test_pixel(
+    const struct aurora_display_pixel_format *format,
+    uint8_t red,
+    uint8_t green,
+    uint8_t blue,
+    uint8_t alpha
+) {
+    uint32_t pixel = 0u;
+    pixel = replace_channel(pixel, format->red_mask_shift, red);
+    pixel = replace_channel(pixel, format->green_mask_shift, green);
+    pixel = replace_channel(pixel, format->blue_mask_shift, blue);
+
+    if (format->alpha_mask_size == 8u) {
+        pixel = replace_channel(pixel, format->alpha_mask_shift, alpha);
+    }
+
+    return pixel;
+}
+
+static bool buffer_write_u32(
+    struct aurora_graphics_buffer *buffer,
+    uint64_t byte_offset,
+    uint32_t value
+) {
+    if (buffer == NULL ||
+        buffer->memory == NULL ||
+        byte_offset > buffer->byte_length ||
+        buffer->byte_length - byte_offset < sizeof(uint32_t)) {
+        return false;
+    }
+
+    uint8_t bytes[4] = {
+        (uint8_t)(value & 0xFFu),
+        (uint8_t)((value >> 8) & 0xFFu),
+        (uint8_t)((value >> 16) & 0xFFu),
+        (uint8_t)((value >> 24) & 0xFFu)
+    };
+
+    for (uint32_t i = 0u; i < 4u; ++i) {
+        uint64_t offset = byte_offset + i;
+        uint64_t page_index = offset / AURORA_PAGE_SIZE;
+        uint64_t page_offset = offset % AURORA_PAGE_SIZE;
+        uint64_t physical = 0u;
+
+        if (page_index > UINT32_MAX ||
+            !memory_object_page_at(
+                buffer->memory,
+                (uint32_t)page_index,
+                &physical)) {
+            return false;
+        }
+
+        *(volatile uint8_t *)(
+            (uintptr_t)pmm_phys_to_virt(physical) +
+            (uintptr_t)page_offset
+        ) = bytes[i];
+    }
+
+    return true;
+}
+
+static bool fill_test_buffer(
+    struct aurora_graphics_buffer *buffer,
+    uint32_t pixel
+) {
+    if (buffer == NULL ||
+        buffer->stride < buffer->width * 4u) {
+        return false;
+    }
+
+    for (uint64_t y = 0u; y < buffer->height; ++y) {
+        for (uint64_t x = 0u; x < buffer->width; ++x) {
+            uint64_t offset =
+                y * buffer->stride + x * 4u;
+
+            if (!buffer_write_u32(
+                    buffer,
+                    offset,
+                    pixel)) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+static uint32_t backbuffer_pixel(
+    const struct aurora_display_backbuffer *buffer,
+    uint32_t x,
+    uint32_t y
+) {
+    if (buffer == NULL ||
+        x >= buffer->width ||
+        y >= buffer->height) {
+        return 0u;
+    }
+
+    uint64_t offset =
+        (uint64_t)y * buffer->pitch +
+        (uint64_t)x * 4u;
+
+    if (offset > buffer->byte_length ||
+        buffer->byte_length - offset < 4u) {
+        return 0u;
+    }
+
+    return *(const uint32_t *)(const void *)(
+        buffer->pixels + offset
+    );
+}
+
+static bool pixel_rgb_equals(
+    uint32_t pixel,
+    const struct aurora_display_pixel_format *format,
+    uint8_t red,
+    uint8_t green,
+    uint8_t blue
+) {
+    return
+        channel(pixel, format->red_mask_shift) == red &&
+        channel(pixel, format->green_mask_shift) == green &&
+        channel(pixel, format->blue_mask_shift) == blue;
+}
+
 bool software_compositor_selftest(void) {
-    return AURORA_COMPOSITOR_MAX_NODES >= 4u;
+    const struct aurora_display_mode *mode =
+        display_mode_at(0u, 0u);
+
+    if (mode == NULL ||
+        mode->width < 20u ||
+        mode->height < 12u ||
+        !format_is_supported_8888(&mode->format)) {
+        return false;
+    }
+
+    struct aurora_software_compositor compositor;
+    if (!software_compositor_init(&compositor, 0u)) {
+        return false;
+    }
+
+    struct aurora_cap_table client_caps;
+    cap_table_init(&client_caps);
+
+    struct aurora_graphics_buffer *red_buffer =
+        graphics_buffer_create(8u, 8u, &mode->format);
+    struct aurora_graphics_buffer *green_buffer =
+        graphics_buffer_create(8u, 8u, &mode->format);
+    struct aurora_graphics_buffer *blue_buffer =
+        graphics_buffer_create(8u, 8u, &mode->format);
+
+    struct aurora_graphics_surface *red_surface =
+        graphics_surface_create();
+    struct aurora_graphics_surface *green_surface =
+        graphics_surface_create();
+    struct aurora_graphics_surface *blue_surface =
+        graphics_surface_create();
+
+    if (red_buffer == NULL ||
+        green_buffer == NULL ||
+        blue_buffer == NULL ||
+        red_surface == NULL ||
+        green_surface == NULL ||
+        blue_surface == NULL) {
+        return false;
+    }
+
+    uint32_t red =
+        make_test_pixel(&mode->format, 255u, 0u, 0u, 255u);
+    uint32_t green =
+        make_test_pixel(&mode->format, 0u, 255u, 0u, 255u);
+    uint32_t blue =
+        make_test_pixel(&mode->format, 0u, 0u, 255u, 255u);
+
+    if (!fill_test_buffer(red_buffer, red) ||
+        !fill_test_buffer(green_buffer, green) ||
+        !fill_test_buffer(blue_buffer, blue)) {
+        return false;
+    }
+
+    aurora_cap_handle red_buffer_cap =
+        graphics_buffer_grant(
+            &client_caps,
+            red_buffer,
+            AURORA_RIGHT_READ
+        );
+    aurora_cap_handle green_buffer_cap =
+        graphics_buffer_grant(
+            &client_caps,
+            green_buffer,
+            AURORA_RIGHT_READ
+        );
+    aurora_cap_handle blue_buffer_cap =
+        graphics_buffer_grant(
+            &client_caps,
+            blue_buffer,
+            AURORA_RIGHT_READ
+        );
+
+    aurora_cap_handle red_surface_cap =
+        graphics_surface_grant(
+            &client_caps,
+            red_surface,
+            AURORA_RIGHT_READ | AURORA_RIGHT_WRITE
+        );
+    aurora_cap_handle green_surface_cap =
+        graphics_surface_grant(
+            &client_caps,
+            green_surface,
+            AURORA_RIGHT_READ | AURORA_RIGHT_WRITE
+        );
+    aurora_cap_handle blue_surface_cap =
+        graphics_surface_grant(
+            &client_caps,
+            blue_surface,
+            AURORA_RIGHT_READ | AURORA_RIGHT_WRITE
+        );
+
+    if (red_buffer_cap == AURORA_CAP_INVALID ||
+        green_buffer_cap == AURORA_CAP_INVALID ||
+        blue_buffer_cap == AURORA_CAP_INVALID ||
+        red_surface_cap == AURORA_CAP_INVALID ||
+        green_surface_cap == AURORA_CAP_INVALID ||
+        blue_surface_cap == AURORA_CAP_INVALID) {
+        return false;
+    }
+
+    struct aurora_graphics_rect full_damage = {
+        .x = 0u,
+        .y = 0u,
+        .width = 8u,
+        .height = 8u
+    };
+
+    uint64_t red_commit = 0u;
+    uint64_t green_commit = 0u;
+    uint64_t blue_commit = 0u;
+
+    if (!graphics_surface_attach(
+            &client_caps,
+            red_surface_cap,
+            red_buffer_cap) ||
+        !graphics_surface_damage(
+            &client_caps,
+            red_surface_cap,
+            &full_damage) ||
+        !graphics_surface_commit(
+            &client_caps,
+            red_surface_cap,
+            &red_commit) ||
+        !graphics_surface_attach(
+            &client_caps,
+            green_surface_cap,
+            green_buffer_cap) ||
+        !graphics_surface_damage(
+            &client_caps,
+            green_surface_cap,
+            &full_damage) ||
+        !graphics_surface_commit(
+            &client_caps,
+            green_surface_cap,
+            &green_commit) ||
+        !graphics_surface_request_frame_callback(
+            &client_caps,
+            blue_surface_cap,
+            UINT64_C(0xC301)) ||
+        !graphics_surface_attach(
+            &client_caps,
+            blue_surface_cap,
+            blue_buffer_cap) ||
+        !graphics_surface_damage(
+            &client_caps,
+            blue_surface_cap,
+            &full_damage) ||
+        !graphics_surface_commit(
+            &client_caps,
+            blue_surface_cap,
+            &blue_commit) ||
+        red_commit == 0u ||
+        green_commit == 0u ||
+        blue_commit == 0u) {
+        return false;
+    }
+
+    uint64_t red_node = 0u;
+    uint64_t green_node = 0u;
+    uint64_t blue_node = 0u;
+
+    if (!software_compositor_add_surface(
+            &compositor,
+            red_surface,
+            -2,
+            -2,
+            0,
+            255u,
+            &red_node) ||
+        !software_compositor_add_surface(
+            &compositor,
+            green_surface,
+            1,
+            1,
+            10,
+            255u,
+            &green_node) ||
+        !software_compositor_add_surface(
+            &compositor,
+            blue_surface,
+            3,
+            3,
+            20,
+            128u,
+            &blue_node)) {
+        return false;
+    }
+
+    uint64_t first_present = 0u;
+    if (!software_compositor_compose_present(
+            &compositor,
+            &first_present) ||
+        first_present == 0u) {
+        return false;
+    }
+
+    if (!pixel_rgb_equals(
+            backbuffer_pixel(&compositor.backbuffer, 0u, 0u),
+            &mode->format,
+            255u, 0u, 0u) ||
+        !pixel_rgb_equals(
+            backbuffer_pixel(&compositor.backbuffer, 2u, 2u),
+            &mode->format,
+            0u, 255u, 0u)) {
+        return false;
+    }
+
+    uint32_t blended =
+        backbuffer_pixel(&compositor.backbuffer, 4u, 4u);
+
+    if (!pixel_rgb_equals(
+            blended,
+            &mode->format,
+            0u, 127u, 128u)) {
+        return false;
+    }
+
+    struct aurora_graphics_frame_callback callback = {0};
+    if (!graphics_surface_take_frame_callback(
+            &client_caps,
+            blue_surface_cap,
+            &callback) ||
+        callback.request_id != UINT64_C(0xC301) ||
+        callback.commit_serial != blue_commit ||
+        callback.presentation_serial != first_present) {
+        return false;
+    }
+
+    if (!software_compositor_set_node(
+            &compositor,
+            green_node,
+            10,
+            1,
+            10,
+            255u,
+            true)) {
+        return false;
+    }
+
+    uint64_t second_present = 0u;
+    if (!software_compositor_compose_present(
+            &compositor,
+            &second_present) ||
+        second_present <= first_present ||
+        !pixel_rgb_equals(
+            backbuffer_pixel(&compositor.backbuffer, 2u, 2u),
+            &mode->format,
+            255u, 0u, 0u) ||
+        !pixel_rgb_equals(
+            backbuffer_pixel(&compositor.backbuffer, 10u, 2u),
+            &mode->format,
+            0u, 255u, 0u)) {
+        return false;
+    }
+
+    if (!software_compositor_set_node(
+            &compositor,
+            red_node,
+            -2,
+            -2,
+            0,
+            255u,
+            false)) {
+        return false;
+    }
+
+    uint64_t third_present = 0u;
+    if (!software_compositor_compose_present(
+            &compositor,
+            &third_present) ||
+        third_present <= second_present ||
+        !pixel_rgb_equals(
+            backbuffer_pixel(&compositor.backbuffer, 0u, 0u),
+            &mode->format,
+            0u, 0u, 0u)) {
+        return false;
+    }
+
+    if (!software_compositor_remove_surface(
+            &compositor,
+            red_node) ||
+        !software_compositor_remove_surface(
+            &compositor,
+            green_node) ||
+        !software_compositor_remove_surface(
+            &compositor,
+            blue_node) ||
+        !software_compositor_destroy(&compositor)) {
+        return false;
+    }
+
+    uint32_t red_surface_generation = red_surface->generation;
+    uint32_t green_surface_generation = green_surface->generation;
+    uint32_t blue_surface_generation = blue_surface->generation;
+    uint32_t red_buffer_generation = red_buffer->generation;
+    uint32_t green_buffer_generation = green_buffer->generation;
+    uint32_t blue_buffer_generation = blue_buffer->generation;
+
+    cap_table_destroy(&client_caps);
+
+    return
+        graphics_surface_release_owner(
+            red_surface,
+            red_surface_generation) &&
+        graphics_surface_release_owner(
+            green_surface,
+            green_surface_generation) &&
+        graphics_surface_release_owner(
+            blue_surface,
+            blue_surface_generation) &&
+        graphics_buffer_release_owner(
+            red_buffer,
+            red_buffer_generation) &&
+        graphics_buffer_release_owner(
+            green_buffer,
+            green_buffer_generation) &&
+        graphics_buffer_release_owner(
+            blue_buffer,
+            blue_buffer_generation);
 }
