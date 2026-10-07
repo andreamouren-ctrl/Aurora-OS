@@ -460,6 +460,7 @@ void kmain(void) {
             graphics_probe_buffer,
             AURORA_RIGHT_READ |
             AURORA_RIGHT_WRITE |
+            AURORA_RIGHT_MAP |
             AURORA_RIGHT_TRANSFER
         );
 
@@ -547,6 +548,84 @@ void kmain(void) {
     log_line("[graphics] bounded graphics buffer capability passed");
     log_line("[graphics] capability-backed surface rights passed");
     log_line("[graphics] attach/damage/atomic commit passed");
+
+    struct aurora_process *graphics_map_probe =
+        process_create_image(
+            "graphics-map-probe",
+            user_probe_image(),
+            user_probe_image_size()
+        );
+
+    if (graphics_map_probe == NULL) {
+        kernel_panic("Graphics shared mapping process probe failed");
+    }
+
+    aurora_cap_handle process_graphics_buffer_handle =
+        graphics_buffer_grant(
+            &graphics_map_probe->capabilities,
+            graphics_probe_buffer,
+            AURORA_RIGHT_READ |
+            AURORA_RIGHT_WRITE |
+            AURORA_RIGHT_MAP
+        );
+
+    uint64_t graphics_map_address = 0u;
+
+    if (process_graphics_buffer_handle == AURORA_CAP_INVALID ||
+        !graphics_buffer_map_process(
+            graphics_map_probe,
+            process_graphics_buffer_handle,
+            true,
+            &graphics_map_address) ||
+        graphics_map_address == 0u ||
+        graphics_probe_buffer->memory == NULL ||
+        graphics_probe_buffer->memory->mapping_refs != 1u) {
+        kernel_panic("Graphics memory-object mapping probe failed");
+    }
+
+    uint64_t graphics_mapped_physical = 0u;
+    uint64_t graphics_backing_physical = 0u;
+
+    if (!vmm_translate_in(
+            &graphics_map_probe->address_space,
+            graphics_map_address,
+            &graphics_mapped_physical) ||
+        !memory_object_page_at(
+            graphics_probe_buffer->memory,
+            0u,
+            &graphics_backing_physical) ||
+        (graphics_mapped_physical &
+            ~(AURORA_PAGE_SIZE - 1u)) !=
+            graphics_backing_physical) {
+        kernel_panic("Graphics shared backing identity probe failed");
+    }
+
+    *(volatile uint64_t *)pmm_phys_to_virt(
+        graphics_backing_physical
+    ) = UINT64_C(0x4752415048494353);
+
+    if (*(volatile uint64_t *)pmm_phys_to_virt(
+            graphics_mapped_physical &
+            ~(AURORA_PAGE_SIZE - 1u)) !=
+            UINT64_C(0x4752415048494353)) {
+        kernel_panic("Graphics shared backing visibility probe failed");
+    }
+
+    if (!graphics_buffer_unmap_process(
+            graphics_map_probe,
+            graphics_map_address) ||
+        graphics_probe_buffer->memory->mapping_refs != 0u) {
+        kernel_panic("Graphics shared buffer unmap probe failed");
+    }
+
+    process_mark_exited(graphics_map_probe, 0);
+
+    if (!process_reap(graphics_map_probe, NULL) ||
+        !process_release(graphics_map_probe)) {
+        kernel_panic("Graphics mapping process lifecycle probe failed");
+    }
+
+    log_line("[graphics] memory-object backed buffer mapping passed");
 
     struct aurora_memory_object *shared_probe =
         memory_object_create(2u);

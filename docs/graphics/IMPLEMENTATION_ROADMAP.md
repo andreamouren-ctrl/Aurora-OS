@@ -45,7 +45,7 @@ Status: **In progress**
 
 Implemented:
 
-- [x] bounded graphics-buffer object, capability-shareable without direct cross-process mapping yet;
+- [x] bounded graphics-buffer object backed by refcounted shared memory;
 - [x] capability-backed surface objects with explicit rights;
 - [x] attach + bounded damage + atomic pending-to-committed publication.
 
@@ -53,7 +53,8 @@ Remaining:
 
 - [ ] safe buffer release/lifetime and object reuse;
 - [ ] frame callbacks;
-- [ ] full strict metadata/pixel-format validation and Ring 3 shared mapping path.
+- [x] capability-gated Ring 3 graphics-buffer map/unmap syscall path;
+- [ ] full strict metadata/pixel-format validation.
 
 Acceptance gate:
 

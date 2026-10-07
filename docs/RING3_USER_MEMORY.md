@@ -15,7 +15,7 @@ The public syscall ABI exposes:
 
 `FREE(address)` releases exactly one complete mapping previously returned by `ALLOC` for the calling process.
 
-The legacy anonymous-memory syscalls remain process-private. In addition, the kernel now has a refcounted shared-memory object and Process Manager mapping path that can map the same physical backing into multiple Ring 3 address spaces. A public Ring 3 shared-memory syscall/capability ABI is still a separate integration step.
+The legacy anonymous-memory syscalls remain process-private. In addition, the kernel now has a refcounted shared-memory object and Process Manager mapping path that can map the same physical backing into multiple Ring 3 address spaces. Generic shared-memory creation remains kernel-controlled, but M4 now exposes a capability-gated Ring 3 map/unmap ABI specifically for graphics buffers. Clients receive a graphics-buffer capability rather than arbitrary physical-memory authority.
 
 ## Ownership and permissions
 
@@ -70,8 +70,8 @@ This API is not a general `mmap` implementation. It does not currently provide:
 - caller-selected virtual addresses;
 - executable mappings;
 - file-backed mappings;
-- public Ring 3 shared-memory creation/map syscalls;
-- capability transfer ABI for memory objects;
+- generic Ring 3 shared-memory object creation syscall;
+- generic capability transfer ABI for raw memory objects;
 - overcommit or swapping;
 - resize/remap operations.
 

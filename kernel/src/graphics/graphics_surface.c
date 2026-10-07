@@ -155,7 +155,7 @@ bool graphics_surface_attach(
 
     if (surface->state == AURORA_GRAPHICS_SURFACE_FREE ||
         buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
-        buffer->pixels == NULL) {
+        buffer->memory == NULL) {
         spinlock_unlock(&surface_lock);
         return false;
     }
@@ -230,7 +230,7 @@ bool graphics_surface_commit(
 
     if (buffer == NULL ||
         buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
-        buffer->pixels == NULL) {
+        buffer->memory == NULL) {
         spinlock_unlock(&surface_lock);
         return false;
     }
