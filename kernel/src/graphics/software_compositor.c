@@ -1352,6 +1352,91 @@ static bool next_node_after(
     return true;
 }
 
+bool software_compositor_hit_test(
+    struct aurora_software_compositor *compositor,
+    int32_t x,
+    int32_t y,
+    uint64_t *out_node_id
+) {
+    if (out_node_id != NULL) *out_node_id = 0u;
+
+    if (compositor == NULL ||
+        !compositor->initialized ||
+        x < 0 ||
+        y < 0) {
+        return false;
+    }
+
+    bool found = false;
+    int32_t best_z = INT32_MIN;
+    uint64_t best_id = 0u;
+
+    for (uint32_t i = 0u; i < AURORA_COMPOSITOR_MAX_NODES; ++i) {
+        struct aurora_compositor_node *node =
+            &compositor->nodes[i];
+
+        if (!node_allowed_in_scene(compositor, node)) {
+            continue;
+        }
+
+        struct aurora_graphics_surface_snapshot snapshot = {0};
+
+        if (!graphics_surface_read_committed(
+                &compositor->surface_caps,
+                node->surface_handle,
+                &snapshot)) {
+            continue;
+        }
+
+        uint64_t width = 0u;
+        uint64_t height = 0u;
+        bool extent_ok =
+            transformed_extent(
+                node,
+                snapshot.buffer->width,
+                snapshot.buffer->height,
+                &width,
+                &height
+            );
+
+        graphics_surface_snapshot_release(&snapshot);
+
+        if (!extent_ok ||
+            width > (uint64_t)INT64_MAX ||
+            height > (uint64_t)INT64_MAX) {
+            continue;
+        }
+
+        int64_t left = node->x;
+        int64_t top = node->y;
+        int64_t right = left + (int64_t)width;
+        int64_t bottom = top + (int64_t)height;
+
+        if ((int64_t)x < left ||
+            (int64_t)x >= right ||
+            (int64_t)y < top ||
+            (int64_t)y >= bottom) {
+            continue;
+        }
+
+        if (!found ||
+            node->z > best_z ||
+            (node->z == best_z &&
+             node->node_id > best_id)) {
+            found = true;
+            best_z = node->z;
+            best_id = node->node_id;
+        }
+    }
+
+    if (!found) return false;
+
+    if (out_node_id != NULL) {
+        *out_node_id = best_id;
+    }
+    return true;
+}
+
 bool software_compositor_compose_present(
     struct aurora_software_compositor *compositor,
     uint64_t *out_present_serial
