@@ -67,6 +67,7 @@ static struct nvme_queue_state io_queue;
 static struct aurora_nvme_admin_result namespace_identity;
 static struct aurora_block_device namespace_device;
 static bool namespace_device_ready;
+static bool nvme_rw_probe_media;
 static uint8_t rw_original[NVME_PAGE_SIZE];
 static uint8_t rw_pattern[NVME_PAGE_SIZE];
 static uint8_t rw_readback[NVME_PAGE_SIZE];
@@ -745,7 +746,6 @@ static bool signed_rw_probe(struct aurora_block_device *device) {
 }
 
 static bool nvme_bootstrap_complete;
-static bool nvme_rw_probe_media;
 
 void nvme_bootstrap_probe(void) {
     if (nvme_bootstrap_complete) {
