@@ -27,6 +27,10 @@ struct aurora_graphics_buffer {
     uint64_t object_id;
     uint32_t generation;
     enum aurora_graphics_buffer_state state;
+    uint32_t owner_refs;
+    uint32_t capability_refs;
+    uint32_t surface_refs;
+    bool destroy_requested;
     struct aurora_memory_object *memory;
     uint64_t width;
     uint64_t height;
@@ -36,6 +40,18 @@ struct aurora_graphics_buffer {
 };
 
 bool graphics_buffer_system_init(void);
+
+bool graphics_buffer_release_owner(
+    struct aurora_graphics_buffer *buffer
+);
+
+bool graphics_buffer_retain_surface(
+    struct aurora_graphics_buffer *buffer
+);
+
+void graphics_buffer_release_surface(
+    struct aurora_graphics_buffer *buffer
+);
 
 struct aurora_graphics_buffer *graphics_buffer_create(
     uint64_t width,
