@@ -286,13 +286,21 @@ bool graphics_ring3_two_client_self_test(void) {
 
     uint32_t generation_a = buffer_a->generation;
     uint32_t generation_b = buffer_b->generation;
+    uint32_t surface_generation_a = surface_a->generation;
+    uint32_t surface_generation_b = surface_b->generation;
 
     if (!graphics_buffer_release_owner(
             buffer_a,
             generation_a) ||
         !graphics_buffer_release_owner(
             buffer_b,
-            generation_b)) {
+            generation_b) ||
+        !graphics_surface_release_owner(
+            surface_a,
+            surface_generation_a) ||
+        !graphics_surface_release_owner(
+            surface_b,
+            surface_generation_b)) {
         return false;
     }
 
