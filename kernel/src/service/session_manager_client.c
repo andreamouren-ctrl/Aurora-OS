@@ -9,6 +9,7 @@
 #include <aurora/service_supervisor.h>
 #include <aurora/session_manager_client.h>
 #include <aurora/session_manager_service.h>
+#include <aurora/session_profile_lease.h>
 
 #define SESSION_MANAGER_READY_TIMEOUT_NS 2000000000ull
 
@@ -31,6 +32,8 @@ static void clear_bytes(void *buffer, size_t size) {
 }
 
 static void drop_active_profile(void) {
+    session_profile_lease_end();
+
     if (active_profile_handle != AURORA_CAP_INVALID) {
         (void)cap_revoke(
             &session_supervisor.service.supervisor_caps,
@@ -335,6 +338,24 @@ void session_manager_client_pump(void) {
         for (size_t i = 0u; i < sizeof(active_user_id); ++i) {
             active_user_id[i] = result.user_id[i];
         }
+
+        if (!session_profile_lease_begin(
+                &session_supervisor.service.supervisor_caps,
+                active_profile_handle,
+                active_user_id,
+                active_generation)) {
+            (void)cap_revoke(
+                &session_supervisor.service.supervisor_caps,
+                active_profile_handle);
+            active_profile_handle = AURORA_CAP_INVALID;
+            active_generation = 0u;
+            clear_bytes(active_user_id, sizeof(active_user_id));
+            clear_bytes(&received, sizeof(received));
+            clear_bytes(&result, sizeof(result));
+            client_state = AURORA_SESSION_CLIENT_ERROR;
+            return;
+        }
+
         clear_bytes(&received, sizeof(received));
         clear_bytes(&result, sizeof(result));
         client_state = AURORA_SESSION_CLIENT_ACTIVE;
@@ -387,4 +408,24 @@ aurora_cap_handle session_manager_client_profile_handle(void) {
     return client_state == AURORA_SESSION_CLIENT_ACTIVE
         ? active_profile_handle
         : AURORA_CAP_INVALID;
+}
+
+
+aurora_cap_handle session_manager_client_delegate_profile(
+    struct aurora_process *process,
+    uint64_t rights
+) {
+    if (client_state != AURORA_SESSION_CLIENT_ACTIVE ||
+        active_profile_handle == AURORA_CAP_INVALID ||
+        active_generation == 0u) {
+        return AURORA_CAP_INVALID;
+    }
+
+    return session_profile_lease_delegate(process, rights);
+}
+
+bool session_manager_client_revoke_profile(
+    struct aurora_process *process
+) {
+    return session_profile_lease_revoke_process(process);
 }

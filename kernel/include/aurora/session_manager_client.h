@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include <aurora/capability_abi.h>
+#include <aurora/process.h>
 
 #include <aurora/session_manager_protocol.h>
 
@@ -36,5 +37,14 @@ uint64_t session_manager_client_generation(void);
 const uint8_t *session_manager_client_user_id(void);
 
 aurora_cap_handle session_manager_client_profile_handle(void);
+
+aurora_cap_handle session_manager_client_delegate_profile(
+    struct aurora_process *process,
+    uint64_t rights
+);
+
+bool session_manager_client_revoke_profile(
+    struct aurora_process *process
+);
 
 #endif

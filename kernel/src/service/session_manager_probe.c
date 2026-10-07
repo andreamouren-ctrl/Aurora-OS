@@ -13,6 +13,7 @@
 #include <aurora/session_manager_probe.h>
 #include <aurora/session_manager_protocol.h>
 #include <aurora/session_manager_service.h>
+#include <aurora/session_profile_lease.h>
 
 #define SESSION_MANAGER_PROBE_TIMEOUT_NS 2000000000ull
 
@@ -370,6 +371,72 @@ static bool session_manager_profile_binding_self_test(void) {
             profile_handle,
             AURORA_CAP_FILE,
             AURORA_RIGHT_CONTROL,
+            &profile_view)) {
+        return false;
+    }
+
+    static struct aurora_process desktop_process;
+    clear_bytes(&desktop_process, sizeof(desktop_process));
+    cap_table_init(&desktop_process.capabilities);
+    desktop_process.state = AURORA_PROCESS_RUNNING;
+
+    if (!session_profile_lease_begin(
+            &session.supervisor_caps,
+            profile_handle,
+            expected_user_id,
+            session_result.session_generation)) {
+        return false;
+    }
+
+    aurora_cap_handle desktop_profile =
+        session_profile_lease_delegate(
+            &desktop_process,
+            AURORA_RIGHT_READ |
+            AURORA_RIGHT_WRITE |
+            AURORA_RIGHT_ENUMERATE);
+
+    if (desktop_profile == AURORA_CAP_INVALID ||
+        session_profile_lease_count() != 1u ||
+        !profile_capability_matches_user(
+            &desktop_process.capabilities,
+            desktop_profile,
+            expected_user_id) ||
+        !cap_lookup(
+            &desktop_process.capabilities,
+            desktop_profile,
+            AURORA_CAP_FILE,
+            AURORA_RIGHT_READ |
+            AURORA_RIGHT_WRITE |
+            AURORA_RIGHT_ENUMERATE,
+            &profile_view) ||
+        cap_lookup(
+            &desktop_process.capabilities,
+            desktop_profile,
+            AURORA_CAP_FILE,
+            AURORA_RIGHT_TRANSFER,
+            &profile_view) ||
+        cap_lookup(
+            &desktop_process.capabilities,
+            desktop_profile,
+            AURORA_CAP_FILE,
+            AURORA_RIGHT_CONTROL,
+            &profile_view) ||
+        session_profile_lease_delegate(
+            &desktop_process,
+            AURORA_RIGHT_READ) != AURORA_CAP_INVALID) {
+        session_profile_lease_end();
+        return false;
+    }
+
+    session_profile_lease_end();
+
+    if (session_profile_lease_active() ||
+        session_profile_lease_count() != 0u ||
+        cap_lookup(
+            &desktop_process.capabilities,
+            desktop_profile,
+            AURORA_CAP_FILE,
+            0u,
             &profile_view)) {
         return false;
     }

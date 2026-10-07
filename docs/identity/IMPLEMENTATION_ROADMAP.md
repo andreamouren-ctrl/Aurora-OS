@@ -133,11 +133,14 @@ Implemented:
 - profile directory derived from stable `user_id`, never Aurora Key or display name;
 - `AURORA_CAP_FILE` profile capability issued only after successful Identity binding;
 - validation probe confirming the transferred profile capability is bound to the authenticated `user_id`;
-- logout path that revokes the Session Manager's source profile authority and the session bridge's delegated profile capability before returning to pre-session login.
+- logout path that revokes the Session Manager's source profile authority and the session bridge's delegated profile capability before returning to pre-session login;
+- session-scoped profile capability delegation to user/desktop processes with reduced rights;
+- bounded lease tracking for delegated profile capabilities;
+- explicit revocation of all delegated process profile capabilities before the active session profile authority is dropped.
 
 Remaining:
 
-- desktop/user process capability delegation from the active session;
+- actual desktop/user process bootstrap using the delegated profile capability;
 - complete session lifecycle state machine beyond active/logout;
 - lock/unlock with fresh Identity authentication;
 - purpose-bound re-authentication proofs for sensitive actions;
