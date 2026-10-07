@@ -13,11 +13,12 @@ This milestone establishes explicit ownership and a deterministic reap order for
 Resources are reclaimed by the component that owns them:
 
 - **Scheduler** owns the kernel stack and scheduler slot for each thread.
-- **Process Manager** owns the physical frames allocated for the process image and user stack.
+- **Process Manager** owns the physical frames allocated for the process image, user stack, and private anonymous mappings.
+- **Shared Memory Object** owns physical frames that may be mapped into multiple processes and tracks owner/mapping references.
 - **VMM** owns only the private page-table hierarchy of an address space.
 - **Kernel heap** keeps backing pages mapped but reuses freed virtual ranges.
 
-The VMM does not implicitly free mapped leaf frames. This is required so future shared-memory or externally-owned mappings do not become double-free hazards.
+The VMM does not implicitly free mapped leaf frames. Shared memory now relies on this rule: removing or destroying one process address space cannot free a physical frame still mapped by another process.
 
 ## Reap order
 
@@ -29,10 +30,11 @@ A completed Ring 3 process is reclaimed in this order:
 4. the heap scrubs the released range before publishing it for reuse;
 5. the scheduler slot returns to `THREAD_UNUSED` and the process live-thread reference is detached;
 6. `process_reap()` requires zero live threads and a terminal process state;
-7. the Process Manager frees only its owned image and user-stack frames;
-8. the VMM frees only the now-quiescent private page-table hierarchy;
-9. the process enters `AURORA_PROCESS_REAPED`;
-10. `process_release()` returns the scrubbed process-object range to the kernel heap.
+7. the Process Manager frees its owned image, user-stack and private-anonymous frames;
+8. shared mappings drop mapping references without freeing shared physical frames directly;
+9. the VMM frees only the now-quiescent private page-table hierarchy;
+10. the process enters `AURORA_PROCESS_REAPED`;
+11. `process_release()` returns the scrubbed process-object range to the kernel heap.
 
 A process address space cannot be destroyed while an online CPU still reports it as active.
 
@@ -62,7 +64,7 @@ The complete bootstrap regression has passed the four-CPU BIOS smoke boot and th
 
 - The production Service Manager and restart policy are not implemented yet.
 - The current Ring 3 process model is effectively one thread per process; multi-thread process-exit semantics remain future work.
-- General reference counting for arbitrary cross-process shared objects is not implemented yet.
+- General shared-memory object reference counting is now implemented; the public Ring 3 capability/syscall ABI for creating and mapping those objects is still pending.
 - Kernel-heap backing mappings do not currently shrink.
 - A process with unreaped scheduler references cannot be reaped.
 

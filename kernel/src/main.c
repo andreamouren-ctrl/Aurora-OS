@@ -22,6 +22,7 @@
 #include <aurora/ipc.h>
 #include <aurora/log.h>
 #include <aurora/login_input.h>
+#include <aurora/memory_object.h>
 #include <aurora/madt.h>
 #include <aurora/panic.h>
 #include <aurora/pmm.h>
@@ -351,6 +352,10 @@ void kmain(void) {
     }
     boot_perf_log("heap ready");
 
+    if (!memory_object_system_init()) {
+        kernel_panic("Shared memory object system initialization failed");
+    }
+
     if (!graphics_buffer_system_init() ||
         !graphics_surface_system_init()) {
         kernel_panic("Graphics surface/buffer core initialization failed");
@@ -542,6 +547,131 @@ void kmain(void) {
     log_line("[graphics] bounded graphics buffer capability passed");
     log_line("[graphics] capability-backed surface rights passed");
     log_line("[graphics] attach/damage/atomic commit passed");
+
+    struct aurora_memory_object *shared_probe =
+        memory_object_create(2u);
+
+    struct aurora_process *shared_left =
+        process_create_image(
+            "shared-left",
+            user_probe_image(),
+            user_probe_image_size()
+        );
+
+    struct aurora_process *shared_right =
+        process_create_image(
+            "shared-right",
+            user_probe_image(),
+            user_probe_image_size()
+        );
+
+    if (shared_probe == NULL ||
+        shared_left == NULL ||
+        shared_right == NULL) {
+        kernel_panic("Shared memory lifecycle allocation probe failed");
+    }
+
+    uint64_t shared_left_address = 0u;
+    uint64_t shared_right_address = 0u;
+
+    if (!process_shared_memory_map(
+            shared_left,
+            shared_probe,
+            true,
+            &shared_left_address) ||
+        !process_shared_memory_map(
+            shared_right,
+            shared_probe,
+            true,
+            &shared_right_address) ||
+        shared_probe->mapping_refs != 2u) {
+        kernel_panic("Shared memory dual mapping probe failed");
+    }
+
+    for (uint32_t page = 0u; page < 2u; ++page) {
+        uint64_t left_physical = 0u;
+        uint64_t right_physical = 0u;
+        uint64_t object_physical = 0u;
+
+        if (!vmm_translate_in(
+                &shared_left->address_space,
+                shared_left_address +
+                    (uint64_t)page * AURORA_PAGE_SIZE,
+                &left_physical) ||
+            !vmm_translate_in(
+                &shared_right->address_space,
+                shared_right_address +
+                    (uint64_t)page * AURORA_PAGE_SIZE,
+                &right_physical) ||
+            !memory_object_page_at(
+                shared_probe,
+                page,
+                &object_physical) ||
+            (left_physical & ~(AURORA_PAGE_SIZE - 1u)) != object_physical ||
+            (right_physical & ~(AURORA_PAGE_SIZE - 1u)) != object_physical) {
+            kernel_panic("Shared memory physical alias probe failed");
+        }
+    }
+
+    uint64_t shared_physical = 0u;
+
+    if (!memory_object_page_at(
+            shared_probe,
+            0u,
+            &shared_physical)) {
+        kernel_panic("Shared memory page lookup probe failed");
+    }
+
+    volatile uint64_t *shared_word =
+        (volatile uint64_t *)pmm_phys_to_virt(shared_physical);
+
+    *shared_word = UINT64_C(0x4155524F52415348);
+
+    uint64_t left_alias = 0u;
+    uint64_t right_alias = 0u;
+
+    if (!vmm_translate_in(
+            &shared_left->address_space,
+            shared_left_address,
+            &left_alias) ||
+        !vmm_translate_in(
+            &shared_right->address_space,
+            shared_right_address,
+            &right_alias) ||
+        *(volatile uint64_t *)pmm_phys_to_virt(
+            left_alias & ~(AURORA_PAGE_SIZE - 1u)) !=
+            UINT64_C(0x4155524F52415348) ||
+        *(volatile uint64_t *)pmm_phys_to_virt(
+            right_alias & ~(AURORA_PAGE_SIZE - 1u)) !=
+            UINT64_C(0x4155524F52415348)) {
+        kernel_panic("Shared memory visibility probe failed");
+    }
+
+    if (!process_shared_memory_unmap(
+            shared_left,
+            shared_left_address) ||
+        shared_probe->mapping_refs != 1u) {
+        kernel_panic("Shared memory explicit unmap probe failed");
+    }
+
+    process_mark_exited(shared_left, 0);
+    process_mark_exited(shared_right, 0);
+
+    if (!process_reap(shared_left, NULL) ||
+        !process_release(shared_left) ||
+        !process_reap(shared_right, NULL) ||
+        shared_probe->mapping_refs != 0u ||
+        !process_release(shared_right)) {
+        kernel_panic("Shared memory process reap probe failed");
+    }
+
+    if (!memory_object_release_owner(shared_probe)) {
+        kernel_panic("Shared memory owner release probe failed");
+    }
+
+    log_line("[vm] refcounted shared memory object passed");
+    log_line("[vm] cross-process shared mapping passed");
+    log_line("[vm] shared unmap/reap ownership passed");
 
     void *probe = kheap_alloc(128, 16);
 

@@ -1,6 +1,6 @@
-# Aurora Ring 3 Process-Owned Anonymous Memory
+# Aurora Ring 3 Anonymous and Shared Memory
 
-Status: **Identity-enabling foundation**
+Status: **Anonymous runtime verified; shared-memory foundation implemented**
 
 Aurora provides bounded anonymous user memory for trusted and ordinary Ring 3 processes through process-owned mappings. This facility exists primarily to support real user-space services that need working memory larger than the fixed user stack; Aurora Identity Argon2id is the first production consumer.
 
@@ -15,11 +15,13 @@ The public syscall ABI exposes:
 
 `FREE(address)` releases exactly one complete mapping previously returned by `ALLOC` for the calling process.
 
-Mappings are never transferable between processes through this ABI.
+The legacy anonymous-memory syscalls remain process-private. In addition, the kernel now has a refcounted shared-memory object and Process Manager mapping path that can map the same physical backing into multiple Ring 3 address spaces. A public Ring 3 shared-memory syscall/capability ABI is still a separate integration step.
 
 ## Ownership and permissions
 
-Every anonymous range belongs to exactly one `aurora_process`.
+Every process memory range is explicitly classified as `PRIVATE` or `SHARED`.
+
+Private anonymous ranges belong to exactly one `aurora_process`. Shared ranges reference an `aurora_memory_object`, which owns the physical frames independently from every process that maps them.
 
 Mapped pages are:
 
@@ -28,7 +30,7 @@ Mapped pages are:
 - non-executable;
 - zero-filled before first exposure.
 
-The Process Manager records each range independently from the VMM page tables. The VMM therefore remains responsible only for translation/page-table structure; it does not guess ownership of leaf frames.
+The Process Manager records each range independently from the VMM page tables. The VMM remains responsible only for translation/page-table structure; it does not guess ownership of leaf frames. This separation is now exercised directly by shared mappings: two address spaces may point at the same physical frames without either process owning those frames.
 
 ## Bounds
 
@@ -68,8 +70,8 @@ This API is not a general `mmap` implementation. It does not currently provide:
 - caller-selected virtual addresses;
 - executable mappings;
 - file-backed mappings;
-- shared mappings;
-- capability transfer of memory objects;
+- public Ring 3 shared-memory creation/map syscalls;
+- capability transfer ABI for memory objects;
 - overcommit or swapping;
 - resize/remap operations.
 
@@ -78,3 +80,17 @@ Those features, if added later, require separate ownership and authorization con
 ## Identity relationship
 
 This foundation removes the memory blocker for linking the real `services/identity` core and Argon2id provider into the compiled Ring 3 Identity Service. It does not by itself make Identity authentication live; the subsequent integration must wire the DRBG, Machine Secret, Aurora-native persistent store, Argon2id provider and real authentication IPC protocol into the service runtime.
+
+
+## Shared-memory ownership
+
+The shared-memory foundation uses explicit reference accounting:
+
+- `owner_refs` keeps the memory object alive while a kernel/service owner holds it;
+- `mapping_refs` counts active process mappings;
+- physical frames are returned to the PMM only when both counts reach zero;
+- explicit shared unmap removes PTEs and one mapping reference;
+- process reap drops remaining shared mapping references without freeing shared leaf frames directly;
+- private anonymous reap still scrubs and frees its process-owned frames.
+
+Boot validation maps one object into two independent Ring 3 address spaces, verifies both virtual mappings resolve to the same physical pages, verifies shared visibility, explicitly unmaps one side, reaps the other, and finally releases the owner reference.
