@@ -5,6 +5,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <aurora/ipc.h>
+#include <aurora/identity_service_protocol.h>
+
 enum aurora_identity_client_state {
     AURORA_IDENTITY_CLIENT_UNINITIALIZED = 0,
     AURORA_IDENTITY_CLIENT_READY,
@@ -39,5 +42,11 @@ void identity_client_reset_result(void);
 enum aurora_identity_client_state identity_client_state(void);
 
 uint64_t identity_client_retry_after_ms(void);
+
+bool identity_client_take_session_grant(
+    uint8_t out_grant[AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE]
+);
+
+struct aurora_ipc_endpoint *identity_client_session_peer_endpoint(void);
 
 #endif
