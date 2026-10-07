@@ -37,6 +37,7 @@ struct aurora_graphics_buffer {
     uint64_t stride;
     uint64_t byte_length;
     struct aurora_display_pixel_format format;
+    struct aurora_color_description color;
 };
 
 bool graphics_buffer_system_init(void);
@@ -62,6 +63,13 @@ struct aurora_graphics_buffer *graphics_buffer_create(
     uint64_t width,
     uint64_t height,
     const struct aurora_display_pixel_format *format
+);
+
+struct aurora_graphics_buffer *graphics_buffer_create_ex(
+    uint64_t width,
+    uint64_t height,
+    const struct aurora_display_pixel_format *format,
+    const struct aurora_color_description *color
 );
 
 aurora_cap_handle graphics_buffer_grant(
