@@ -125,6 +125,27 @@ static void graphics_input_scene_event(
         return;
     }
 
+    if (event == AURORA_COMPOSITOR_SCENE_NODE_VISIBILITY_CHANGED) {
+        uint64_t target_id = target_for_node(router, node_id);
+
+        if (target_id == 0u ||
+            target_node_still_hittable(router, target_id)) {
+            return;
+        }
+
+        if (router->pointer_focus_target == target_id) {
+            router->pointer_focus_target = 0u;
+        }
+        if (router->keyboard_focus_target == target_id) {
+            router->keyboard_focus_target = 0u;
+        }
+        if (router->capture_target == target_id) {
+            router->capture_target = 0u;
+        }
+
+        return;
+    }
+
     if (event == AURORA_COMPOSITOR_SCENE_SECURITY_POLICY_CHANGED) {
         if (router->pointer_focus_target != 0u &&
             !target_node_still_hittable(

@@ -27,7 +27,8 @@ enum aurora_compositor_surface_class {
 
 enum aurora_compositor_scene_event {
     AURORA_COMPOSITOR_SCENE_NODE_REMOVED = 1,
-    AURORA_COMPOSITOR_SCENE_SECURITY_POLICY_CHANGED
+    AURORA_COMPOSITOR_SCENE_SECURITY_POLICY_CHANGED,
+    AURORA_COMPOSITOR_SCENE_NODE_VISIBILITY_CHANGED
 };
 
 typedef void (*aurora_compositor_scene_observer)(

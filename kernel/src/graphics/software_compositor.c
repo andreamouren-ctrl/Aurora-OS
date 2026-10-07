@@ -1085,6 +1085,9 @@ bool software_compositor_set_node(
         mode->height
     );
 
+    bool visibility_changed =
+        node->visible != visible;
+
     node->x = x;
     node->y = y;
     node->z = z;
@@ -1117,6 +1120,16 @@ bool software_compositor_set_node(
     );
 
     graphics_surface_snapshot_release(&snapshot);
+
+    if (visibility_changed &&
+        compositor->scene_observer != NULL) {
+        compositor->scene_observer(
+            compositor->scene_observer_context,
+            AURORA_COMPOSITOR_SCENE_NODE_VISIBILITY_CHANGED,
+            node_id
+        );
+    }
+
     return true;
 }
 
