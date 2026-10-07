@@ -351,6 +351,11 @@ void kmain(void) {
     }
     boot_perf_log("heap ready");
 
+    if (!graphics_buffer_system_init() ||
+        !graphics_surface_system_init()) {
+        kernel_panic("Graphics surface/buffer core initialization failed");
+    }
+
 #if AURORA_BOOT_VALIDATION
     const struct aurora_display_mode *display_probe_mode =
         display_mode_at(0u, 0u);
@@ -425,11 +430,6 @@ void kmain(void) {
     log_line("[display] compositor backbuffer allocation passed");
     log_line("[display] bounded framebuffer present passed");
     log_line("[display] presentation/release signaling passed");
-
-    if (!graphics_buffer_system_init() ||
-        !graphics_surface_system_init()) {
-        kernel_panic("Graphics surface/buffer core initialization failed");
-    }
 
     static struct aurora_cap_table graphics_probe_caps;
     cap_table_init(&graphics_probe_caps);
