@@ -10,6 +10,7 @@
 #define PS2_DATA_PORT   0x60u
 #define PS2_STATUS_PORT 0x64u
 #define PS2_STATUS_OUTPUT_FULL 0x01u
+#define PS2_STATUS_AUX_DATA    0x20u
 #define PS2_LEGACY_IRQ  1u
 
 static bool extended_prefix;
@@ -127,8 +128,14 @@ bool ps2_keyboard_init(
      * routed. Bound the drain so a broken controller cannot stall boot.
      */
     for (uint32_t i = 0u; i < 32u; ++i) {
-        if ((port_in8(PS2_STATUS_PORT) &
-             PS2_STATUS_OUTPUT_FULL) == 0u) {
+        uint8_t status = port_in8(PS2_STATUS_PORT);
+
+        if ((status & PS2_STATUS_OUTPUT_FULL) == 0u) {
+            break;
+        }
+
+        /* Leave auxiliary-device bytes for the IRQ12 mouse path. */
+        if ((status & PS2_STATUS_AUX_DATA) != 0u) {
             break;
         }
 
