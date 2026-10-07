@@ -173,7 +173,10 @@ Hardware/runtime integration still pending:
 
 - [x] EDID base / CTA-861 HDR-color / DisplayID structural parsing;
 - [ ] native HDMI / DisplayPort / eDP link backends;
-- [ ] VRR / Adaptive-Sync programming;
-- [ ] DSC programming;
+- [x] HDMI VSDB/HF-VSDB FRL + validated VRR discovery foundation;
+- [x] DisplayPort DPCD DSC/MST/128b132b-UHBR readiness discovery;
+- [x] generic VRR range validation + presentation-policy hooks;
+- [ ] VRR / Adaptive-Sync hardware programming;
+- [ ] DSC hardware programming;
 - [ ] GPU scanout/color-pipeline programming;
 - [ ] compositor color conversion and HDR tone mapping.
