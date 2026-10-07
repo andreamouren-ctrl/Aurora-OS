@@ -6,6 +6,7 @@
 #include <aurora/cpu_local.h>
 #include <aurora/entropy.h>
 #include <aurora/gdt.h>
+#include <aurora/graphics_buffer.h>
 #include <aurora/ipc.h>
 #include <aurora/pmm.h>
 #include <aurora/process.h>
@@ -319,6 +320,40 @@ static uint64_t dispatch_user_memory_free(
         : AURORA_SYS_RESULT_ERROR;
 }
 
+static uint64_t dispatch_graphics_buffer_map(
+    struct aurora_process *process,
+    uint64_t buffer_handle,
+    uint64_t writable
+) {
+    uint64_t address = 0u;
+
+    if (process == NULL ||
+        writable > 1u ||
+        !graphics_buffer_map_process(
+            process,
+            (aurora_cap_handle)buffer_handle,
+            writable != 0u,
+            &address)) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    return address;
+}
+
+static uint64_t dispatch_graphics_buffer_unmap(
+    struct aurora_process *process,
+    uint64_t address
+) {
+    if (process == NULL ||
+        !graphics_buffer_unmap_process(
+            process,
+            address)) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    return 0u;
+}
+
 static uint64_t dispatch_profile_open_or_create(
     struct aurora_process *process,
     uint64_t root_handle,
@@ -447,6 +482,19 @@ struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
                 process,
                 frame->rdi,
                 frame->rsi
+            );
+            break;
+        case AURORA_SYS_GRAPHICS_BUFFER_MAP:
+            frame->rax = dispatch_graphics_buffer_map(
+                process,
+                frame->rdi,
+                frame->rsi
+            );
+            break;
+        case AURORA_SYS_GRAPHICS_BUFFER_UNMAP:
+            frame->rax = dispatch_graphics_buffer_unmap(
+                process,
+                frame->rdi
             );
             break;
         default:
