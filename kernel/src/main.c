@@ -803,6 +803,47 @@ void kmain(void) {
         kernel_panic("Graphics destroy-pending new grant rejection failed");
     }
 
+    aurora_cap_handle recycle_surface =
+        graphics_surface_grant(
+            &recycle_target_caps,
+            graphics_probe_surface,
+            AURORA_RIGHT_READ | AURORA_RIGHT_WRITE
+        );
+
+    struct aurora_graphics_rect recycle_damage = {
+        .x = 0u,
+        .y = 0u,
+        .width = 32u,
+        .height = 32u
+    };
+
+    uint64_t recycle_commit = 0u;
+
+    if (recycle_surface == AURORA_CAP_INVALID ||
+        !graphics_surface_attach(
+            &recycle_target_caps,
+            recycle_surface,
+            recycle_target) ||
+        !graphics_surface_damage(
+            &recycle_target_caps,
+            recycle_surface,
+            &recycle_damage) ||
+        !graphics_surface_commit(
+            &recycle_target_caps,
+            recycle_surface,
+            &recycle_commit) ||
+        recycle_commit == 0u ||
+        !graphics_surface_detach_buffers(
+            &recycle_target_caps,
+            recycle_surface) ||
+        !cap_revoke(
+            &recycle_target_caps,
+            recycle_surface)) {
+        kernel_panic("Graphics existing capability functional survival probe failed");
+    }
+
+    log_line("[graphics] existing buffer capability remains usable after owner release");
+
     if (!cap_revoke(
             &recycle_source_caps,
             recycle_source) ||
