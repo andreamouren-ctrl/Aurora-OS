@@ -19,6 +19,8 @@
 #include <aurora/protected_state_user_probe.h>
 #include <aurora/service_bootstrap.h>
 #include <aurora/service_supervisor.h>
+#include <aurora/session_manager_client.h>
+#include <aurora/session_manager_probe.h>
 #include <aurora/vfs.h>
 
 #define AURORA_KEY_MIN_LENGTH 12u
@@ -29,6 +31,7 @@ static size_t credential_length;
 static bool create_offer_active;
 static bool create_entry_mode;
 static bool creation_notice_active;
+static bool session_active_announced;
 
 static void clear_credential(void) {
     for (size_t i = 0u; i < sizeof(credential_buffer); ++i) {
@@ -55,6 +58,38 @@ static char key_to_normalized_character(
 
 static void synchronize_identity_state(void) {
     identity_client_pump();
+    session_manager_client_pump();
+
+    enum aurora_session_manager_client_state session_state =
+        session_manager_client_state();
+
+    if (session_state == AURORA_SESSION_CLIENT_ACTIVE) {
+        clear_credential();
+        create_offer_active = false;
+        create_entry_mode = false;
+        creation_notice_active = false;
+        login_ui_set_state(AURORA_LOGIN_SESSION_ACTIVE);
+        if (!session_active_announced) {
+            session_active_announced = true;
+            log_write("[session-manager] authenticated session active; generation ");
+            log_u64(session_manager_client_generation());
+            log_line("");
+        }
+        return;
+    }
+
+    if (session_state == AURORA_SESSION_CLIENT_STARTING) {
+        login_ui_set_state(AURORA_LOGIN_AUTHENTICATING);
+        return;
+    }
+
+    if (session_state == AURORA_SESSION_CLIENT_REJECTED ||
+        session_state == AURORA_SESSION_CLIENT_UNAVAILABLE ||
+        session_state == AURORA_SESSION_CLIENT_ERROR) {
+        clear_credential();
+        login_ui_set_state(AURORA_LOGIN_ERROR);
+        return;
+    }
 
     switch (identity_client_state()) {
         case AURORA_IDENTITY_CLIENT_AUTH_FAILED:
@@ -75,19 +110,29 @@ static void synchronize_identity_state(void) {
             identity_client_reset_result();
             return;
 
-        case AURORA_IDENTITY_CLIENT_VERIFIED:
+        case AURORA_IDENTITY_CLIENT_VERIFIED: {
+            uint8_t grant[AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE];
+            for (size_t i = 0u; i < sizeof(grant); ++i) grant[i] = 0u;
+
+            bool transferred =
+                identity_client_take_session_grant(grant) &&
+                session_manager_client_begin(grant);
+
+            for (size_t i = 0u; i < sizeof(grant); ++i) grant[i] = 0u;
+
             clear_credential();
             create_offer_active = false;
             create_entry_mode = false;
             creation_notice_active = false;
-            /*
-             * Identity verification succeeded, but Aurora does not yet have the
-             * Session Manager that consumes the opaque grant and establishes a
-             * desktop session. Keep the surface in its authenticating state
-             * rather than pretending that kernel UI code can create a session.
-             */
+
+            if (!transferred) {
+                login_ui_set_state(AURORA_LOGIN_ERROR);
+                return;
+            }
+
             login_ui_set_state(AURORA_LOGIN_AUTHENTICATING);
             return;
+        }
 
         case AURORA_IDENTITY_CLIENT_CREATING:
             login_ui_set_state(AURORA_LOGIN_CREATING);
@@ -136,9 +181,13 @@ static void handle_pressed_key(
     enum aurora_key_code key
 ) {
     enum aurora_identity_client_state state = identity_client_state();
+    enum aurora_session_manager_client_state session_state =
+        session_manager_client_state();
     if (state == AURORA_IDENTITY_CLIENT_AUTHENTICATING ||
         state == AURORA_IDENTITY_CLIENT_VERIFIED ||
-        state == AURORA_IDENTITY_CLIENT_CREATING) {
+        state == AURORA_IDENTITY_CLIENT_CREATING ||
+        session_state == AURORA_SESSION_CLIENT_STARTING ||
+        session_state == AURORA_SESSION_CLIENT_ACTIVE) {
         return;
     }
 
@@ -289,6 +338,12 @@ static void protected_state_bootstrap_probe(void) {
 
     log_line("[identity-session] capability-authorized grant-consume gate + replay-safe rejection path passed");
 
+    if (!session_manager_ring3_self_test()) {
+        kernel_panic("Ring 3 Session Manager service-to-service self-test failed");
+    }
+
+    log_line("[session-manager] Ring 3 service-to-service Identity binding + degraded fail-closed path passed");
+
     if (!service_supervisor_self_test()) {
         kernel_panic("Trusted Ring 3 service supervisor restart self-test failed");
     }
@@ -342,6 +397,7 @@ void login_input_init(void) {
     create_offer_active = false;
     create_entry_mode = false;
     creation_notice_active = false;
+    session_active_announced = false;
 
     for (size_t i = 0u; i < sizeof(credential_buffer); ++i) {
         credential_buffer[i] = '\0';
@@ -352,6 +408,8 @@ void login_input_init(void) {
     log_line(" ms");
 
     bool identity_ready = identity_client_init();
+    bool session_manager_ready =
+        identity_ready && session_manager_client_init();
 
     log_write("[boot-perf] Identity client ready at ");
     log_u64(clock_now_ns() / UINT64_C(1000000));
@@ -377,11 +435,12 @@ void login_input_init(void) {
     log_u64(clock_now_ns() / UINT64_C(1000000));
     log_line(" ms");
 
-    if (identity_ready) {
+    if (identity_ready && session_manager_ready) {
         log_line("[identity-client] production Ring 3 Identity service connected to login input");
+        log_line("[session-manager] production Ring 3 Session Manager ready");
         login_ui_set_state(AURORA_LOGIN_IDLE);
     } else {
-        log_line("[identity-client] Identity service unavailable; login remains fail-closed");
+        log_line("[identity-client] Identity/Session service unavailable; login remains fail-closed");
         login_ui_set_state(AURORA_LOGIN_ERROR);
     }
 

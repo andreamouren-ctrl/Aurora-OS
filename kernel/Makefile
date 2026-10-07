@@ -25,12 +25,17 @@ IDENTITY_RUNTIME_DIR := $(ROOT)/services/identity/runtime
 IDENTITY_RUNTIME_BIN := $(ROOT)/build/$(ARCH)/identity-runtime/identity-service.bin
 IDENTITY_RUNTIME_OBJ := $(BUILD_DIR)/identity-service.bin.o
 
+SESSION_RUNTIME_DIR := $(ROOT)/services/session/runtime
+SESSION_RUNTIME_BIN := $(ROOT)/build/$(ARCH)/session-runtime/session-manager.bin
+SESSION_RUNTIME_OBJ := $(BUILD_DIR)/session-manager.bin.o
+
 C_SRC := $(shell find src -type f -name '*.c' | LC_ALL=C sort)
 ASM_SRC := $(shell find src -type f -name '*.S' | LC_ALL=C sort)
 
 OBJ := $(patsubst %.c,$(BUILD_DIR)/%.o,$(C_SRC)) \
        $(patsubst %.S,$(BUILD_DIR)/%.o,$(ASM_SRC)) \
-       $(IDENTITY_RUNTIME_OBJ)
+       $(IDENTITY_RUNTIME_OBJ) \
+       $(SESSION_RUNTIME_OBJ)
 
 DEP := $(patsubst %.c,$(BUILD_DIR)/%.d,$(C_SRC))
 
@@ -107,6 +112,14 @@ $(IDENTITY_RUNTIME_OBJ): $(IDENTITY_RUNTIME_BIN)
 	cd "$(dir $(IDENTITY_RUNTIME_BIN))" && \
 		$(LD) -r -b binary "$(notdir $(IDENTITY_RUNTIME_BIN))" -o "$(abspath $@)"
 
+$(SESSION_RUNTIME_BIN):
+	$(MAKE) -C "$(SESSION_RUNTIME_DIR)" ARCH=$(ARCH)
+
+$(SESSION_RUNTIME_OBJ): $(SESSION_RUNTIME_BIN)
+	@mkdir -p "$(dir $@)"
+	cd "$(dir $(SESSION_RUNTIME_BIN))" && \
+		$(LD) -r -b binary "$(notdir $(SESSION_RUNTIME_BIN))" -o "$(abspath $@)"
+
 $(OUTPUT): $(OBJ) $(ROOT)/linker/x86_64.ld
 	@mkdir -p "$(dir $@)"
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJ) -o "$@"
@@ -123,5 +136,6 @@ $(BUILD_DIR)/%.o: %.S
 
 clean:
 	$(MAKE) -C "$(IDENTITY_RUNTIME_DIR)" ARCH=$(ARCH) clean
+	$(MAKE) -C "$(SESSION_RUNTIME_DIR)" ARCH=$(ARCH) clean
 	rm -rf "$(ROOT)/build/$(ARCH)/kernel" "$(OUTPUT)" "$(BOOT_ASSET)" \
 		"$(IDENTITY_BACKGROUND)" "$(IDENTITY_MARK)"
