@@ -56,6 +56,16 @@ bool graphics_input_set_capture(
     uint64_t target_id
 );
 
+bool graphics_input_request_capture(
+    struct aurora_graphics_input_router *router,
+    uint64_t target_id
+);
+
+bool graphics_input_release_capture(
+    struct aurora_graphics_input_router *router,
+    uint64_t target_id
+);
+
 void graphics_input_revoke_capture(
     struct aurora_graphics_input_router *router
 );
