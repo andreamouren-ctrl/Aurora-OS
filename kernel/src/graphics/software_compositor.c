@@ -1483,7 +1483,7 @@ static bool pixel_rgb_equals(
         channel(pixel, format->blue_mask_shift) == blue;
 }
 
-bool software_compositor_selftest(void) {
+static bool software_compositor_basic_selftest(void) {
     const struct aurora_display_mode *mode =
         display_mode_at(0u, 0u);
 
@@ -1804,4 +1804,379 @@ bool software_compositor_selftest(void) {
         graphics_buffer_release_owner(
             blue_buffer,
             blue_buffer_generation);
+}
+
+
+static bool software_compositor_advanced_selftest(void) {
+    const struct aurora_display_mode *mode =
+        display_mode_at(0u, 0u);
+    const struct aurora_display_output *output =
+        display_output_at(0u);
+
+    if (mode == NULL ||
+        output == NULL ||
+        mode->width < 64u ||
+        mode->height < 24u ||
+        !format_is_supported_8888(&mode->format)) {
+        return false;
+    }
+
+    struct aurora_software_compositor compositor;
+    if (!software_compositor_init(&compositor, 0u)) {
+        return false;
+    }
+
+    struct aurora_cap_table client_caps;
+    struct aurora_cap_table authority_caps;
+    cap_table_init(&client_caps);
+    cap_table_init(&authority_caps);
+
+    struct aurora_graphics_buffer *lower_buffer =
+        graphics_buffer_create(8u, 8u, &mode->format);
+    struct aurora_graphics_buffer *upper_buffer =
+        graphics_buffer_create(8u, 8u, &mode->format);
+    struct aurora_graphics_buffer *transform_buffer =
+        graphics_buffer_create(4u, 2u, &mode->format);
+    struct aurora_graphics_buffer *secure_buffer =
+        graphics_buffer_create(8u, 8u, &mode->format);
+
+    struct aurora_graphics_surface *lower_surface =
+        graphics_surface_create();
+    struct aurora_graphics_surface *upper_surface =
+        graphics_surface_create();
+    struct aurora_graphics_surface *transform_surface =
+        graphics_surface_create();
+    struct aurora_graphics_surface *secure_surface =
+        graphics_surface_create();
+
+    if (lower_buffer == NULL ||
+        upper_buffer == NULL ||
+        transform_buffer == NULL ||
+        secure_buffer == NULL ||
+        lower_surface == NULL ||
+        upper_surface == NULL ||
+        transform_surface == NULL ||
+        secure_surface == NULL) {
+        return false;
+    }
+
+    uint32_t red =
+        make_test_pixel(&mode->format, 255u, 0u, 0u, 255u);
+    uint32_t green =
+        make_test_pixel(&mode->format, 0u, 255u, 0u, 255u);
+    uint32_t blue =
+        make_test_pixel(&mode->format, 0u, 0u, 255u, 255u);
+    uint32_t white =
+        make_test_pixel(&mode->format, 255u, 255u, 255u, 255u);
+    uint32_t yellow =
+        make_test_pixel(&mode->format, 255u, 255u, 0u, 255u);
+
+    if (!fill_test_buffer(lower_buffer, red) ||
+        !fill_test_buffer(upper_buffer, green) ||
+        !fill_test_buffer(transform_buffer, blue) ||
+        !fill_test_buffer(secure_buffer, yellow) ||
+        !buffer_write_u32(transform_buffer, 0u, white)) {
+        return false;
+    }
+
+    aurora_cap_handle lower_buffer_cap =
+        graphics_buffer_grant(
+            &client_caps,
+            lower_buffer,
+            AURORA_RIGHT_READ
+        );
+    aurora_cap_handle upper_buffer_cap =
+        graphics_buffer_grant(
+            &client_caps,
+            upper_buffer,
+            AURORA_RIGHT_READ
+        );
+    aurora_cap_handle transform_buffer_cap =
+        graphics_buffer_grant(
+            &client_caps,
+            transform_buffer,
+            AURORA_RIGHT_READ
+        );
+    aurora_cap_handle secure_buffer_cap =
+        graphics_buffer_grant(
+            &client_caps,
+            secure_buffer,
+            AURORA_RIGHT_READ
+        );
+
+    aurora_cap_handle lower_surface_cap =
+        graphics_surface_grant(
+            &client_caps,
+            lower_surface,
+            AURORA_RIGHT_READ | AURORA_RIGHT_WRITE
+        );
+    aurora_cap_handle upper_surface_cap =
+        graphics_surface_grant(
+            &client_caps,
+            upper_surface,
+            AURORA_RIGHT_READ | AURORA_RIGHT_WRITE
+        );
+    aurora_cap_handle transform_surface_cap =
+        graphics_surface_grant(
+            &client_caps,
+            transform_surface,
+            AURORA_RIGHT_READ | AURORA_RIGHT_WRITE
+        );
+    aurora_cap_handle secure_surface_cap =
+        graphics_surface_grant(
+            &client_caps,
+            secure_surface,
+            AURORA_RIGHT_READ | AURORA_RIGHT_WRITE
+        );
+
+    if (lower_buffer_cap == AURORA_CAP_INVALID ||
+        upper_buffer_cap == AURORA_CAP_INVALID ||
+        transform_buffer_cap == AURORA_CAP_INVALID ||
+        secure_buffer_cap == AURORA_CAP_INVALID ||
+        lower_surface_cap == AURORA_CAP_INVALID ||
+        upper_surface_cap == AURORA_CAP_INVALID ||
+        transform_surface_cap == AURORA_CAP_INVALID ||
+        secure_surface_cap == AURORA_CAP_INVALID) {
+        return false;
+    }
+
+    struct aurora_graphics_rect damage8 = {
+        .x = 0u, .y = 0u, .width = 8u, .height = 8u
+    };
+    struct aurora_graphics_rect damage4x2 = {
+        .x = 0u, .y = 0u, .width = 4u, .height = 2u
+    };
+    uint64_t commit = 0u;
+
+    if (!graphics_surface_attach(
+            &client_caps,
+            lower_surface_cap,
+            lower_buffer_cap) ||
+        !graphics_surface_damage(
+            &client_caps,
+            lower_surface_cap,
+            &damage8) ||
+        !graphics_surface_commit(
+            &client_caps,
+            lower_surface_cap,
+            &commit) ||
+        !graphics_surface_attach(
+            &client_caps,
+            upper_surface_cap,
+            upper_buffer_cap) ||
+        !graphics_surface_damage(
+            &client_caps,
+            upper_surface_cap,
+            &damage8) ||
+        !graphics_surface_commit(
+            &client_caps,
+            upper_surface_cap,
+            &commit) ||
+        !graphics_surface_attach(
+            &client_caps,
+            transform_surface_cap,
+            transform_buffer_cap) ||
+        !graphics_surface_damage(
+            &client_caps,
+            transform_surface_cap,
+            &damage4x2) ||
+        !graphics_surface_commit(
+            &client_caps,
+            transform_surface_cap,
+            &commit) ||
+        !graphics_surface_attach(
+            &client_caps,
+            secure_surface_cap,
+            secure_buffer_cap) ||
+        !graphics_surface_damage(
+            &client_caps,
+            secure_surface_cap,
+            &damage8) ||
+        !graphics_surface_commit(
+            &client_caps,
+            secure_surface_cap,
+            &commit)) {
+        return false;
+    }
+
+    uint64_t lower_node = 0u;
+    uint64_t upper_node = 0u;
+    uint64_t transform_node = 0u;
+    uint64_t secure_node = 0u;
+
+    if (!software_compositor_add_surface(
+            &compositor,
+            lower_surface,
+            2, 2, 0, 255u,
+            &lower_node) ||
+        !software_compositor_add_surface(
+            &compositor,
+            upper_surface,
+            2, 2, 10, 255u,
+            &upper_node) ||
+        !software_compositor_add_surface(
+            &compositor,
+            transform_surface,
+            20, 2, 20, 255u,
+            &transform_node) ||
+        !software_compositor_set_transform(
+            &compositor,
+            transform_node,
+            AURORA_COMPOSITOR_TRANSFORM_ROTATE_90,
+            2u)) {
+        return false;
+    }
+
+    uint64_t present = 0u;
+    if (!software_compositor_compose_present(
+            &compositor,
+            &present) ||
+        present == 0u ||
+        compositor.last_occluded_nodes == 0u ||
+        !pixel_rgb_equals(
+            backbuffer_pixel(&compositor.backbuffer, 2u, 2u),
+            &mode->format,
+            0u, 255u, 0u) ||
+        !pixel_rgb_equals(
+            backbuffer_pixel(&compositor.backbuffer, 20u, 2u),
+            &mode->format,
+            0u, 0u, 255u) ||
+        !pixel_rgb_equals(
+            backbuffer_pixel(&compositor.backbuffer, 22u, 2u),
+            &mode->format,
+            255u, 255u, 255u)) {
+        return false;
+    }
+
+    if (software_compositor_add_privileged_surface(
+            &compositor,
+            &authority_caps,
+            AURORA_CAP_INVALID,
+            secure_surface,
+            AURORA_COMPOSITOR_SURFACE_PRE_SESSION,
+            40, 2, 100, 255u,
+            &secure_node)) {
+        return false;
+    }
+
+    aurora_cap_handle display_control =
+        cap_grant(
+            &authority_caps,
+            (void *)output,
+            AURORA_CAP_DISPLAY,
+            AURORA_RIGHT_CONTROL
+        );
+
+    if (display_control == AURORA_CAP_INVALID ||
+        !software_compositor_add_privileged_surface(
+            &compositor,
+            &authority_caps,
+            display_control,
+            secure_surface,
+            AURORA_COMPOSITOR_SURFACE_PRE_SESSION,
+            40, 2, 100, 255u,
+            &secure_node) ||
+        !software_compositor_set_secure_scene(
+            &compositor,
+            &authority_caps,
+            display_control,
+            true)) {
+        return false;
+    }
+
+    uint64_t secure_present = 0u;
+    if (!software_compositor_compose_present(
+            &compositor,
+            &secure_present) ||
+        secure_present <= present ||
+        !pixel_rgb_equals(
+            backbuffer_pixel(&compositor.backbuffer, 2u, 2u),
+            &mode->format,
+            0u, 0u, 0u) ||
+        !pixel_rgb_equals(
+            backbuffer_pixel(&compositor.backbuffer, 40u, 2u),
+            &mode->format,
+            255u, 255u, 0u)) {
+        return false;
+    }
+
+    if (!software_compositor_set_secure_scene(
+            &compositor,
+            &authority_caps,
+            display_control,
+            false)) {
+        return false;
+    }
+
+    uint64_t restored_present = 0u;
+    if (!software_compositor_compose_present(
+            &compositor,
+            &restored_present) ||
+        restored_present <= secure_present ||
+        !pixel_rgb_equals(
+            backbuffer_pixel(&compositor.backbuffer, 2u, 2u),
+            &mode->format,
+            0u, 255u, 0u)) {
+        return false;
+    }
+
+    if (!software_compositor_remove_surface(
+            &compositor,
+            lower_node) ||
+        !software_compositor_remove_surface(
+            &compositor,
+            upper_node) ||
+        !software_compositor_remove_surface(
+            &compositor,
+            transform_node) ||
+        !software_compositor_remove_surface(
+            &compositor,
+            secure_node) ||
+        !software_compositor_destroy(&compositor)) {
+        return false;
+    }
+
+    uint32_t lower_surface_generation = lower_surface->generation;
+    uint32_t upper_surface_generation = upper_surface->generation;
+    uint32_t transform_surface_generation = transform_surface->generation;
+    uint32_t secure_surface_generation = secure_surface->generation;
+    uint32_t lower_buffer_generation = lower_buffer->generation;
+    uint32_t upper_buffer_generation = upper_buffer->generation;
+    uint32_t transform_buffer_generation = transform_buffer->generation;
+    uint32_t secure_buffer_generation = secure_buffer->generation;
+
+    cap_table_destroy(&client_caps);
+    cap_table_destroy(&authority_caps);
+
+    return
+        graphics_surface_release_owner(
+            lower_surface,
+            lower_surface_generation) &&
+        graphics_surface_release_owner(
+            upper_surface,
+            upper_surface_generation) &&
+        graphics_surface_release_owner(
+            transform_surface,
+            transform_surface_generation) &&
+        graphics_surface_release_owner(
+            secure_surface,
+            secure_surface_generation) &&
+        graphics_buffer_release_owner(
+            lower_buffer,
+            lower_buffer_generation) &&
+        graphics_buffer_release_owner(
+            upper_buffer,
+            upper_buffer_generation) &&
+        graphics_buffer_release_owner(
+            transform_buffer,
+            transform_buffer_generation) &&
+        graphics_buffer_release_owner(
+            secure_buffer,
+            secure_buffer_generation);
+}
+
+bool software_compositor_selftest(void) {
+    return
+        software_compositor_basic_selftest() &&
+        software_compositor_advanced_selftest();
 }
