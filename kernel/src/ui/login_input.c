@@ -21,6 +21,7 @@
 #include <aurora/service_supervisor.h>
 #include <aurora/session_manager_client.h>
 #include <aurora/session_manager_probe.h>
+#include <aurora/user_session_host.h>
 #include <aurora/vfs.h>
 
 #define AURORA_KEY_MIN_LENGTH 12u
@@ -65,6 +66,17 @@ static void synchronize_identity_state(void) {
         session_manager_client_state();
 
     if (session_state == AURORA_SESSION_CLIENT_ACTIVE) {
+        if (!user_session_host_active()) {
+            if (!user_session_host_start()) {
+                (void)session_manager_client_logout();
+                logout_in_progress = true;
+                login_ui_set_state(AURORA_LOGIN_LOGGING_OUT);
+                log_line("[user-session] bootstrap failed; session logout requested");
+                return;
+            }
+            log_line("[user-session] Ring 3 user session host ready with delegated profile capability");
+        }
+
         clear_credential();
         create_offer_active = false;
         create_entry_mode = false;
@@ -201,10 +213,16 @@ static void handle_pressed_key(
     enum aurora_session_manager_client_state session_state =
         session_manager_client_state();
     if (session_state == AURORA_SESSION_CLIENT_ACTIVE) {
-        if (key == AURORA_KEY_ESCAPE &&
-            session_manager_client_logout()) {
-            logout_in_progress = true;
-            login_ui_set_state(AURORA_LOGIN_LOGGING_OUT);
+        if (key == AURORA_KEY_ESCAPE) {
+            bool host_stopped =
+                !user_session_host_active() ||
+                user_session_host_stop();
+            if (host_stopped && session_manager_client_logout()) {
+                logout_in_progress = true;
+                login_ui_set_state(AURORA_LOGIN_LOGGING_OUT);
+            } else {
+                login_ui_set_state(AURORA_LOGIN_ERROR);
+            }
         }
         return;
     }
@@ -369,6 +387,12 @@ static void protected_state_bootstrap_probe(void) {
     }
 
     log_line("[session-manager] Ring 3 service-to-service Identity binding + degraded fail-closed path passed");
+
+    if (!user_session_host_self_test()) {
+        kernel_panic("Ring 3 User Session Host profile-capability bootstrap self-test failed");
+    }
+
+    log_line("[user-session] Ring 3 profile capability bootstrap + teardown revocation passed");
 
     if (!service_supervisor_self_test()) {
         kernel_panic("Trusted Ring 3 service supervisor restart self-test failed");
