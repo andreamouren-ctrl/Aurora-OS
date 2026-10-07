@@ -54,6 +54,16 @@ struct aurora_color_description {
 #define AURORA_DISPLAY_CAP_WIDE_GAMUT (1ull << 4)
 #define AURORA_DISPLAY_CAP_VRR        (1ull << 5)
 #define AURORA_DISPLAY_CAP_DSC        (1ull << 6)
+#define AURORA_DISPLAY_CAP_HDMI_FRL   (1ull << 7)
+#define AURORA_DISPLAY_CAP_MST        (1ull << 8)
+#define AURORA_DISPLAY_CAP_UHBR       (1ull << 9)
+
+struct aurora_display_vrr_policy {
+    bool enabled;
+    uint32_t min_millihz;
+    uint32_t max_millihz;
+    uint32_t preferred_millihz;
+};
 
 struct aurora_display_capabilities {
     uint64_t flags;
@@ -101,6 +111,7 @@ struct aurora_display_output {
     uint32_t mode_count;
     uint32_t current_mode_index;
     struct aurora_display_capabilities capabilities;
+    struct aurora_display_vrr_policy vrr_policy;
     struct aurora_display_mode modes[AURORA_DISPLAY_MAX_MODES];
 };
 
@@ -146,5 +157,25 @@ bool display_output_set_capabilities(
 const struct aurora_display_capabilities *display_output_capabilities(
     const struct aurora_display_output *output
 );
+
+bool display_vrr_range_valid(
+    uint32_t min_millihz,
+    uint32_t max_millihz
+);
+
+bool display_output_set_vrr_policy(
+    struct aurora_display_output *output,
+    bool enabled,
+    uint32_t min_millihz,
+    uint32_t max_millihz,
+    uint32_t preferred_millihz
+);
+
+bool display_output_refresh_allowed(
+    const struct aurora_display_output *output,
+    uint32_t refresh_millihz
+);
+
+bool display_vrr_selftest(void);
 
 #endif
