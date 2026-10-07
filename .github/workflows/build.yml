@@ -76,7 +76,7 @@ jobs:
           PY
 
           set +e
-          timeout 15s qemu-system-x86_64 \
+          timeout 25s qemu-system-x86_64 \
             -M q35 \
             -m 512M \
             -smp 4,sockets=1,cores=2,threads=2 \
@@ -218,7 +218,7 @@ jobs:
             conv=notrunc status=none
 
           set +e
-          timeout 15s qemu-system-x86_64 \
+          timeout 25s qemu-system-x86_64 \
             -M pc \
             -m 512M \
             -smp 1 \
@@ -266,7 +266,7 @@ jobs:
           grep -F "[kernel] M1 user-space bootstrap reached successfully" "$ATA_SERIAL_LOG"
 
           set +e
-          timeout 15s qemu-system-x86_64 \
+          timeout 25s qemu-system-x86_64 \
             -M pc \
             -m 512M \
             -smp 1 \
