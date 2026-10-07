@@ -50,9 +50,52 @@ enum aurora_key_code {
     AURORA_KEY_ESCAPE
 };
 
+enum aurora_input_event_type {
+    AURORA_INPUT_EVENT_NONE = 0,
+    AURORA_INPUT_EVENT_KEY,
+    AURORA_INPUT_EVENT_POINTER_RELATIVE,
+    AURORA_INPUT_EVENT_POINTER_ABSOLUTE,
+    AURORA_INPUT_EVENT_POINTER_BUTTON,
+    AURORA_INPUT_EVENT_SCROLL,
+    AURORA_INPUT_EVENT_DEVICE_ADDED,
+    AURORA_INPUT_EVENT_DEVICE_REMOVED
+};
+
+enum aurora_input_source {
+    AURORA_INPUT_SOURCE_UNKNOWN = 0,
+    AURORA_INPUT_SOURCE_PS2_KEYBOARD,
+    AURORA_INPUT_SOURCE_PS2_MOUSE,
+    AURORA_INPUT_SOURCE_USB_HID,
+    AURORA_INPUT_SOURCE_SYNTHETIC
+};
+
+enum aurora_pointer_button {
+    AURORA_POINTER_BUTTON_NONE = 0,
+    AURORA_POINTER_BUTTON_LEFT = 1,
+    AURORA_POINTER_BUTTON_RIGHT = 2,
+    AURORA_POINTER_BUTTON_MIDDLE = 3,
+    AURORA_POINTER_BUTTON_BACK = 4,
+    AURORA_POINTER_BUTTON_FORWARD = 5
+};
+
 struct aurora_input_event {
+    enum aurora_input_event_type type;
+    enum aurora_input_source source;
+    uint64_t sequence;
+    bool synthetic;
+
+    /* Key/button transition compatibility fields. */
     enum aurora_key_code key;
+    enum aurora_pointer_button button;
     bool pressed;
+
+    /* Pointer/axis payload. */
+    int32_t delta_x;
+    int32_t delta_y;
+    int32_t absolute_x;
+    int32_t absolute_y;
+    int32_t scroll_x;
+    int32_t scroll_y;
 };
 
 void input_init(void);
@@ -64,5 +107,13 @@ bool input_push_event_from_irq(
 bool input_poll_event(
     struct aurora_input_event *event
 );
+
+bool input_push_event(
+    const struct aurora_input_event *event
+);
+
+uint64_t input_last_sequence(void);
+
+bool input_selftest(void);
 
 #endif
