@@ -585,9 +585,10 @@ bool software_compositor_destroy(
     return true;
 }
 
-bool software_compositor_add_surface(
+static bool software_compositor_add_surface_class(
     struct aurora_software_compositor *compositor,
     struct aurora_graphics_surface *surface,
+    enum aurora_compositor_surface_class surface_class,
     int32_t x,
     int32_t y,
     int32_t z,
@@ -598,7 +599,9 @@ bool software_compositor_add_surface(
 
     if (compositor == NULL ||
         !compositor->initialized ||
-        surface == NULL) {
+        surface == NULL ||
+        surface_class < AURORA_COMPOSITOR_SURFACE_NORMAL ||
+        surface_class > AURORA_COMPOSITOR_SURFACE_PRE_SESSION) {
         return false;
     }
 
@@ -640,8 +643,12 @@ bool software_compositor_add_surface(
         .y = y,
         .z = z,
         .opacity = opacity,
+        .scale = 1u,
+        .transform = AURORA_COMPOSITOR_TRANSFORM_NORMAL,
+        .surface_class = surface_class,
         .visible = true,
         .used = true,
+        .fully_opaque = false,
         .last_commit_serial = 0u
     };
 
@@ -654,20 +661,88 @@ bool software_compositor_add_surface(
             &compositor->surface_caps,
             handle,
             &snapshot)) {
-        (void)damage_union(
-            &compositor->pending_damage,
-            x,
-            y,
-            snapshot.buffer->width,
-            snapshot.buffer->height,
-            mode->width,
-            mode->height
-        );
+        uint64_t width = 0u;
+        uint64_t height = 0u;
+
+        compositor->nodes[slot].fully_opaque =
+            opacity == 255u &&
+            snapshot.buffer->format.alpha_mask_size == 0u;
+
+        if (transformed_extent(
+                &compositor->nodes[slot],
+                snapshot.buffer->width,
+                snapshot.buffer->height,
+                &width,
+                &height)) {
+            (void)damage_union(
+                &compositor->pending_damage,
+                x,
+                y,
+                width,
+                height,
+                mode->width,
+                mode->height
+            );
+        }
+
         graphics_surface_snapshot_release(&snapshot);
     }
 
     if (out_node_id != NULL) *out_node_id = node_id;
     return true;
+}
+
+bool software_compositor_add_surface(
+    struct aurora_software_compositor *compositor,
+    struct aurora_graphics_surface *surface,
+    int32_t x,
+    int32_t y,
+    int32_t z,
+    uint8_t opacity,
+    uint64_t *out_node_id
+) {
+    return software_compositor_add_surface_class(
+        compositor,
+        surface,
+        AURORA_COMPOSITOR_SURFACE_NORMAL,
+        x,
+        y,
+        z,
+        opacity,
+        out_node_id
+    );
+}
+
+bool software_compositor_add_privileged_surface(
+    struct aurora_software_compositor *compositor,
+    struct aurora_cap_table *authority_caps,
+    aurora_cap_handle display_control_handle,
+    struct aurora_graphics_surface *surface,
+    enum aurora_compositor_surface_class surface_class,
+    int32_t x,
+    int32_t y,
+    int32_t z,
+    uint8_t opacity,
+    uint64_t *out_node_id
+) {
+    if (surface_class == AURORA_COMPOSITOR_SURFACE_NORMAL ||
+        !display_control_authorized(
+            authority_caps,
+            display_control_handle,
+            compositor != NULL ? compositor->output_index : UINT32_MAX)) {
+        return false;
+    }
+
+    return software_compositor_add_surface_class(
+        compositor,
+        surface,
+        surface_class,
+        x,
+        y,
+        z,
+        opacity,
+        out_node_id
+    );
 }
 
 bool software_compositor_remove_surface(
