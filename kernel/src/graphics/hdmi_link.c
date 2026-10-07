@@ -135,7 +135,7 @@ bool display_hdmi_link_selftest(void) {
     uint8_t *cta = snapshot.blocks[1];
     cta[0] = AURORA_EDID_EXTENSION_CTA;
     cta[1] = 3u;
-    cta[2] = 14u;
+    cta[2] = 34u;
     cta[3] = (1u << 6) | (1u << 5) | (1u << 4);
 
     cta[4] = (uint8_t)((7u << 5) | 2u);
@@ -149,6 +149,31 @@ bool display_hdmi_link_selftest(void) {
     cta[11] = 100u;
     cta[12] = 80u;
     cta[13] = 5u;
+
+    /* HDMI Licensing, LLC VSDB: 300 MHz maximum TMDS clock. */
+    cta[14] = (uint8_t)((3u << 5) | 7u);
+    cta[15] = 0x03u;
+    cta[16] = 0x0Cu;
+    cta[17] = 0x00u;
+    cta[18] = 0u;
+    cta[19] = 0u;
+    cta[20] = 0u;
+    cta[21] = 60u;
+
+    /* HDMI Forum VSDB: 600 MHz TMDS, FRL12x4, VRR 48-144, DSC 1.2. */
+    cta[22] = (uint8_t)((3u << 5) | 11u);
+    cta[23] = 0xD8u;
+    cta[24] = 0x5Du;
+    cta[25] = 0xC4u;
+    cta[26] = 1u;
+    cta[27] = 120u;
+    cta[28] = 0xC0u;
+    cta[29] = (uint8_t)(6u << 4);
+    cta[30] = 0x06u;
+    cta[31] = 48u;
+    cta[32] = 144u;
+    cta[33] = 0x80u;
+
     finalize_checksum(cta);
 
     struct aurora_display_capabilities display_caps = {
@@ -177,6 +202,25 @@ bool display_hdmi_link_selftest(void) {
         caps.pq &&
         caps.hlg &&
         caps.bt2020 &&
+        caps.hdmi_vsdb &&
+        caps.hdmi_forum_vsdb &&
+        caps.scdc_present &&
+        caps.read_request_capable &&
+        caps.allm &&
+        caps.fast_vactive &&
+        caps.dsc_1p2 &&
+        caps.max_tmds_clock_khz == 600000u &&
+        caps.max_frl_rate_code == 6u &&
+        caps.max_frl_lanes == 4u &&
+        caps.max_frl_gbps_per_lane == 12u &&
+        caps.vrr_supported &&
+        caps.vrr_min_hz == 48u &&
+        caps.vrr_max_hz == 144u &&
+        (display_caps.flags & AURORA_DISPLAY_CAP_HDMI_FRL) != 0u &&
+        (display_caps.flags & AURORA_DISPLAY_CAP_VRR) != 0u &&
+        (display_caps.flags & AURORA_DISPLAY_CAP_DSC) != 0u &&
+        display_caps.vrr_min_millihz == 48000u &&
+        display_caps.vrr_max_millihz == 144000u &&
         (display_caps.flags &
             AURORA_DISPLAY_CAP_HDR_STATIC) != 0u &&
         (display_caps.flags &
