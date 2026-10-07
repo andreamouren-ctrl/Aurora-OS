@@ -95,20 +95,34 @@ This foundation establishes:
 
 ## Current limits
 
-This is **not yet the production Service Manager**.
+This is a real trusted-service supervision foundation, but it is **not yet a general systemd/SCM-equivalent service manager**.
 
-Still missing:
+Still missing from the generic supervisor layer:
 
-- restart backoff and crash-rate limiting;
-- service registry and discovery;
-- dependency ordering and health dependencies;
-- external stop/kill semantics;
-- long-lived production `services/identity` executable instead of the bootstrap probe;
-- generic service READY/health protocol;
-- recovery policy for a service that fails during bootstrap itself;
-- generic cleanup of future transferred/refcounted shared objects;
-- persistent service-manager policy configuration.
+- time-based restart backoff and crash-rate limiting;
+- general service registry/discovery;
+- declarative dependency ordering and health dependencies;
+- external stop/kill/administrative control contract;
+- generic service READY/health protocol for every future service class;
+- persistent supervisor policy configuration;
+- broad watchdog/telemetry/audit integration.
 
-## Next Identity step
+The earlier limitation stating that Aurora still used only a one-shot Identity bootstrap probe is obsolete. The live OS now has a long-lived Ring 3 Identity runtime, a separate Ring 3 Session Manager and an ordinary User Session Host.
 
-With the supervisor runtime gate green, the next Identity milestone is to replace the one-shot probe behavior with a small long-lived Ring 3 request loop using blocking IPC, then begin routing real Identity requests through that service boundary. Login/session integration should remain later than that service-runtime proof.
+## Current role
+
+The supervisor is now one of the foundations used to keep privileged user-space services recoverable without retaining stale process-local authority.
+
+The important invariant is:
+
+\`\`\`text
+old service generation terminates
+ -> thread/process resources are reaped
+ -> old process-local capabilities disappear
+ -> new process is created
+ -> dependencies/capabilities are reconstructed from policy
+ -> new generation becomes authoritative only after its readiness contract
+\`\`\`
+
+Future work should generalize this pattern rather than moving service policy back into Ring 0.
+
