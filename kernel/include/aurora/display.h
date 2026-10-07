@@ -7,6 +7,7 @@
 #include <aurora/boot.h>
 #include <aurora/display_output.h>
 #include <aurora/display_backbuffer.h>
+#include <aurora/gpu_display_driver.h>
 
 #define AURORA_DISPLAY_MAX_OUTPUTS 4u
 
@@ -41,5 +42,13 @@ bool display_present_state(
     uint32_t output_index,
     struct aurora_display_present_state *out_state
 );
+
+bool display_attach_native_gpu(
+    const struct aurora_gpu_display_device *device
+);
+
+bool display_native_gpu_ready(void);
+
+const struct aurora_gpu_display_device *display_native_gpu_device(void);
 
 #endif
