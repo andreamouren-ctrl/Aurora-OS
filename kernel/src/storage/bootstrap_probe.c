@@ -166,9 +166,13 @@ static void verify_aurora_fs_v2_mount(const struct aurora_partition *system_part
     }
 
     log_line("[vfs] AuroraFS v2 mounted-path mutation routing verified");
+    log_line("[vfs] AuroraFS mounted-path routing verified");
 #endif
 
     log_line("[aurorafs-v2] mounted at /system via common filesystem framework");
+#if AURORA_BOOT_VALIDATION
+    log_line("[aurorafs] mounted at /system via common filesystem framework");
+#endif
 }
 
 static void verify_fat32_partition(const struct aurora_partition *partition) {
@@ -248,6 +252,10 @@ static void bootstrap_native_fs_probe(
 
     log_write("[aurorafs-v2] transport: ");
     log_line(transport);
+#if AURORA_BOOT_VALIDATION
+    log_write("[aurorafs] transport: ");
+    log_line(transport);
+#endif
     log_write("[aurorafs-v2] range first LBA: ");
     log_u64(system_partition.first_lba);
     log_write(" blocks: ");
