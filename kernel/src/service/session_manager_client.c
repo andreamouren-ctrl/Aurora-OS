@@ -392,8 +392,25 @@ void session_manager_client_pump(void) {
     }
 
     if (client_state == AURORA_SESSION_CLIENT_UNLOCKING) {
-        if (received.capability_count != 0u ||
-            result.state != AURORA_SESSION_MANAGER_STATE_ACTIVE ||
+        if (received.capability_count != 0u) {
+            revoke_received_capabilities(&received);
+            clear_bytes(&received, sizeof(received));
+            clear_bytes(&result, sizeof(result));
+            client_state = AURORA_SESSION_CLIENT_ERROR;
+            return;
+        }
+
+        if (result.state == AURORA_SESSION_MANAGER_STATE_REJECTED &&
+            result.public_error ==
+                AURORA_SESSION_MANAGER_ERROR_IDENTITY_REJECTED &&
+            result.session_generation == active_generation) {
+            clear_bytes(&received, sizeof(received));
+            clear_bytes(&result, sizeof(result));
+            client_state = AURORA_SESSION_CLIENT_LOCKED;
+            return;
+        }
+
+        if (result.state != AURORA_SESSION_MANAGER_STATE_ACTIVE ||
             result.public_error != AURORA_SESSION_MANAGER_ERROR_NONE ||
             result.session_generation != active_generation ||
             !bytes_equal(
@@ -405,7 +422,6 @@ void session_manager_client_pump(void) {
                 active_profile_handle,
                 active_user_id,
                 active_generation)) {
-            revoke_received_capabilities(&received);
             clear_bytes(&received, sizeof(received));
             clear_bytes(&result, sizeof(result));
             client_state = AURORA_SESSION_CLIENT_ERROR;
@@ -531,14 +547,20 @@ uint64_t session_manager_client_generation(void) {
 }
 
 const uint8_t *session_manager_client_user_id(void) {
-    return client_state == AURORA_SESSION_CLIENT_ACTIVE
+    return (client_state == AURORA_SESSION_CLIENT_ACTIVE ||
+            client_state == AURORA_SESSION_CLIENT_LOCKED ||
+            client_state == AURORA_SESSION_CLIENT_LOCKING ||
+            client_state == AURORA_SESSION_CLIENT_UNLOCKING)
         ? active_user_id
         : NULL;
 }
 
 
 aurora_cap_handle session_manager_client_profile_handle(void) {
-    return client_state == AURORA_SESSION_CLIENT_ACTIVE
+    return (client_state == AURORA_SESSION_CLIENT_ACTIVE ||
+            client_state == AURORA_SESSION_CLIENT_LOCKED ||
+            client_state == AURORA_SESSION_CLIENT_LOCKING ||
+            client_state == AURORA_SESSION_CLIENT_UNLOCKING)
         ? active_profile_handle
         : AURORA_CAP_INVALID;
 }
