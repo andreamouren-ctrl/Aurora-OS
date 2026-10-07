@@ -109,46 +109,6 @@ struct aurora_graphics_buffer *graphics_buffer_create(
     return slot;
 }
 
-bool graphics_buffer_destroy(
-    struct aurora_graphics_buffer *buffer
-) {
-    if (!initialized || buffer == NULL) return false;
-
-    spinlock_lock(&buffer_lock);
-
-    if (buffer < &buffers[0] ||
-        buffer >= &buffers[AURORA_GRAPHICS_BUFFER_MAX_OBJECTS] ||
-        buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
-        buffer->state == AURORA_GRAPHICS_BUFFER_IN_USE ||
-        buffer->pixels == NULL ||
-        buffer->byte_length == 0u ||
-        buffer->byte_length > (uint64_t)SIZE_MAX) {
-        spinlock_unlock(&buffer_lock);
-        return false;
-    }
-
-    uint8_t *pixels = buffer->pixels;
-    size_t length = (size_t)buffer->byte_length;
-    uint32_t next_generation = buffer->generation + 1u;
-    if (next_generation == 0u) next_generation = 1u;
-
-    buffer->pixels = NULL;
-    buffer->state = AURORA_GRAPHICS_BUFFER_FREE;
-    buffer->generation = next_generation;
-    spinlock_unlock(&buffer_lock);
-
-    if (!kheap_free_sized(pixels, length)) {
-        return false;
-    }
-
-    spinlock_lock(&buffer_lock);
-    clear_buffer(buffer);
-    buffer->state = AURORA_GRAPHICS_BUFFER_FREE;
-    buffer->generation = next_generation;
-    spinlock_unlock(&buffer_lock);
-    return true;
-}
-
 aurora_cap_handle graphics_buffer_grant(
     struct aurora_cap_table *table,
     struct aurora_graphics_buffer *buffer,
