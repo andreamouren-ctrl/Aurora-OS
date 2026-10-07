@@ -9,6 +9,7 @@
 #include <aurora/capability.h>
 #include <aurora/cpu_local.h>
 #include <aurora/display.h>
+#include <aurora/display_ddc.h>
 #include <aurora/display_identification.h>
 #include <aurora/display_backbuffer.h>
 #include <aurora/framebuffer.h>
@@ -17,6 +18,7 @@
 #include <aurora/gdt.h>
 #include <aurora/heap.h>
 #include <aurora/hpet.h>
+#include <aurora/hdmi_link.h>
 #include <aurora/input.h>
 #include <aurora/interrupts.h>
 #include <aurora/ioapic.h>
@@ -144,6 +146,22 @@ void kmain(void) {
     log_line("[display] EDID base parser passed");
     log_line("[display] CTA-861 HDR/color parser passed");
     log_line("[display] DisplayID block parser passed");
+
+    if (!display_ddc_selftest()) {
+        kernel_panic("DDC/E-DDC transport self-test failed");
+    }
+
+    if (!display_dp_link_selftest()) {
+        kernel_panic("DisplayPort DPCD link self-test failed");
+    }
+
+    if (!display_hdmi_link_selftest()) {
+        kernel_panic("HDMI sink capability self-test failed");
+    }
+
+    log_line("[display] DDC/E-DDC EDID transport passed");
+    log_line("[display] DisplayPort/eDP DPCD capability path passed");
+    log_line("[display] HDMI EDID/CTA capability path passed");
 #endif
 
     boot_ui_init(&framebuffer);
