@@ -721,7 +721,8 @@ void login_input_pump(void) {
     struct aurora_input_event event;
 
     while (input_poll_event(&event)) {
-        if (!event.pressed) {
+        if (event.type != AURORA_INPUT_EVENT_KEY ||
+            !event.pressed) {
             continue;
         }
 
