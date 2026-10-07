@@ -10,6 +10,20 @@
 
 #define AURORA_GRAPHICS_SURFACE_MAX_OBJECTS 128u
 #define AURORA_GRAPHICS_SURFACE_MAX_DAMAGE_RECTS 16u
+#define AURORA_GRAPHICS_SURFACE_MAX_FRAME_CALLBACKS 8u
+
+enum aurora_graphics_frame_callback_state {
+    AURORA_GRAPHICS_FRAME_CALLBACK_FREE = 0,
+    AURORA_GRAPHICS_FRAME_CALLBACK_WAITING,
+    AURORA_GRAPHICS_FRAME_CALLBACK_READY
+};
+
+struct aurora_graphics_frame_callback {
+    uint64_t request_id;
+    uint64_t commit_serial;
+    uint64_t presentation_serial;
+    enum aurora_graphics_frame_callback_state state;
+};
 
 struct aurora_graphics_rect {
     uint32_t x;
@@ -36,6 +50,11 @@ struct aurora_graphics_surface {
     enum aurora_graphics_surface_state state;
     struct aurora_graphics_surface_snapshot pending;
     struct aurora_graphics_surface_snapshot committed;
+    bool pending_frame_callback;
+    uint64_t pending_frame_request_id;
+    struct aurora_graphics_frame_callback frame_callbacks[
+        AURORA_GRAPHICS_SURFACE_MAX_FRAME_CALLBACKS
+    ];
 };
 
 bool graphics_surface_system_init(void);
@@ -70,6 +89,24 @@ bool graphics_surface_damage(
     struct aurora_cap_table *table,
     aurora_cap_handle surface_handle,
     const struct aurora_graphics_rect *rect
+);
+
+bool graphics_surface_request_frame_callback(
+    struct aurora_cap_table *table,
+    aurora_cap_handle surface_handle,
+    uint64_t request_id
+);
+
+bool graphics_surface_complete_frame(
+    struct aurora_graphics_surface *surface,
+    uint64_t commit_serial,
+    uint64_t presentation_serial
+);
+
+bool graphics_surface_take_frame_callback(
+    struct aurora_cap_table *table,
+    aurora_cap_handle surface_handle,
+    struct aurora_graphics_frame_callback *out_callback
 );
 
 bool graphics_surface_commit(
