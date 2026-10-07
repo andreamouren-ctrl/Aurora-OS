@@ -55,16 +55,23 @@ static void redraw_status_background(void) {
     uint64_t y_end =
         active_fb.height * 94u / 100u;
 
-    if (image_asset_ready) {
-        draw_image_cover_region(y_begin, y_end);
+    if (y_end <= y_begin) {
         return;
     }
 
     /*
-     * The fallback is cheap enough to redraw in full and keeps its gradient
-     * continuous if the embedded artwork ever fails validation.
+     * The full boot artwork is scaled exactly once in boot_ui_init(). Progress
+     * updates use a dedicated dark status band instead of re-sampling almost
+     * half of the image at every milestone.
      */
-    draw_fallback_background();
+    framebuffer_fill_rect(
+        &active_fb,
+        0u,
+        y_begin,
+        active_fb.width,
+        y_end - y_begin,
+        rgb(2, 9, 22)
+    );
 }
 
 static void draw_bar(uint8_t percent) {
