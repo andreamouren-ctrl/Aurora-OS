@@ -502,10 +502,12 @@ bool graphics_input_router_selftest(void) {
 
     static struct aurora_software_compositor compositor;
     static struct aurora_cap_table caps;
+    static struct aurora_cap_table authority_caps;
     static struct aurora_graphics_input_router router;
 
     if (!software_compositor_init(&compositor, 0u)) return false;
     cap_table_init(&caps);
+    cap_table_init(&authority_caps);
 
     struct aurora_graphics_buffer *a_buf =
         graphics_buffer_create(16u, 16u, &mode->format);
@@ -573,6 +575,23 @@ bool graphics_input_router_selftest(void) {
         return false;
     }
 
+    const struct aurora_display_output *output =
+        display_output_at(0u);
+
+    aurora_cap_handle display_control =
+        output == NULL
+            ? AURORA_CAP_INVALID
+            : cap_grant(
+                &authority_caps,
+                (void *)output,
+                AURORA_CAP_DISPLAY,
+                AURORA_RIGHT_CONTROL
+            );
+
+    if (display_control == AURORA_CAP_INVALID) {
+        return false;
+    }
+
     const struct aurora_input_event to_a = {
         .type = AURORA_INPUT_EVENT_POINTER_ABSOLUTE,
         .source = AURORA_INPUT_SOURCE_SYNTHETIC,
@@ -603,10 +622,18 @@ bool graphics_input_router_selftest(void) {
     };
 
     if (!graphics_input_route_event(&router, &to_a) ||
+        router.pointer_focus_target != 101u ||
+        !graphics_input_request_capture(&router, 101u) ||
+        graphics_input_release_capture(&router, 202u) ||
         !graphics_input_route_event(&router, &click) ||
         !graphics_input_route_event(&router, &key) ||
         !graphics_input_route_event(&router, &to_b) ||
-        !graphics_input_route_event(&router, &click)) {
+        router.pointer_focus_target != 101u ||
+        !graphics_input_route_event(&router, &click) ||
+        !graphics_input_release_capture(&router, 101u) ||
+        router.capture_target != 0u ||
+        !graphics_input_route_event(&router, &to_b) ||
+        router.pointer_focus_target != 202u) {
         return false;
     }
 
@@ -628,21 +655,57 @@ bool graphics_input_router_selftest(void) {
     }
 
     bool isolated =
-        a_count == 3u &&
+        a_count == 4u &&
         a_key &&
-        b_count == 2u &&
-        b_click &&
+        b_count == 1u &&
+        !b_click &&
         router.pointer_focus_target == 202u &&
         router.keyboard_focus_target == 101u;
 
-    if (!graphics_input_unregister_target(&router, 101u) ||
-        router.keyboard_focus_target != 0u ||
-        !graphics_input_unregister_target(&router, 202u)) {
+    if (!isolated ||
+        !graphics_input_set_keyboard_focus(&router, 101u) ||
+        !graphics_input_route_event(&router, &to_a) ||
+        !graphics_input_request_capture(&router, 101u)) {
         return false;
     }
 
-    if (!software_compositor_remove_surface(&compositor, an) ||
-        !software_compositor_remove_surface(&compositor, bn) ||
+    if (!software_compositor_set_secure_scene(
+            &compositor,
+            &authority_caps,
+            display_control,
+            true) ||
+        router.pointer_focus_target != 0u ||
+        router.keyboard_focus_target != 0u ||
+        router.capture_target != 0u) {
+        return false;
+    }
+
+    if (!software_compositor_set_secure_scene(
+            &compositor,
+            &authority_caps,
+            display_control,
+            false) ||
+        !graphics_input_route_event(&router, &to_b) ||
+        router.pointer_focus_target != 202u ||
+        !graphics_input_set_keyboard_focus(&router, 202u) ||
+        !graphics_input_request_capture(&router, 202u)) {
+        return false;
+    }
+
+    if (!software_compositor_remove_surface(&compositor, bn) ||
+        find_target(&router, 202u) != NULL ||
+        router.pointer_focus_target != 0u ||
+        router.keyboard_focus_target != 0u ||
+        router.capture_target != 0u) {
+        return false;
+    }
+
+    if (!graphics_input_unregister_target(&router, 101u) ||
+        !software_compositor_remove_surface(&compositor, an) ||
+        !software_compositor_set_scene_observer(
+            &compositor,
+            NULL,
+            NULL) ||
         !software_compositor_destroy(&compositor)) {
         return false;
     }
@@ -652,9 +715,10 @@ bool graphics_input_router_selftest(void) {
     uint32_t abg = a_buf->generation;
     uint32_t bbg = b_buf->generation;
 
+    cap_table_destroy(&authority_caps);
     cap_table_destroy(&caps);
 
-    return isolated &&
+    return
         graphics_surface_release_owner(a_surface, asg) &&
         graphics_surface_release_owner(b_surface, bsg) &&
         graphics_buffer_release_owner(a_buf, abg) &&
