@@ -151,20 +151,34 @@ bool graphics_surface_attach(
         return false;
     }
 
+    if (!graphics_buffer_retain_surface(buffer)) {
+        return false;
+    }
+
+    struct aurora_graphics_buffer *old_pending = NULL;
+
     spinlock_lock(&surface_lock);
 
     if (surface->state == AURORA_GRAPHICS_SURFACE_FREE ||
         buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
+        buffer->destroy_requested ||
         buffer->memory == NULL) {
         spinlock_unlock(&surface_lock);
+        graphics_buffer_release_surface(buffer);
         return false;
     }
 
+    old_pending = surface->pending.buffer;
     surface->pending.buffer = buffer;
     surface->pending.damage_count = 0u;
     surface->pending.commit_serial = 0u;
 
     spinlock_unlock(&surface_lock);
+
+    if (old_pending != NULL) {
+        graphics_buffer_release_surface(old_pending);
+    }
+
     return true;
 }
 
@@ -265,6 +279,14 @@ bool graphics_surface_commit(
         next_commit_serial = 1u;
     }
 
+    if (!graphics_buffer_retain_surface(buffer)) {
+        spinlock_unlock(&surface_lock);
+        return false;
+    }
+
+    struct aurora_graphics_buffer *old_committed =
+        surface->committed.buffer;
+
     struct aurora_graphics_surface_snapshot committed =
         surface->pending;
     committed.commit_serial = serial;
@@ -281,6 +303,10 @@ bool graphics_surface_commit(
     surface->pending.commit_serial = 0u;
 
     spinlock_unlock(&surface_lock);
+
+    if (old_committed != NULL) {
+        graphics_buffer_release_surface(old_committed);
+    }
 
     if (out_commit_serial != NULL) {
         *out_commit_serial = serial;
