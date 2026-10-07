@@ -5,6 +5,8 @@
 #include <aurora/clock.h>
 #include <aurora/cpu_local.h>
 #include <aurora/entropy.h>
+#include <aurora/display.h>
+#include <aurora/display_backbuffer.h>
 #include <aurora/gdt.h>
 #include <aurora/graphics_buffer.h>
 #include <aurora/graphics_surface.h>
@@ -421,6 +423,80 @@ static uint64_t dispatch_graphics_surface_commit(
     return serial;
 }
 
+static uint64_t dispatch_display_present(
+    struct aurora_process *process,
+    uint64_t display_handle,
+    uint64_t user_pixels,
+    uint64_t byte_length
+) {
+    if (process == NULL ||
+        display_handle == AURORA_CAP_INVALID ||
+        user_pixels == 0u ||
+        byte_length == 0u) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    struct aurora_capability_view view;
+    if (!cap_lookup(
+            &process->capabilities,
+            (aurora_cap_handle)display_handle,
+            AURORA_CAP_DISPLAY,
+            AURORA_RIGHT_WRITE | AURORA_RIGHT_CONTROL,
+            &view)) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    uint32_t output_index = AURORA_DISPLAY_MAX_OUTPUTS;
+    for (uint32_t i = 0u; i < display_output_count(); ++i) {
+        if (display_output_at(i) == view.object) {
+            output_index = i;
+            break;
+        }
+    }
+
+    if (output_index >= display_output_count()) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    const struct aurora_display_mode *mode =
+        display_mode_at(output_index, 0u);
+    struct aurora_display_backbuffer buffer;
+
+    if (mode == NULL ||
+        !display_backbuffer_init(&buffer, mode)) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    bool valid_length =
+        byte_length == buffer.byte_length &&
+        byte_length <= (uint64_t)SIZE_MAX;
+
+    if (!valid_length ||
+        !copy_from_user(
+            process,
+            buffer.pixels,
+            user_pixels,
+            (size_t)byte_length)) {
+        (void)display_backbuffer_release(&buffer);
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    uint64_t serial = 0u;
+    bool presented =
+        display_present(
+            output_index,
+            &buffer,
+            &serial
+        );
+
+    bool released =
+        display_backbuffer_release(&buffer);
+
+    return presented && released && serial != 0u
+        ? serial
+        : AURORA_SYS_RESULT_ERROR;
+}
+
 static uint64_t dispatch_profile_open_or_create(
     struct aurora_process *process,
     uint64_t root_handle,
@@ -585,6 +661,14 @@ struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
             frame->rax = dispatch_graphics_surface_commit(
                 process,
                 frame->rdi
+            );
+            break;
+        case AURORA_SYS_DISPLAY_PRESENT:
+            frame->rax = dispatch_display_present(
+                process,
+                frame->rdi,
+                frame->rsi,
+                frame->rdx
             );
             break;
         default:
