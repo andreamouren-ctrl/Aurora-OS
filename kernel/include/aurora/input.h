@@ -61,6 +61,11 @@ enum aurora_input_event_type {
     AURORA_INPUT_EVENT_DEVICE_REMOVED
 };
 
+#define AURORA_INPUT_DEVICE_UNSPECIFIED UINT64_C(0)
+#define AURORA_INPUT_DEVICE_PS2_KEYBOARD UINT64_C(1)
+#define AURORA_INPUT_DEVICE_PS2_MOUSE UINT64_C(2)
+#define AURORA_INPUT_DEVICE_USB_BASE UINT64_C(0x10000)
+
 enum aurora_input_source {
     AURORA_INPUT_SOURCE_UNKNOWN = 0,
     AURORA_INPUT_SOURCE_PS2_KEYBOARD,
@@ -81,6 +86,7 @@ enum aurora_pointer_button {
 struct aurora_input_event {
     enum aurora_input_event_type type;
     enum aurora_input_source source;
+    uint64_t device_id;
     uint64_t sequence;
     bool synthetic;
 

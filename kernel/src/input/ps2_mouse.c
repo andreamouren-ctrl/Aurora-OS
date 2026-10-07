@@ -87,6 +87,7 @@ static void emit_button(
     const struct aurora_input_event event = {
         .type = AURORA_INPUT_EVENT_POINTER_BUTTON,
         .source = AURORA_INPUT_SOURCE_PS2_MOUSE,
+        .device_id = AURORA_INPUT_DEVICE_PS2_MOUSE,
         .button = button,
         .pressed = pressed
     };
@@ -115,6 +116,7 @@ static void decode_packet(
             const struct aurora_input_event motion = {
                 .type = AURORA_INPUT_EVENT_POINTER_RELATIVE,
                 .source = AURORA_INPUT_SOURCE_PS2_MOUSE,
+        .device_id = AURORA_INPUT_DEVICE_PS2_MOUSE,
                 .delta_x = dx,
                 /* PS/2 positive Y is up; Aurora screen coordinates grow down. */
                 .delta_y = -dy

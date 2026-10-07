@@ -98,6 +98,7 @@ static void consume_scancode(uint8_t scancode) {
     struct aurora_input_event event = {
         .type = AURORA_INPUT_EVENT_KEY,
         .source = AURORA_INPUT_SOURCE_PS2_KEYBOARD,
+        .device_id = AURORA_INPUT_DEVICE_PS2_KEYBOARD,
         .key = key,
         .pressed = pressed
     };
@@ -144,13 +145,19 @@ bool ps2_keyboard_init(
 
     if (!interrupt_register_handler(
             AURORA_VECTOR_KEYBOARD,
-            ps2_keyboard_interrupt)) {
+            ps2_keyboard_interrupt) ||
+        !ioapic_route_legacy_irq(
+            PS2_LEGACY_IRQ,
+            AURORA_VECTOR_KEYBOARD,
+            destination_apic_id)) {
         return false;
     }
 
-    return ioapic_route_legacy_irq(
-        PS2_LEGACY_IRQ,
-        AURORA_VECTOR_KEYBOARD,
-        destination_apic_id
-    );
+    const struct aurora_input_event added = {
+        .type = AURORA_INPUT_EVENT_DEVICE_ADDED,
+        .source = AURORA_INPUT_SOURCE_PS2_KEYBOARD,
+        .device_id = AURORA_INPUT_DEVICE_PS2_KEYBOARD
+    };
+    (void)input_push_event(&added);
+    return true;
 }
