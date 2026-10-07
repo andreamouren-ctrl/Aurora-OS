@@ -11,6 +11,7 @@
 #include <aurora/display.h>
 #include <aurora/display_ddc.h>
 #include <aurora/display_identification.h>
+#include <aurora/displayport_link.h>
 #include <aurora/display_backbuffer.h>
 #include <aurora/framebuffer.h>
 #include <aurora/graphics_buffer.h>
