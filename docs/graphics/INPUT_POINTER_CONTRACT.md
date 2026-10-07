@@ -1,7 +1,7 @@
 # Aurora Graphics Input and Pointer Contract
 
-Status: **Canonical architecture contract**
-Version: **0.1**
+Status: **Canonical architecture contract; G4 implementation active**
+Version: **0.2**
 
 ## Scope
 
@@ -27,7 +27,7 @@ trusted input routing
 
 The graphical layer consumes normalized events rather than PS/2-specific scan codes.
 
-Initial event families:
+Normalized event families:
 
 - key press/release;
 - pointer relative motion;
@@ -36,7 +36,7 @@ Initial event families:
 - scroll axis;
 - device add/remove.
 
-USB HID and future input methods translate into the same logical layer.
+The current G4 implementation already feeds normalized keyboard events and an initial PS/2 mouse IRQ12 packet path into this logical layer. USB HID and future input methods must translate into the same event model rather than introducing compositor-visible device-specific formats.
 
 ## Focus
 
@@ -75,3 +75,24 @@ The compositor may render a cursor surface, but cursor image ownership and point
 ## Bounds
 
 Event queues are bounded. Motion coalescing is allowed where it preserves button/key ordering. Key/button state transitions must not be silently reordered.
+
+
+## Current G4 implementation status
+
+Implemented foundations:
+
+- normalized keyboard events;
+- normalized pointer event representation;
+- PS/2 keyboard path;
+- initial PS/2 mouse packet decoding on IRQ12;
+- preservation/routing rules that prevent auxiliary mouse bytes from being consumed as keyboard data;
+- explicit separation between pointer activity and Aurora Identity key-entry handling.
+
+Still pending for G4 acceptance:
+
+- compositor hit testing against committed surface/input regions;
+- authoritative pointer focus;
+- keyboard focus routing;
+- pointer/keyboard capture lifecycle and revocation;
+- cross-client leakage negative tests for the completed focus/capture path;
+- USB HID transport/device support.
