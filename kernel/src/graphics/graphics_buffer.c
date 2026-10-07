@@ -9,6 +9,81 @@ static aurora_spinlock buffer_lock = AURORA_SPINLOCK_INIT;
 static uint64_t next_object_id;
 static bool initialized;
 
+static bool buffer_pointer_valid(
+    const struct aurora_graphics_buffer *buffer
+) {
+    return buffer >= &buffers[0] &&
+        buffer < &buffers[AURORA_GRAPHICS_BUFFER_MAX_OBJECTS];
+}
+
+static void finalize_if_unreferenced(
+    struct aurora_graphics_buffer *buffer
+) {
+    struct aurora_memory_object *memory = NULL;
+
+    spinlock_lock(&buffer_lock);
+
+    if (!buffer_pointer_valid(buffer) ||
+        buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
+        !buffer->destroy_requested ||
+        buffer->owner_refs != 0u ||
+        buffer->capability_refs != 0u ||
+        buffer->surface_refs != 0u) {
+        spinlock_unlock(&buffer_lock);
+        return;
+    }
+
+    memory = buffer->memory;
+    uint32_t next_generation = buffer->generation + 1u;
+    if (next_generation == 0u) next_generation = 1u;
+
+    clear_buffer(buffer);
+    buffer->state = AURORA_GRAPHICS_BUFFER_FREE;
+    buffer->generation = next_generation;
+
+    spinlock_unlock(&buffer_lock);
+
+    if (memory != NULL) {
+        (void)memory_object_release_owner(memory);
+    }
+}
+
+static bool graphics_buffer_cap_retain(void *object) {
+    struct aurora_graphics_buffer *buffer =
+        (struct aurora_graphics_buffer *)object;
+
+    spinlock_lock(&buffer_lock);
+
+    if (!buffer_pointer_valid(buffer) ||
+        buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
+        buffer->destroy_requested ||
+        buffer->capability_refs == UINT32_MAX) {
+        spinlock_unlock(&buffer_lock);
+        return false;
+    }
+
+    ++buffer->capability_refs;
+    spinlock_unlock(&buffer_lock);
+    return true;
+}
+
+static void graphics_buffer_cap_release(void *object) {
+    struct aurora_graphics_buffer *buffer =
+        (struct aurora_graphics_buffer *)object;
+
+    spinlock_lock(&buffer_lock);
+
+    if (buffer_pointer_valid(buffer) &&
+        buffer->state != AURORA_GRAPHICS_BUFFER_FREE &&
+        buffer->capability_refs != 0u) {
+        --buffer->capability_refs;
+    }
+
+    spinlock_unlock(&buffer_lock);
+    finalize_if_unreferenced(buffer);
+}
+
+
 static void clear_buffer(struct aurora_graphics_buffer *buffer) {
     uint8_t *bytes = (uint8_t *)buffer;
     for (uint64_t i = 0u; i < sizeof(*buffer); ++i) bytes[i] = 0u;
@@ -27,6 +102,13 @@ static bool format_valid(const struct aurora_display_pixel_format *format) {
 
 bool graphics_buffer_system_init(void) {
     spinlock_init(&buffer_lock);
+
+    if (!cap_lifecycle_register(
+            AURORA_CAP_GRAPHICS_BUFFER,
+            graphics_buffer_cap_retain,
+            graphics_buffer_cap_release)) {
+        return false;
+    }
     for (uint32_t i = 0u; i < AURORA_GRAPHICS_BUFFER_MAX_OBJECTS; ++i) {
         clear_buffer(&buffers[i]);
         buffers[i].state = AURORA_GRAPHICS_BUFFER_FREE;
@@ -116,6 +198,10 @@ struct aurora_graphics_buffer *graphics_buffer_create(
 
     slot->object_id = object_id;
     slot->memory = memory;
+    slot->owner_refs = 1u;
+    slot->capability_refs = 0u;
+    slot->surface_refs = 0u;
+    slot->destroy_requested = false;
     slot->width = width;
     slot->height = height;
     slot->stride = stride;
@@ -126,6 +212,66 @@ struct aurora_graphics_buffer *graphics_buffer_create(
     return slot;
 }
 
+bool graphics_buffer_release_owner(
+    struct aurora_graphics_buffer *buffer
+) {
+    if (buffer == NULL) return false;
+
+    spinlock_lock(&buffer_lock);
+
+    if (!buffer_pointer_valid(buffer) ||
+        buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
+        buffer->owner_refs == 0u) {
+        spinlock_unlock(&buffer_lock);
+        return false;
+    }
+
+    --buffer->owner_refs;
+    buffer->destroy_requested = true;
+
+    spinlock_unlock(&buffer_lock);
+
+    finalize_if_unreferenced(buffer);
+    return true;
+}
+
+bool graphics_buffer_retain_surface(
+    struct aurora_graphics_buffer *buffer
+) {
+    if (buffer == NULL) return false;
+
+    spinlock_lock(&buffer_lock);
+
+    if (!buffer_pointer_valid(buffer) ||
+        buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
+        buffer->destroy_requested ||
+        buffer->surface_refs == UINT32_MAX) {
+        spinlock_unlock(&buffer_lock);
+        return false;
+    }
+
+    ++buffer->surface_refs;
+    spinlock_unlock(&buffer_lock);
+    return true;
+}
+
+void graphics_buffer_release_surface(
+    struct aurora_graphics_buffer *buffer
+) {
+    if (buffer == NULL) return;
+
+    spinlock_lock(&buffer_lock);
+
+    if (buffer_pointer_valid(buffer) &&
+        buffer->state != AURORA_GRAPHICS_BUFFER_FREE &&
+        buffer->surface_refs != 0u) {
+        --buffer->surface_refs;
+    }
+
+    spinlock_unlock(&buffer_lock);
+    finalize_if_unreferenced(buffer);
+}
+
 aurora_cap_handle graphics_buffer_grant(
     struct aurora_cap_table *table,
     struct aurora_graphics_buffer *buffer,
@@ -134,6 +280,7 @@ aurora_cap_handle graphics_buffer_grant(
     if (table == NULL ||
         buffer == NULL ||
         buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
+        buffer->destroy_requested ||
         (rights & ~(AURORA_RIGHT_READ |
                     AURORA_RIGHT_WRITE |
                     AURORA_RIGHT_MAP |
@@ -174,6 +321,7 @@ bool graphics_buffer_lookup(
     if (buffer < &buffers[0] ||
         buffer >= &buffers[AURORA_GRAPHICS_BUFFER_MAX_OBJECTS] ||
         buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
+        buffer->destroy_requested ||
         buffer->memory == NULL) {
         return false;
     }
