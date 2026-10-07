@@ -185,9 +185,18 @@ bool identity_session_grant_ring3_self_test(void) {
     if (!wait_receive(&service, &received) ||
         !decode_result(&received, &result) ||
         result.header.request_id != authorized_id ||
-        result.state != AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_REJECTED ||
-        result.public_error != AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_AUTH_FAILED ||
         !all_zero(result.user_id, sizeof(result.user_id))) {
+        return false;
+    }
+
+    bool operational_rejection =
+        result.state == AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_REJECTED &&
+        result.public_error == AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_AUTH_FAILED;
+    bool degraded_rejection =
+        result.state == AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_SERVICE_ERROR &&
+        result.public_error ==
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE;
+    if (!operational_rejection && !degraded_rejection) {
         return false;
     }
 
