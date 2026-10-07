@@ -27,6 +27,10 @@ This directory contains the canonical project documentation. Documents are group
 
 The files under `identity/` are not duplicates of the master document: they split the architecture, service contract, Aurora Key, storage model, security model, IPC, UX, recovery, test plan, removable authenticator design, and implementation roadmap into focused specifications.
 
+## Graphics and desktop
+
+- [`graphics/README.md`](graphics/README.md) — canonical M4 graphics/compositor/windowing/Desktop Shell contract set.
+
 ## Boot and UI bootstrap
 
 - [`BOOT_UI.md`](BOOT_UI.md) — framebuffer boot UI and boot/login bootstrap behavior.

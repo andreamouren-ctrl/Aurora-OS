@@ -240,6 +240,9 @@ Runtime reference: workflow **#297** (`36914326026`) runtime-verifies GPT CRC re
 
 ## M4 — Graphics and Desktop foundation
 
+Architecture contracts: [`graphics/README.md`](graphics/README.md).
+
+- [x] graphics architecture and protocol contracts defined (design only; no runtime claim)
 - [ ] display subsystem beyond boot framebuffer
 - [ ] compositor
 - [ ] modern USB HID input path
