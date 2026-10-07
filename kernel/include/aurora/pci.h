@@ -53,4 +53,14 @@ bool pci_enable_memory_bus_master(
     const struct aurora_pci_device *device
 );
 
+/*
+ * Walk a conventional PCI capability list. The walker is bounded and rejects
+ * malformed pointers/loops rather than following arbitrary config offsets.
+ */
+bool pci_find_capability(
+    const struct aurora_pci_device *device,
+    uint8_t capability_id,
+    uint8_t *out_offset
+);
+
 #endif
