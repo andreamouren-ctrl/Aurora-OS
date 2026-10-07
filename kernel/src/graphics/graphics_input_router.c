@@ -655,7 +655,7 @@ bool graphics_input_router_selftest(void) {
     }
 
     bool isolated =
-        a_count == 4u &&
+        a_count == 5u &&
         a_key &&
         b_count == 1u &&
         !b_click &&
