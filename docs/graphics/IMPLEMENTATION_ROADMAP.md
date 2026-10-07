@@ -165,7 +165,7 @@ Implemented foundation:
 
 Hardware/runtime integration still pending:
 
-- [ ] EDID / CTA-861 / DisplayID parsing;
+- [x] EDID base / CTA-861 HDR-color / DisplayID structural parsing;
 - [ ] native HDMI / DisplayPort / eDP link backends;
 - [ ] VRR / Adaptive-Sync programming;
 - [ ] DSC programming;
