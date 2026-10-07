@@ -275,7 +275,10 @@ Architecture contracts: [`graphics/README.md`](graphics/README.md).
 - [x] normalized device-independent input event foundation
 - [x] PS/2 keyboard normalized-event path
 - [x] initial IRQ12 PS/2 mouse packet path
-- [ ] complete compositor hit testing/focus/capture revocation
+- [x] secure-scene-aware compositor hit testing
+- [x] pointer/keyboard focus routing with private target queues
+- [x] multi-client input no-leakage/focus-isolation runtime gate
+- [ ] explicit pointer-capture + capture-revocation semantics
 - [ ] modern USB HID input path
 - [ ] G5 window-management protocol and Desktop Shell
 - [ ] Activity Space prototype
@@ -345,7 +348,7 @@ Aurora now has runtime-verified kernel/SMP/Ring 3 lifecycle foundations, baselin
 
 Near-term dependency order:
 
-1. complete G4 compositor hit testing, pointer focus, keyboard focus and capture revocation;
+1. complete the remaining G4 pointer-capture/capture-revocation semantics and then USB HID;
 2. add USB/xHCI + USB HID foundations so input/removable-media work is not PS/2-bound;
 3. implement G5 toplevel/window protocol and Desktop Shell baseline;
 4. migrate normal Identity presentation onto the compositor while retaining framebuffer recovery fallback;
