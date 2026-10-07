@@ -50,6 +50,12 @@ The path is storage representation only; it is **not** authorization. The Sessio
 
 Aurora Key, display name, or a guessed path can never substitute for that capability.
 
+The current Phase F path now continues one step further: after the active profile capability reaches the kernel session bridge, Aurora starts an ordinary Ring 3 **User Session Host**. The host receives only a private control IPC endpoint, the stable `user_id`/session generation metadata, and a reduced profile capability without `CONTROL` or `TRANSFER`. The login surface does not enter its session-active state until this host reports READY.
+
+On logout, the User Session Host is shut down first and its process-scoped profile lease is revoked before the Session Manager drops the active session profile authority.
+
+This host is the security bootstrap point for future settings, compositor, desktop, and per-user services; it is not itself the final desktop.
+
 ## 3. Session grant
 
 A normal login session grant is:
