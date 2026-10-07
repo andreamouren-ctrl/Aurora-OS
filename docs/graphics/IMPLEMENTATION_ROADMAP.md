@@ -52,13 +52,15 @@ Implemented:
 Remaining:
 
 - [x] capability-aware buffer lifetime, deferred destroy and safe object reuse;
-- [ ] frame callbacks;
+- [x] bounded frame callbacks tied to commit/presentation serials;
 - [x] capability-gated Ring 3 graphics-buffer map/unmap syscall path;
-- [ ] full strict metadata/pixel-format validation.
+- [x] strict 32-bit RGB mask, stride, size and backing metadata validation;
 
 Acceptance gate:
 
 Two isolated Ring 3 clients can independently submit surfaces; neither can map or corrupt the other's buffer.
+
+Acceptance probe: **implemented; runtime verification pending CI**. Ring 3 surface attach/damage/commit syscall ABI is now defined.
 
 ## Phase G3 — Software compositor
 

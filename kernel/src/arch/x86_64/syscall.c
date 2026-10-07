@@ -7,6 +7,7 @@
 #include <aurora/entropy.h>
 #include <aurora/gdt.h>
 #include <aurora/graphics_buffer.h>
+#include <aurora/graphics_surface.h>
 #include <aurora/ipc.h>
 #include <aurora/pmm.h>
 #include <aurora/process.h>
@@ -354,6 +355,72 @@ static uint64_t dispatch_graphics_buffer_unmap(
     return 0u;
 }
 
+static uint64_t dispatch_graphics_surface_attach(
+    struct aurora_process *process,
+    uint64_t surface_handle,
+    uint64_t buffer_handle
+) {
+    if (process == NULL ||
+        !graphics_surface_attach(
+            &process->capabilities,
+            (aurora_cap_handle)surface_handle,
+            (aurora_cap_handle)buffer_handle)) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    return 0u;
+}
+
+static uint64_t dispatch_graphics_surface_damage(
+    struct aurora_process *process,
+    uint64_t surface_handle,
+    uint64_t x,
+    uint64_t y,
+    uint64_t width,
+    uint64_t height
+) {
+    if (process == NULL ||
+        x > UINT32_MAX ||
+        y > UINT32_MAX ||
+        width == 0u ||
+        height == 0u ||
+        width > UINT32_MAX ||
+        height > UINT32_MAX) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    struct aurora_graphics_rect rect = {
+        .x = (uint32_t)x,
+        .y = (uint32_t)y,
+        .width = (uint32_t)width,
+        .height = (uint32_t)height
+    };
+
+    return graphics_surface_damage(
+        &process->capabilities,
+        (aurora_cap_handle)surface_handle,
+        &rect
+    ) ? 0u : AURORA_SYS_RESULT_ERROR;
+}
+
+static uint64_t dispatch_graphics_surface_commit(
+    struct aurora_process *process,
+    uint64_t surface_handle
+) {
+    uint64_t serial = 0u;
+
+    if (process == NULL ||
+        !graphics_surface_commit(
+            &process->capabilities,
+            (aurora_cap_handle)surface_handle,
+            &serial) ||
+        serial == 0u) {
+        return AURORA_SYS_RESULT_ERROR;
+    }
+
+    return serial;
+}
+
 static uint64_t dispatch_profile_open_or_create(
     struct aurora_process *process,
     uint64_t root_handle,
@@ -493,6 +560,29 @@ struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
             break;
         case AURORA_SYS_GRAPHICS_BUFFER_UNMAP:
             frame->rax = dispatch_graphics_buffer_unmap(
+                process,
+                frame->rdi
+            );
+            break;
+        case AURORA_SYS_GRAPHICS_SURFACE_ATTACH:
+            frame->rax = dispatch_graphics_surface_attach(
+                process,
+                frame->rdi,
+                frame->rsi
+            );
+            break;
+        case AURORA_SYS_GRAPHICS_SURFACE_DAMAGE:
+            frame->rax = dispatch_graphics_surface_damage(
+                process,
+                frame->rdi,
+                frame->rsi,
+                frame->rdx,
+                frame->r10,
+                frame->r8
+            );
+            break;
+        case AURORA_SYS_GRAPHICS_SURFACE_COMMIT:
+            frame->rax = dispatch_graphics_surface_commit(
                 process,
                 frame->rdi
             );

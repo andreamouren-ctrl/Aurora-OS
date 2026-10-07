@@ -774,6 +774,258 @@ void kmain(void) {
     log_line("[graphics] deferred destroy and stale-handle rejection passed");
     log_line("[graphics] capability-safe buffer slot reuse passed");
 
+    if (!graphics_surface_request_frame_callback(
+            &graphics_probe_caps,
+            graphics_surface_handle,
+            UINT64_C(0xF001))) {
+        kernel_panic("Graphics frame callback request probe failed");
+    }
+
+    if (!graphics_surface_attach(
+            &graphics_probe_caps,
+            graphics_surface_handle,
+            graphics_buffer_handle) ||
+        !graphics_surface_damage(
+            &graphics_probe_caps,
+            graphics_surface_handle,
+            &graphics_damage)) {
+        kernel_panic("Graphics frame callback attach probe failed");
+    }
+
+    uint64_t callback_commit_serial = 0u;
+
+    if (!graphics_surface_commit(
+            &graphics_probe_caps,
+            graphics_surface_handle,
+            &callback_commit_serial) ||
+        callback_commit_serial == 0u ||
+        !graphics_surface_complete_frame(
+            graphics_probe_surface,
+            callback_commit_serial,
+            UINT64_C(0x9001))) {
+        kernel_panic("Graphics frame callback completion probe failed");
+    }
+
+    struct aurora_graphics_frame_callback callback_result;
+
+    if (!graphics_surface_take_frame_callback(
+            &graphics_probe_caps,
+            graphics_surface_handle,
+            &callback_result) ||
+        callback_result.request_id != UINT64_C(0xF001) ||
+        callback_result.commit_serial != callback_commit_serial ||
+        callback_result.presentation_serial != UINT64_C(0x9001) ||
+        callback_result.state != AURORA_GRAPHICS_FRAME_CALLBACK_READY) {
+        kernel_panic("Graphics frame callback delivery probe failed");
+    }
+
+    log_line("[graphics] bounded frame callback lifecycle passed");
+
+    struct aurora_process *graphics_client_a =
+        process_create_image(
+            "graphics-client-a",
+            user_probe_image(),
+            user_probe_image_size()
+        );
+
+    struct aurora_process *graphics_client_b =
+        process_create_image(
+            "graphics-client-b",
+            user_probe_image(),
+            user_probe_image_size()
+        );
+
+    struct aurora_graphics_buffer *client_a_buffer =
+        graphics_buffer_create(
+            48u,
+            48u,
+            &display_probe_mode->format
+        );
+
+    struct aurora_graphics_buffer *client_b_buffer =
+        graphics_buffer_create(
+            48u,
+            48u,
+            &display_probe_mode->format
+        );
+
+    struct aurora_graphics_surface *client_a_surface =
+        graphics_surface_create();
+
+    struct aurora_graphics_surface *client_b_surface =
+        graphics_surface_create();
+
+    if (graphics_client_a == NULL ||
+        graphics_client_b == NULL ||
+        client_a_buffer == NULL ||
+        client_b_buffer == NULL ||
+        client_a_surface == NULL ||
+        client_b_surface == NULL) {
+        kernel_panic("Graphics two-client acceptance allocation failed");
+    }
+
+    aurora_cap_handle a_buffer_handle =
+        graphics_buffer_grant(
+            &graphics_client_a->capabilities,
+            client_a_buffer,
+            AURORA_RIGHT_READ |
+            AURORA_RIGHT_WRITE |
+            AURORA_RIGHT_MAP
+        );
+
+    aurora_cap_handle a_surface_handle =
+        graphics_surface_grant(
+            &graphics_client_a->capabilities,
+            client_a_surface,
+            AURORA_RIGHT_READ |
+            AURORA_RIGHT_WRITE
+        );
+
+    /*
+     * Reverse grant order in client B so handle values cannot accidentally
+     * identify the same capability type across tables.
+     */
+    aurora_cap_handle b_surface_handle =
+        graphics_surface_grant(
+            &graphics_client_b->capabilities,
+            client_b_surface,
+            AURORA_RIGHT_READ |
+            AURORA_RIGHT_WRITE
+        );
+
+    aurora_cap_handle b_buffer_handle =
+        graphics_buffer_grant(
+            &graphics_client_b->capabilities,
+            client_b_buffer,
+            AURORA_RIGHT_READ |
+            AURORA_RIGHT_WRITE |
+            AURORA_RIGHT_MAP
+        );
+
+    if (a_buffer_handle == AURORA_CAP_INVALID ||
+        a_surface_handle == AURORA_CAP_INVALID ||
+        b_buffer_handle == AURORA_CAP_INVALID ||
+        b_surface_handle == AURORA_CAP_INVALID) {
+        kernel_panic("Graphics two-client capability setup failed");
+    }
+
+    uint64_t a_map = 0u;
+    uint64_t b_map = 0u;
+
+    if (!graphics_buffer_map_process(
+            graphics_client_a,
+            a_buffer_handle,
+            true,
+            &a_map) ||
+        !graphics_buffer_map_process(
+            graphics_client_b,
+            b_buffer_handle,
+            true,
+            &b_map) ||
+        a_map == 0u ||
+        b_map == 0u) {
+        kernel_panic("Graphics two-client independent mapping failed");
+    }
+
+    uint64_t forbidden_map = 0u;
+
+    if (graphics_buffer_map_process(
+            graphics_client_b,
+            a_buffer_handle,
+            true,
+            &forbidden_map) ||
+        graphics_surface_attach(
+            &graphics_client_b->capabilities,
+            b_surface_handle,
+            a_buffer_handle) ||
+        graphics_surface_attach(
+            &graphics_client_a->capabilities,
+            a_surface_handle,
+            b_buffer_handle)) {
+        kernel_panic("Graphics cross-client isolation failed");
+    }
+
+    struct aurora_graphics_rect client_damage = {
+        .x = 0u,
+        .y = 0u,
+        .width = 48u,
+        .height = 48u
+    };
+
+    uint64_t a_commit = 0u;
+    uint64_t b_commit = 0u;
+
+    if (!graphics_surface_attach(
+            &graphics_client_a->capabilities,
+            a_surface_handle,
+            a_buffer_handle) ||
+        !graphics_surface_damage(
+            &graphics_client_a->capabilities,
+            a_surface_handle,
+            &client_damage) ||
+        !graphics_surface_commit(
+            &graphics_client_a->capabilities,
+            a_surface_handle,
+            &a_commit) ||
+        !graphics_surface_attach(
+            &graphics_client_b->capabilities,
+            b_surface_handle,
+            b_buffer_handle) ||
+        !graphics_surface_damage(
+            &graphics_client_b->capabilities,
+            b_surface_handle,
+            &client_damage) ||
+        !graphics_surface_commit(
+            &graphics_client_b->capabilities,
+            b_surface_handle,
+            &b_commit) ||
+        a_commit == 0u ||
+        b_commit == 0u ||
+        a_commit == b_commit) {
+        kernel_panic("Graphics two-client independent commit failed");
+    }
+
+    if (!graphics_buffer_unmap_process(
+            graphics_client_a,
+            a_map) ||
+        !graphics_buffer_unmap_process(
+            graphics_client_b,
+            b_map) ||
+        !graphics_surface_detach_buffers(
+            &graphics_client_a->capabilities,
+            a_surface_handle) ||
+        !graphics_surface_detach_buffers(
+            &graphics_client_b->capabilities,
+            b_surface_handle)) {
+        kernel_panic("Graphics two-client cleanup failed");
+    }
+
+    uint32_t client_a_generation =
+        client_a_buffer->generation;
+    uint32_t client_b_generation =
+        client_b_buffer->generation;
+
+    if (!graphics_buffer_release_owner(
+            client_a_buffer,
+            client_a_generation) ||
+        !graphics_buffer_release_owner(
+            client_b_buffer,
+            client_b_generation)) {
+        kernel_panic("Graphics two-client owner release failed");
+    }
+
+    process_mark_exited(graphics_client_a, 0);
+    process_mark_exited(graphics_client_b, 0);
+
+    if (!process_reap(graphics_client_a, NULL) ||
+        !process_release(graphics_client_a) ||
+        !process_reap(graphics_client_b, NULL) ||
+        !process_release(graphics_client_b)) {
+        kernel_panic("Graphics two-client process cleanup failed");
+    }
+
+    log_line("[graphics] two isolated Ring 3 client capability gate passed");
+
     struct aurora_memory_object *shared_probe =
         memory_object_create(2u);
 
