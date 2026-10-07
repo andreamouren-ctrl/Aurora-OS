@@ -166,7 +166,6 @@ bool graphics_surface_attach(
 
     if (surface->state == AURORA_GRAPHICS_SURFACE_FREE ||
         buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
-        buffer->destroy_requested ||
         buffer->memory == NULL) {
         spinlock_unlock(&surface_lock);
         graphics_buffer_release_surface(buffer);
