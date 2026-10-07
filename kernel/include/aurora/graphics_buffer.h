@@ -54,6 +54,10 @@ void graphics_buffer_release_surface(
     struct aurora_graphics_buffer *buffer
 );
 
+bool graphics_buffer_metadata_valid(
+    const struct aurora_graphics_buffer *buffer
+);
+
 struct aurora_graphics_buffer *graphics_buffer_create(
     uint64_t width,
     uint64_t height,
