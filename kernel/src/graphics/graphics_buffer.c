@@ -2,7 +2,7 @@
 #include <stdint.h>
 
 #include <aurora/graphics_buffer.h>
-#include <aurora/heap.h>
+#include <aurora/process.h>
 
 static struct aurora_graphics_buffer buffers[AURORA_GRAPHICS_BUFFER_MAX_OBJECTS];
 static aurora_spinlock buffer_lock = AURORA_SPINLOCK_INIT;
@@ -85,8 +85,25 @@ struct aurora_graphics_buffer *graphics_buffer_create(
     slot->state = AURORA_GRAPHICS_BUFFER_READY;
     spinlock_unlock(&buffer_lock);
 
-    uint8_t *pixels = kheap_alloc((size_t)byte_length, 64u);
-    if (pixels == NULL) {
+    uint64_t rounded =
+        (byte_length + AURORA_PAGE_SIZE - 1u) &
+        ~(AURORA_PAGE_SIZE - 1u);
+
+    if (rounded < byte_length ||
+        rounded / AURORA_PAGE_SIZE > UINT32_MAX) {
+        spinlock_lock(&buffer_lock);
+        slot->state = AURORA_GRAPHICS_BUFFER_FREE;
+        spinlock_unlock(&buffer_lock);
+        return NULL;
+    }
+
+    uint32_t page_count =
+        (uint32_t)(rounded / AURORA_PAGE_SIZE);
+
+    struct aurora_memory_object *memory =
+        memory_object_create(page_count);
+
+    if (memory == NULL) {
         spinlock_lock(&buffer_lock);
         slot->state = AURORA_GRAPHICS_BUFFER_FREE;
         spinlock_unlock(&buffer_lock);
@@ -98,7 +115,7 @@ struct aurora_graphics_buffer *graphics_buffer_create(
     if (next_object_id == 0u) next_object_id = 1u;
 
     slot->object_id = object_id;
-    slot->pixels = pixels;
+    slot->memory = memory;
     slot->width = width;
     slot->height = height;
     slot->stride = stride;
@@ -157,10 +174,53 @@ bool graphics_buffer_lookup(
     if (buffer < &buffers[0] ||
         buffer >= &buffers[AURORA_GRAPHICS_BUFFER_MAX_OBJECTS] ||
         buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
-        buffer->pixels == NULL) {
+        buffer->memory == NULL) {
         return false;
     }
 
     *out_buffer = buffer;
     return true;
+}
+
+bool graphics_buffer_map_process(
+    struct aurora_process *process,
+    aurora_cap_handle handle,
+    bool writable,
+    uint64_t *out_address
+) {
+    if (process == NULL || out_address == NULL) {
+        return false;
+    }
+
+    uint64_t required =
+        AURORA_RIGHT_MAP |
+        (writable ? AURORA_RIGHT_WRITE : AURORA_RIGHT_READ);
+
+    struct aurora_graphics_buffer *buffer = NULL;
+
+    if (!graphics_buffer_lookup(
+            &process->capabilities,
+            handle,
+            required,
+            &buffer) ||
+        buffer->memory == NULL) {
+        return false;
+    }
+
+    return process_shared_memory_map(
+        process,
+        buffer->memory,
+        writable,
+        out_address
+    );
+}
+
+bool graphics_buffer_unmap_process(
+    struct aurora_process *process,
+    uint64_t address
+) {
+    return process_shared_memory_unmap(
+        process,
+        address
+    );
 }
