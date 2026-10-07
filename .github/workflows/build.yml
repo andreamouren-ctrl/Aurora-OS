@@ -132,6 +132,7 @@ jobs:
           grep -F "[color-management] ST2084/ICC/calibration/perceptual-tone-map self-test passed" "$SERIAL_LOG"
           grep -F "[compositor] scene/z-order/clipping/alpha/damage self-test passed" "$SERIAL_LOG"
           grep -F "[graphics-input] normalized mouse + hit-test focus isolation self-test passed" "$SERIAL_LOG"
+          grep -F "[input] PS/2 mouse IRQ path online" "$SERIAL_LOG"
 
           if ! grep -F \
             "[kernel] M1 user-space bootstrap reached successfully" \
