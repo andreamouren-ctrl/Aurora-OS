@@ -6,7 +6,10 @@
 
 #include <aurora/capability.h>
 #include <aurora/display_output.h>
+#include <aurora/memory_object.h>
 #include <aurora/spinlock.h>
+
+struct aurora_process;
 
 #define AURORA_GRAPHICS_BUFFER_MAX_OBJECTS 64u
 #define AURORA_GRAPHICS_BUFFER_MAX_DIMENSION 8192u
@@ -24,7 +27,7 @@ struct aurora_graphics_buffer {
     uint64_t object_id;
     uint32_t generation;
     enum aurora_graphics_buffer_state state;
-    uint8_t *pixels;
+    struct aurora_memory_object *memory;
     uint64_t width;
     uint64_t height;
     uint64_t stride;
@@ -44,6 +47,18 @@ aurora_cap_handle graphics_buffer_grant(
     struct aurora_cap_table *table,
     struct aurora_graphics_buffer *buffer,
     uint64_t rights
+);
+
+bool graphics_buffer_map_process(
+    struct aurora_process *process,
+    aurora_cap_handle handle,
+    bool writable,
+    uint64_t *out_address
+);
+
+bool graphics_buffer_unmap_process(
+    struct aurora_process *process,
+    uint64_t address
 );
 
 bool graphics_buffer_lookup(
