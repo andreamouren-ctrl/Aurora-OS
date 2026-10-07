@@ -1,4 +1,5 @@
 ARCH ?= x86_64
+BOOT_VALIDATION ?= 0
 
 LIMINE_VERSION := 12.9.0
 LIMINE_DIR := .cache/limine-$(LIMINE_VERSION)
@@ -16,7 +17,7 @@ deps:
 	sh scripts/bootstrap-deps.sh
 
 kernel: deps
-	$(MAKE) -C kernel ARCH=$(ARCH)
+	$(MAKE) -C kernel ARCH=$(ARCH) BOOT_VALIDATION=$(BOOT_VALIDATION)
 
 identity-test:
 	$(MAKE) -C services/identity test
