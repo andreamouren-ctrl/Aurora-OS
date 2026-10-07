@@ -683,3 +683,55 @@ bool graphics_surface_commit(
 
     return true;
 }
+
+bool graphics_surface_read_committed(
+    struct aurora_cap_table *table,
+    aurora_cap_handle surface_handle,
+    struct aurora_graphics_surface_snapshot *out_snapshot
+) {
+    if (out_snapshot == NULL) return false;
+
+    *out_snapshot = (struct aurora_graphics_surface_snapshot){0};
+
+    struct aurora_graphics_surface *surface = NULL;
+
+    if (!graphics_surface_lookup(
+            table,
+            surface_handle,
+            AURORA_RIGHT_READ,
+            &surface)) {
+        return false;
+    }
+
+    spinlock_lock(&surface_lock);
+
+    if (surface->state == AURORA_GRAPHICS_SURFACE_FREE ||
+        surface->committed.buffer == NULL ||
+        surface->committed.commit_serial == 0u ||
+        !graphics_buffer_retain_surface(
+            surface->committed.buffer)) {
+        spinlock_unlock(&surface_lock);
+        return false;
+    }
+
+    *out_snapshot = surface->committed;
+
+    spinlock_unlock(&surface_lock);
+    return true;
+}
+
+void graphics_surface_snapshot_release(
+    struct aurora_graphics_surface_snapshot *snapshot
+) {
+    if (snapshot == NULL) return;
+
+    struct aurora_graphics_buffer *buffer =
+        snapshot->buffer;
+
+    *snapshot =
+        (struct aurora_graphics_surface_snapshot){0};
+
+    if (buffer != NULL) {
+        graphics_buffer_release_surface(buffer);
+    }
+}
