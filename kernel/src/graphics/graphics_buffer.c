@@ -92,15 +92,117 @@ static void clear_buffer(struct aurora_graphics_buffer *buffer) {
     for (uint64_t i = 0u; i < sizeof(*buffer); ++i) bytes[i] = 0u;
 }
 
-static bool format_valid(const struct aurora_display_pixel_format *format) {
+static bool ranges_overlap(
+    uint8_t shift_a,
+    uint8_t size_a,
+    uint8_t shift_b,
+    uint8_t size_b
+) {
+    uint16_t end_a =
+        (uint16_t)shift_a + (uint16_t)size_a;
+    uint16_t end_b =
+        (uint16_t)shift_b + (uint16_t)size_b;
+
+    return (uint16_t)shift_a < end_b &&
+        (uint16_t)shift_b < end_a;
+}
+
+static bool format_valid(
+    const struct aurora_display_pixel_format *format
+) {
     if (format == NULL ||
-        format->bits_per_pixel == 0u ||
-        (format->bits_per_pixel % 8u) != 0u ||
-        format->bits_per_pixel > 64u) {
+        format->bits_per_pixel != 32u ||
+        format->red_mask_size != 8u ||
+        format->green_mask_size != 8u ||
+        format->blue_mask_size != 8u) {
+        return false;
+    }
+
+    if ((uint16_t)format->red_mask_shift +
+            (uint16_t)format->red_mask_size >
+            format->bits_per_pixel ||
+        (uint16_t)format->green_mask_shift +
+            (uint16_t)format->green_mask_size >
+            format->bits_per_pixel ||
+        (uint16_t)format->blue_mask_shift +
+            (uint16_t)format->blue_mask_size >
+            format->bits_per_pixel) {
+        return false;
+    }
+
+    if (ranges_overlap(
+            format->red_mask_shift,
+            format->red_mask_size,
+            format->green_mask_shift,
+            format->green_mask_size) ||
+        ranges_overlap(
+            format->red_mask_shift,
+            format->red_mask_size,
+            format->blue_mask_shift,
+            format->blue_mask_size) ||
+        ranges_overlap(
+            format->green_mask_shift,
+            format->green_mask_size,
+            format->blue_mask_shift,
+            format->blue_mask_size)) {
         return false;
     }
 
     return true;
+}
+
+bool graphics_buffer_metadata_valid(
+    const struct aurora_graphics_buffer *buffer
+) {
+    if (buffer == NULL ||
+        buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
+        buffer->memory == NULL ||
+        !buffer->memory->active ||
+        buffer->width == 0u ||
+        buffer->height == 0u ||
+        buffer->width > AURORA_GRAPHICS_BUFFER_MAX_DIMENSION ||
+        buffer->height > AURORA_GRAPHICS_BUFFER_MAX_DIMENSION ||
+        !format_valid(&buffer->format)) {
+        return false;
+    }
+
+    uint64_t bytes_per_pixel =
+        (uint64_t)buffer->format.bits_per_pixel / 8u;
+
+    if (buffer->width >
+        UINT64_MAX / bytes_per_pixel) {
+        return false;
+    }
+
+    uint64_t expected_stride =
+        buffer->width * bytes_per_pixel;
+
+    if (buffer->stride != expected_stride ||
+        buffer->height >
+            UINT64_MAX / buffer->stride) {
+        return false;
+    }
+
+    uint64_t expected_bytes =
+        buffer->height * buffer->stride;
+
+    if (buffer->byte_length != expected_bytes ||
+        expected_bytes == 0u ||
+        expected_bytes > AURORA_GRAPHICS_BUFFER_MAX_BYTES) {
+        return false;
+    }
+
+    if (buffer->memory->page_count == 0u ||
+        (uint64_t)buffer->memory->page_count >
+            UINT64_MAX / AURORA_PAGE_SIZE) {
+        return false;
+    }
+
+    uint64_t backing_bytes =
+        (uint64_t)buffer->memory->page_count *
+        AURORA_PAGE_SIZE;
+
+    return backing_bytes >= buffer->byte_length;
 }
 
 bool graphics_buffer_system_init(void) {
@@ -326,7 +428,8 @@ bool graphics_buffer_lookup(
     if (buffer < &buffers[0] ||
         buffer >= &buffers[AURORA_GRAPHICS_BUFFER_MAX_OBJECTS] ||
         buffer->state == AURORA_GRAPHICS_BUFFER_FREE ||
-        buffer->memory == NULL) {
+        buffer->memory == NULL ||
+        !graphics_buffer_metadata_valid(buffer)) {
         return false;
     }
 
@@ -366,7 +469,8 @@ bool graphics_buffer_lookup_retain(
     bool valid =
         buffer_pointer_valid(buffer) &&
         buffer->state != AURORA_GRAPHICS_BUFFER_FREE &&
-        buffer->memory != NULL;
+        buffer->memory != NULL &&
+        graphics_buffer_metadata_valid(buffer);
     spinlock_unlock(&buffer_lock);
 
     if (!valid) {
