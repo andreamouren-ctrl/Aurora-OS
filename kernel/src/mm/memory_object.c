@@ -128,11 +128,18 @@ static bool maybe_destroy_locked(
         return false;
     }
 
+    /*
+     * Keep active=true while destruction is in progress. create() only reuses
+     * inactive slots, so another CPU cannot recycle this object until scrub,
+     * PMM release and metadata cleanup have completed.
+     *
+     * pages/page_count are cleared now so ordinary object validation fails
+     * during teardown even though the slot itself remains reserved.
+     */
     *out_pages = object->pages;
     *out_page_count = object->page_count;
     object->pages = NULL;
     object->page_count = 0u;
-    object->active = false;
     return true;
 }
 
