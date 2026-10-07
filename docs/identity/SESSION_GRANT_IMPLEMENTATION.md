@@ -1,9 +1,9 @@
 # Aurora Identity One-Time Session Grant Implementation
 
-Status: **isolated implementation foundation**
-Version: **0.2**
+Status: **live Ring 3 issue/consume path integrated**
+Version: **0.3**
 
-This document records the executable Aurora Identity session-grant contract and its production Ring 3 consume boundary. Session Manager itself remains the next integration milestone.
+This document records the executable Aurora Identity session-grant contract and its live Ring 3 consume boundary. Session Manager integration is now implemented.
 
 ## 1. Purpose
 
@@ -34,7 +34,7 @@ The current isolated module guarantees:
 
 `aurora_identity_session_grant_issue()` accepts an already-authenticated `user_id`.
 
-The low-level grant module does **not** decide whether a caller is allowed to request a session. The future Aurora Identity Service is responsible for calling it only after successful authentication and policy checks.
+The low-level grant module does **not** decide whether a caller is allowed to request a session. The Aurora Identity Service calls it only after successful authentication and policy checks.
 
 Likewise, possession of a token is not the only production authorization requirement. The Ring 3 Identity Service consume endpoint requires the dedicated `AURORA_CAP_IDENTITY_SESSION` capability with `CONTROL`; the delegated receiver handle must not retain `TRANSFER`.
 
@@ -46,7 +46,7 @@ The bearer token is:
 32 random bytes
 ```
 
-It is generated through `aurora_identity_random_ops`, which must eventually be backed by Aurora's reviewed CSPRNG.
+It is generated through `aurora_identity_random_ops`; the live Identity runtime binds this to the controlled DRBG/entropy path.
 
 The token must never be logged, persisted in ordinary identity records, written to crash telemetry, or exposed to applications.
 
@@ -54,7 +54,7 @@ The token must never be logged, persisted in ordinary identity records, written 
 
 The backend receives a derived `token_tag`, not the raw bearer token.
 
-`derive_token_tag()` is an explicit provider boundary. Production must bind this operation to a reviewed cryptographic primitive. The test implementation is deterministic and test-only.
+`derive_token_tag()` is an explicit provider boundary. The live runtime binds this operation to the Identity cryptographic provider; deterministic stand-ins remain test-only.
 
 Because the bearer token itself carries 256 bits of CSPRNG entropy, this design does not rely on human-memorable-secret properties. The tag still exists to avoid retaining live bearer tokens in the backend.
 
@@ -171,23 +171,28 @@ Host-side tests verify:
 
 All providers in the host test are stand-ins and are not production cryptography or storage.
 
-## 12. Deliberately not implemented yet
+## 12. Live integration status
 
-This milestone does not implement:
+The following former integration blockers are now implemented:
 
-- Session Manager Ring 3 process;
-- profile opening/capability issuance;
+- Ring 3 Session Manager;
+- one-time grant consumption by the Session Manager;
+- stable `user_id` binding;
+- persistent profile capability issuance after successful binding;
 - live boot/login integration;
-- lock/unlock session lifecycle;
-- graphical UI.
+- logout revocation;
+- lock/unlock using a fresh same-user Identity grant;
+- replay rejection at the consume boundary;
+- credential material remains inside the Identity boundary.
 
-## 13. Integration gate
+The normal pre-session presentation is still framebuffer-based; compositor-backed Identity UI remains a later M4/G6 milestone.
 
-The module can be connected to the real login path only after:
+## 13. Remaining hardening
 
-1. Aurora Identity Service has a real process/service lifecycle;
-2. secure RNG and crypto providers are production-ready;
-3. a capability-protected IPC transport exists;
-4. Session Manager can consume the grant and bind the resulting `user_id` to profile startup;
-5. successful consumption is tested against replay/race scenarios;
-6. no credential material crosses the Identity Service boundary.
+Production readiness still requires:
+
+1. broader fuzzing and race/fault injection around grant issue/consume;
+2. security/audit event integration;
+3. real-hardware entropy/time/storage validation;
+4. strict generation invalidation across every Identity Service restart path;
+5. continued proof that no credential or verifier material crosses into Session Manager/Desktop components.
