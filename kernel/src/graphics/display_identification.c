@@ -364,3 +364,180 @@ bool display_cta861_apply_capabilities(
 
     return true;
 }
+
+static void finalize_checksum(
+    uint8_t block[AURORA_EDID_BLOCK_SIZE]
+) {
+    uint8_t sum = 0u;
+
+    for (uint32_t i = 0u; i < AURORA_EDID_BLOCK_SIZE - 1u; ++i) {
+        sum = (uint8_t)(sum + block[i]);
+    }
+
+    block[AURORA_EDID_BLOCK_SIZE - 1u] =
+        (uint8_t)(0u - sum);
+}
+
+bool display_identification_selftest(void) {
+    uint8_t base[AURORA_EDID_BLOCK_SIZE] = {0};
+
+    base[0] = 0x00u;
+    base[1] = 0xFFu;
+    base[2] = 0xFFu;
+    base[3] = 0xFFu;
+    base[4] = 0xFFu;
+    base[5] = 0xFFu;
+    base[6] = 0xFFu;
+    base[7] = 0x00u;
+    base[8] = 0x12u;
+    base[9] = 0x34u;
+    base[10] = 0x78u;
+    base[11] = 0x56u;
+    base[12] = 0x04u;
+    base[13] = 0x03u;
+    base[14] = 0x02u;
+    base[15] = 0x01u;
+    base[18] = 1u;
+    base[19] = 4u;
+    base[20] = 0x80u;
+    base[54] = 0x02u;
+    base[55] = 0x3Au;
+    base[56] = 0x80u;
+    base[57] = 0x18u;
+    base[58] = 0x71u;
+    base[59] = 0x38u;
+    base[60] = 0x2Du;
+    base[61] = 0x40u;
+    base[126] = 2u;
+    finalize_checksum(base);
+
+    struct aurora_edid_base_info base_info;
+
+    if (!display_edid_parse_base(base, &base_info) ||
+        !base_info.valid ||
+        !base_info.digital_input ||
+        base_info.manufacturer_id != UINT16_C(0x1234) ||
+        base_info.product_code != UINT16_C(0x5678) ||
+        base_info.serial_number != UINT32_C(0x01020304) ||
+        base_info.extension_count != 2u ||
+        base_info.preferred_width != 1920u ||
+        base_info.preferred_height != 1080u ||
+        base_info.preferred_refresh_millihz != 60000u) {
+        return false;
+    }
+
+    uint8_t broken[AURORA_EDID_BLOCK_SIZE];
+    for (uint32_t i = 0u; i < AURORA_EDID_BLOCK_SIZE; ++i) {
+        broken[i] = base[i];
+    }
+    broken[10] ^= 1u;
+
+    if (display_edid_parse_base(broken, &base_info)) {
+        return false;
+    }
+
+    uint8_t cta[AURORA_EDID_BLOCK_SIZE] = {0};
+    cta[0] = AURORA_EDID_EXTENSION_CTA;
+    cta[1] = 3u;
+    cta[2] = 14u;
+    cta[3] = (1u << 6) | (1u << 5) | (1u << 4);
+
+    cta[4] = (uint8_t)((7u << 5) | 2u);
+    cta[5] = CTA_EXT_COLORIMETRY;
+    cta[6] = (1u << 5) | (1u << 6) | (1u << 7);
+
+    cta[7] = (uint8_t)((7u << 5) | 6u);
+    cta[8] = CTA_EXT_HDR_STATIC_METADATA;
+    cta[9] = (1u << 2) | (1u << 3);
+    cta[10] = 1u;
+    cta[11] = 100u;
+    cta[12] = 80u;
+    cta[13] = 5u;
+
+    finalize_checksum(cta);
+
+    struct aurora_cta861_info cta_info;
+
+    if (!display_cta861_parse(cta, &cta_info) ||
+        !cta_info.valid ||
+        !cta_info.basic_audio ||
+        !cta_info.ycbcr444 ||
+        !cta_info.ycbcr422 ||
+        !cta_info.bt2020_cycc ||
+        !cta_info.bt2020_ycc ||
+        !cta_info.bt2020_rgb ||
+        !cta_info.hdr_static_metadata ||
+        !cta_info.eotf_pq ||
+        !cta_info.eotf_hlg ||
+        !cta_info.static_metadata_type1 ||
+        cta_info.max_luminance_code != 100u ||
+        cta_info.max_fall_code != 80u ||
+        cta_info.min_luminance_code != 5u) {
+        return false;
+    }
+
+    struct aurora_display_capabilities capabilities = {
+        .flags = AURORA_DISPLAY_CAP_SDR,
+        .primaries_mask =
+            (1u << AURORA_COLOR_PRIMARIES_SRGB),
+        .transfer_mask =
+            (1u << AURORA_COLOR_TRANSFER_SRGB),
+        .min_bits_per_component = 8u,
+        .max_bits_per_component = 12u
+    };
+
+    if (!display_cta861_apply_capabilities(
+            &cta_info,
+            &capabilities) ||
+        (capabilities.flags & AURORA_DISPLAY_CAP_HDR_STATIC) == 0u ||
+        (capabilities.flags & AURORA_DISPLAY_CAP_PQ) == 0u ||
+        (capabilities.flags & AURORA_DISPLAY_CAP_HLG) == 0u ||
+        (capabilities.flags & AURORA_DISPLAY_CAP_WIDE_GAMUT) == 0u) {
+        return false;
+    }
+
+    uint8_t displayid[AURORA_EDID_BLOCK_SIZE] = {0};
+    displayid[0] = AURORA_EDID_EXTENSION_DISPLAYID;
+    displayid[1] = 0x20u;
+    displayid[2] = 20u;
+    displayid[3] = 5u;
+    displayid[4] = 0u;
+
+    const uint8_t tags[5] = {
+        DISPLAYID_BLOCK_DISPLAY_PARAMETERS_V2,
+        DISPLAYID_BLOCK_DYNAMIC_VIDEO_TIMING_V2,
+        DISPLAYID_BLOCK_DISPLAY_INTERFACE_FEATURES_V2,
+        DISPLAYID_BLOCK_TILED_V2,
+        DISPLAYID_BLOCK_CTA
+    };
+
+    uint32_t offset = 5u;
+
+    for (uint32_t i = 0u; i < 5u; ++i) {
+        displayid[offset] = tags[i];
+        displayid[offset + 1u] = 0u;
+        displayid[offset + 2u] = 1u;
+        displayid[offset + 3u] = 0u;
+        offset += 4u;
+    }
+
+    finalize_checksum(displayid);
+
+    struct aurora_displayid_info displayid_info;
+
+    if (!display_displayid_parse(
+            displayid,
+            &displayid_info) ||
+        !displayid_info.valid ||
+        displayid_info.structure_revision != 0x20u ||
+        displayid_info.data_block_count != 5u ||
+        !displayid_info.display_parameters ||
+        !displayid_info.dynamic_video_timing ||
+        !displayid_info.display_interface_features ||
+        !displayid_info.tiled_topology ||
+        !displayid_info.embedded_cta) {
+        return false;
+    }
+
+    return true;
+}
