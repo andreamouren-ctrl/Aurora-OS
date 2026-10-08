@@ -5,6 +5,7 @@
 #include <aurora/capability_abi.h>
 #include <aurora/syscall_abi.h>
 #include <aurora/user_session_host_abi.h>
+#include <aurora/g5_ipc_abi.h>
 
 static void clear_bytes(void *buffer, size_t size) {
     volatile uint8_t *bytes = (volatile uint8_t *)buffer;
@@ -126,6 +127,21 @@ static bool send_message(
     ) == 0u;
 }
 
+static bool send_g5_ready(uint64_t endpoint,uint64_t generation) {
+    /* Fixed-width G5 v1 frame, little-endian, no capability transfer.
+     * The kernel validates the sender only via exclusive endpoint grants. */
+    uint8_t wire[G5_IPC_WIRE_HEADER_BYTES]={0};
+    wire[0]=G5_IPC_WIRE_MAJOR;
+    wire[4]=G5_IPC_WIRE_HEADER_BYTES;
+    wire[6]=G5_IPC_EVENT;
+    const uint32_t op=G5_OP_SHELL_READY;
+    for(unsigned i=0;i<4u;++i)wire[8u+i]=(uint8_t)(op>>(8u*i));
+    wire[24]=1u; /* request_id 1 */
+    for(unsigned i=0;i<8u;++i)
+        wire[32u+i]=(uint8_t)(generation>>(8u*i));
+    return syscall5(AURORA_SYS_IPC_SEND,endpoint,
+        (uint64_t)(uintptr_t)wire,sizeof(wire),0u,0u)==0u;
+}
 static bool wait_message(uint64_t endpoint) {
     return syscall2(AURORA_SYS_IPC_WAIT, endpoint, 0u) == 0u;
 }
@@ -151,7 +167,10 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
 
     if (startup->abi_version != AURORA_USER_SESSION_HOST_ABI_VERSION ||
         startup->flags != 0u ||
-        startup->reserved0 != 0u ||
+        (startup->g5_endpoint != 0u &&
+         (!capability_has(startup->g5_endpoint,AURORA_CAP_IPC_ENDPOINT,AURORA_RIGHT_WRITE) ||
+          capability_has(startup->g5_endpoint,AURORA_CAP_IPC_ENDPOINT,AURORA_RIGHT_TRANSFER) ||
+          capability_has(startup->g5_endpoint,AURORA_CAP_IPC_ENDPOINT,AURORA_RIGHT_READ))) ||
         startup->reserved1 != 0u ||
         startup->control_endpoint == 0u ||
         startup->profile_handle == 0u ||
@@ -188,6 +207,9 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
     if (!send_message(startup->control_endpoint, AURORA_USER_SESSION_HOST_READY, 0u)) {
         return 1;
     }
+
+    if (startup->g5_endpoint != 0u &&
+        !send_g5_ready(startup->g5_endpoint,startup->session_generation)) return 1;
 
     (void)syscall1(
         AURORA_SYS_BOOTSTRAP_SIGNAL,
