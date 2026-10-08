@@ -73,6 +73,7 @@
 #define XHCI_TRB_TYPE_PORT_STATUS_CHANGE 34u
 #define XHCI_COMPLETION_SUCCESS      1u
 #define XHCI_EVENT_SPIN_LIMIT        10000000u
+#define XHCI_ASYNC_EVENT_SPIN_LIMIT  2000000000u
 #define XHCI_TRB_CYCLE               (1u << 0)
 #define XHCI_TRB_TOGGLE_CYCLE        (1u << 1)
 #define XHCI_TRB_CHAIN               (1u << 4)
@@ -983,7 +984,7 @@ bool xhci_wait_port_status_change(
         xhci_runtime_base + XHCI_RUNTIME_INTERRUPTER0;
 
     for (uint32_t spin = 0u;
-         spin < XHCI_EVENT_SPIN_LIMIT;
+         spin < XHCI_ASYNC_EVENT_SPIN_LIMIT;
          ++spin) {
         struct xhci_trb event =
             events[state->event_dequeue];
