@@ -1,4 +1,5 @@
 name: G5 IPC QEMU Cold Boot Recovery
+# Diagnose protected-state durable replace step.
 
 on:
   workflow_dispatch:
