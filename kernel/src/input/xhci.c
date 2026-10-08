@@ -289,6 +289,48 @@ bool xhci_validate_polling_event_baseline(
     return true;
 }
 
+
+bool xhci_event_ring_quiescent(
+    const struct aurora_xhci_controller_state *state
+) {
+    if (state == NULL ||
+        state->event_delivery_mode != AURORA_XHCI_EVENT_DELIVERY_POLLING ||
+        state->event_ring_physical == 0u ||
+        state->event_dequeue >= XHCI_RING_TRB_COUNT) {
+        return false;
+    }
+
+    const struct xhci_trb *events =
+        (const struct xhci_trb *)pmm_phys_to_virt(
+            state->event_ring_physical
+        );
+
+    /*
+     * An xHCI event is owned by software when its cycle bit matches the
+     * consumer cycle state.  After the final disconnect event and teardown,
+     * the next dequeue entry must therefore carry the opposite cycle.
+     */
+    struct xhci_trb next = events[state->event_dequeue];
+
+    bool owned =
+        ((next.control & XHCI_TRB_CYCLE) != 0u) ==
+        state->event_cycle;
+
+    if (owned) {
+        uint32_t type =
+            (next.control >> XHCI_TRB_TYPE_SHIFT) & 0x3Fu;
+
+        log_write("[xhci] event ring not quiescent type ");
+        log_u64(type);
+        log_write(" dequeue ");
+        log_u64(state->event_dequeue);
+        log_line("");
+        return false;
+    }
+
+    return true;
+}
+
 bool xhci_probe(struct aurora_xhci_probe_result *out_result) {
     if (out_result == NULL) return false;
 
