@@ -65,12 +65,12 @@ int main(void) {
   assert(!d.entries[i].active);
  fail_compose=false;
  assert(!g5_compositor_bridge_present(&b,slot,1,config,&serial));
- assert(g5_frame_submission_request(&f,slot,2,&req_config));
+ assert(g5_frame_submission_request(&f,slot,4,&req_config));
  surface.generation=3;
- assert(!g5_compositor_bridge_present(&b,slot,2,config,&serial));
+ assert(!g5_compositor_bridge_present(&b,slot,4,config,&serial));
  surface.generation=2;
  g5_session_context_revoke(&f.registry.session);
- assert(!g5_compositor_bridge_present(&b,slot,2,config,&serial));
+ assert(!g5_compositor_bridge_present(&b,slot,4,config,&serial));
  g5_compositor_bridge_revoke(&b);
  assert(removes==1&&!b.delivery);
  g5_frame_delivery_revoke(&d);
