@@ -2549,7 +2549,7 @@ static uint32_t hid_item_unsigned(
 bool xhci_get_hid_report_layout(
     struct aurora_xhci_controller_state *state,
     const struct aurora_usb_hid_endpoint_descriptor *endpoint,
-    struct aurora_usb_hid_report_layout *out_layout
+    struct aurora_usb_hid_mouse_report_layout *out_layout
 ) {
     if (state == NULL ||
         endpoint == NULL ||
@@ -2576,7 +2576,7 @@ bool xhci_get_hid_report_layout(
         return false;
     }
 
-    struct aurora_usb_hid_report_layout layout = {
+    struct aurora_usb_hid_mouse_report_layout layout = {
         .descriptor_length = length,
         .x_bit_offset = UINT16_MAX,
         .y_bit_offset = UINT16_MAX,
