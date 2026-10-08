@@ -2,6 +2,7 @@
 #define AURORA_G5_IPC_PENDING_H
 #include <stdbool.h>
 #include <stdint.h>
+#include <aurora/g5_ipc_abi.h>
 #define G5_IPC_PENDING_LIMIT 16u
 enum g5_pending_result {
  G5_PENDING_OK=0, G5_PENDING_FULL, G5_PENDING_DUPLICATE,
@@ -23,4 +24,11 @@ enum g5_pending_result g5_pending_add(struct g5_pending_queue *queue,
  uint64_t generation, uint64_t request_id);
 enum g5_pending_result g5_pending_remove(struct g5_pending_queue *queue,
  uint64_t generation, uint64_t request_id);
+/* Register requests or cancel a pending request by matching request_id.
+ * Must run on a serialized service-owned queue; cancellation of an already
+ * dispatched side effect is NOT guaranteed by this tracking layer. */
+enum g5_pending_result g5_pending_accept_control(
+ struct g5_pending_queue *queue,
+ const struct aurora_sys_ipc_received *message
+);
 #endif
