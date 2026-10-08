@@ -1810,6 +1810,122 @@ void kmain(void) {
         }
 
         log_line("[xhci] per-device DCBAA/context/ring teardown gate passed");
+
+        struct aurora_xhci_hid_device mouse_device = {0};
+
+        if (!xhci_enumerate_boot_hid_after_port(
+                &xhci,
+                &xhci_state,
+                xhci_port_id,
+                &mouse_device)) {
+            kernel_panic("xHCI second HID device enumeration failed");
+        }
+
+        if (mouse_device.endpoint.interface_protocol != 0x02u) {
+            kernel_panic("xHCI second HID device is not Boot Mouse protocol");
+        }
+
+        log_write("[xhci] second HID port ");
+        log_u64(mouse_device.port_id);
+        log_write(" slot ");
+        log_u64(mouse_device.slot_id);
+        log_write(" protocol ");
+        log_u64(mouse_device.endpoint.interface_protocol);
+        log_write(" endpoint ");
+        log_hex64(mouse_device.endpoint.endpoint_address);
+        log_line("");
+        log_line("[xhci] second connected HID Boot Mouse enumeration gate passed");
+
+        aurora_usb_hid_binding_handle mouse_handle =
+            AURORA_USB_HID_BINDING_INVALID;
+        uint64_t mouse_device_id = 0u;
+
+        if (!usb_hid_transport_bind(
+                &live_hid_transport,
+                AURORA_USB_HID_PROTOCOL_BOOT_MOUSE,
+                &mouse_handle,
+                &mouse_device_id)) {
+            kernel_panic("live USB HID mouse binding failed");
+        }
+
+        uint8_t mouse_motion_report[4] = {0};
+
+        log_line("[xhci] HID mouse interrupt-IN armed");
+
+        if (!xhci_receive_hid_interrupt_report(
+                &xhci_state,
+                mouse_motion_report,
+                sizeof(mouse_motion_report)) ||
+            !usb_hid_transport_submit_report(
+                &live_hid_transport,
+                mouse_handle,
+                mouse_motion_report,
+                sizeof(mouse_motion_report))) {
+            kernel_panic("xHCI live mouse motion report failed");
+        }
+
+        uint8_t mouse_button_report[4] = {0};
+
+        log_line("[xhci] HID mouse button interrupt-IN armed");
+
+        if (!xhci_receive_hid_interrupt_report(
+                &xhci_state,
+                mouse_button_report,
+                sizeof(mouse_button_report)) ||
+            !usb_hid_transport_submit_report(
+                &live_hid_transport,
+                mouse_handle,
+                mouse_button_report,
+                sizeof(mouse_button_report))) {
+            kernel_panic("xHCI live mouse button report failed");
+        }
+
+        bool saw_mouse_device = false;
+        bool saw_mouse_motion = false;
+        bool saw_mouse_button_down = false;
+
+        while (input_poll_event(&live_event)) {
+            if (live_event.type == AURORA_INPUT_EVENT_DEVICE_ADDED &&
+                live_event.device_id == mouse_device_id) {
+                saw_mouse_device = true;
+            }
+
+            if (live_event.type == AURORA_INPUT_EVENT_POINTER_RELATIVE &&
+                live_event.device_id == mouse_device_id &&
+                (live_event.delta_x != 0 ||
+                 live_event.delta_y != 0)) {
+                saw_mouse_motion = true;
+            }
+
+            if (live_event.type == AURORA_INPUT_EVENT_POINTER_BUTTON &&
+                live_event.device_id == mouse_device_id &&
+                live_event.button == AURORA_POINTER_BUTTON_LEFT &&
+                live_event.pressed) {
+                saw_mouse_button_down = true;
+            }
+        }
+
+        if (!saw_mouse_device ||
+            !saw_mouse_motion ||
+            !saw_mouse_button_down) {
+            kernel_panic("live USB mouse normalized-event verification failed");
+        }
+
+        log_line("[xhci] live HID mouse motion+button decoded into normalized input");
+
+        if (!usb_hid_transport_unbind(
+                &live_hid_transport,
+                mouse_handle) ||
+            !xhci_disable_slot(
+                &xhci_state,
+                mouse_device.slot_id) ||
+            !xhci_release_addressed_device(
+                &xhci_state,
+                mouse_device.slot_id)) {
+            kernel_panic("live USB mouse teardown failed");
+        }
+
+        log_line("[xhci] second HID Boot Mouse teardown gate passed");
     } else {
         log_line("[xhci] controller unavailable");
     }
