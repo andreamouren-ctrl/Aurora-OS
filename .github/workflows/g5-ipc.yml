@@ -103,6 +103,11 @@ jobs:
           ./build/g5/session_context_test
           cc -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all \
             -Ikernel/include kernel/src/graphics/g5_session_context.c \
+            kernel/src/session/g5_shell_session.c tests/g5/shell_session_test.c \
+            -o build/g5/shell_session_test
+          ./build/g5/shell_session_test
+          cc -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all \
+            -Ikernel/include kernel/src/graphics/g5_session_context.c \
             kernel/src/graphics/g5_surface_configure.c tests/g5/surface_configure_test.c \
             -o build/g5/surface_configure_test
           ./build/g5/surface_configure_test
