@@ -1,0 +1,82 @@
+name: G5 IPC QEMU Cold Boot Recovery
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+    paths:
+      - 'kernel/src/ipc/g5_ipc_*.c'
+      - 'kernel/include/aurora/g5_ipc_*.h'
+      - 'kernel/src/ui/login_input.c'
+      - 'kernel/src/main.c'
+      - '.github/workflows/g5-ipc-qemu.yml'
+
+jobs:
+  g5-ipc-reboot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Aurora QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld make xorriso curl git binutils python3 qemu-system-x86
+      - name: Build boot-validation ISO
+        run: make BOOT_VALIDATION=1 iso
+      - name: Prepare persistent AHCI disk
+        run: |
+          set -eu
+          IMAGE=build/g5-ipc-persist.img
+          truncate -s 16M "$IMAGE"
+          python3 - "$IMAGE" <<'PY'
+          import sys
+          with open(sys.argv[1], "r+b") as disk:
+              disk.seek(-512, 2)
+              sector = bytearray(512)
+              signature = b"AURORA-AHCI-RW-TEST-V1"
+              sector[:len(signature)] = signature
+              disk.write(sector)
+          PY
+      - name: First boot and durable request reservation
+        run: |
+          set -eu
+          set +e
+          timeout 25s qemu-system-x86_64 -M q35 -cpu max -m 512M \
+            -smp 4,sockets=1,cores=2,threads=2 -vga std \
+            -cdrom build/AuroraOS-x86_64.iso \
+            -drive file=build/g5-ipc-persist.img,format=raw,if=none,id=aurora_disk \
+            -device ide-hd,drive=aurora_disk \
+            -serial file:build/g5-ipc-first.log -display none -no-reboot -no-shutdown
+          RC=$?
+          set -e
+          test "$RC" -eq 0 -o "$RC" -eq 124
+          grep -F "[g5-ipc] real channel dispatch/replay/revoke probe passed" build/g5-ipc-first.log
+          grep -F "[g5-ipc] isolated Ring 3 frame roundtrip passed" build/g5-ipc-first.log
+          grep -F "[g5-ipc] durable ledger initialized and persisted" build/g5-ipc-first.log
+          grep -F "[kernel] M1 user-space bootstrap reached successfully" build/g5-ipc-first.log
+      - name: Cold reboot reusing SAME physical disk image
+        run: |
+          set -eu
+          set +e
+          timeout 25s qemu-system-x86_64 -M q35 -cpu max -m 512M \
+            -smp 4,sockets=1,cores=2,threads=2 -vga std \
+            -cdrom build/AuroraOS-x86_64.iso \
+            -drive file=build/g5-ipc-persist.img,format=raw,if=none,id=aurora_disk \
+            -device ide-hd,drive=aurora_disk \
+            -serial file:build/g5-ipc-second.log -display none -no-reboot -no-shutdown
+          RC=$?
+          set -e
+          test "$RC" -eq 0 -o "$RC" -eq 124
+          grep -F "[g5-ipc] durable ledger recovered from previous boot" build/g5-ipc-second.log
+          grep -F "[g5-ipc] isolated Ring 3 frame roundtrip passed" build/g5-ipc-second.log
+          grep -F "[kernel] M1 user-space bootstrap reached successfully" build/g5-ipc-second.log
+      - name: Preserve G5 cold-boot artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: G5-IPC-Cold-Boot-Logs
+          path: |
+            build/g5-ipc-first.log
+            build/g5-ipc-second.log
