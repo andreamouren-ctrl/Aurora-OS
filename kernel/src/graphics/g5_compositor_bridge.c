@@ -38,7 +38,11 @@ bool g5_compositor_bridge_present(struct g5_compositor_bridge *b,uint32_t slot,
  if(!g5_frame_delivery_publish(b->delivery,slot,req,config,&snapshot,&receipt))return false;
  /* Always release retained committed buffers, even if presentation fails. */
  graphics_surface_snapshot_release(&snapshot);
- if(!software_compositor_compose_present(b->compositor,display_serial))return false;
+ if(!software_compositor_compose_present(b->compositor,display_serial)) {
+  (void)g5_frame_delivery_abort(b->delivery,b->generation,receipt);
+  *display_serial=0;
+  return false;
+ }
  return g5_frame_delivery_ack(b->delivery,b->generation,receipt);
 }
 void g5_compositor_bridge_revoke(struct g5_compositor_bridge *b) {
