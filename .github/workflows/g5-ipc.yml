@@ -9,6 +9,9 @@ on:
       - 'tests/g5/ipc_dispatch_test.c'
       - 'kernel/include/aurora/g5_ipc_dispatch.h'
       - 'kernel/src/ipc/g5_ipc_dispatch.c'
+      - 'kernel/src/ipc/g5_ipc_cap_adapter.c'
+      - 'kernel/include/aurora/g5_ipc_cap_adapter.h'
+      - 'tests/g5/ipc_cap_adapter_test.c'
       - '.github/workflows/g5-ipc.yml'
   pull_request:
     paths:
@@ -19,6 +22,9 @@ on:
       - 'tests/g5/ipc_dispatch_test.c'
       - 'kernel/include/aurora/g5_ipc_dispatch.h'
       - 'kernel/src/ipc/g5_ipc_dispatch.c'
+      - 'kernel/src/ipc/g5_ipc_cap_adapter.c'
+      - 'kernel/include/aurora/g5_ipc_cap_adapter.h'
+      - 'tests/g5/ipc_cap_adapter_test.c'
       - '.github/workflows/g5-ipc.yml'
   workflow_dispatch:
 jobs:
@@ -41,3 +47,7 @@ jobs:
             -Ikernel/include kernel/src/ipc/g5_ipc_codec.c kernel/src/ipc/g5_ipc_dispatch.c tests/g5/ipc_dispatch_test.c \
             -o build/g5/ipc_dispatch_test
           ./build/g5/ipc_dispatch_test
+          cc -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all \
+            -Ikernel/include kernel/src/ipc/g5_ipc_cap_adapter.c tests/g5/ipc_cap_adapter_test.c \
+            -o build/g5/ipc_cap_adapter_test
+          ./build/g5/ipc_cap_adapter_test
