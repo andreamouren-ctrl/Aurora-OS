@@ -12,6 +12,15 @@ struct aurora_xhci_controller_state {
     uint64_t runtime_physical;
     uint64_t doorbell_physical;
     bool supports_4k_pages;
+
+    uint64_t dcbaa_physical;
+    uint64_t scratchpad_array_physical;
+    uint64_t command_ring_physical;
+    uint64_t event_ring_physical;
+    uint64_t erst_physical;
+
+    bool dma_ready;
+    bool running;
 };
 
 struct aurora_xhci_probe_result {
@@ -42,6 +51,11 @@ bool xhci_read_controller_state(
 );
 
 bool xhci_prepare_controller(
+    const struct aurora_xhci_probe_result *probe,
+    struct aurora_xhci_controller_state *state
+);
+
+bool xhci_bootstrap_dma(
     const struct aurora_xhci_probe_result *probe,
     struct aurora_xhci_controller_state *state
 );
