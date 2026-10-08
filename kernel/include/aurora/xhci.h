@@ -6,6 +6,11 @@
 
 #include <aurora/usb_hid.h>
 
+enum aurora_xhci_event_delivery_mode {
+    AURORA_XHCI_EVENT_DELIVERY_POLLING = 0,
+    AURORA_XHCI_EVENT_DELIVERY_MSIX = 1
+};
+
 struct aurora_xhci_controller_state {
     uint8_t context_size;
     uint16_t scratchpad_count;
@@ -36,6 +41,7 @@ struct aurora_xhci_controller_state {
     bool hid_cycle;
     bool hid_endpoint_running;
     bool addressed_slot_disabled;
+    enum aurora_xhci_event_delivery_mode event_delivery_mode;
 
     uint16_t command_enqueue;
     bool command_cycle;
