@@ -131,11 +131,12 @@ static bool send_g5_ready(uint64_t endpoint,uint64_t generation) {
     /* Fixed-width G5 v1 frame, little-endian, no capability transfer.
      * The kernel validates the sender only via exclusive endpoint grants. */
     uint8_t wire[G5_IPC_WIRE_HEADER_BYTES]={0};
-    wire[0]=G5_IPC_WIRE_MAJOR;
-    wire[4]=G5_IPC_WIRE_HEADER_BYTES;
-    wire[6]=G5_IPC_EVENT;
+    wire[0]='G';wire[1]='5';wire[2]='I';wire[3]='P';
+    wire[4]=G5_IPC_WIRE_MAJOR;
+    wire[8]=G5_IPC_WIRE_HEADER_BYTES;
+    wire[10]=G5_IPC_EVENT;
     const uint32_t op=G5_OP_SHELL_READY;
-    for(unsigned i=0;i<4u;++i)wire[8u+i]=(uint8_t)(op>>(8u*i));
+    for(unsigned i=0;i<4u;++i)wire[12u+i]=(uint8_t)(op>>(8u*i));
     wire[24]=1u; /* request_id 1 */
     for(unsigned i=0;i<8u;++i)
         wire[32u+i]=(uint8_t)(generation>>(8u*i));
