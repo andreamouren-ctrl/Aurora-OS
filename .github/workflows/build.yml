@@ -1,4 +1,5 @@
 name: Aurora OS Bootstrap Build
+# Verify RDSEED-enabled boot-validation QEMU CPUs.
 
 on:
   workflow_dispatch:
