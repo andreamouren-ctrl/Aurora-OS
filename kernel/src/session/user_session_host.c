@@ -107,9 +107,18 @@ static bool receive_expected(
     return false;
 }
 
+static void revoke_g5_sender(void) {
+    if (host.process != NULL &&
+        host.g5_sender_handle != AURORA_CAP_INVALID) {
+        (void)cap_revoke(&host.process->capabilities,host.g5_sender_handle);
+        host.g5_sender_handle=AURORA_CAP_INVALID;
+    }
+}
+
 static void cleanup_finished_host(void) {
     if (session_g5_dispatcher != NULL)
         g5_ipc_dispatch_revoke(session_g5_dispatcher);
+    revoke_g5_sender();
     if (host.process != NULL) {
         (void)session_profile_lease_revoke_process(host.process);
     }
@@ -319,6 +328,7 @@ bool user_session_host_stop(void) {
     /* Fail closed immediately, including IPC send timeout/failure paths. */
     if (session_g5_dispatcher != NULL)
         g5_ipc_dispatch_revoke(session_g5_dispatcher);
+    revoke_g5_sender();
     if (!host.active ||
         host.process == NULL ||
         host.thread == 0u ||
