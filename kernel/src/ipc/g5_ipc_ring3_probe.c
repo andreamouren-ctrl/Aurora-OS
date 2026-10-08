@@ -9,6 +9,7 @@
 static struct aurora_ipc_channel g5_ring3_channel;
 static struct aurora_cap_table g5_ring3_kernel_caps;
 static uint32_t g5_ring3_effects;
+static struct g5_pending_queue g5_ring3_pending;
 static bool authorize(void *ctx,uint32_t op,uint64_t session) {
  (void)ctx;
  return op==G5_OP_WINDOW_CLOSE && session==61;
@@ -23,6 +24,7 @@ bool g5_ipc_ring3_self_test(void) {
  ipc_channel_init(&g5_ring3_channel);
  cap_table_init(&g5_ring3_kernel_caps);
  g5_ring3_effects=0;
+ g5_pending_reset(&g5_ring3_pending,61);
  struct aurora_ipc_endpoint *kernel=ipc_channel_endpoint(&g5_ring3_channel,0);
  struct aurora_ipc_endpoint *user=ipc_channel_endpoint(&g5_ring3_channel,1);
  if(!kernel || !user)return false;
@@ -73,6 +75,7 @@ bool g5_ipc_ring3_self_test(void) {
  struct g5_ipc_endpoint_binding b={
    .receiver=kernel,.receiver_endpoint_handle=endpoint_handle,
    .receiver_caps=&g5_ring3_kernel_caps,.dispatch=&d,
+   .pending_requests=&g5_ring3_pending,
    .receiver_authority=authority_handle,
    .authority_type=AURORA_CAP_SYSTEM,.authority_rights=AURORA_RIGHT_CONTROL,
    .provisioned_exclusively=true
