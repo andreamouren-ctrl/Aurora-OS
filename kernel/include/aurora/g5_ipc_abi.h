@@ -28,7 +28,8 @@ enum g5_ipc_status {
     G5_IPC_BAD_FORMAT,
     G5_IPC_UNSUPPORTED_VERSION,
     G5_IPC_TOO_LARGE,
-    G5_IPC_UNSUPPORTED_FLAGS
+    G5_IPC_UNSUPPORTED_FLAGS,
+    G5_IPC_BAD_CAPABILITIES
 };
 
 /* Logical decoded representation only; this is NOT the on-wire layout. */
@@ -56,6 +57,16 @@ enum g5_ipc_status g5_ipc_encode(
 enum g5_ipc_status g5_ipc_decode(
     const uint8_t *source,
     size_t source_length,
+    struct g5_ipc_header *out_header,
+    const uint8_t **out_payload
+);
+
+/* Checks only the shape of received capability handles. The receiving service
+ * MUST separately check each handle's type, rights, owner and live generation
+ * through CAP_CHECK/its authoritative capability table before any use.
+ * Never interpret numeric values in message payload as capability handles. */
+enum g5_ipc_status g5_ipc_decode_received(
+    const struct aurora_sys_ipc_received *received,
     struct g5_ipc_header *out_header,
     const uint8_t **out_payload
 );
