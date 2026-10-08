@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D33**
+Status: **Design in progress — approved decisions D01–D34**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -43,6 +43,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D31 | Selective process isolation | Trusted Shell modules may share its process; compositor/display, privileged brokers and untrusted applications execute across justified isolation boundaries with supervised restart and fresh capabilities |
 | G5-D32 | Hybrid capability-scoped IPC | Use current bounded Ring 3 IPC for control messages and authorized shared memory/data handles for bulk payloads; no parallel bespoke kernel messaging system |
 | G5-D33 | Aurora Adaptive Buffering | Per-surface bounded buffer pools and frame scheduling adapt to visibility, activity, memory pressure and compositor capacity, preserving atomic commits, capability isolation and release correctness |
+| G5-D34 | Aurora Spatial Rendering hybrid | Spatial visibility indexing, region/damage-driven composition, bounded caches and software-compositor-first rendering; GPU acceleration is optional and later |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -574,6 +575,67 @@ This is a **logical** state machine; map to existing enum states without renamin
 
 **Implementation dependency:** Define and verify public buffer lifecycle notifications and any necessary Ring 3 graphics buffer mapping/transfer ABI. Exact scheduling/admission algorithm, measurable memory thresholds and frame cadence numbers remain engineering tasks, not features claimed complete.
 
+
+### 3.27 Aurora Spatial Rendering — visibility, regions and scalability (G5-D34)
+
+**Approved design:** a hybrid, CPU-first rendering system. The Shell-side Canvas Engine maintains a very large *logical* spatial model; only a bounded, relevant subset of visible graphical instances is submitted to the compositor. The compositor remains the trusted renderer/owner of surfaces, security overlays and input focus. The spatial index is an **optimization, never an authorization mechanism**.
+
+#### Current source baseline checked 2026-10-08
+- \`kernel/include/aurora/software_compositor.h\`: compositor presently supports at most **64 scene nodes** (\`AURORA_COMPOSITOR_MAX_NODES\`), pixel positions \`int32_t x/y\`, an integer scale limit \`AURORA_COMPOSITOR_MAX_SCALE=4\`, a single pending damage rectangle, occlusion accounting and composition/hit-test functions.
+- \`docs/graphics/COMPOSITOR_CONTRACT.md\`: CPU software backbuffer, clipping, occlusion, atomic scene operations and damage-based frame scheduling are already canonical concepts.
+- \`docs/graphics/SURFACE_BUFFER_PROTOCOL.md\`: bounded buffer damage, surface commit and explicit release.
+- A Canvas-wide quadtree/R-tree index, arbitrary-camera transform bridge, multi-region dirty tiling and large-world scene virtualization are **proposed**, not verified existing runtime implementations. Do not pretend the current 64-node compositor is already capable of displaying unlimited panels.
+
+#### Component ownership and data flow
+\`\`\`text
+User / Navigator / Spatial Gestures
+            ↓ camera transform (Shell Canvas Engine)
+Canvas spatial model + security-aware visibility filtering
+            ↓ viewport query against bounded spatial index
+Visible spatial instances + semantic zoom decisions
+            ↓ ordered scene diff / dirty regions
+Authorized Shell → G5.SpatialScene.v1 → compositor
+            ↓ clipping, damage, occlusion, safe presentation
+Display output (software first; GPU backend may follow)
+\`\`\`
+- Canvas model stores stable object IDs, world bounds, object revision, layer/group IDs, semantic zoom representation, visibility rules and coarse geometry; it does not own app graphics memory or bypass surface capability checks.
+- World-to-screen transformation uses a bounded numeric representation (proposed signed 64-bit fixed-point or origin-rebased doubles with checked conversions) and **camera-relative rebasing** before casting to current compositor \`int32_t\` coordinates. Guard NaN/Inf, overflow, rounding jitter, extreme aspect ratios and huge camera offsets.
+- Spatial index: begin with a benchmarked dynamic **R-tree or loose quadtree** selected after workload tests; a simple validated bounding-box scan remains the correctness/reference implementation and fallback. Index updates are versioned for add/remove/move/resize/reparent/layer changes and crash rebuild.
+- Coarse search identifies possible viewport intersections; fine validation applies transform, clipping, z-order, semantic level, occlusion and D22 privacy policy **before** creating visible nodes or hit-test targets.
+- Nodes outside viewport are **logical objects**, not compositor surface nodes. Cache only approved static snapshots or metadata within quotas; a hidden client's live application state persists independently of whether its surface is currently submitted.
+- Large semantic groups, graph links, note strokes, overlays and layer regions may use **batched scene-native primitives** to avoid consuming one privileged compositor surface per line/annotation; these primitives require a trusted, bounded graphics protocol and must not interpret arbitrary executable content.
+- Graph edges crossing the viewport are clipped; dangling endpoints cannot expose hidden/private nodes, including through labels, highlights or Navigator/minimap aggregations.
+
+#### Region-based damage, draw scheduling and caches
+- Track changes at world-object level; project their previous/new screen bounds to damage and merge into **bounded dirty tiles/rectangles** (or full-frame fallback if fragmentation is excessive). Camera movement, zoom, exposure/occlusion changes and theme updates invalidate impacted cached regions.
+- Scene deltas carry object/scene generations so compositor rejects stale moves and discarded permission/session scopes. Visible set updates, input hit testing and surface visibility changes should publish transactionally to avoid ghost or clickable invisible objects.
+- Limit per-frame work, number of visible compositor nodes, per-session index bytes, tile-cache bytes and queued scene deltas. Under pressure: evict optional tiles, reduce non-essential effect quality, coalesce redundant camera update frames, then use a documented quality fallback; **never** skip secure overlay or revoke/hide events.
+- Adaptive Buffering D33 controls the per-surface buffer lifecycle; spatial tile caching is a separate Shell/compositor-level concern and cannot overwrite \`IN_USE\` buffers or alter client buffer ownership.
+- Software rendering is the required baseline; cache/index design should not embed CPU-only pixel assumptions that prevent a later accelerated compositor backend.
+- Hit-test: use the same versioned spatial candidate set but compositor-verified surface/input-region authority. On index/scene mismatch, cancel interaction safely rather than route to an old location.
+
+#### Proposed additional contracts (not implemented)
+| Contract | Data / operation | Safety |
+|---|---|---|
+| \`G5.SpatialIndex.v1\` | upsert/remove/batch, bounding-box query, revision, rebuild | bounded query, index mismatch fallback |
+| \`G5.VisibleSet.v1\` | camera revision, representation level, ordered visible-object IDs | permission-filtered, stale-set rejection |
+| \`G5.SceneDelta.v1\` | add/remove/update visible node, transform and damage, atomic scene generation | Shell authority required, transactional apply |
+| \`G5.RenderBudget.v1\` | maximum scene nodes, tile memory, update rate, degrade hints | hard bounds; never controls access permissions |
+| \`G5.HitTest.v1\` | screen point, camera/index revision, input-region lookup | validates compositor ownership and session |
+These logical contracts may be implemented as internal C interfaces first; cross-process data must respect approved \`G5.IPC.v1\` 256-byte framing and capability-scoped bulk handles.
+
+#### Performance targets and acceptance gates
+1. **Reference correctness:** compare every indexed visibility result with a complete brute-force visibility pass on randomized canvases and edge-case coordinates; test moving/resizing objects and overlapping groups.
+2. **Scale stress:** create synthetic logical scenes of 1k, 10k and 100k lightweight notes/nodes; viewport work must remain bounded by visible candidates and changed elements where applicable, without promising all are live compositor surfaces.
+3. **Current compositor ceiling:** prove virtualized visible set respects the current 64-node limit, and document explicit fallback when more than 64 *live surfaces* are simultaneously visible. Any increase requires a separate bounded kernel/compositor change and QEMU validation.
+4. **Pan/zoom precision:** very distant camera coordinates, rapid zoom, origin rebasing, screen-to-world-to-screen round-trips, deterministic hit testing and reduced motion.
+5. **Damage:** compare full-frame output to tiled/dirty output pixel-for-pixel in software mode; include changing occlusion, zoom, theme, layer and secure overlay.
+6. **Memory:** enforce cache/index quotas, eviction, teardown on lock/logout and memory-pressure fallback without exposing prior users' pixels.
+7. **Crash/recovery:** Shell or compositor restart rebuilds index/visible sets from trusted state and invalidates stale nodes/handles; client processes remain isolated.
+8. **Benchmark evidence:** collect p50/p95 viewport-query duration, visible candidates, index update duration, compositor frame time, CPU usage, memory peak, dropped/coalesced frames and input-to-present latency in QEMU; do not claim success before runtime measurements.
+
+**Unresolved engineering choices:** R-tree vs loose quadtree; exact world coordinate representation; tile size/dirty thresholds; cache budget; scene-delta wire encoding; mitigation for the 64-live-node compositor limit; benchmark pass thresholds. These are planned for the next Canvas Engine architecture and MVP gate decisions.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -629,6 +691,7 @@ Isolated Ring 3 system and third-party application processes
 - Closing a process/session cleans all spatial objects and tokens safely.
 - Failure injection: broken module/browser does not terminate system shell; safe graphics recovery remains available.
 - Verify G5-D33 adaptive buffer admission, pressure reduction, release correctness, frame pacing, memory quotas, secure occlusion and crash recovery.
+- Verify G5-D34 spatial query equivalence, distant-camera precision, scene node virtualization, damage correctness, privacy-aware hit testing and benchmarked scalability.
 - Explicit runtime QEMU tests and CI evidence are required before marking any item implemented.
 
 ## 7. Pending design decisions
@@ -643,6 +706,7 @@ Isolated Ring 3 system and third-party application processes
 - G5-D24 camera transform limits, pan gesture conflict policy, inertial parameters and touch gesture transport gates.
 - G5-D30/D31 exact process inventory and privilege/dependency map; review G5-D32 proposed 48-byte wire envelope, bulk-memory Ring 3 API, queue backpressure, typed operation schemas and failure isolation tests.
 - G5-D33 adaptive buffer pool admission/eviction thresholds, Ring 3 buffer-release notifications, frame pacing targets and multi-client performance baselines.
+- G5-D34 spatial indexing selection, world-coordinate precision and rebasing, viewport virtualization, dirty-tile budgets and the compositor 64-node capacity constraint.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
