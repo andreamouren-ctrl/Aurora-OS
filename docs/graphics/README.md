@@ -110,3 +110,6 @@ G4 now adds the runtime-verified PS/2 + normalized routing foundation: secure hi
 
 
 The live USB mouse gate also verifies right-click, middle-click and vertical wheel scrolling in addition to motion and left-click. These are injected externally by QEMU and must emerge as normalized Aurora pointer/scroll events. Side/extra buttons are intentionally deferred to HID Report Descriptor support.
+
+
+Aurora now reads the live mouse HID Report Descriptor and switches the interface to Report Protocol. The qemu USB mouse advertises five buttons, X/Y and a vertical wheel in a 32-bit report with no Report ID. Back/Forward decoding can therefore be implemented and runtime-tested against real emulated report bits rather than synthetic-only data.

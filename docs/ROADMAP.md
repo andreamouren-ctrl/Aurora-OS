@@ -375,3 +375,6 @@ Every milestone is evaluated against performance, memory efficiency, latency, pr
 
 
 - [x] G4 Boot Mouse right/middle/wheel live xHCI runtime gate
+
+
+- [x] G4 HID Report Descriptor + Report Protocol runtime gate (QEMU mouse advertises 5 buttons)

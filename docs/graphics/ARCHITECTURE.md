@@ -239,3 +239,6 @@ These may be added without weakening the base ownership model.
 
 
 G4 Boot Mouse live coverage now includes relative motion, left/right/middle-button transitions and vertical wheel scroll. The runtime gate injects these through the QEMU monitor and validates that they traverse qemu-xhci, the interrupt-IN transfer ring, the USB HID transport and the normalized Aurora input queue. Additional side/extra mouse buttons remain a Report-Protocol concern rather than part of the fixed Boot Mouse contract.
+
+
+The xHCI HID path now reads and parses the HID Report Descriptor instead of relying exclusively on Boot Protocol. The live QEMU mouse descriptor resolves to a 32-bit input report with Report ID 0, X/Y, vertical wheel and five button bits. Aurora also successfully issues HID SET_PROTOCOL(Report). This establishes the descriptor-driven foundation required for Back/Forward and other non-Boot controls without hardcoded report assumptions.

@@ -326,3 +326,17 @@ Implemented and runtime verified on the live qemu-xhci Boot Mouse path:
 - [x] live QEMU wheel-axis injection -> xHCI interrupt-IN -> normalized scroll event.
 
 The current Boot Mouse path therefore covers relative motion, left/right/middle buttons and vertical wheel scrolling. Back/Forward and vendor-specific extra buttons are not claimed by this gate because they generally require HID Report Protocol / Report Descriptor parsing rather than the fixed Boot Mouse report.
+
+
+### G4 HID Report Descriptor foundation — runtime verified
+
+Implemented and runtime verified on the live qemu-xhci mouse:
+
+- [x] parse HID descriptor (0x21) and carry the subordinate Report Descriptor length;
+- [x] GET_DESCRIPTOR(Report, 0x22) over EP0;
+- [x] bounded HID short-item parser with fail-closed long-item/multi-report handling;
+- [x] extract input report bit length, Report ID, button count and X/Y/wheel fields;
+- [x] HID SET_PROTOCOL(Report) control request;
+- [x] live QEMU report-layout runtime gate.
+
+The qemu USB mouse reports **5 buttons**, a **32-bit input report**, **Report ID 0**, and a **wheel field**. This means buttons 4 and 5 are genuinely advertised by the emulated device and can be mapped to Aurora Back/Forward in the next G4 block rather than being synthesized or assumed.
