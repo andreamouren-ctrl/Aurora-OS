@@ -592,7 +592,13 @@ static bool v2d_rename(void *opaque, const char *old_path, const char *new_path)
     uint64_t existing_index;
     enum aurora_fs_lookup_result new_result =
         resolve_path_result(context, new_path, &existing_index, &existing);
-    if (new_result != AURORA_FS_LOOKUP_NOT_FOUND) return false;
+    /* Durable record publication replaces an existing regular file.
+     * The namespace transaction layer validates same-parent source/target,
+     * journal slots and old-inode reclamation atomically. Directories and
+     * ambiguous lookups remain denied. */
+    if (new_result != AURORA_FS_LOOKUP_NOT_FOUND &&
+        (new_result != AURORA_FS_LOOKUP_FOUND ||
+         existing.type != AURORA_FS_V2_OBJECT_FILE)) return false;
     if (!resolve_parent(context, old_path, &old_parent, old_name) ||
         !resolve_parent(context, new_path, &new_parent, new_name) ||
         old_parent != new_parent) return false;
