@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D25**
+Status: **Design in progress — approved decisions D01–D26**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -35,6 +35,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D23 | Aurora Visual Studio | Visual theme editor for Canvas, nodes, relation threads, Hub modules, typography, transparency, borders and aesthetic behaviors; reusable exportable presets |
 | G5-D24 | Aurora Spatial Gestures | Pan, pointer-anchored zoom, adjustable inertial navigation, keyboard shortcuts, and progressive multi-touch gesture support; Canvas rotation is not included |
 | G5-D25 | Aurora Canvas Portals | Spatial bookmarks and visible portal nodes jump to saved coordinates, authorized groups or projects without duplicating content; live remote-area previews excluded |
+| G5-D26 | Aurora Spatial Layers | Named Canvas layers support independent visibility, edit locks, stacking order and item membership, with authorized interactions and no advanced per-layer effects in this decision |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -225,6 +226,20 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 - Enforce no accidental jump while dragging/selecting; activation requires explicit click/keyboard action, not pointer hover.
 - Acceptance: create/edit/delete bookmark and portal, jump to distant coordinate and group, navigate back, confirm privacy filtering, reject stale/deleted or cross-session targets, and ensure no item duplication or session-state reset.
 
+
+### 3.19 Aurora Spatial Layers (G5-D26)
+- Users may create, name, reorder, hide/show and lock/unlock **Canvas layers**, assigning eligible spatial items to a layer. A safe default layer exists; item ownership and application execution remain independent of layer membership.
+- Layer order determines eligible Canvas item drawing/stacking policy, integrated with Shell-managed z-order; transient secure system overlays and trusted UI are **never** subordinated to arbitrary user layer ordering.
+- A hidden layer removes its visual objects and related hit-test/input targets from ordinary interaction; hidden does **not** terminate app processes or delete content. Revocation, lock/logout and other higher-priority privacy decisions still apply.
+- A locked layer prevents direct user edits to layout, membership or object transforms through the Canvas; it is **not** an access-control boundary. Authorization remains enforced through Aurora Identity and Privacy Layers (D22).
+- Objects on a layer may belong to multiple semantic groups (D19), but each displayed spatial instance must have well-defined primary layer placement; semantic membership does not replicate a live application surface.
+- Relation Graph (D09/D10) can display cross-layer links when permitted and visible under the active layer filter; hiding a layer must not leak private endpoints via stray edges or aggregate counts. Focus (D20) and Semantic Selection (D18) must respect visibility and locked edit states.
+- Moving between layers, renaming, hide/show, locking and reordering are user-visible reversible structural changes recorded by Canvas History (D17), with atomic validation and stale-generation checks.
+- Navigator (D07), Universal Command (D21), Portals (D25) and Smart Organization (D08) may offer layer filters and target-navigation hints, but may not silently reveal hidden/private content or override a user's intentional hidden/locked layer.
+- Layer customization inherits Visual Studio (D23) theme tokens; **independent opacity, per-layer post-processing filters and complex blend modes are not approved by D26** and would require a separate compositor cost/security design.
+- Accessibility: keyboard layer chooser, clear visible/hidden/locked states, accessible layer labels, and non-color-only distinctions.
+- Acceptance: create/rename/reorder a layer; move an item between layers; hide/show and validate compositor visibility plus hit testing; lock and reject edits; undo/redo; enforce secure overlay priority; test protected cross-layer relations and process lifetime preservation.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -252,7 +267,7 @@ Isolated Ring 3 system and third-party application processes
 - G5.2: compositor spatial scene, focus, mouse interactions, Spatial Gestures with pan/pointer-centered zoom and optional inertia.
 - G5.3: live application panels and semantic representations.
 - G5.4: minimal modular Hub, system-module host, launcher/search, deterministic Universal Command palette (AI interpretation optional), and Aurora Visual Studio theme-editor baseline.
-- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History, spatial/semantic selection, hybrid Spatial Groups, contextual Spatial Focus and basic Canvas Portals.
+- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History, spatial/semantic selection, hybrid Spatial Groups, contextual Spatial Focus, basic Canvas Portals and functional Spatial Layers.
 - G5.6: QEMU/CI end-to-end, privacy/authorization, performance and recovery tests.
 - Rich Content Fabric, full native browser engine and advanced graph indexing may require later dedicated milestones, not blockers for a coherent first G5 release.
 
@@ -272,6 +287,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify Visual Studio theme preview/apply/cancel, validated export/import, accessibility fallback and refusal of unsafe theme resources.
 - Verify D24 pan, pointer-anchored zoom, inertial cancellation, keyboard alternatives, reduced-motion behavior and safe input capture revocation.
 - Verify D25 bookmark/portal creation, typed destination resolution, back navigation, stale-target handling and privacy-safe cross-session denial.
+- Verify D26 layer create/rename/reorder, visibility/hit-test coherence, edit locking, history undo and secure-overlay priority.
 - No cross-client graphics/control privilege escalation, stale-generation use or cross-session content leak.
 - Closing a process/session cleans all spatial objects and tokens safely.
 - Failure injection: broken module/browser does not terminate system shell; safe graphics recovery remains available.
