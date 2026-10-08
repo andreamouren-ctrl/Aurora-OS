@@ -96,4 +96,10 @@ bool xhci_prepare_address_device(
     uint8_t speed_id
 );
 
+bool xhci_submit_address_device(
+    struct aurora_xhci_controller_state *state,
+    uint8_t slot_id,
+    uint64_t *out_command_trb_physical
+);
+
 #endif
