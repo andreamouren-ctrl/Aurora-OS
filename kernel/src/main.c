@@ -1547,6 +1547,12 @@ void kmain(void) {
 
         log_line("[xhci] DCBAA/command/event/ERST polling bootstrap passed");
 
+        if (!xhci_validate_polling_event_baseline(&xhci_state)) {
+            kernel_panic("xHCI bounded polling event-delivery baseline invalid");
+        }
+
+        log_line("[xhci] bounded polling event-delivery baseline gate passed");
+
         uint8_t xhci_port_id = 0u;
         uint8_t xhci_speed_id = 0u;
 
@@ -2197,6 +2203,14 @@ void kmain(void) {
         }
 
         log_line("[xhci] disconnect-driven Disable Slot/context teardown gate passed");
+
+        if (!xhci_validate_polling_event_baseline(&xhci_state) ||
+            !xhci_event_ring_quiescent(&xhci_state)) {
+            kernel_panic("xHCI final polling event-ring quiescence failed");
+        }
+
+        log_line("[xhci] final polling event-ring quiescence gate passed");
+        log_line("[xhci] G4 input transport runtime completion gate passed");
     } else {
         log_line("[xhci] controller unavailable");
     }
