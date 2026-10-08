@@ -138,6 +138,9 @@ jobs:
           grep -F "[xhci] PCI/BAR/MMIO capability probe passed" "$SERIAL_LOG"
           grep -F "[xhci] halt/reset/4KiB readiness gate passed" "$SERIAL_LOG"
           grep -F "[xhci] DCBAA/command/event/ERST polling bootstrap passed" "$SERIAL_LOG"
+          grep -F "[xhci] connected-port reset gate passed" "$SERIAL_LOG"
+          grep -F "[xhci] Enable Slot command submitted" "$SERIAL_LOG"
+          grep -F "[xhci] Enable Slot command-completion gate passed" "$SERIAL_LOG"
           grep -F "[input] PS/2 mouse IRQ path online" "$SERIAL_LOG"
 
           if ! grep -F \
