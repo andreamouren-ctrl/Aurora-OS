@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D13**
+Status: **Design in progress — approved decisions D01–D14**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -23,6 +23,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D11 | Adaptive Aurora Hub | Immersive full-screen, reduced panel and hidden modes |
 | G5-D12 | Modular customizable Aurora Hub | Add/remove/reorder/resize modules; universal search remains accessible |
 | G5-D13 | Hub-to-Canvas module transfer | Drag a compatible Hub module onto Living Canvas as a spatial panel, preserving its logical state and permissions |
+| G5-D14 | Bidirectional Hub ↔ Canvas transfer | Move compatible modules in either direction with preserved state and permissions; simultaneous multi-view instances are not included in this decision |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -69,7 +70,9 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 - The operation changes presentation/placement ownership through trusted Shell policy; it does not grant new privileges or move client execution into the Shell process.
 - A drag preview indicates intended placement. On failure or cancellation, Hub and app state remain unchanged. On successful transfer, focus and input routing switch atomically to the authorized Canvas surface.
 - Presentation must respect capability-scoped configure/ack, surface generation, session scope, and secure input restrictions. A crashed module cannot crash the Shell.
-- Returning a Canvas panel to Hub, cloning a view, and keeping a persistent shortcut in Hub are candidate follow-up behaviors, not yet approved decisions.
+- G5-D14 approves returning a Canvas panel to Hub: the Shell performs a bidirectional, transactional presentation reparenting while keeping the same logical application instance and state. Failure or cancellation leaves the original presentation intact.
+- Neither direction may bypass surface generation, configure/ack, authorization, focus, input or session boundaries. The transfer must not silently duplicate a process, live session or view.
+- Simultaneous multi-view instances, cloning and persistent Hub shortcuts remain candidates for later decisions, not yet approved.
 
 ## 4. Architecture direction
 ```text
@@ -105,6 +108,7 @@ Isolated Ring 3 system and third-party application processes
 ## 6. Quality and acceptance requirements
 - Demonstrate multiple isolated Ring 3 clients with spatial panels, move/resize/focus and correct input routing.
 - Demonstrate Hub enter/reduce/hide/restore without losing app state.
+- Demonstrate Hub → Canvas → Hub for a live module, preserving application state and correct focus, including abort/failed-transfer rollback.
 - Show navigation to offscreen content; semantic zoom behaves without flicker or stale input.
 - User-approved relation creation and undo; rejected proposals have no effect.
 - No cross-client graphics/control privilege escalation, stale-generation use or cross-session content leak.
@@ -113,7 +117,7 @@ Isolated Ring 3 system and third-party application processes
 - Explicit runtime QEMU tests and CI evidence are required before marking any item implemented.
 
 ## 7. Pending design decisions
-- Actual Hub module layout and lifecycle; gesture/accessibility details of G5-D13, reverse docking and view cloning.
+- Actual Hub module layout and lifecycle; gesture/accessibility details of G5-D13, bidirectional transfer interaction details and view cloning.
 - Camera gesture details, shortcuts, zoom thresholds and 64-bit coordinate limits.
 - Widget security model, spatial surface protocol and focus strategy.
 - Content Fabric storage/index format and relation graph semantic schema.
