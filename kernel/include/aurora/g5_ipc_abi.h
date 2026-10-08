@@ -90,6 +90,8 @@ enum g5_ipc_status g5_ipc_decode_received(
 /* Reject unknown operation before any side effect. Runtime opcode authorization
  * is still the duty of the receiving service. */
 bool g5_ipc_opcode_known(uint32_t operation);
+/* Minimum receiver-authority rights required for each known control opcode. */
+uint64_t g5_ipc_opcode_required_rights(uint32_t operation);
 
 /* Host-testable authorization boundary: the callback must perform authoritative
  * handle lookup in the RECEIVER's capability table (type, rights, generation).
