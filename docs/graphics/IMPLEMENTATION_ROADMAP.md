@@ -232,8 +232,18 @@ Implemented and runtime verified:
 - [x] centered initial placement with bounded cascade;
 - [x] Shell-owned monotonic stacking / raise policy.
 
+Additional G5 policy hardening (implemented, runtime confirmation pending):
+- bounded move with configure-ack geometry and output-bound validation;
+- explicit toplevel destruction with activation-token invalidation;
+- duplicate live toplevel role denial and stale surface-generation checks;
+- regression selftests for stale references, denied activation and move bounds.
+
 Remaining:
 
+- [ ] compositor scene and input-router integration for move/resize/close;
+- [ ] explicit automatic toplevel cleanup from surface/process/session teardown;
+- [ ] concurrency/lifetime auditing before use with asynchronous Ring 3 clients;
+- [ ] verify new policy regression tests in QEMU and Actions;
 - [ ] decorations;
 - [ ] Desktop Shell process;
 - [ ] launcher/panel/task switching baseline;
