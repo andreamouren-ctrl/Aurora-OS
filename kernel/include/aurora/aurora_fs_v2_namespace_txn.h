@@ -36,4 +36,6 @@ bool aurora_fs_v2_remove_child_txn(
 bool aurora_fs_v2_namespace_txn_self_test(void);
 bool aurora_fs_v2_namespace_txn_runtime_self_test(void);
 
+/* Boot-diagnostic only: zero means no replacement attempt. */
+uint32_t aurora_fs_v2_rename_debug_stage(void);
 #endif
