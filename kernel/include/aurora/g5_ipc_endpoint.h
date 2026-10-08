@@ -8,6 +8,8 @@
  */
 struct g5_ipc_endpoint_binding {
  struct aurora_ipc_endpoint *receiver;
+ aurora_cap_handle receiver_endpoint_handle;
+ aurora_thread_id trusted_consumer_thread; /* 0 = bootstrap-only */
  struct aurora_cap_table *receiver_caps;
  struct g5_dispatch_context *dispatch;
  aurora_cap_handle receiver_authority;
