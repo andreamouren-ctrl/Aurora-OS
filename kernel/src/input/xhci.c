@@ -18,6 +18,8 @@
 
 #define XHCI_CAP_CAPLENGTH          0x00u
 #define XHCI_CAP_HCSPARAMS1         0x04u
+#define XHCI_CAP_HCSPARAMS2         0x08u
+#define XHCI_CAP_HCCPARAMS1         0x10u
 #define XHCI_CAP_DBOFF              0x14u
 #define XHCI_CAP_RTSOFF             0x18u
 
@@ -147,6 +149,61 @@ bool xhci_probe(struct aurora_xhci_probe_result *out_result) {
             PCI_CAP_ID_MSIX,
             &ignored_offset
         )
+    };
+
+    return true;
+}
+
+
+bool xhci_read_controller_state(
+    const struct aurora_xhci_probe_result *probe,
+    struct aurora_xhci_controller_state *out_state
+) {
+    if (probe == NULL ||
+        out_state == NULL ||
+        xhci_capability_base == NULL ||
+        probe->mmio_physical == 0u ||
+        probe->capability_length < 0x20u) {
+        return false;
+    }
+
+    uint32_t hcsparams2 = xhci_read32(XHCI_CAP_HCSPARAMS2);
+    uint32_t hccparams1 = xhci_read32(XHCI_CAP_HCCPARAMS1);
+
+    uint16_t scratchpad_hi =
+        (uint16_t)((hcsparams2 >> 21u) & 0x1Fu);
+    uint16_t scratchpad_lo =
+        (uint16_t)((hcsparams2 >> 27u) & 0x1Fu);
+    uint16_t scratchpads =
+        (uint16_t)((scratchpad_hi << 5u) | scratchpad_lo);
+
+    uint64_t operational =
+        probe->mmio_physical +
+        (uint64_t)probe->capability_length;
+    uint64_t runtime =
+        probe->mmio_physical +
+        (uint64_t)probe->runtime_offset;
+    uint64_t doorbell =
+        probe->mmio_physical +
+        (uint64_t)probe->doorbell_offset;
+
+    if (operational < probe->mmio_physical ||
+        runtime < probe->mmio_physical ||
+        doorbell < probe->mmio_physical) {
+        return false;
+    }
+
+    /*
+     * PAGESIZE is an operational register and is read during reset/prepare.
+     * Record the static architectural facts here; the live page-size mask is
+     * filled by xhci_prepare_controller().
+     */
+    *out_state = (struct aurora_xhci_controller_state){
+        .context_size = (hccparams1 & (1u << 2)) != 0u ? 64u : 32u,
+        .scratchpad_count = scratchpads,
+        .operational_physical = operational,
+        .runtime_physical = runtime,
+        .doorbell_physical = doorbell
     };
 
     return true;
