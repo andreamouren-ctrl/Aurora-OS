@@ -347,6 +347,7 @@ jobs:
           grep -F "[xhci] PCI/BAR/MMIO capability probe passed" "$SERIAL_LOG"
           grep -F "[xhci] halt/reset/4KiB readiness gate passed" "$SERIAL_LOG"
           grep -F "[xhci] DCBAA/command/event/ERST polling bootstrap passed" "$SERIAL_LOG"
+          grep -F "[xhci] bounded polling event-delivery baseline gate passed" "$SERIAL_LOG"
           grep -F "[xhci] connected-port reset gate passed" "$SERIAL_LOG"
           grep -F "[xhci] Enable Slot command submitted" "$SERIAL_LOG"
           grep -F "[xhci] Enable Slot command-completion gate passed" "$SERIAL_LOG"
@@ -376,6 +377,8 @@ jobs:
           grep -F "[xhci] live mouse Port Status Change disconnect gate passed" "$SERIAL_LOG"
           grep -F "[xhci] disconnect-driven HID unbind DEVICE_REMOVED gate passed" "$SERIAL_LOG"
           grep -F "[xhci] disconnect-driven Disable Slot/context teardown gate passed" "$SERIAL_LOG"
+          grep -F "[xhci] final polling event-ring quiescence gate passed" "$SERIAL_LOG"
+          grep -F "[xhci] G4 input transport runtime completion gate passed" "$SERIAL_LOG"
           grep -F "[input] PS/2 mouse IRQ path online" "$SERIAL_LOG"
 
           if ! grep -F \
