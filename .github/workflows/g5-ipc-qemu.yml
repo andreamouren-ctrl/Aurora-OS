@@ -1,4 +1,5 @@
 name: G5 IPC QEMU Cold Boot Recovery
+# Diagnose QEMU replay durability gate.
 
 on:
   workflow_dispatch:
