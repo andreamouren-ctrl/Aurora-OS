@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D22**
+Status: **Design in progress — approved decisions D01–D23**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -32,6 +32,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D20 | Aurora Spatial Focus: contextual | Center the selected item/group, emphasize relevant items and links and dim unrelated Canvas regions; easily reversible with no layout mutation |
 | G5-D21 | Aurora Universal Command: hybrid | Deterministic command palette and universal search, with optional natural-language AI interpretation, explicit previews and confirmations for consequential operations |
 | G5-D22 | Aurora Privacy Layers | Granular privacy for Canvas items, groups and relationships, private areas, presentation mode and Identity-mediated authorization |
+| G5-D23 | Aurora Visual Studio | Visual theme editor for Canvas, nodes, relation threads, Hub modules, typography, transparency, borders and aesthetic behaviors; reusable exportable presets |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -183,6 +184,20 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 - Acceptance: protected item and relation absent from unauthorized searches, minimap, group counts, focus highlights, history previews and smart proposals; authorized reauthentication permits access; presentation mode obscures private UI; lock/revoke/logout remove pixels and input authority; no protected content exposed by stale-frame or cross-session tests.
 - Scope note: UI contract is approved for G5, while full Identity and secure pre-session compositor migration remains coordinated with G6.
 
+
+### 3.16 Aurora Visual Studio — theme customization (G5-D23)
+- Provide a visual editor for composing and previewing themes across **Living Canvas, Aurora Hub, Spatial Groups, Relation Graph pins/threads and adaptive modules**. This is the theme-authoring feature named Aurora Visual Studio; it does not refer to Microsoft's Visual Studio development environment.
+- Editable design tokens include background colors/images/gradients, surface colors, typography families/scale (subject to installed/licensed font availability), icon styling, node and edge palettes, edge width/style, borders, corner radii, transparency and optional motion/visual effects. Not all tokens must be exposed in the initial implementation.
+- Changes appear in a **live, reversible preview** before Save/Apply. Cancel restores the active theme; applying a theme is atomic, with an accessible fallback/default and recovery from invalid presets.
+- Ship a coherent Aurora default theme. Allow user-owned named presets, duplication, import/export in a **versioned, validated, portable declarative format**. Never execute code or accept scripts through theme bundles.
+- Theme data must not change object ownership, privacy/authorization, focus routing, application privileges, secure chrome or visibility of safety-critical system prompts. Protected or secure surfaces use controlled high-contrast/legibility rules regardless of user theme.
+- Enforce minimum contrast/readability, scalable UI, reduced-motion preferences and meaningful non-color indicators for relation semantics. Alpha effects and animations degrade gracefully under the software compositor.
+- Theme evaluation must have bounded resource costs (e.g. image size, shader/effect availability, animation complexity), and previews must not block ordinary app rendering.
+- Keep themes separate from **Canvas layout/history** and from persistent authenticated-user profile ownership; user theme settings may be saved in G5, while cross-reboot full workspace reconstruction aligns with G7.
+- Define stable token inheritance: global theme -> Hub/Canvas component defaults -> per-group/per-object visual override, with privacy/security overrides having the final say.
+- Acceptance: edit Canvas background and relation-thread style, preview and cancel, apply, export/reimport valid preset, reject malformed/oversized/untrusted preset, verify accessibility defaults and safe recovery on Shell restart.
+- Automatic activity/context-driven theme switching belongs to a distinct future decision; it is **not** approved by G5-D23.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -209,7 +224,7 @@ Isolated Ring 3 system and third-party application processes
 - G5.1: protocol/lifecycle hardening, teardown, concurrent Ring 3 tests.
 - G5.2: compositor spatial scene, focus, mouse interactions, zoom/pan.
 - G5.3: live application panels and semantic representations.
-- G5.4: minimal modular Hub, system-module host, launcher/search and deterministic Universal Command palette (AI interpretation optional).
+- G5.4: minimal modular Hub, system-module host, launcher/search, deterministic Universal Command palette (AI interpretation optional), and Aurora Visual Studio theme-editor baseline.
 - G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History, spatial/semantic selection, hybrid Spatial Groups and contextual Spatial Focus.
 - G5.6: QEMU/CI end-to-end, privacy/authorization, performance and recovery tests.
 - Rich Content Fabric, full native browser engine and advanced graph indexing may require later dedicated milestones, not blockers for a coherent first G5 release.
@@ -227,6 +242,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify Spatial Focus camera framing, relevant-edge highlighting, exit/restore navigation, safe dimmed input routing and no layout mutation.
 - Verify Universal Command offline registry/search, safe action previews and confirmation, cancellation, authorization checks and optional AI-to-typed-command mediation.
 - Verify G5-D22 privacy enforcement across Canvas, Hub, graph, search, Navigator, history, presentation mode, lock/revocation and cached rendering.
+- Verify Visual Studio theme preview/apply/cancel, validated export/import, accessibility fallback and refusal of unsafe theme resources.
 - No cross-client graphics/control privilege escalation, stale-generation use or cross-session content leak.
 - Closing a process/session cleans all spatial objects and tokens safely.
 - Failure injection: broken module/browser does not terminate system shell; safe graphics recovery remains available.
@@ -240,6 +256,7 @@ Isolated Ring 3 system and third-party application processes
 - Visual theme tokens, accessibility and motion-reduction behavior.
 - G5/G7 persistence boundary (especially Canvas History retention/checkpoint survival); browser engine milestone.
 - Universal Command registry schema, AI provider policy and approval thresholds.
+- G5-D23 theme token schema, preset export format, minimum accessibility contrast and graphics effect budgets.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
