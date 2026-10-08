@@ -69,6 +69,8 @@ jobs:
           RC=$?
           set -e
           test "$RC" -eq 0 -o "$RC" -eq 124
+          echo "===== G5 SECOND BOOT (last 120 serial lines) ====="
+          tail -n 120 build/g5-ipc-second.log
           grep -F "[g5-ipc] durable ledger recovered from previous boot" build/g5-ipc-second.log
           grep -F "[g5-ipc] isolated Ring 3 frame roundtrip passed" build/g5-ipc-second.log
           grep -F "[kernel] M1 user-space bootstrap reached successfully" build/g5-ipc-second.log
