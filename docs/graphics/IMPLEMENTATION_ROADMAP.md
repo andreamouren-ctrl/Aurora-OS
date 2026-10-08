@@ -14,7 +14,8 @@ This roadmap orders M4 work by hard dependencies. A checkbox in the global roadm
 - [ ] WP-02 compile/test and GitHub Actions verdict independently verified; awaiting runtime and integration evidence.
 - [x] WP-02 follow-up source: `g5_ipc_decode_received()` now checks capability count (max 4), rejects zero/duplicate received handles, and preserves the rule that authoritative capability type/rights/generation validation is separate; negative tests added.
 - [x] WP-02 typed opcode registry and injected fail-closed receiver-side capability validation interface; negative host test cases committed (G5 IPC source and tests).
-- [ ] WP-02 full scope: bind checker to real cap_lookup/CAP_CHECK in a live service, per-operation typed payload schemas, cancellation/queue/backpressure integration and Ring 3 tests.
+- [x] WP-02 typed schema function added for the initial Shell/window/scene opcode shapes; independent negative test file `tests/g5/ipc_schema_test.c` committed and included in `.github/workflows/g5-ipc.yml`.
+- [ ] WP-02 full scope: bind checker to real cap_lookup/CAP_CHECK in a live service, validate semantic fields of each operation, cancellation/queue/backpressure integration and Ring 3 tests.
 - [ ] Fresh CI verdict for latest WP-02 changes: no commit checks / PR-triggered workflow runs exposed by connector at audit time; do not claim passing.
 
 The audit is **documentation/source review only**, not a completed G5 Core implementation/runtime gate. It identifies already present graphics syscalls and a stricter 32-input-target ceiling to preserve during integration.
