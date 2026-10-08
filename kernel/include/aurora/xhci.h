@@ -52,6 +52,17 @@ struct aurora_usb_device_descriptor {
     uint8_t configuration_count;
 };
 
+struct aurora_usb_hid_endpoint_descriptor {
+    uint8_t configuration_value;
+    uint8_t interface_number;
+    uint8_t interface_subclass;
+    uint8_t interface_protocol;
+    uint8_t endpoint_address;
+    uint16_t max_packet_size;
+    uint8_t interval;
+    uint16_t total_configuration_length;
+};
+
 struct aurora_xhci_probe_result {
     uint8_t bus;
     uint8_t slot;
@@ -137,6 +148,11 @@ bool xhci_control_in(
 bool xhci_get_device_descriptor(
     struct aurora_xhci_controller_state *state,
     struct aurora_usb_device_descriptor *out_descriptor
+);
+
+bool xhci_find_boot_hid_endpoint(
+    struct aurora_xhci_controller_state *state,
+    struct aurora_usb_hid_endpoint_descriptor *out_endpoint
 );
 
 #endif
