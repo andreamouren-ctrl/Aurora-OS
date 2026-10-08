@@ -3,6 +3,7 @@
 #include <aurora/g5_compositor_bridge.h>
 static struct aurora_graphics_surface surface;
 static unsigned adds,removes,presents,releases;
+static bool fail_compose;
 bool graphics_surface_lookup(struct aurora_cap_table *c,aurora_cap_handle h,
  uint64_t rights,struct aurora_graphics_surface **out) {
  if(!c||h!=17||!out||(rights&~(AURORA_RIGHT_READ|AURORA_RIGHT_CONTROL)))return false;
@@ -30,7 +31,7 @@ bool software_compositor_remove_surface(struct aurora_software_compositor *c,uin
  return true;
 }
 bool software_compositor_compose_present(struct aurora_software_compositor *c,uint64_t *out) {
- if(!c||!out)return false;
+ if(!c||!out||fail_compose)return false;
  ++presents;
  *out=presents;
  return true;
@@ -55,6 +56,14 @@ int main(void) {
  assert(g5_frame_submission_request(&f,slot,1,&req_config));
  assert(g5_compositor_bridge_present(&b,slot,1,config,&serial)&&serial==1);
  assert(presents==1&&releases==1);
+ assert(g5_frame_submission_request(&f,slot,3,&req_config));
+ fail_compose=true;
+ assert(!g5_compositor_bridge_present(&b,slot,3,config,&serial));
+ assert(serial==0);
+ assert(releases==2);
+ for(unsigned i=0;i<G5_FRAME_DELIVERY_CAPACITY;i++)
+  assert(!d.entries[i].active);
+ fail_compose=false;
  assert(!g5_compositor_bridge_present(&b,slot,1,config,&serial));
  assert(g5_frame_submission_request(&f,slot,2,&req_config));
  surface.generation=3;
