@@ -2,6 +2,7 @@
 #define AURORA_G5_IPC_ENDPOINT_H
 #include <aurora/g5_ipc_authorized_dispatch.h>
 #include <aurora/ipc.h>
+#include <aurora/g5_ipc_pending.h>
 /* Kernel-owned, single-consumer endpoint: the opposite side must be delegated
  * ONLY to the authorized session principal, with no transferable rights.
  * IPC itself does not supply sender PID; provisioning is the trust boundary.
@@ -16,6 +17,8 @@ struct g5_ipc_endpoint_binding {
  enum aurora_cap_type authority_type;
  uint64_t authority_rights;
  bool provisioned_exclusively;
+ struct g5_pending_queue *pending_requests; /* optional bounded server queue */
+ uint32_t poll_in_progress; /* atomic try-acquire: one active consumer */
 };
 /* Consume one message, returning false when no message is available or the
  * endpoint is not provisioned. Rejected messages are consumed fail-closed.
