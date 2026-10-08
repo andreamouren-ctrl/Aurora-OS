@@ -37,6 +37,21 @@ struct aurora_xhci_controller_state {
     bool running;
 };
 
+struct aurora_usb_device_descriptor {
+    uint16_t usb_version_bcd;
+    uint8_t device_class;
+    uint8_t device_subclass;
+    uint8_t device_protocol;
+    uint8_t max_packet_size0;
+    uint16_t vendor_id;
+    uint16_t product_id;
+    uint16_t device_version_bcd;
+    uint8_t manufacturer_string;
+    uint8_t product_string;
+    uint8_t serial_string;
+    uint8_t configuration_count;
+};
+
 struct aurora_xhci_probe_result {
     uint8_t bus;
     uint8_t slot;
@@ -117,6 +132,11 @@ bool xhci_control_in(
     uint16_t index,
     void *buffer,
     uint16_t length
+);
+
+bool xhci_get_device_descriptor(
+    struct aurora_xhci_controller_state *state,
+    struct aurora_usb_device_descriptor *out_descriptor
 );
 
 #endif
