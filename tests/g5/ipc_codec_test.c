@@ -46,6 +46,27 @@ int main(void) {
     assert(g5_ipc_decode(bytes,47,&decoded,&payload)==G5_IPC_BAD_FORMAT);
     h=valid_header(0); h.session_generation=0;
     assert(g5_ipc_encode(&h,NULL,bytes,sizeof(bytes),&n)==G5_IPC_BAD_FORMAT);
+    h=valid_header(0);
+    assert(g5_ipc_encode(&h,NULL,bytes,sizeof(bytes),&n)==G5_IPC_OK);
+    struct aurora_sys_ipc_received received={0};
+    memcpy(received.data,bytes,n);
+    received.length=(uint32_t)n;
+    received.capability_count=1;
+    received.capabilities[0]=77;
+    assert(g5_ipc_decode_received(&received,&decoded,&payload)==G5_IPC_OK);
+    received.capabilities[0]=0;
+    assert(g5_ipc_decode_received(&received,&decoded,&payload)==G5_IPC_BAD_CAPABILITIES);
+    received.capability_count=2;
+    received.capabilities[0]=88;
+    received.capabilities[1]=88;
+    assert(g5_ipc_decode_received(&received,&decoded,&payload)==G5_IPC_BAD_CAPABILITIES);
+    received.capabilities[1]=89;
+    assert(g5_ipc_decode_received(&received,&decoded,&payload)==G5_IPC_OK);
+    received.capability_count=5;
+    assert(g5_ipc_decode_received(&received,&decoded,&payload)==G5_IPC_BAD_CAPABILITIES);
+    received.capability_count=0;
+    received.length=257;
+    assert(g5_ipc_decode_received(&received,&decoded,&payload)==G5_IPC_TOO_LARGE);
     puts("G5 IPC v1 codec contract tests: PASS");
     return 0;
 }
