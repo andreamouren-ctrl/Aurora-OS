@@ -24,12 +24,16 @@ bool g5_ipc_endpoint_self_test(void) {
  aurora_cap_handle authority=cap_grant(
    &probe_caps,&probe_channel,AURORA_CAP_SYSTEM,AURORA_RIGHT_CONTROL);
  if(authority==AURORA_CAP_INVALID) return false;
+ aurora_cap_handle recv_handle=cap_grant(&probe_caps,receiver,
+    AURORA_CAP_IPC_ENDPOINT,AURORA_RIGHT_READ);
+ if(recv_handle==AURORA_CAP_INVALID) return false;
  struct g5_dispatch_context d={
    .active_session_generation=17,
    .authorize=probe_authorize,.handler=probe_execute
  };
  struct g5_ipc_endpoint_binding b={
-   .receiver=receiver,.receiver_caps=&probe_caps,.dispatch=&d,
+   .receiver=receiver,.receiver_endpoint_handle=recv_handle,
+   .receiver_caps=&probe_caps,.dispatch=&d,
    .receiver_authority=authority,.authority_type=AURORA_CAP_SYSTEM,
    .authority_rights=AURORA_RIGHT_CONTROL,.provisioned_exclusively=true
  };
@@ -53,5 +57,6 @@ bool g5_ipc_endpoint_self_test(void) {
  if(!ipc_send(sender,NULL,bytes,(uint32_t)n,NULL,0)) return false;
  if(!g5_ipc_endpoint_poll(&b,&result) || result!=G5_IPC_DENIED ||
     probe_executions!=1) return false;
- return cap_revoke(&probe_caps,authority);
+ return cap_revoke(&probe_caps,recv_handle) &&
+        cap_revoke(&probe_caps,authority);
 }
