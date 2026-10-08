@@ -250,6 +250,45 @@ static bool xhci_wait_mask32(
 }
 
 
+bool xhci_validate_polling_event_baseline(
+    const struct aurora_xhci_controller_state *state
+) {
+    if (state == NULL ||
+        state->event_delivery_mode != AURORA_XHCI_EVENT_DELIVERY_POLLING ||
+        !state->dma_ready ||
+        !state->running ||
+        state->event_ring_physical == 0u ||
+        state->erst_physical == 0u ||
+        xhci_runtime_base == NULL) {
+        return false;
+    }
+
+    volatile uint8_t *interrupter0 =
+        xhci_runtime_base + XHCI_RUNTIME_INTERRUPTER0;
+
+    uint32_t iman =
+        xhci_mmio_read32(
+            interrupter0,
+            XHCI_INTR_IMAN
+        );
+
+    /*
+     * IMAN bit 1 is Interrupt Enable.  The V1 polling baseline keeps it
+     * deliberately clear while still using the xHCI Event Ring/ERST.  This
+     * prevents accidentally claiming interrupt-driven delivery before Aurora
+     * has generic PCI MSI-X table programming and dynamic device-vector
+     * ownership.
+     */
+    if ((iman & (1u << 1)) != 0u) {
+        log_write("[xhci] polling baseline invalid IMAN ");
+        log_hex64(iman);
+        log_line("");
+        return false;
+    }
+
+    return true;
+}
+
 bool xhci_probe(struct aurora_xhci_probe_result *out_result) {
     if (out_result == NULL) return false;
 
