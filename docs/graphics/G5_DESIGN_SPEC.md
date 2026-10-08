@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D16**
+Status: **Design in progress — approved decisions D01–D17**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -26,6 +26,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D14 | Bidirectional Hub ↔ Canvas transfer | Move compatible modules in either direction with preserved state and permissions; simultaneous multi-view instances are not included in this decision |
 | G5-D15 | Fully adaptive modules | Module interface automatically reorganizes available controls, information density and presentation in response to panel geometry, Hub/Canvas context and semantic zoom; application state remains intact |
 | G5-D16 | Aurora Smart Transfer | Cross-module drag-and-drop offers context-sensitive, compatible actions such as open, embed, copy or link; explicit consent and capability controls protect data |
+| G5-D17 | Aurora Canvas History | Undo/redo, restore points and a navigable timeline for Canvas layout and relation changes; no implicit rollback of application-internal data |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -100,6 +101,18 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 - Initial G5 acceptance: native test clients exchange a document/image reference with explicit open/copy/link alternatives, an approved graph relation is reflected in Canvas, and rejected/aborted transfers produce no side effects.
 - Automatic AI interpretation and arbitrary format conversion are future extensions, not required for the deterministic Smart Transfer baseline.
 
+
+### 3.10 Aurora Canvas History (G5-D17)
+- Keep an **undo/redo transaction journal** for user-visible Canvas-structure changes: item placement, size, grouping, organization choices, visual relationship edits, and compatible Hub↔Canvas presentation moves.
+- Offer **restore points** and a **navigable timeline** with preview-before-restore. Restoring a prior arrangement must not silently delete documents, reverse external web actions, or alter a module's own persisted data.
+- Define typed reversible commands with preconditions, object-generation checks, transaction IDs, actor/session scope and inverse operations; record atomic composite operations (such as accepted automatic layout and approved Smart Transfer link) as one logical history entry.
+- A restore creates a new current state rather than erasing past history. Failed or inapplicable operations leave the live Canvas unchanged and offer a precise conflict explanation.
+- Memory and storage use must be bounded via journal compaction, checkpointing and explicit retention policy; persistent recoverability across reboot is coordinated with G7, while G5 supports live-session history.
+- Journal entries must not embed credentials, full private document payloads, arbitrary URLs with secrets or privileged capabilities. Stale/unauthorized references are sanitized and cannot be resurrected by undo/restore.
+- Multiple-client concurrency and module teardown require clear conflict handling; only Shell-authorized operations enter Canvas structural history. Future collaborative history is out of scope.
+- Accessibility: keyboard undo/redo, readable timeline entries and restore confirmation showing which Canvas objects will change.
+- Acceptance: verify placement → link → group → undo/redo; save restore point → further edits → preview/restore; failed restore rollback; session permission revocation; no document-content modifications.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -127,7 +140,7 @@ Isolated Ring 3 system and third-party application processes
 - G5.2: compositor spatial scene, focus, mouse interactions, zoom/pan.
 - G5.3: live application panels and semantic representations.
 - G5.4: minimal modular Hub, system-module host, basic launcher/search.
-- G5.5: Navigator, manual relation pins/links, basic suggested layouts and a capability-mediated Smart Transfer baseline.
+- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer and bounded live-session Canvas History.
 - G5.6: QEMU/CI end-to-end, security, performance and recovery tests.
 - Rich Content Fabric, full native browser engine and advanced graph indexing may require later dedicated milestones, not blockers for a coherent first G5 release.
 
@@ -138,6 +151,7 @@ Isolated Ring 3 system and third-party application processes
 - Show navigation to offscreen content; semantic zoom behaves without flicker or stale input.
 - User-approved relation creation and undo; rejected proposals have no effect.
 - Demonstrate typed cross-module Smart Transfer with explicit user-selected open/copy/link operations, authorization checks and cancellation rollback.
+- Verify Canvas History undo/redo and restore-point preview, conflict-safe restore, and isolation from application-internal document state.
 - No cross-client graphics/control privilege escalation, stale-generation use or cross-session content leak.
 - Closing a process/session cleans all spatial objects and tokens safely.
 - Failure injection: broken module/browser does not terminate system shell; safe graphics recovery remains available.
@@ -149,7 +163,7 @@ Isolated Ring 3 system and third-party application processes
 - Widget security model, spatial surface protocol and focus strategy.
 - Content Fabric storage/index format and relation graph semantic schema.
 - Visual theme tokens, accessibility and motion-reduction behavior.
-- G5/G7 persistence boundary; browser engine milestone.
+- G5/G7 persistence boundary (especially Canvas History retention/checkpoint survival); browser engine milestone.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
