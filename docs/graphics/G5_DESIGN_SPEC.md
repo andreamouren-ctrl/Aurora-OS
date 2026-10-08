@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D40**
+Status: **Design in progress — approved decisions D01–D41**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -50,6 +50,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D38 | Aurora Atomic Scene Transactions | Validated, revisioned, atomic scene updates across canonical Scene Graph, derived index, compositor projection and hit testing; conflict detection and safe rollback, excluding app-internal distributed transactions |
 | G5-D39 | Aurora Staged Persistence | G5 durably persists user-authorized Canvas structure, layers, groups, notes, relations and references via journal/checkpoints; G7 expands restoration to applications and Activity Spaces |
 | G5-D40 | Incremental Journal + Verified Snapshots | Versioned bounded append journal with periodic immutable full-scene checkpoints, integrity-checked manifest publication, quota-based compaction and fail-closed power-loss recovery |
+| G5-D41 | Aurora Hybrid Autosave | Continuous edits are coalesced into bounded structural transactions, journaled asynchronously with explicit durable acknowledgments, critical-operation durability barriers and visible unsaved-state tracking |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -1056,6 +1057,60 @@ Every file uses explicit little-endian fields, checked offset/length arithmetic,
 
 **Implementation gates:** scoped profile storage API; audited durable append+sync+atomic publish semantics; binary serializers with fuzz/property tests; journal compactor; QEMU reboot and power-cut CI evidence. None is claimed implemented solely by approving this design.
 
+
+### 3.34 Aurora Hybrid Autosave — commit policy, durability and loss limits (G5-D41)
+
+**Approved choice C:** ordinary continuous user interaction remains responsive using bounded batching and asynchronous persistence; critical actions use an explicit durable barrier. Saving is independent of app-internal document state. G5-D39/D40 storage journal/checkpoints remain authoritative.
+
+#### Commit classes and batching
+- **Class I — interactive ephemeral:** every pointer movement, camera pan/zoom intermediate and drag preview updates the live scene only; it is **not** individually journaled. Camera positioning is saved only on deliberate bookmark/checkpoint or bounded idle snapshot if configured.
+- **Class S — structural autosave:** on drag release, finalized stroke, edited note debounce/blur, group or layer edit, relation change, portal change, template instantiation, or undo/redo, produce one validated D38 scene transaction with monotonically increasing applied revision. Coalesce redundant changes **before** commit only (e.g. one pointer drag into one move; text input into bounded batches); do not conflate independent edits or conceal security changes.
+- **Class D — durability barrier:** explicit Save/Checkpoint, workspace switching/closing, normal logout/shutdown, critical structural import/bulk replacement and user-triggered restore must wait for the persistence broker's confirmed \`durable_revision >= requested_revision\` or report failure; do not assume flush succeeded after only queueing an IPC message. Emergency lock/session revocation takes precedence over save and cannot be delayed for disk I/O.
+- Save policy is **per-workspace, per-authenticated-user** with serialized ordered journal writer and separate low-priority checkpoint compaction worker; no filesystem work on rendering, compositor, input-routing or critical UI threads.
+
+#### Proposed configurable timings and strict meaning
+- Draft default **note text debounce 750 ms after last edit** and **autosave dispatch within 2 seconds** after a finalized Class S transaction when storage service is healthy. Continuous editing has a maximum unsynced window target of **5 seconds** measured from first unflushed committed text edit; split long streams into independently committed batches. These are design targets, **not guaranteed actual durability** until benchmark/CI verification.
+- Explicit Save triggers immediate flush/barrier; idle checkpoint scheduling should depend on journal size, replay estimate and resource pressure rather than an arbitrary fixed per-minute synchronous snapshot.
+- Never translate "2 seconds to enqueue" into "2 seconds power-loss protection": only a storage sync + verified publication earns a durable ACK. In disk stalls, show PENDING/DEGRADED, and stop accepting further unsafe edits after a finite bounded dirty-memory quota; avoid silently claiming zero loss.
+- **Loss semantics:** after a crash/power loss, restore the highest acknowledged durable revision; edits with \`applied_revision > durable_revision\` may be lost. Under healthy storage the design aims to reduce exposure to the 5-second window; **no absolute maximum seconds of data loss can be promised** while the storage backend is slow/unavailable. Class D operations must either complete durably or explicitly fail/not complete their critical transition.
+- Transaction batches are memory- and count-limited. Journal queues have capacity and backpressure; rejected/overflow changes remain clearly unsaved, with error feedback and safe editor state rather than unbounded growth.
+
+#### Save-state UI and event contract
+\`G5.AutosaveStatus.v1\` reports \`workspace_id\`, \`session_generation\`, \`applied_revision\`, \`queued_revision\`, \`durable_revision\`, \`dirty_bytes\`, \`last_durable_time\`, \`last_error\`, \`status_generation\`.
+User-facing statuses:
+| State | Meaning | Allowed claim |
+|---|---|---|
+| \`CLEAN\` | applied revision equals confirmed durable revision | Saved |
+| \`DIRTY\` | edits applied but not queued/durable | Unsaved changes |
+| \`QUEUED\` | persistence accepted the pending batch, no sync ack | Saving… |
+| \`FLUSHING\` | journal sync/publish in progress | Saving… |
+| \`DEGRADED\` | storage slow/queue near quota | Save delayed — risk of losing recent edits |
+| \`ERROR\` | storage failed or durable barrier failed | Could not save |
+| \`RECOVERY\` | replay/checkpoint verification running | Recovering last verified state |
+- Every status update must be tagged by session/workspace/generation; stale ACK cannot change the indicator to Saved. An accessibility announcement is required on persistent errors; never spam an announcement for each keystroke.
+- UI can show time since last confirmed save; do not display false timestamps for queued writes.
+
+#### Save transaction and concurrency rules
+1. On finalized structural commit D38, assign scene revision and construct a replayable D40 journal delta.
+2. Place it in bounded ordered autosave queue; deduplicate identical transaction IDs and detect missing/out-of-order revisions.
+3. Broker append, validate, sync and publish durable journal tail as D40 requires. Only after verified durable ACK advance \`durable_revision\`. ACK must include transaction ID, workspace ID and broker/storage generation.
+4. Concurrent Scene mutations may proceed while healthy until queue/dirty cap; immutable snapshots and revision-bound deltas prevent journal data races.
+5. Explicit Save barriers wait only for their target revision and cannot be satisfied by a prior or different workspace's ACK; in failure return typed status with last known durable revision.
+6. On broker crash, invalidate in-flight futures, query last durable journal revision after supervised restart and safely replay missing still-owned deltas if present; never blindly duplicate operations.
+7. Session closing, user switching and revocation discard all expired authority, cancel unsafe in-flight operations and clear sensitive staging memory. A normal close/logout must clearly report a failed save barrier and offer safe user action where possible; forced shutdown may lose unconfirmed edits.
+
+#### Test matrix and acceptance
+1. Sustained text entry and continuous drawing/drag: frame/input smoothness, correct batching and one history step per intended gesture.
+2. Boundary tests for 750-ms debounce, 2-s dispatch goal and 5-s unsynced target under healthy storage, with monotonic timing and bounded scheduling jitter; tune using QEMU measurements.
+3. Simulated disk delay, queue saturation, out-of-space and I/O error: \`DEGRADED/ERROR\` UI, bounded memory and no false Saved result.
+4. Power cut before append, after write, during sync, after durable publish and before ACK: recovery equals actual durable journal outcome; no duplicate replay.
+5. Explicit Save/workspace switch/logout barriers acknowledge correct revision or fail visibly, never silently transition.
+6. Broker restart with stale ACK and changed session generation, reauth/lock revocation and concurrent workspace isolation.
+7. Undo/redo, templates, notes, groups, layers and portal updates produce deterministic journal revisions and preserve D17 History separation.
+8. QEMU/AuroraFS repeated cold-reboot, forced-kill and saturation tests record p50/p95 write/flush latency, queue depth, dirty bytes, recovered revision and compositor frame consistency.
+
+**Implementation prerequisites:** profile-scoped broker, verified AuroraFS sync/atomic-tail publication, bounded journal queue, async Ring 3 IPC completion, durable acknowledgment and UI indicator. Timings remain tentative until measurement and policy review.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -1118,6 +1173,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify G5-D38 atomic staging/publication, conflict and duplicate rejection, fail-closed input epochs, History coherence, cancellation/timeout recovery and privacy revocation priority.
 - Verify G5-D39 durable scene restore across reboot, journal replay, last-known-good checkpoint, crash/power-loss fault injection, per-user isolation and explicit dirty-state reporting.
 - Verify G5-D40 binary format/golden vectors, dual-manifest generation recovery, journal truncation/deduplication, bounded compaction, power-cut ordering and last-known-good preservation.
+- Verify G5-D41 batching, debounce/dispatch timing, durable save barriers, non-misleading UI status, bounded outage behavior and recovered revision under crash.
 - Explicit runtime QEMU tests and CI evidence are required before marking any item implemented.
 
 ## 7. Pending design decisions
@@ -1137,6 +1193,7 @@ Isolated Ring 3 system and third-party application processes
 - G5-D37 scene hierarchy depth and transform scope, semantic graph linkage, compositor projection and hit-test generation coherence.
 - G5-D38 scene transaction limits, compositor batch stage/publish/ack, input epochs, idempotent commit/recovery and structural History journaling.
 - G5-D39/D40 profile-scoped storage broker, snapshot/journal v1 binary envelope, verified dual-manifest publication, compaction quotas, durable recovery and G7 restore bridge.
+- G5-D41 async autosave durability barrier, typed save states, bounded pending-journal queues, debounce/flush performance targets and loss-exposure measurements.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
