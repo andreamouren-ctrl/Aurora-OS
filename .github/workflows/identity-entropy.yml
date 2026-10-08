@@ -1,4 +1,5 @@
 name: Aurora Identity Entropy Handoff
+# Assert entropy readiness is a required QEMU boot-validation gate.
 
 on:
   workflow_dispatch:
