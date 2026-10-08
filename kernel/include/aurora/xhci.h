@@ -71,6 +71,23 @@ struct aurora_usb_hid_endpoint_descriptor {
     uint16_t report_descriptor_length;
 };
 
+struct aurora_usb_hid_report_layout {
+    uint16_t descriptor_length;
+    uint16_t input_report_bits;
+    uint8_t report_id;
+    uint8_t button_count;
+    uint16_t button_bit_offset;
+    uint16_t x_bit_offset;
+    uint16_t y_bit_offset;
+    uint16_t wheel_bit_offset;
+    uint8_t x_bit_size;
+    uint8_t y_bit_size;
+    uint8_t wheel_bit_size;
+    bool has_x;
+    bool has_y;
+    bool has_wheel;
+};
+
 struct aurora_xhci_hid_device {
     uint8_t port_id;
     uint8_t speed_id;
@@ -186,6 +203,12 @@ bool xhci_get_device_descriptor(
 bool xhci_find_boot_hid_endpoint(
     struct aurora_xhci_controller_state *state,
     struct aurora_usb_hid_endpoint_descriptor *out_endpoint
+);
+
+bool xhci_get_hid_report_layout(
+    struct aurora_xhci_controller_state *state,
+    const struct aurora_usb_hid_endpoint_descriptor *endpoint,
+    struct aurora_usb_hid_report_layout *out_layout
 );
 
 bool xhci_set_configuration_and_boot_protocol(
