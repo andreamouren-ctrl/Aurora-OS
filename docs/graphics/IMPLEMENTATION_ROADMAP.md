@@ -215,7 +215,7 @@ Acceptance gate:
 
 Mouse and keyboard interact with multiple surfaces without cross-client event leakage.
 
-Current G4 gate status: **runtime verified end-to-end for a live USB HID Boot keyboard on qemu-xhci**. Aurora configures the USB device, forces HID Boot protocol, creates and enables the interrupt-IN endpoint, arms a Normal TRB, receives the hardware/emulated 8-byte report, submits it through the existing HID binding layer and verifies the resulting normalized key event. The mandatory QEMU gate injects key A and observes report usage 0x04 before the normalized-input success marker. G4 remains **In progress** because the second HID Boot device (mouse), live disconnect lifecycle and the final interrupt-delivery policy still need completion.
+Current G4 gate status: **runtime verified end-to-end for a live USB HID Boot keyboard on qemu-xhci**. Aurora configures the USB device, forces HID Boot protocol, creates and enables the interrupt-IN endpoint, arms a Normal TRB, receives the hardware/emulated 8-byte report, submits it through the existing HID binding layer and verifies the resulting normalized key event. The mandatory QEMU gate injects key A and observes report usage 0x04 before the normalized-input success marker. G4 remains **In progress** because the second HID Boot device (mouse), actual port-disconnect-triggered lifecycle and the final interrupt-delivery policy still need completion. The resource teardown mechanics themselves are now runtime verified through HID unbind -> Disable Slot -> DCBAA/context/ring release.
 
 ## Phase G5 — Window protocol and Shell
 
