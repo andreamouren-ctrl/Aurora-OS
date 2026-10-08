@@ -1913,6 +1913,101 @@ void kmain(void) {
 
         log_line("[xhci] live HID mouse motion+button decoded into normalized input");
 
+        uint8_t mouse_right_report[4] = {0};
+
+        log_line("[xhci] HID mouse right-button interrupt-IN armed");
+
+        if (!xhci_receive_hid_interrupt_report(
+                &xhci_state,
+                mouse_right_report,
+                sizeof(mouse_right_report)) ||
+            !usb_hid_transport_submit_report(
+                &live_hid_transport,
+                mouse_handle,
+                mouse_right_report,
+                sizeof(mouse_right_report))) {
+            kernel_panic("xHCI live mouse right-button report failed");
+        }
+
+        bool saw_mouse_right_down = false;
+        while (input_poll_event(&live_event)) {
+            if (live_event.type == AURORA_INPUT_EVENT_POINTER_BUTTON &&
+                live_event.device_id == mouse_device_id &&
+                live_event.button == AURORA_POINTER_BUTTON_RIGHT &&
+                live_event.pressed) {
+                saw_mouse_right_down = true;
+            }
+        }
+
+        if (!saw_mouse_right_down) {
+            kernel_panic("live USB mouse right-button verification failed");
+        }
+
+        log_line("[xhci] live HID mouse right-button decoded into normalized input");
+
+        uint8_t mouse_middle_report[4] = {0};
+
+        log_line("[xhci] HID mouse middle-button interrupt-IN armed");
+
+        if (!xhci_receive_hid_interrupt_report(
+                &xhci_state,
+                mouse_middle_report,
+                sizeof(mouse_middle_report)) ||
+            !usb_hid_transport_submit_report(
+                &live_hid_transport,
+                mouse_handle,
+                mouse_middle_report,
+                sizeof(mouse_middle_report))) {
+            kernel_panic("xHCI live mouse middle-button report failed");
+        }
+
+        bool saw_mouse_middle_down = false;
+        while (input_poll_event(&live_event)) {
+            if (live_event.type == AURORA_INPUT_EVENT_POINTER_BUTTON &&
+                live_event.device_id == mouse_device_id &&
+                live_event.button == AURORA_POINTER_BUTTON_MIDDLE &&
+                live_event.pressed) {
+                saw_mouse_middle_down = true;
+            }
+        }
+
+        if (!saw_mouse_middle_down) {
+            kernel_panic("live USB mouse middle-button verification failed");
+        }
+
+        log_line("[xhci] live HID mouse middle-button decoded into normalized input");
+
+        uint8_t mouse_wheel_report[4] = {0};
+
+        log_line("[xhci] HID mouse wheel interrupt-IN armed");
+
+        if (!xhci_receive_hid_interrupt_report(
+                &xhci_state,
+                mouse_wheel_report,
+                sizeof(mouse_wheel_report)) ||
+            !usb_hid_transport_submit_report(
+                &live_hid_transport,
+                mouse_handle,
+                mouse_wheel_report,
+                sizeof(mouse_wheel_report))) {
+            kernel_panic("xHCI live mouse wheel report failed");
+        }
+
+        bool saw_mouse_scroll = false;
+        while (input_poll_event(&live_event)) {
+            if (live_event.type == AURORA_INPUT_EVENT_SCROLL &&
+                live_event.device_id == mouse_device_id &&
+                live_event.scroll_y != 0) {
+                saw_mouse_scroll = true;
+            }
+        }
+
+        if (!saw_mouse_scroll) {
+            kernel_panic("live USB mouse wheel verification failed");
+        }
+
+        log_line("[xhci] live HID mouse wheel decoded into normalized input");
+
         if (!usb_hid_transport_unbind(
                 &live_hid_transport,
                 mouse_handle) ||
