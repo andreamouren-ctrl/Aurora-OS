@@ -61,3 +61,9 @@ bool g5_durable_reserve(struct g5_ipc_durable_ledger *d,
  d->last_request_id=request_id;
  return true;
 }
+
+bool g5_durable_reserve_callback(void *context,uint64_t generation,
+ uint64_t request_id) {
+ return g5_durable_reserve((struct g5_ipc_durable_ledger *)context,
+                           generation,request_id);
+}
