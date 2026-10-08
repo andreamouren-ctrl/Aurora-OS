@@ -2529,3 +2529,233 @@ bool xhci_enumerate_boot_hid_after_port(
 
     return true;
 }
+
+
+#define AURORA_USB_HID_REPORT_DESCRIPTOR_MAX 1024u
+
+static uint32_t hid_item_unsigned(
+    const uint8_t *data,
+    uint8_t size
+) {
+    uint32_t value = 0u;
+
+    for (uint8_t i = 0u; i < size; ++i) {
+        value |= (uint32_t)data[i] << (8u * i);
+    }
+
+    return value;
+}
+
+bool xhci_get_hid_report_layout(
+    struct aurora_xhci_controller_state *state,
+    const struct aurora_usb_hid_endpoint_descriptor *endpoint,
+    struct aurora_usb_hid_report_layout *out_layout
+) {
+    if (state == NULL ||
+        endpoint == NULL ||
+        out_layout == NULL ||
+        endpoint->report_descriptor_length == 0u ||
+        endpoint->report_descriptor_length >
+            AURORA_USB_HID_REPORT_DESCRIPTOR_MAX) {
+        return false;
+    }
+
+    static uint8_t raw[AURORA_USB_HID_REPORT_DESCRIPTOR_MAX];
+
+    uint16_t length = endpoint->report_descriptor_length;
+
+    if (!xhci_control_in(
+            state,
+            0x81u,
+            0x06u,
+            0x2200u,
+            endpoint->interface_number,
+            raw,
+            length)) {
+        log_line("[xhci] GET_DESCRIPTOR(HID Report) failed");
+        return false;
+    }
+
+    struct aurora_usb_hid_report_layout layout = {
+        .descriptor_length = length,
+        .x_bit_offset = UINT16_MAX,
+        .y_bit_offset = UINT16_MAX,
+        .wheel_bit_offset = UINT16_MAX
+    };
+
+    uint16_t bit_offset = 0u;
+    uint16_t usage_page = 0u;
+    uint8_t report_size = 0u;
+    uint8_t report_count = 0u;
+    uint8_t report_id = 0u;
+
+    uint16_t usage_min = UINT16_MAX;
+    uint16_t usage_max = UINT16_MAX;
+    uint16_t usages[16] = {0};
+    uint8_t usage_count = 0u;
+
+    uint16_t cursor = 0u;
+
+    while (cursor < length) {
+        uint8_t prefix = raw[cursor++];
+
+        if (prefix == 0xFEu) {
+            log_line("[xhci] long HID report items unsupported");
+            return false;
+        }
+
+        uint8_t size_code = prefix & 0x03u;
+        uint8_t item_size =
+            size_code == 3u ? 4u : size_code;
+
+        if ((uint16_t)(length - cursor) < item_size) {
+            return false;
+        }
+
+        uint8_t type = (uint8_t)((prefix >> 2u) & 0x03u);
+        uint8_t tag = (uint8_t)((prefix >> 4u) & 0x0Fu);
+        uint32_t value =
+            hid_item_unsigned(&raw[cursor], item_size);
+
+        cursor = (uint16_t)(cursor + item_size);
+
+        if (type == 1u) {
+            if (tag == 0x0u) {
+                usage_page = (uint16_t)value;
+            } else if (tag == 0x7u) {
+                if (value == 0u || value > 32u) return false;
+                report_size = (uint8_t)value;
+            } else if (tag == 0x8u) {
+                if (value == 0u || value > 255u) return false;
+                report_id = (uint8_t)value;
+                if (layout.report_id != 0u &&
+                    layout.report_id != report_id) {
+                    log_line("[xhci] multiple HID report IDs unsupported");
+                    return false;
+                }
+                layout.report_id = report_id;
+                bit_offset = 8u;
+            } else if (tag == 0x9u) {
+                if (value == 0u || value > 255u) return false;
+                report_count = (uint8_t)value;
+            }
+            continue;
+        }
+
+        if (type == 2u) {
+            if (tag == 0x0u) {
+                if (usage_count <
+                    (uint8_t)(sizeof(usages) / sizeof(usages[0]))) {
+                    usages[usage_count++] = (uint16_t)value;
+                }
+            } else if (tag == 0x1u) {
+                usage_min = (uint16_t)value;
+            } else if (tag == 0x2u) {
+                usage_max = (uint16_t)value;
+            }
+            continue;
+        }
+
+        if (type == 0u && tag == 0x8u) {
+            if (report_size == 0u || report_count == 0u) {
+                return false;
+            }
+
+            uint32_t field_bits =
+                (uint32_t)report_size *
+                (uint32_t)report_count;
+
+            if ((uint32_t)bit_offset + field_bits >
+                UINT16_MAX) {
+                return false;
+            }
+
+            bool constant = (value & 0x01u) != 0u;
+
+            if (!constant && usage_page == 0x09u) {
+                uint16_t declared_buttons = 0u;
+
+                if (usage_min != UINT16_MAX &&
+                    usage_max != UINT16_MAX &&
+                    usage_max >= usage_min) {
+                    declared_buttons =
+                        (uint16_t)(usage_max - usage_min + 1u);
+                } else {
+                    declared_buttons = report_count;
+                }
+
+                if (report_size != 1u ||
+                    declared_buttons == 0u ||
+                    declared_buttons > report_count ||
+                    declared_buttons > 8u) {
+                    return false;
+                }
+
+                layout.button_count =
+                    (uint8_t)declared_buttons;
+                layout.button_bit_offset = bit_offset;
+            }
+
+            if (!constant && usage_page == 0x01u) {
+                for (uint8_t i = 0u;
+                     i < report_count;
+                     ++i) {
+                    uint16_t usage = 0u;
+
+                    if (i < usage_count) {
+                        usage = usages[i];
+                    } else if (usage_min != UINT16_MAX &&
+                               usage_max != UINT16_MAX &&
+                               usage_min + i <= usage_max) {
+                        usage = (uint16_t)(usage_min + i);
+                    }
+
+                    uint16_t field_offset =
+                        (uint16_t)(
+                            bit_offset +
+                            (uint16_t)i * report_size
+                        );
+
+                    if (usage == 0x30u) {
+                        layout.has_x = true;
+                        layout.x_bit_offset = field_offset;
+                        layout.x_bit_size = report_size;
+                    } else if (usage == 0x31u) {
+                        layout.has_y = true;
+                        layout.y_bit_offset = field_offset;
+                        layout.y_bit_size = report_size;
+                    } else if (usage == 0x38u) {
+                        layout.has_wheel = true;
+                        layout.wheel_bit_offset = field_offset;
+                        layout.wheel_bit_size = report_size;
+                    }
+                }
+            }
+
+            bit_offset =
+                (uint16_t)(bit_offset + field_bits);
+
+            usage_min = UINT16_MAX;
+            usage_max = UINT16_MAX;
+            usage_count = 0u;
+        } else if (type == 0u) {
+            usage_min = UINT16_MAX;
+            usage_max = UINT16_MAX;
+            usage_count = 0u;
+        }
+    }
+
+    layout.input_report_bits = bit_offset;
+
+    if (layout.button_count == 0u ||
+        !layout.has_x ||
+        !layout.has_y ||
+        layout.x_bit_size == 0u ||
+        layout.y_bit_size == 0u ||
+        layout.input_report_bits == 0u) {
+        return false;
+    }
+
+    *out_layout = layout;
+    return true;
+}
