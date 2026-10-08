@@ -1060,3 +1060,85 @@ bool xhci_prepare_address_device(
     state->addressed_slot_id = slot_id;
     return true;
 }
+
+
+bool xhci_submit_address_device(
+    struct aurora_xhci_controller_state *state,
+    uint8_t slot_id,
+    uint64_t *out_command_trb_physical
+) {
+    if (out_command_trb_physical != NULL) {
+        *out_command_trb_physical = 0u;
+    }
+
+    if (state == NULL ||
+        out_command_trb_physical == NULL ||
+        !state->dma_ready ||
+        !state->running ||
+        state->command_ring_physical == 0u ||
+        state->input_context_physical == 0u ||
+        state->device_context_physical == 0u ||
+        state->ep0_ring_physical == 0u ||
+        state->addressed_slot_id != slot_id ||
+        slot_id == 0u ||
+        xhci_doorbell_base == NULL ||
+        state->command_enqueue >= XHCI_RING_TRB_COUNT - 1u) {
+        return false;
+    }
+
+    struct xhci_trb *ring =
+        (struct xhci_trb *)pmm_phys_to_virt(
+            state->command_ring_physical
+        );
+
+    uint16_t index = state->command_enqueue;
+    uint32_t cycle = state->command_cycle
+        ? XHCI_TRB_CYCLE
+        : 0u;
+
+    ring[index] = (struct xhci_trb){
+        .parameter = state->input_context_physical,
+        .status = 0u,
+        .control =
+            (XHCI_TRB_TYPE_ADDRESS_DEVICE << XHCI_TRB_TYPE_SHIFT) |
+            ((uint32_t)slot_id << 24u) |
+            cycle
+    };
+
+    __asm__ volatile ("" ::: "memory");
+
+    *out_command_trb_physical =
+        state->command_ring_physical +
+        (uint64_t)index * sizeof(struct xhci_trb);
+
+    ++state->command_enqueue;
+
+    if (state->command_enqueue ==
+        XHCI_RING_TRB_COUNT - 1u) {
+        struct xhci_trb *link =
+            &ring[XHCI_RING_TRB_COUNT - 1u];
+
+        uint32_t link_cycle =
+            state->command_cycle
+                ? XHCI_TRB_CYCLE
+                : 0u;
+
+        link->control =
+            (XHCI_TRB_TYPE_LINK << XHCI_TRB_TYPE_SHIFT) |
+            XHCI_TRB_TOGGLE_CYCLE |
+            link_cycle;
+
+        __asm__ volatile ("" ::: "memory");
+
+        state->command_enqueue = 0u;
+        state->command_cycle = !state->command_cycle;
+    }
+
+    xhci_mmio_write32(
+        xhci_doorbell_base,
+        0u,
+        0u
+    );
+
+    return true;
+}
