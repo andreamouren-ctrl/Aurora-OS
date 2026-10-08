@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D20**
+Status: **Design in progress — approved decisions D01–D21**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -30,6 +30,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D18 | Spatial and semantic selection | Multi-select by rectangle/lasso and semantic graph criteria, plus group transforms, alignment and locks, subject to permissions |
 | G5-D19 | Hybrid Aurora Spatial Groups | Visual spatial regions and semantic memberships coexist; groups may be moved, collapsed to one node or expanded without duplicating content |
 | G5-D20 | Aurora Spatial Focus: contextual | Center the selected item/group, emphasize relevant items and links and dim unrelated Canvas regions; easily reversible with no layout mutation |
+| G5-D21 | Aurora Universal Command: hybrid | Deterministic command palette and universal search, with optional natural-language AI interpretation, explicit previews and confirmations for consequential operations |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -154,6 +155,19 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 - Rendering must be bounded by visible spatial objects and edge budgets; provide graceful degradation for large graphs or when compositor effects are limited.
 - Initial G5 acceptance: focus a group with near/distant semantic members; verify camera framing, relation highlighting, dimming, exit-to-previous-view, accessibility controls and security filtering. Verify no Canvas layout/history mutation from focus navigation alone.
 
+
+### 3.14 Aurora Universal Command — hybrid (G5-D21)
+- Provide a Shell-accessible command palette for universal search across authorized content, applications, Canvas nodes, groups and approved relations, plus a registry of deterministic typed commands.
+- Support keyboard invocation, accessible pointer entry points and discoverable command descriptions, shortcuts, argument validation and contextual availability.
+- Optional natural-language interpretation may translate a request into a **proposed structured plan** referencing registered commands. Core navigation, launching and searching must function entirely offline without AI.
+- The AI interpreter is **not an authority**: it cannot invent capabilities, bypass user permissions, execute arbitrary Shell code or directly manipulate private application internals. All proposed actions pass the same deterministic validation and authorization path as manual commands.
+- Distinguish read-only operations (such as search, inspect or navigate) from state-changing operations (move/group/link/transfer) and high-impact actions (delete, share, overwrite, security settings). Display operation targets, side effects and permission scope; require explicit confirmation before consequential actions.
+- Provide a preview for multi-step commands (for example, locate a document, arrange it near a browser and reveal approved relations), with cancel and safe per-step failure behavior. Changes to Canvas structure produce compatible Canvas History journal entries where reversible.
+- Search results, context windows and AI prompts must filter private or out-of-session objects before disclosure; sending data to cloud AI services requires explicit user configuration and informed consent. Prefer a local model when available without requiring it.
+- Execution is bounded by time, steps and resources; disallow silent privilege escalation or insecure command composition. Maintain audit-friendly command outcome metadata without storing sensitive content in logs.
+- Natural-language confidence failures offer clarification or deterministic alternatives, not speculative execution.
+- Acceptance: offline deterministic search/launch; optional structured-language parsing; preview and confirm an authorized multi-step Canvas edit; reject unauthorized targets, fail-safe on a stale surface, undo supported changes, and verify no execution occurs on cancelled proposals.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -180,7 +194,7 @@ Isolated Ring 3 system and third-party application processes
 - G5.1: protocol/lifecycle hardening, teardown, concurrent Ring 3 tests.
 - G5.2: compositor spatial scene, focus, mouse interactions, zoom/pan.
 - G5.3: live application panels and semantic representations.
-- G5.4: minimal modular Hub, system-module host, basic launcher/search.
+- G5.4: minimal modular Hub, system-module host, launcher/search and deterministic Universal Command palette (AI interpretation optional).
 - G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History, spatial/semantic selection, hybrid Spatial Groups and contextual Spatial Focus.
 - G5.6: QEMU/CI end-to-end, security, performance and recovery tests.
 - Rich Content Fabric, full native browser engine and advanced graph indexing may require later dedicated milestones, not blockers for a coherent first G5 release.
@@ -196,6 +210,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify marquee/lasso and graph-based selection with permission filtering, bounded traversal, atomic batch edits and history undo.
 - Verify visual and semantic group membership, collapse/expand, nested-group cycle rejection, permission-scoped aggregations, and non-destructive group removal.
 - Verify Spatial Focus camera framing, relevant-edge highlighting, exit/restore navigation, safe dimmed input routing and no layout mutation.
+- Verify Universal Command offline registry/search, safe action previews and confirmation, cancellation, authorization checks and optional AI-to-typed-command mediation.
 - No cross-client graphics/control privilege escalation, stale-generation use or cross-session content leak.
 - Closing a process/session cleans all spatial objects and tokens safely.
 - Failure injection: broken module/browser does not terminate system shell; safe graphics recovery remains available.
@@ -208,6 +223,7 @@ Isolated Ring 3 system and third-party application processes
 - Content Fabric storage/index format and relation graph semantic schema.
 - Visual theme tokens, accessibility and motion-reduction behavior.
 - G5/G7 persistence boundary (especially Canvas History retention/checkpoint survival); browser engine milestone.
+- Universal Command registry schema, AI provider policy and approval thresholds.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
