@@ -1782,6 +1782,34 @@ void kmain(void) {
         }
 
         log_line("[xhci] live HID report decoded into normalized input");
+
+        if (!usb_hid_transport_unbind(
+                &live_hid_transport,
+                live_hid_handle)) {
+            kernel_panic("live USB HID unbind failed");
+        }
+
+        if (!xhci_disable_slot(
+                &xhci_state,
+                xhci_slot_id)) {
+            kernel_panic("xHCI Disable Slot failed");
+        }
+
+        log_line("[xhci] Disable Slot command-completion gate passed");
+
+        if (!xhci_release_addressed_device(
+                &xhci_state,
+                xhci_slot_id) ||
+            xhci_state.device_context_physical != 0u ||
+            xhci_state.input_context_physical != 0u ||
+            xhci_state.ep0_ring_physical != 0u ||
+            xhci_state.hid_ring_physical != 0u ||
+            xhci_state.addressed_slot_id != 0u ||
+            xhci_state.hid_endpoint_running) {
+            kernel_panic("xHCI per-device teardown verification failed");
+        }
+
+        log_line("[xhci] per-device DCBAA/context/ring teardown gate passed");
     } else {
         log_line("[xhci] controller unavailable");
     }
