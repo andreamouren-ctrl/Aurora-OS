@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# Verify durable at-most-once replay gate.
 on:
   push:
     paths:
