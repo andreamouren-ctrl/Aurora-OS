@@ -1589,6 +1589,60 @@ void kmain(void) {
         log_u64(xhci_slot_id);
         log_line("");
         log_line("[xhci] Enable Slot command-completion gate passed");
+
+        if (!xhci_prepare_address_device(
+                &xhci_state,
+                xhci_slot_id,
+                xhci_port_id,
+                xhci_speed_id)) {
+            kernel_panic("xHCI input/device context + EP0 preparation failed");
+        }
+
+        log_write("[xhci] address context device=");
+        log_hex64(xhci_state.device_context_physical);
+        log_write(" input=");
+        log_hex64(xhci_state.input_context_physical);
+        log_write(" ep0=");
+        log_hex64(xhci_state.ep0_ring_physical);
+        log_line("");
+        log_line("[xhci] Input/Device Context + EP0 ring preparation passed");
+
+        uint64_t address_device_trb = 0u;
+        if (!xhci_submit_address_device(
+                &xhci_state,
+                xhci_slot_id,
+                &address_device_trb)) {
+            kernel_panic("xHCI Address Device submission failed");
+        }
+
+        log_write("[xhci] Address Device TRB ");
+        log_hex64(address_device_trb);
+        log_line("");
+        log_line("[xhci] Address Device command submitted");
+
+        uint8_t addressed_slot_id = 0u;
+        if (!xhci_wait_command_completion(
+                &xhci_state,
+                address_device_trb,
+                &addressed_slot_id) ||
+            addressed_slot_id != xhci_slot_id) {
+            kernel_panic("xHCI Address Device completion failed");
+        }
+
+        log_line("[xhci] Address Device command-completion gate passed");
+
+        if (!xhci_validate_addressed_device(
+                &xhci_state,
+                xhci_slot_id)) {
+            kernel_panic("xHCI addressed Device Context validation failed");
+        }
+
+        log_write("[xhci] USB address ");
+        log_u64(xhci_state.usb_device_address);
+        log_write(" EP0 state ");
+        log_u64(xhci_state.ep0_state);
+        log_line("");
+        log_line("[xhci] addressed Device Context + EP0 running gate passed");
     } else {
         log_line("[xhci] controller unavailable");
     }
