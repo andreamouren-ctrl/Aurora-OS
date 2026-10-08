@@ -10,6 +10,8 @@ struct g5_compositor_bridge {
  struct aurora_software_compositor *compositor;
  uint64_t generation;
  uint64_t node_ids[G5_SURFACE_REGISTRY_CAPACITY];
+ uint64_t attached_object_ids[G5_SURFACE_REGISTRY_CAPACITY];
+ uint32_t attached_object_generations[G5_SURFACE_REGISTRY_CAPACITY];
 };
 bool g5_compositor_bridge_bind(struct g5_compositor_bridge *b,
  struct g5_frame_delivery *delivery,struct aurora_software_compositor *compositor);
