@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# Verify Session Host capability revoke and exclusive Ring3 READY.
 on:
   push:
     paths:
