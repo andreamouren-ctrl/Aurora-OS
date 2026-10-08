@@ -12,6 +12,7 @@
 #include <aurora/identity_session_grant_probe.h>
 #include <aurora/input.h>
 #include <aurora/ipc_wait_probe.h>
+#include <aurora/g5_ipc_endpoint.h>
 #include <aurora/log.h>
 #include <aurora/login_input.h>
 #include <aurora/login_ui.h>
@@ -644,6 +645,10 @@ void login_input_init(void) {
     }
 
     log_line("[ring3-ipc] blocking wait/wakeup syscall probe passed");
+    if (!g5_ipc_ring3_self_test()) {
+        kernel_panic("G5 Ring 3 IPC frame roundtrip test failed");
+    }
+    log_line("[g5-ipc] isolated Ring 3 frame roundtrip passed");
 
     if (entropy_ready()) {
         if (!entropy_ring3_self_test()) {
