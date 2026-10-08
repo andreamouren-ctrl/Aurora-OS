@@ -118,6 +118,10 @@ jobs:
             -o build/g5/surface_registry_test
           ./build/g5/surface_registry_test
           cc -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all \
+            -Ikernel/include kernel/src/graphics/g5_presentation_queue.c \
+            tests/g5/presentation_queue_test.c -o build/g5/presentation_queue_test
+          ./build/g5/presentation_queue_test
+          cc -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all \
             -Ikernel/include kernel/src/ipc/g5_ipc_codec.c kernel/src/ipc/g5_ipc_pending.c tests/g5/ipc_pending_test.c \
             -o build/g5/ipc_pending_test
           ./build/g5/ipc_pending_test
