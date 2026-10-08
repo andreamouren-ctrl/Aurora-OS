@@ -10,5 +10,9 @@ int main(void) {
  assert(g5_ipc_dispatch_bind_session(&d,18));
  assert(!g5_ipc_dispatch_bind_session(&d,19));
  g5_ipc_dispatch_revoke(&d);
+ assert(d.last_revoked_generation==18);
+ assert(!g5_ipc_dispatch_bind_session(&d,17));
+ assert(!g5_ipc_dispatch_bind_session(&d,18));
+ assert(g5_ipc_dispatch_bind_session(&d,19));
  return 0;
 }
