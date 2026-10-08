@@ -102,4 +102,9 @@ bool xhci_submit_address_device(
     uint64_t *out_command_trb_physical
 );
 
+bool xhci_validate_addressed_device(
+    struct aurora_xhci_controller_state *state,
+    uint8_t slot_id
+);
+
 #endif
