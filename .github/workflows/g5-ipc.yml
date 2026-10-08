@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# Verify strict typed G5 opcode semantics.
 on:
   push:
     paths:
