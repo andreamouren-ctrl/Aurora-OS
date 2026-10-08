@@ -1,0 +1,27 @@
+name: G5 IPC Wire Contract
+on:
+  push:
+    paths:
+      - 'kernel/include/aurora/g5_ipc_abi.h'
+      - 'kernel/src/ipc/g5_ipc_codec.c'
+      - 'tests/g5/ipc_codec_test.c'
+      - '.github/workflows/g5-ipc.yml'
+  pull_request:
+    paths:
+      - 'kernel/include/aurora/g5_ipc_abi.h'
+      - 'kernel/src/ipc/g5_ipc_codec.c'
+      - 'tests/g5/ipc_codec_test.c'
+      - '.github/workflows/g5-ipc.yml'
+  workflow_dispatch:
+jobs:
+  codec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and exercise host contract tests
+        run: |
+          mkdir -p build/g5
+          cc -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all \
+            -Ikernel/include kernel/src/ipc/g5_ipc_codec.c tests/g5/ipc_codec_test.c \
+            -o build/g5/ipc_codec_test
+          ./build/g5/ipc_codec_test
