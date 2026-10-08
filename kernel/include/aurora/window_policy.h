@@ -125,6 +125,20 @@ bool window_policy_place_initial(
     struct aurora_window_placement *out_placement
 );
 
+bool window_policy_move(
+    struct aurora_window_policy *policy,
+    uint64_t window_id,
+    int32_t x,
+    int32_t y,
+    uint32_t width,
+    uint32_t height
+);
+
+bool window_policy_destroy_toplevel(
+    struct aurora_window_policy *policy,
+    uint64_t window_id
+);
+
 bool window_policy_raise(
     struct aurora_window_policy *policy,
     uint64_t window_id
