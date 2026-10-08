@@ -2075,13 +2075,23 @@ void kmain(void) {
         if (!xhci_receive_hid_interrupt_report(
                 &xhci_state,
                 report_mouse_back,
-                report_mouse_size) ||
-            !usb_hid_transport_submit_report(
+                report_mouse_size)) {
+            kernel_panic("live USB Report Mouse Back xHCI transfer failed");
+        }
+
+        log_write("[xhci] Report Mouse Back raw");
+        for (uint16_t i = 0u; i < report_mouse_size; ++i) {
+            log_write(" ");
+            log_hex64(report_mouse_back[i]);
+        }
+        log_line("");
+
+        if (!usb_hid_transport_submit_report(
                 &live_hid_transport,
                 report_mouse_handle,
                 report_mouse_back,
                 report_mouse_size)) {
-            kernel_panic("live USB Report Mouse Back report failed");
+            kernel_panic("live USB Report Mouse Back decode failed");
         }
 
         bool saw_report_back = false;
@@ -2106,13 +2116,23 @@ void kmain(void) {
         if (!xhci_receive_hid_interrupt_report(
                 &xhci_state,
                 report_mouse_forward,
-                report_mouse_size) ||
-            !usb_hid_transport_submit_report(
+                report_mouse_size)) {
+            kernel_panic("live USB Report Mouse Forward xHCI transfer failed");
+        }
+
+        log_write("[xhci] Report Mouse Forward raw");
+        for (uint16_t i = 0u; i < report_mouse_size; ++i) {
+            log_write(" ");
+            log_hex64(report_mouse_forward[i]);
+        }
+        log_line("");
+
+        if (!usb_hid_transport_submit_report(
                 &live_hid_transport,
                 report_mouse_handle,
                 report_mouse_forward,
                 report_mouse_size)) {
-            kernel_panic("live USB Report Mouse Forward report failed");
+            kernel_panic("live USB Report Mouse Forward decode failed");
         }
 
         bool saw_report_forward = false;
