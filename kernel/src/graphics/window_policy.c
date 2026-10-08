@@ -609,5 +609,18 @@ bool window_policy_selftest(void) {
         return false;
     }
 
+    /* G5 lifecycle gate: no offscreen move, no stale token after close. */
+    if (!window_policy_move(&policy, window, 50, 60, 1024u, 768u) ||
+        window_policy_move(&policy, window, -1, 60, 1024u, 768u) ||
+        window_policy_move(&policy, window, 1000, 60, 1024u, 768u) ||
+        !window_policy_issue_activation_token(
+            &policy, window, 300u, &token) ||
+        !window_policy_destroy_toplevel(&policy, window) ||
+        window_policy_destroy_toplevel(&policy, window) ||
+        window_policy_activate(&policy, window, token, 300u, false) ||
+        window_policy_move(&policy, window, 0, 0, 1024u, 768u)) {
+        return false;
+    }
+
     return true;
 }
