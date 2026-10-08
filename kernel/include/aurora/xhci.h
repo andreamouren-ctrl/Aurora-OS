@@ -76,4 +76,10 @@ bool xhci_wait_command_completion(
     uint8_t *out_slot_id
 );
 
+bool xhci_reset_first_connected_port(
+    const struct aurora_xhci_probe_result *probe,
+    uint8_t *out_port_id,
+    uint8_t *out_speed_id
+);
+
 #endif
