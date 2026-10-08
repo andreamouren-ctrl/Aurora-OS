@@ -197,10 +197,38 @@ bool window_policy_issue_activation_token(
     uint64_t interaction_serial,
     uint64_t *out_token
 ) {
-    (void)policy;
-    (void)target_window_id;
-    (void)interaction_serial;
     if (out_token != NULL) *out_token = 0u;
+
+    if (policy == NULL ||
+        !policy->initialized ||
+        out_token == NULL ||
+        interaction_serial == 0u ||
+        find_toplevel(policy, target_window_id) == NULL) {
+        return false;
+    }
+
+    for (uint32_t i = 0u;
+         i < AURORA_WINDOW_POLICY_MAX_ACTIVATION_TOKENS;
+         ++i) {
+        if (!policy->activation_tokens[i].used ||
+            policy->activation_tokens[i].consumed) {
+            uint64_t token =
+                next_nonzero(&policy->next_activation_token);
+
+            policy->activation_tokens[i] =
+                (struct aurora_window_activation_token){
+                    .token = token,
+                    .target_window_id = target_window_id,
+                    .interaction_serial = interaction_serial,
+                    .used = true,
+                    .consumed = false
+                };
+
+            *out_token = token;
+            return true;
+        }
+    }
+
     return false;
 }
 
@@ -211,12 +239,51 @@ bool window_policy_activate(
     uint64_t current_interaction_serial,
     bool trusted_shell
 ) {
-    (void)policy;
-    (void)target_window_id;
-    (void)token;
-    (void)current_interaction_serial;
-    (void)trusted_shell;
-    return false;
+    struct aurora_window_toplevel *target =
+        find_toplevel(policy, target_window_id);
+
+    if (target == NULL) return false;
+
+    if (!trusted_shell) {
+        if (token == 0u ||
+            current_interaction_serial == 0u) {
+            return false;
+        }
+
+        struct aurora_window_activation_token *match = NULL;
+
+        for (uint32_t i = 0u;
+             i < AURORA_WINDOW_POLICY_MAX_ACTIVATION_TOKENS;
+             ++i) {
+            if (policy->activation_tokens[i].used &&
+                !policy->activation_tokens[i].consumed &&
+                policy->activation_tokens[i].token == token) {
+                match = &policy->activation_tokens[i];
+                break;
+            }
+        }
+
+        if (match == NULL ||
+            match->target_window_id != target_window_id ||
+            current_interaction_serial < match->interaction_serial ||
+            current_interaction_serial - match->interaction_serial >
+                AURORA_WINDOW_ACTIVATION_MAX_SERIAL_AGE) {
+            return false;
+        }
+
+        match->consumed = true;
+    }
+
+    for (uint32_t i = 0u;
+         i < AURORA_WINDOW_POLICY_MAX_TOPLEVELS;
+         ++i) {
+        if (policy->toplevels[i].used) {
+            policy->toplevels[i].active = false;
+        }
+    }
+
+    target->active = true;
+    return true;
 }
 
 bool window_policy_place_initial(
@@ -339,6 +406,56 @@ bool window_policy_selftest(void) {
             window,
             1024u,
             768u)) {
+        return false;
+    }
+
+    uint64_t token = 0u;
+
+    if (!window_policy_issue_activation_token(
+            &policy,
+            window,
+            100u,
+            &token) ||
+        token == 0u ||
+        window_policy_activate(
+            &policy,
+            window,
+            token,
+            133u,
+            false) ||
+        !window_policy_activate(
+            &policy,
+            window,
+            token,
+            120u,
+            false) ||
+        window_policy_activate(
+            &policy,
+            window,
+            token,
+            120u,
+            false)) {
+        return false;
+    }
+
+    uint64_t stale_token = 0u;
+    if (!window_policy_issue_activation_token(
+            &policy,
+            window,
+            200u,
+            &stale_token) ||
+        window_policy_activate(
+            &policy,
+            window,
+            stale_token,
+            233u,
+            false) ||
+        !window_policy_activate(
+            &policy,
+            window,
+            0u,
+            0u,
+            true)) {
         return false;
     }
 
