@@ -40,6 +40,13 @@ static const struct aurora_window_toplevel *find_toplevel_const(
     );
 }
 
+static bool surface_live(const struct aurora_window_toplevel *window) {
+    return window != NULL && window->surface != NULL &&
+        window->surface->generation == window->surface_generation &&
+        window->surface->state != AURORA_GRAPHICS_SURFACE_FREE &&
+        !window->surface->destroy_requested;
+}
+
 static uint64_t next_nonzero(uint64_t *counter) {
     uint64_t value = (*counter)++;
     if (value == 0u) value = (*counter)++;
@@ -54,7 +61,8 @@ bool window_policy_init(
 ) {
     if (policy == NULL ||
         output_width == 0u ||
-        output_height == 0u) {
+        output_height == 0u ||
+        output_width > INT32_MAX || output_height > INT32_MAX) {
         return false;
     }
 
@@ -83,6 +91,14 @@ bool window_policy_create_toplevel(
         surface->state == AURORA_GRAPHICS_SURFACE_FREE ||
         surface->destroy_requested) {
         return false;
+    }
+
+    for (uint32_t i = 0u;
+         i < AURORA_WINDOW_POLICY_MAX_TOPLEVELS;
+         ++i) {
+        if (policy->toplevels[i].used &&
+            policy->toplevels[i].surface == surface &&
+            surface_live(&policy->toplevels[i])) return false;
     }
 
     for (uint32_t i = 0u;
@@ -120,7 +136,7 @@ bool window_policy_configure(
     struct aurora_window_toplevel *window =
         find_toplevel(policy, window_id);
 
-    if (window == NULL ||
+    if (!surface_live(window) ||
         out_serial == NULL ||
         width == 0u ||
         height == 0u ||
@@ -157,7 +173,7 @@ bool window_policy_ack_configure(
     struct aurora_window_toplevel *window =
         find_toplevel(policy, window_id);
 
-    if (window == NULL ||
+    if (!surface_live(window) ||
         !window->configured ||
         serial == 0u ||
         serial != window->pending_configure.serial ||
@@ -178,7 +194,7 @@ bool window_policy_configure_ready(
     const struct aurora_window_toplevel *window =
         find_toplevel_const(policy, window_id);
 
-    return window != NULL &&
+    return surface_live(window) &&
         window->configured &&
         window->pending_configure.serial != 0u &&
         window->acked_configure_serial ==
@@ -203,7 +219,7 @@ bool window_policy_issue_activation_token(
         !policy->initialized ||
         out_token == NULL ||
         interaction_serial == 0u ||
-        find_toplevel(policy, target_window_id) == NULL) {
+        !surface_live(find_toplevel(policy, target_window_id))) {
         return false;
     }
 
@@ -242,7 +258,7 @@ bool window_policy_activate(
     struct aurora_window_toplevel *target =
         find_toplevel(policy, target_window_id);
 
-    if (target == NULL) return false;
+    if (!surface_live(target)) return false;
 
     if (!trusted_shell) {
         if (token == 0u ||
@@ -300,7 +316,7 @@ bool window_policy_place_initial(
     struct aurora_window_toplevel *window =
         find_toplevel(policy, window_id);
 
-    if (window == NULL ||
+    if (!surface_live(window) ||
         out_placement == NULL ||
         width == 0u ||
         height == 0u ||
@@ -395,7 +411,7 @@ bool window_policy_raise(
     struct aurora_window_toplevel *window =
         find_toplevel(policy, window_id);
 
-    if (window == NULL) return false;
+    if (!surface_live(window)) return false;
 
     int32_t z = policy->next_z++;
     if (policy->next_z <= 0) {
@@ -416,7 +432,7 @@ bool window_policy_read_toplevel(
     const struct aurora_window_toplevel *window =
         find_toplevel_const(policy, window_id);
 
-    if (window == NULL) return false;
+    if (!surface_live(window)) return false;
 
     *out_toplevel = *window;
     return true;
