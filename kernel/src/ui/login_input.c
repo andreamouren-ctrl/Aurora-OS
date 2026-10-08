@@ -663,6 +663,9 @@ void login_input_init(void) {
     protected_state_bootstrap_probe();
     bool replay_recovered = false;
     if (!g5_ipc_durable_boot_probe(&replay_recovered)) {
+        log_line("[g5-ipc] durable replay probe failed after stage:");
+        log_u64(g5_ipc_durable_boot_probe_stage());
+        log_line("");
         kernel_panic("G5 durable IPC replay cold-boot probe failed");
     }
     if (replay_recovered) {
