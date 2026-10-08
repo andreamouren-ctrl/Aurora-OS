@@ -1000,7 +1000,8 @@ bool xhci_wait_port_status_change(
         uint32_t type =
             (event.control >> XHCI_TRB_TYPE_SHIFT) & 0x3Fu;
 
-        if (type != XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
+        if (type != XHCI_TRB_TYPE_PORT_STATUS_CHANGE &&
+            type != XHCI_TRB_TYPE_TRANSFER_EVENT) {
             log_write("[xhci] unexpected event while waiting port change type=");
             log_u64(type);
             log_line("");
@@ -1023,6 +1024,25 @@ bool xhci_wait_port_status_change(
             XHCI_INTR_ERDP,
             dequeue_physical | (1ull << 3)
         );
+
+        if (type == XHCI_TRB_TYPE_TRANSFER_EVENT) {
+            uint8_t event_slot =
+                (uint8_t)(event.control >> 24u);
+            uint8_t endpoint_id =
+                (uint8_t)((event.control >> 16u) & 0x1Fu);
+            uint8_t completion_code =
+                (uint8_t)(event.status >> 24u);
+
+            log_write("[xhci] drained transfer event during disconnect slot ");
+            log_u64(event_slot);
+            log_write(" ep ");
+            log_u64(endpoint_id);
+            log_write(" code ");
+            log_u64(completion_code);
+            log_line("");
+
+            continue;
+        }
 
         uint8_t port_id =
             (uint8_t)(event.parameter >> 24u);
