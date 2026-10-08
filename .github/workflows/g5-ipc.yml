@@ -115,7 +115,7 @@ jobs:
             -Ikernel/include kernel/src/graphics/g5_session_context.c \
             kernel/src/session/g5_shell_session.c kernel/src/session/g5_shell_policy.c \
             kernel/src/session/g5_shell_receiver.c kernel/src/ipc/g5_ipc_dispatch.c \
-            kernel/src/ipc/g5_ipc_abi.c tests/g5/shell_receiver_test.c \
+            kernel/src/ipc/g5_ipc_codec.c tests/g5/shell_receiver_test.c \
             -o build/g5/shell_receiver_test
           ./build/g5/shell_receiver_test
           cc -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all \
