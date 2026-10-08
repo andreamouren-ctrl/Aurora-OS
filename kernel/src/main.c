@@ -1681,6 +1681,107 @@ void kmain(void) {
         log_u64(hid_endpoint.interval);
         log_line("");
         log_line("[xhci] GET_DESCRIPTOR(Configuration)+HID endpoint runtime gate passed");
+
+        if (!xhci_set_configuration_and_boot_protocol(
+                &xhci_state,
+                &hid_endpoint)) {
+            kernel_panic("xHCI SET_CONFIGURATION/HID boot protocol failed");
+        }
+
+        log_line("[xhci] SET_CONFIGURATION + HID Boot Protocol gate passed");
+
+        if (!xhci_configure_hid_interrupt_endpoint(
+                &xhci_state,
+                &hid_endpoint,
+                xhci_speed_id)) {
+            kernel_panic("xHCI HID interrupt endpoint configuration failed");
+        }
+
+        log_write("[xhci] HID endpoint DCI ");
+        log_u64(xhci_state.hid_endpoint_id);
+        log_write(" ring ");
+        log_hex64(xhci_state.hid_ring_physical);
+        log_line("");
+        log_line("[xhci] Configure Endpoint + HID interrupt-IN Running gate passed");
+
+        static struct aurora_usb_hid_transport live_hid_transport;
+        aurora_usb_hid_binding_handle live_hid_handle =
+            AURORA_USB_HID_BINDING_INVALID;
+        uint64_t live_hid_device_id = 0u;
+
+        enum aurora_usb_hid_protocol live_protocol =
+            hid_endpoint.interface_protocol == 0x01u
+                ? AURORA_USB_HID_PROTOCOL_BOOT_KEYBOARD
+                : AURORA_USB_HID_PROTOCOL_BOOT_MOUSE;
+
+        uint16_t live_report_size =
+            live_protocol == AURORA_USB_HID_PROTOCOL_BOOT_KEYBOARD
+                ? 8u
+                : 4u;
+
+        if (!usb_hid_transport_init(&live_hid_transport) ||
+            !usb_hid_transport_bind(
+                &live_hid_transport,
+                live_protocol,
+                &live_hid_handle,
+                &live_hid_device_id)) {
+            kernel_panic("live USB HID binding failed");
+        }
+
+        uint8_t live_hid_report[8] = {0};
+
+        log_line("[xhci] HID interrupt-IN armed");
+
+        if (!xhci_receive_hid_interrupt_report(
+                &xhci_state,
+                live_hid_report,
+                live_report_size)) {
+            kernel_panic("xHCI live HID interrupt-IN report failed");
+        }
+
+        log_write("[xhci] live HID report");
+        for (uint16_t i = 0u; i < live_report_size; ++i) {
+            log_putc(' ');
+            log_hex64(live_hid_report[i]);
+        }
+        log_line("");
+
+        if (!usb_hid_transport_submit_report(
+                &live_hid_transport,
+                live_hid_handle,
+                live_hid_report,
+                live_report_size)) {
+            kernel_panic("live USB HID decoder submission failed");
+        }
+
+        bool saw_live_device = false;
+        bool saw_live_key_a = false;
+        struct aurora_input_event live_event = {0};
+
+        while (input_poll_event(&live_event)) {
+            if (live_event.type == AURORA_INPUT_EVENT_DEVICE_ADDED &&
+                live_event.device_id == live_hid_device_id) {
+                saw_live_device = true;
+            }
+
+            if (live_protocol ==
+                    AURORA_USB_HID_PROTOCOL_BOOT_KEYBOARD &&
+                live_event.type == AURORA_INPUT_EVENT_KEY &&
+                live_event.device_id == live_hid_device_id &&
+                live_event.key == AURORA_KEY_A &&
+                live_event.pressed) {
+                saw_live_key_a = true;
+            }
+        }
+
+        if (!saw_live_device ||
+            (live_protocol ==
+                 AURORA_USB_HID_PROTOCOL_BOOT_KEYBOARD &&
+             !saw_live_key_a)) {
+            kernel_panic("live USB HID normalized-event verification failed");
+        }
+
+        log_line("[xhci] live HID report decoded into normalized input");
     } else {
         log_line("[xhci] controller unavailable");
     }
