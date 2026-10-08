@@ -658,7 +658,19 @@ void login_input_init(void) {
         }
         log_line("[ring3-entropy] capability-gated trusted seed syscall probe passed");
     } else {
+        struct aurora_entropy_status entropy_diagnostic = entropy_get_status();
         log_line("[ring3-entropy] trusted seed unavailable; capability probe skipped");
+        log_write("[ring3-entropy] health_failed=");
+        log_u64(entropy_diagnostic.health_failed ? 1u : 0u);
+        log_write(" source_failures=");
+        log_u64(entropy_diagnostic.source_failures);
+        log_write(" health_failures=");
+        log_u64(entropy_diagnostic.health_failures);
+        log_write(" startup_samples=");
+        log_u64(entropy_diagnostic.startup_samples);
+        log_write(" output_words=");
+        log_u64(entropy_diagnostic.output_words);
+        log_line("");
     }
 
     protected_state_bootstrap_probe();
