@@ -10,6 +10,8 @@
 #define PROTECTED_STATE_STAGING_PREFIX ".aurora-publish-"
 
 static aurora_spinlock record_publish_lock = AURORA_SPINLOCK_INIT;
+static uint32_t replace_debug_stage;
+uint32_t protected_state_replace_debug_stage(void) { return replace_debug_stage; }
 
 static size_t bounded_length(const char *text, size_t limit) {
     size_t length = 0u;
@@ -249,6 +251,7 @@ protected_state_replace_record_durable(
     enum aurora_protected_state_replace_result result =
         AURORA_PROTECTED_STATE_REPLACE_ERROR;
 
+    replace_debug_stage = 1;
     if (!authorize_record(table, handle, state, AURORA_RIGHT_WRITE) ||
         data == NULL || length == 0u ||
         length > AURORA_PROTECTED_STATE_RECORD_MAX ||
@@ -258,11 +261,14 @@ protected_state_replace_record_durable(
         return AURORA_PROTECTED_STATE_REPLACE_ERROR;
     }
 
+    replace_debug_stage = 2;
     if (!spinlock_try_lock(&record_publish_lock)) {
         return AURORA_PROTECTED_STATE_REPLACE_ERROR;
     }
 
+    replace_debug_stage = 3;
     if (!prepare_staging(staging, data, length)) goto out;
+    replace_debug_stage = 4;
 
     enum aurora_vfs_lookup_result target_lookup = vfs_stat_result(target, &stat);
     if (target_lookup == AURORA_VFS_LOOKUP_FOUND) {
@@ -283,12 +289,15 @@ protected_state_replace_record_durable(
      * bytes. When the target is absent this remains an ordinary recoverable
      * same-directory rename.
      */
+    replace_debug_stage = 5;
     if (!vfs_rename(staging, target)) {
         (void)cleanup_staging(staging);
         goto out;
     }
 
+    replace_debug_stage = 6;
     if (!vfs_fsync(target) || !vfs_sync(state->root)) goto out;
+    replace_debug_stage = 7;
     result = AURORA_PROTECTED_STATE_REPLACE_OK;
 
 out:
