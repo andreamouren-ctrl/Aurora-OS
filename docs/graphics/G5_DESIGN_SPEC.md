@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D43**
+Status: **Design in progress — approved decisions D01–D44**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -53,6 +53,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D41 | Aurora Hybrid Autosave | Continuous edits are coalesced into bounded structural transactions, journaled asynchronously with explicit durable acknowledgments, critical-operation durability barriers and visible unsaved-state tracking |
 | G5-D42 | Aurora Guided Recovery | Fail-safe automatic recovery to the last verified Canvas generation plus a guided UI for checkpoints, integrity status, recoverable revisions and explicit restore choices, without overwriting valid backups |
 | G5-D43 | Aurora Recovery Test Harness | Deterministic fault injection, automated QEMU reboot/cold-boot recovery assertions, revision/integrity/capability checks and CI regression gates |
+| G5-D44 | Aurora G5 Progressive Release | Ship a capability-safe, persistent minimum usable Canvas through dependency-ordered, QEMU-verified milestones, then incrementally deliver advanced G5 features without weakening runtime gates |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -1234,6 +1235,84 @@ tests/g5/recovery/
 
 **Open implementation tasks:** add test-only guest fault hooks to State Broker, stabilize profile-store durability API, build host orchestration/QMP reboot scripts and reference oracle, choose CI subset cadence and establish measured time/memory pass thresholds.
 
+
+### 3.37 Aurora G5 Progressive Release — executable delivery roadmap (G5-D44)
+
+**Approved:** divide G5 into a genuinely usable, safe and persistent **G5 Core** release followed by incremental G5.x feature milestones. G5 Core is **not** a static mockup: it must run actual isolated Ring 3 app panels through the window/surface protocol, offer navigable Canvas and Hub entry, and survive a cold reboot with a verified structural workspace restore. Unimplemented advanced approved features remain in scope as subsequent increments, not silently removed.
+
+#### Verified baseline and engineering dependencies (document review 2026-10-08)
+- \`docs/graphics/IMPLEMENTATION_ROADMAP.md\`: G1–G3 compositor/display/surface foundations runtime verified; G4 marked complete in later sections, though \`docs/graphics/README.md\` contains an older inconsistent summary saying G4 active. Treat implementation roadmap plus fresh CI logs as acceptance evidence, not stale README summary.
+- Current source contracts bound the software compositor to 64 nodes, buffers to 64 objects, and surface semantics to atomic pending/committed states. G5 scene virtualization must explicitly respect these constraints until a verified extension exists.
+- Existing G5 window protocol configure/ACK, activation and placement foundations have partial runtime validation. Full client move/resize/close, Shell process and cross-process scene/input integration still require implementation and runtime confirmation.
+- G5-D32 shared-memory/public IPC and G5-D38 compositor batch publishing, D39–D43 profile-scoped durable storage/recovery/test harness require new engineering work. Do not label merely documented protocol drafts as production components.
+- First release should preserve existing trusted recovery framebuffer, Identity privilege separation and capability-based isolation.
+
+#### Implementation phases, dependencies and priority
+| Milestone | Priority | Deliverables / integration tasks | Hard dependencies | Exit gate |
+|---|---|---|---|---|
+| **G5-P0 — Baseline audit & ABI freeze** | P0 blocker | inventory real G5 source, exact graphics/Ring 3 syscall APIs, topology, limitations; align roadmap/README; freeze first-pass typed G5 IPC, scene IDs and capability permissions | existing G1–G4/QEMU tests, D30–D38 drafts | architecture/ABI matrix reviewed, build and prior QEMU regression remain green |
+| **G5-P1 — Working window/session vertical slice** | P0 blocker | trusted Shell Ring 3 bootstrap under Session Manager, compositor/Shell IPC, actual multiple isolated app panels, configure/ACK, placement, focus/input and move/resize/close/teardown | P0, Identity session-scoped MANAGE_WINDOWS grants, Ring 3 capability IPC | two independent Ring 3 clients concurrently interact through compositor; app crash does not take down Shell; lock/logout revokes input |
+| **G5-P2 — Minimal Canvas Engine** | P0 | canonical typed scene registry, one-parent visual grouping foundation, camera pan/zoom, checked hybrid coordinates, versioned spatial-index facade with initial **reference scan**, visible-set projection and bounded compositor node virtualization | P1, D34–D38 transaction baseline | pan/zoom and place/rehost app panel + static notes; correct hit tests and layer-safe visibility; no ghosts/stale revisions |
+| **G5-P3 — Hub + user workflow MVP** | P0 | Hub shown at entry and dismissible, launcher, minimal system-module host, bidirectional Hub ↔ Canvas transfer without cloning, keyboard/navigation baseline, semantic zoom minimal representations | P1–P2; D11–D15 / D24 contracts | login→Hub→Canvas→live app→Hub workflow retains live app state, permissions and focus |
+| **G5-P4 — Durable workspace vertical slice** | P0 release gate | user-scoped State Broker, journal+verified snapshots, save-state UI, bounded autosave, checkpoint, cold-boot restore of scene/notes with unresolved app placeholders, minimal recovery selection, test-only deterministic fault hooks | P0–P3, verified profile storage append/sync/atomic publish, D39–D43 contracts | acknowledged durable edits survive QEMU cold reboot; fault cuts preserve last known good; no cross-user leakage |
+| **G5-P5 — G5 Core integration and release candidate** | P0 release gate | integrated budget/backpressure, fault harness in CI, capability/security/focus audit, software performance baselines, accessibility keyboard input, release docs, manual smoke matrix | P0–P4 | all G5 Core acceptance gates below pass with reproducible CI logs; no critical open security/data-loss defects |
+| **G5-P6 — Spatial productivity increment** | P1 | advanced group/graph connections, Navigator, lasso/semantic selection, Spatial Layers, Focus, Portals, Spatial Notes rich editing, Canvas History advanced operations | G5 Core, bounded graph broker/storage schema | unit and QEMU test gates for D07–D10, D17–D20, D25–D27 |
+| **G5-P7 — Transfer, templates and personalization** | P1 | full Smart Transfer and spatial clipboard, saved Canvas Templates, Universal Command, Aurora Visual Studio theme editor, adaptive Hub modules | G5 Core, P6 as needed, typed authorized data broker, import schema | privacy-filtered copy/link/export; theme safety/accessibility; transactional undo |
+| **G5-P8 — Optimization + optional intelligence** | P2 | benchmark-selected R-tree/loose-quadtree optimized backend, expanded render/tile cache budgets, adaptive third buffer, assistant-driven organization proposals, optional AI command interpretation; measure accelerated renderer only if available | stable reference semantics, measured QEMU loads | performance regression budget with no security regression, optional AI never required |
+
+**Priority definitions:** P0 blocks the first usable G5 Core release; P1 is approved G5 follow-up after Core; P2 means enhancements requiring measured proof. These are delivery tiers, not a reclassification or cancellation of previously approved product decisions. A subset of P1 features (e.g. minimally editable notes) can be pulled earlier only if the P0 stability/durability gates remain intact.
+
+#### Dependency chain and parallelism
+\`\`\`text
+G1–G4 verified graphics/input + Identity/session foundations
+                        |
+                  P0 audit/ABI freeze
+                        |
+             P1 live Shell/compositor/apps
+                        |
+           P2 Canvas scene/index/camera
+                        |
+             P3 Hub/application workflow
+                        |
+        P4 durable State Broker/recovery ───> P5 release CI gate
+                        |
+              P6 -> P7 -> P8 increments
+\`\`\`
+- **Parallel behind a shared frozen contract:** profile storage broker durability experiments, host-side D43 fault oracle, fixed-point camera unit tests and visual/semantic parser test fixtures may progress while P1/P2 is implemented.
+- **Cannot parallelize away correctness:** persistent journal must not claim durability until AuroraFS primitives work; IPC bulk transfers must not assume an unimplemented Ring 3 mapping ABI; full app restoration remains G7.
+- Assign each milestone an owner, issue/PR links, source files, blocking dependency IDs, CI run SHA, test evidence and observed defects in the **implementation roadmap**; docs-only design approval never closes implementation tasks.
+
+#### Minimum G5 Core acceptance — hard launch gates
+1. **User journey:** authenticated login enters Hub; user can hide Hub, pan/zoom Canvas, launch two isolated client processes, position/focus/move/resize/close a panel and return module Hub ↔ Canvas without resetting the app.
+2. **Scene correctness:** viewport projection, input hit test, camera revision and capability checks agree; reject stale configure ACK, foreign surfaces and invisible targets; secure overlays supersede ordinary panels.
+3. **Finite resource behavior:** respect existing 64-node/64-buffer ceilings or raise them only with verified bound changes; no allocator growth/leaks over repeated create/close/restart; release buffers correctly on crash.
+4. **Persistent data:** a user can create/edit at least one note and spatial arrangement, see Dirty/Saving/Saved truthfully, save/checkpoint and recover the last acknowledged durable revision after full cold reboot; app placeholders cannot execute unapproved restoration.
+5. **Crash/security:** injected app, Shell, State Broker and compositor termination fail safely; no cross-user or lock-screen leak; at least the mandatory fault points surrounding journal/snapshot publication pass CI.
+6. **Accessibility/usability:** keyboard-only navigation and zoom actions, visible focus and protected error/recovery states, no mandatory AI/GPU/third-party browser.
+7. **Evidence:** reproducible QEMU integration test, serial logs, CI build SHA, test matrix, replay oracle and performance/memory baselines; blocker bugs resolved before declaring G5 Core complete.
+
+#### Initial technical work packages for P0–P2
+| Work package | Scope | Verification |
+|---|---|---|
+| WP-01 source/capability audit | map existing process, session, Shell, graphics ownership and code status | reviewed dependency/capability checklist |
+| WP-02 IPC v1 typed messages | serializable bounded request/ack/error envelopes and rights checks | malformed/version/limit and stale-handle tests |
+| WP-03 Shell bootstrap | Ring 3 lifecycle, session start/lock/restart | crash+reauth QEMU gate |
+| WP-04 compositor client integration | two clients and Shell policy placement, focus, move/resize/close | input/ACK/hit-test runtime trace |
+| WP-05 coordinate/camera reference | D36 world units, anchor zoom, rebasing, reference visibility scan | property/unit tests near 64-bit extremes |
+| WP-06 scene registry + transaction | D37 hierarchy, D38 version and apply/rollback first vertical slice | atomic/no-ghost scene tests |
+| WP-07 P2 render projection | current 64-node limit admitted, viewport subscriptions, damage | CPU QEMU multi-panel comparisons |
+| WP-08 CI release harness foundation | deterministic scenario metadata and baseline per-PR test workflow | reproducible expected markers and failure-on-mismatch |
+
+#### Release definitions and control
+- **Design approved**: a numbered G5-D decision captured here.
+- **Source implemented**: built and reviewed merged code with defined ABI.
+- **Runtime verified**: repeatable QEMU evidence and negative tests recorded in \`IMPLEMENTATION_ROADMAP.md\`.
+- **G5 Core released**: all P0 gates completed, with no unaddressed high/critical security or durable-data loss defects.
+- **G5 complete**: all approved G5 decisions in their assigned increment implemented or explicitly re-scoped through a new project-owner decision. Do not silently conflate Core release with full G5 scope.
+- **G7** stays responsible for reconstruction of Activity Spaces and application-internal state after reboot.
+
+**Unresolved planning parameters:** precise resource/latency numerical SLAs; release target hardware matrix; production storage ABI; timeline estimates; chosen index backend; which optional advanced features are bundled in each minor G5.x release. Resolve from audits and measured dependencies, not invented calendar dates.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -1299,6 +1378,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify G5-D41 batching, debounce/dispatch timing, durable save barriers, non-misleading UI status, bounded outage behavior and recovered revision under crash.
 - Verify G5-D42 guided selection among valid chains, torn journal recovery, privacy-safe diagnostics, non-destructive restore and repeated power-cut/rollback scenarios.
 - Verify G5-D43 automated repeatable fault-point runs, cold boot after power-cut, byte/version corruption cases, authoritative revision oracle, privacy isolation and CI failure on mismatch.
+- Verify G5-D44 P0–P5 G5 Core vertical-slice gates with running multi-process panels, Hub↔Canvas state retention, correct isolation, crash-safe persistent notes and reproducible QEMU CI artifacts.
 - Explicit runtime QEMU tests and CI evidence are required before marking any item implemented.
 
 ## 7. Pending design decisions
@@ -1321,7 +1401,7 @@ Isolated Ring 3 system and third-party application processes
 - G5-D41 async autosave durability barrier, typed save states, bounded pending-journal queues, debounce/flush performance targets and loss-exposure measurements.
 - G5-D42 recovery candidate inspection, guided checkpoint selection, idempotent replay, nondestructive generation publication, privacy-safe recovery UI and power-cut fault injection.
 - G5-D43 deterministic host/QEMU fault-point orchestration, reference oracle, per-PR/main CI tiers, security checks and recovery release gate.
-- Definition of the G5 minimal shippable acceptance gate.
+- G5-D44 P0–P8 milestone owners, concrete source/PR tasks, blocker issue IDs, measured resource budgets and G5 Core release-acceptance signoff.
 
 ## 8. Change control
 Each approved decision adds an ID and a short design contract. Mark proposed features as proposals until accepted. Design approval never implies source implementation or runtime verification. Update this document incrementally; link implementation evidence to the graphics implementation roadmap rather than rewriting achieved status here.
