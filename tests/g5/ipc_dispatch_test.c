@@ -23,7 +23,7 @@ static struct aurora_sys_ipc_received packet(uint64_t id,uint64_t session) {
 }
 int main(void) {
  struct counters count={0,0,true,true};
- struct g5_dispatch_context d={17,0,authorize,handle,&count};
+ struct g5_dispatch_context d={.active_session_generation=17,.last_request_id=0,.authorize=authorize,.handler=handle,.context=&count};
  struct aurora_sys_ipc_received m=packet(1,17);
  assert(g5_ipc_dispatch(&d,&m)==G5_IPC_OK);
  assert(d.last_request_id==1 && count.handled==1);
