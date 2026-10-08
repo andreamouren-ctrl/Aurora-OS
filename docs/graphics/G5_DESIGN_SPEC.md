@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D27**
+Status: **Design in progress — approved decisions D01–D28**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -37,6 +37,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D25 | Aurora Canvas Portals | Spatial bookmarks and visible portal nodes jump to saved coordinates, authorized groups or projects without duplicating content; live remote-area previews excluded |
 | G5-D26 | Aurora Spatial Layers | Named Canvas layers support independent visibility, edit locks, stacking order and item membership, with authorized interactions and no advanced per-layer effects in this decision |
 | G5-D27 | Aurora Spatial Notes | Canvas-native rich-text notes, sticky notes, arrows, shapes, highlighters, freehand annotations and links to Canvas content, with AI enhancements optional and not included |
+| G5-D28 | Aurora Spatial Clipboard | Clipboard history, multi-item spatial copy/cut/paste, preview and paste-as-copy/link, preserving relative placement without automatically duplicating underlying files |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -256,6 +257,18 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 - Initial G5 tests: create/edit rich-text note, sticky, arrow, shape, highlight and freehand stroke; link a note to a document without copying it; group/layer/focus/zoom interactions; undo/redo, save/reload (when persistence available), stale-reference denial, protected-note privacy and crash/failure recovery.
 - Automatic AI classification/summarization/suggestions are *not* approved as part of G5-D27; they would require a separate later decision.
 
+
+### 3.21 Aurora Spatial Clipboard (G5-D28)
+- Provide keyboard-accessible **copy, cut and paste** across authorized Hub modules and Canvas items, together with a user-invoked clipboard history panel showing privacy-filtered previews and typed transfer options.
+- A selection of multiple spatial objects is serialized into a versioned, bounded **spatial transfer manifest** containing object types, stable identifiers or allowed snapshots, relative positions, group/layer membership mappings and eligible intra-selection graph edges. Preserve positions relative to a common anchor when pasted, with collision-aware placement preview.
+- Paste choices include **copy** (new eligible objects with new IDs; clone only data formats the source explicitly permits) and **link** (authorized logical references using Content Fabric/Relation Graph; no physical file duplication). Regular paste offers a safe documented default. Cut must not delete the source until the target operation commits successfully; failed paste/cancel retains the original.
+- Distinguish cloning a Canvas visual object from copying a physical file, a live application process, private content or credentials. Live app sessions/capabilities are never duplicated through clipboard serialization. Non-clonable objects yield reference/shortcut or unsupported-option feedback, not unsafe approximation.
+- Clipboard history is user/session scoped, bounded by item count, byte size and retention. Sensitive content is opt-in or excluded by policy; lock/logout/revocation wipe sensitive cached previews and invalidate ephemeral references. Protected/private objects and graph edges cannot leak through item counts, labels or search.
+- Interoperate with Smart Transfer (D16) using typed formats, permission checks and a single trusted broker, while treating clipboard payloads as untrusted input (parse safely, size limits, type validation, no arbitrary code execution).
+- Clipboard paste of group edits, visual notes and relation links must be atomic where feasible, report partial incompatibility before approval and enter Canvas History (D17) as one reversible transaction.
+- Shortcuts, screen-reader-readable operations, explicit history removal, and predictable paste placement are required. Clipboard synchronization with other devices and AI-based paste suggestions are not approved in D28.
+- Acceptance: copy/paste multi-object selection with preserved geometry, paste-as-link with no file clone, cancel/failed cut rollback, clipboard history previews, authorization isolation, stale-generation rejection and sensitive-history cleanup.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -283,7 +296,7 @@ Isolated Ring 3 system and third-party application processes
 - G5.2: compositor spatial scene, focus, mouse interactions, Spatial Gestures with pan/pointer-centered zoom and optional inertia.
 - G5.3: live application panels and semantic representations.
 - G5.4: minimal modular Hub, system-module host, launcher/search, deterministic Universal Command palette (AI interpretation optional), and Aurora Visual Studio theme-editor baseline.
-- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History, spatial/semantic selection, hybrid Spatial Groups, contextual Spatial Focus, basic Canvas Portals, functional Spatial Layers and Spatial Notes.
+- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History, spatial/semantic selection, hybrid Spatial Groups, contextual Spatial Focus, basic Canvas Portals, functional Spatial Layers, Spatial Notes and Spatial Clipboard.
 - G5.6: QEMU/CI end-to-end, privacy/authorization, performance and recovery tests.
 - Rich Content Fabric, full native browser engine and advanced graph indexing may require later dedicated milestones, not blockers for a coherent first G5 release.
 
@@ -305,6 +318,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify D25 bookmark/portal creation, typed destination resolution, back navigation, stale-target handling and privacy-safe cross-session denial.
 - Verify D26 layer create/rename/reorder, visibility/hit-test coherence, edit locking, history undo and secure-overlay priority.
 - Verify D27 rich-text note and drawing primitives, edit/undo, zoom/layers/groups integration, bounds limits and privacy-safe persistence/recovery.
+- Verify D28 multi-object clipboard geometry, paste copy/link semantics, atomic cut rollback, permission isolation and sensitive-history cleanup.
 - No cross-client graphics/control privilege escalation, stale-generation use or cross-session content leak.
 - Closing a process/session cleans all spatial objects and tokens safely.
 - Failure injection: broken module/browser does not terminate system shell; safe graphics recovery remains available.
