@@ -400,7 +400,25 @@ Implemented and runtime verified on qemu-xhci:
 
 The hot-unplug gate is no longer an explicit synthetic teardown path: removal begins outside Aurora through QEMU device deletion and must propagate through the xHCI Port Status Change mechanism before software and DMA ownership are revoked.
 
-Remaining G4 completion work:
+G4 completion decision:
 
-- [ ] decide/finalize the xHCI event-delivery baseline: retain polling as the defined V1 baseline or configure MSI-X;
-- [ ] final G4 audit and runtime completion gate.
+- [x] xHCI event-delivery baseline finalized as **bounded polling for V1**;
+- [x] Event Ring/ERST polling baseline validated with IMAN.IE intentionally clear;
+- [x] final Event Ring quiescence verified after live hot-unplug teardown;
+- [x] final G4 audit/runtime completion marker required by CI.
+
+**G4 status: COMPLETE / runtime verified.**
+
+MSI-X is explicitly deferred to PCI/interrupt hardening. Aurora currently detects MSI-X capability, but generic PCI MSI-X table programming and dynamic device-vector ownership are not yet platform services; they are not required for the G4 V1 input-transport completion gate.
+
+
+### G4 final runtime gate
+
+The four-CPU q35/qemu-xhci gate requires:
+
+- `[xhci] bounded polling event-delivery baseline gate passed`
+- `[xhci] live mouse Port Status Change disconnect gate passed`
+- `[xhci] final polling event-ring quiescence gate passed`
+- `[xhci] G4 input transport runtime completion gate passed`
+
+Together with the earlier keyboard, mouse, Report Descriptor and teardown gates, this closes G4.

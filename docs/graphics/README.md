@@ -119,3 +119,6 @@ Back/Forward are now supported by the descriptor-driven Report Mouse decoder. Au
 
 
 USB hot-unplug is now runtime verified: the workflow removes the qemu USB mouse through QMP and requires DEVICE_DELETED confirmation; Aurora then consumes the xHCI Port Status Change, emits normalized DEVICE_REMOVED, completes Disable Slot and releases the per-device DMA/context state. Report Mouse Back/Forward decoding is supported from the five-button descriptor layout, but is documented separately from the externally injected live-xHCI input gates.
+
+
+G4 input transport is complete and runtime verified. Aurora now has live qemu-xhci keyboard and mouse input, normalized motion/buttons/wheel, descriptor-driven five-button mouse decoding, disconnect-driven device teardown and an explicit bounded-polling Event Ring baseline. The final QEMU gate verifies Event Ring quiescence after hot-unplug. MSI-X remains optional follow-on PCI/interrupt hardening and is not claimed as implemented.

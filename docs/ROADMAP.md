@@ -388,3 +388,8 @@ Every milestone is evaluated against performance, memory efficiency, latency, pr
 
 - [x] G4 live xHCI disconnect-driven HID teardown runtime gate
 - [ ] G4 final event-delivery policy (polling baseline vs MSI-X) + completion audit
+
+
+## G4 input stack — COMPLETE
+
+G4 is runtime verified on q35/qemu-xhci with live USB keyboard, live USB mouse motion/buttons/wheel, descriptor-driven five-button Report Mouse support, hot-unplug Port Status Change teardown, and a bounded-polling Event Ring baseline. MSI-X remains a later PCI/interrupt hardening item rather than a G4 V1 blocker.

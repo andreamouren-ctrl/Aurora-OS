@@ -255,3 +255,10 @@ Descriptor-driven Report Mouse decoding supports five button bits and maps butto
 
 
 G4 now includes a disconnect-driven xHCI lifecycle. A live QEMU USB mouse is hot-unplugged externally; Aurora consumes the resulting Port Status Change Event for the device root port, validates disconnected PORTSC state, acknowledges RW1C change bits, unbinds the HID transport so normalized DEVICE_REMOVED is emitted, then disables the xHCI slot and releases its DCBAA/context/ring resources. This establishes hardware-event-driven authority revocation rather than relying only on an explicit software teardown call.
+
+
+### G4 completion policy
+
+For Aurora V1, bounded polling is the V1 xHCI event-delivery contract. The controller still uses the normal xHCI Event Ring and ERST; Interrupter 0 IMAN.IE remains intentionally clear and runtime validation rejects an ambiguous state in which polling is selected while hardware interrupt delivery is enabled. After the externally driven USB mouse hot-unplug, the final gate also verifies that the next Event Ring dequeue entry is no longer owned by the current consumer cycle.
+
+This policy closes G4 without pretending MSI-X exists. MSI-X capability is detected, but generic PCI MSI-X table programming and dynamic device interrupt-vector allocation are platform hardening work outside the G4 V1 input transport contract.
