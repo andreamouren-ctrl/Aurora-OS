@@ -2008,6 +2008,41 @@ void kmain(void) {
 
         log_line("[xhci] live HID mouse wheel decoded into normalized input");
 
+        struct aurora_usb_hid_report_layout report_layout = {0};
+
+        if (!xhci_get_hid_report_layout(
+                &xhci_state,
+                &mouse_device.endpoint,
+                &report_layout)) {
+            kernel_panic("xHCI HID Report Descriptor parse failed");
+        }
+
+        log_write("[xhci] HID Report layout buttons ");
+        log_u64(report_layout.button_count);
+        log_write(" bits ");
+        log_u64(report_layout.input_report_bits);
+        log_write(" report-id ");
+        log_u64(report_layout.report_id);
+        log_write(" wheel ");
+        log_u64(report_layout.has_wheel ? 1u : 0u);
+        log_line("");
+
+        if (report_layout.button_count < 3u ||
+            !report_layout.has_x ||
+            !report_layout.has_y) {
+            kernel_panic("xHCI HID Report layout missing mouse controls");
+        }
+
+        log_line("[xhci] GET_DESCRIPTOR(HID Report) mouse layout gate passed");
+
+        if (!xhci_set_hid_report_protocol(
+                &xhci_state,
+                &mouse_device.endpoint)) {
+            kernel_panic("xHCI HID Report Protocol selection failed");
+        }
+
+        log_line("[xhci] HID SET_PROTOCOL(Report) gate passed");
+
         if (!usb_hid_transport_unbind(
                 &live_hid_transport,
                 mouse_handle) ||
