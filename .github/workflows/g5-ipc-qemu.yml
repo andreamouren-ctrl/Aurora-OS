@@ -1,4 +1,5 @@
 name: G5 IPC QEMU Cold Boot Recovery
+# Capture second QEMU boot diagnostic trace.
 
 on:
   workflow_dispatch:
