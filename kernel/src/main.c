@@ -2147,19 +2147,56 @@ void kmain(void) {
 
         log_line("[xhci] descriptor-derived Report Mouse Forward decoded into normalized input");
 
+        log_line("[xhci] HID mouse disconnect Port Status Change armed");
+
+        uint32_t disconnect_portsc = 0u;
+        if (!xhci_wait_port_status_change(
+                &xhci_state,
+                mouse_device.port_id,
+                &disconnect_portsc) ||
+            !xhci_acknowledge_port_disconnect(
+                mouse_device.port_id,
+                disconnect_portsc)) {
+            kernel_panic("xHCI live mouse disconnect Port Status Change failed");
+        }
+
+        log_write("[xhci] live mouse disconnect port ");
+        log_u64(mouse_device.port_id);
+        log_write(" portsc ");
+        log_hex64(disconnect_portsc);
+        log_line("");
+        log_line("[xhci] live mouse Port Status Change disconnect gate passed");
+
         if (!usb_hid_transport_unbind(
                 &live_hid_transport,
-                report_mouse_handle) ||
-            !xhci_disable_slot(
+                report_mouse_handle)) {
+            kernel_panic("live USB Report Mouse disconnect unbind failed");
+        }
+
+        bool saw_report_mouse_removed = false;
+        while (input_poll_event(&live_event)) {
+            if (live_event.type == AURORA_INPUT_EVENT_DEVICE_REMOVED &&
+                live_event.device_id == report_mouse_device_id) {
+                saw_report_mouse_removed = true;
+            }
+        }
+
+        if (!saw_report_mouse_removed) {
+            kernel_panic("live USB Report Mouse DEVICE_REMOVED verification failed");
+        }
+
+        log_line("[xhci] disconnect-driven HID unbind DEVICE_REMOVED gate passed");
+
+        if (!xhci_disable_slot(
                 &xhci_state,
                 mouse_device.slot_id) ||
             !xhci_release_addressed_device(
                 &xhci_state,
                 mouse_device.slot_id)) {
-            kernel_panic("live USB mouse teardown failed");
+            kernel_panic("live USB mouse disconnect hardware teardown failed");
         }
 
-        log_line("[xhci] second HID Boot Mouse teardown gate passed");
+        log_line("[xhci] disconnect-driven Disable Slot/context teardown gate passed");
     } else {
         log_line("[xhci] controller unavailable");
     }
