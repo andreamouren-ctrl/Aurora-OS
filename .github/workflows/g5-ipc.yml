@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# Recheck monotonic test IDs after fault injection.
 on:
   push:
     paths:
