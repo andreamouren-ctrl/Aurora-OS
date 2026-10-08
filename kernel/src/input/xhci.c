@@ -2759,3 +2759,34 @@ bool xhci_get_hid_report_layout(
     *out_layout = layout;
     return true;
 }
+
+
+bool xhci_set_hid_report_protocol(
+    struct aurora_xhci_controller_state *state,
+    const struct aurora_usb_hid_endpoint_descriptor *endpoint
+) {
+    if (state == NULL ||
+        endpoint == NULL ||
+        endpoint->interface_subclass != 0x01u ||
+        (endpoint->interface_protocol != 0x01u &&
+         endpoint->interface_protocol != 0x02u)) {
+        return false;
+    }
+
+    /*
+     * HID SET_PROTOCOL(1): select Report Protocol.  The descriptor-derived
+     * layout must be used by higher layers before they decode non-Boot
+     * reports, especially devices exposing more than the fixed 3 buttons.
+     */
+    if (!xhci_control_no_data(
+            state,
+            0x21u,
+            0x0Bu,
+            1u,
+            endpoint->interface_number)) {
+        log_line("[xhci] HID SET_PROTOCOL(Report) failed");
+        return false;
+    }
+
+    return true;
+}
