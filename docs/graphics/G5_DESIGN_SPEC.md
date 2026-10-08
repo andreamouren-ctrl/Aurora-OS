@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D29**
+Status: **Design in progress — approved decisions D01–D30**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -39,6 +39,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D27 | Aurora Spatial Notes | Canvas-native rich-text notes, sticky notes, arrows, shapes, highlighters, freehand annotations and links to Canvas content, with AI enhancements optional and not included |
 | G5-D28 | Aurora Spatial Clipboard | Clipboard history, multi-item spatial copy/cut/paste, preview and paste-as-copy/link, preserving relative placement without automatically duplicating underlying files |
 | G5-D29 | Aurora Canvas Templates | Bundled and user-created reusable, exportable Canvas templates for groups, layers, notes, portals and spatial layouts, with private data excluded by default |
+| G5-D30 | Modular Shell with isolated services | Lightweight Shell coordinator, explicit versioned interfaces and separated processes at security/failure boundaries; not one monolith or a process for every helper |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -283,6 +284,52 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 - Acceptance: create a template from a mixed selection (groups/layers/notes/portals), export/import it, preview/instantiate with fresh IDs, resolve placeholders, preserve relative positioning, undo application, reject malicious/oversized bundles and verify no protected content leaked.
 - Dynamic AI-driven template generation/adaptation is not approved as part of G5-D29.
 
+
+### 3.23 Modular Shell with isolated services (G5-D30)
+**Approved architecture:** Desktop Shell is a relatively lightweight, trusted session coordinator. Internals use modular APIs; components cross a process boundary when justified by security, crash containment, privilege separation or independent lifetime. Not every module requires its own process.
+
+Proposed logical boundaries (contracts drafted below; exact process topology not yet approved):
+- **Shell Coordinator**: authority for UI policy, authorized placements, Hub/Canvas orchestration and session coordination. Never a host for untrusted page scripts or untrusted plugins.
+- **Canvas Engine**: camera transform, spatial scene bookkeeping, visibility, layers and semantic-scale presentation policies.
+- **Graph/Content facade**: authorized relationships, group references and portal target lookup, using Content Fabric services as appropriate.
+- **Interaction**: normalized input gestures, selection state, mediated Smart Transfer and Clipboard interactions.
+- **State**: structural transaction journal, previews, undo/redo, templates and crash-safe serialization.
+- **Presentation/Compositor**: privileged surface compositing, buffer/focus/input ownership, scene submission and presentation timings.
+- **Apps and optional modules**: separately isolated Ring 3 clients, including browser engine; no untrusted application owns Shell policy.
+
+In-process boundaries may use direct versioned APIs, while out-of-process boundaries use capability-scoped IPC. Never move compositor ownership/authorization merely to avoid IPC overhead. A service crash must revoke its stale handles, preserve isolation, and permit controlled Shell-managed recovery or a safe fallback.
+
+#### Draft technical interface contracts (proposed, not yet frozen)
+| Interface | Producer -> consumer | Minimal operations/data | Authority and failure invariants |
+|---|---|---|---|
+| `G5.SessionContext.v1` | Identity/session supervisor -> Shell/graphics modules | authenticated session ID, capabilities, generation, revoke event | no cross-session reuse; reauth only via Identity |
+| `G5.SpatialScene.v1` | Shell/Canvas -> Compositor | create/bind/remove scene node, logical world bounds, transforms, layer/order, visible region, configure/ack serial | Shell alone proposes placement; compositor validates owner/rights; stale generations rejected |
+| `G5.Camera.v1` | Navigator/Interaction/Focus -> Canvas | pan, pointer-anchored zoom, fit/select, portal jump, current camera revision | bounded/finite math, cancelable transitions, no unauthorized focus |
+| `G5.ModuleHost.v1` | Hub/Canvas -> module client | attach/detach representation, content rectangle, layout size-class, semantic level, visibility, requested focus | transfer preserves client identity/state; transactional rollback; no privilege transfer |
+| `G5.GraphQuery.v1` | Canvas/Hub -> graph/content broker | authorized node/edge lookup, neighbor query with traversal limits, typed link proposals | privacy filtering before results/counts; no raw cross-client access |
+| `G5.Interaction.v1` | normalized input -> Shell policy/Canvas | pointer/key/gesture stream, selection/lasso, drag sessions, target routing | capture revocable, trusted focus routing, timeout/teardown safe |
+| `G5.Transfer.v1` | source/target apps -> transfer broker | MIME-like typed offers, available operations, single-target consent, commit/abort | temporary scoped capabilities; no partial cut; source intact on failure |
+| `G5.State.v1` | Shell modules -> state manager | typed transaction, precondition check, undo/redo, checkpoint, preview | atomic commands, generation checks, no secret payloads in journal |
+| `G5.Theme.v1` | Visual Studio -> theme resolver | versioned declarative tokens, validate, preview, apply, revert | no executable theme code; accessibility/security overrides |
+| `G5.Command.v1` | Hub/command palette -> command registry | discover, validate, preview, authorize, execute, cancel | optional AI emits proposals only; deterministic executor is authoritative |
+
+#### Common envelope (proposed)
+Every cross-process request should carry a **version**, **request ID**, **session generation**, **caller capability handle**, **operation**, **bounded typed payload**, and optional **deadline/cancellation token**. Responses should carry a typed status, resulting object generation/revision where applicable and resource-release obligations.
+
+#### Non-negotiable invariants
+1. Authentication, ownership and compositor surface capabilities are validated at use, not only at request creation.
+2. Never pass raw kernel pointers, implicit global object IDs or live application capabilities through visual templates, clipboard history or graph references.
+3. Shell/window protocol must extend the currently verified toplevel configure/ACK serial and activation rules rather than fork a competing unvalidated protocol.
+4. Process or service death revokes generation-bound handles, cancels queued work and does not expose stale pixels/input.
+5. Graphics/gesture rendering can degrade gracefully; the desktop must stay usable without optional AI, animated effects or browser execution.
+6. Resource envelopes, IPC queue depth, object/edge counts, timeouts and memory limits require measurable budgets before G5 completion.
+
+#### Next architecture reviews
+- Identify the actual Ring 3 process topology from current kernel/service code.
+- Determine protocol framing/transport, capability token encoding, handle table ownership and exact state machines.
+- Set latency/memory budgets and queue backpressure/restart policy.
+- Write API header/schema files **only after** contract review and integration with existing Aurora interfaces.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -349,6 +396,7 @@ Isolated Ring 3 system and third-party application processes
 - Universal Command registry schema, AI provider policy and approval thresholds.
 - G5-D23 theme token schema, preset export format, minimum accessibility contrast and graphics effect budgets.
 - G5-D24 camera transform limits, pan gesture conflict policy, inertial parameters and touch gesture transport gates.
+- G5-D30 process topology, IPC envelope, versioned contract definitions, scheduling/backpressure and failure isolation tests.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
