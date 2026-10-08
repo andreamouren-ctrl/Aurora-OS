@@ -210,3 +210,21 @@ enum g5_ipc_status g5_ipc_validate_semantics(
  }
  return G5_IPC_OK;
 }
+
+uint64_t g5_ipc_opcode_required_rights(uint32_t operation) {
+ switch(operation) {
+ case G5_OP_SHELL_READY:
+ case G5_OP_SHELL_HEALTH:
+ case G5_OP_WINDOW_CONFIGURE_ACK:
+  return AURORA_RIGHT_READ;
+ case G5_OP_WINDOW_CONFIGURE:
+ case G5_OP_WINDOW_PLACE:
+ case G5_OP_WINDOW_CLOSE:
+  return AURORA_RIGHT_CONTROL;
+ case G5_OP_SCENE_PREPARE:
+ case G5_OP_SCENE_PUBLISH:
+  return AURORA_RIGHT_CONTROL|AURORA_RIGHT_WRITE;
+ default:
+  return 0;
+ }
+}
