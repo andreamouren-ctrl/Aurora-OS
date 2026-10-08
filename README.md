@@ -82,13 +82,16 @@ M4 graphics is now active implementation, not design-only.
 - **G1 Display foundation — complete/runtime verified**
 - **G2 Surface/buffer core — complete/runtime verified**
 - **G3 Software compositor + mastering color pipeline — complete/runtime verified**
-- **G4 Pointer/modern input — active**
+- **G4 Pointer/modern input — complete/runtime verified (V1 bounded polling)**
+- **G5 Window protocol/Desktop Shell — in progress (core window policy only)**
 
 G1-G3 currently include capability-gated Ring 3 display/surface paths, cross-client buffer isolation, software composition, damage/clipping/z-order, transforms/scaling, occlusion, secure-scene rules, RGB10A2/RGB12/RGBA16F paths, direct ST.2084, BT.2100 HLG, ICC matrix-shaper import, monitor calibration and perceptual tone mapping.
 
 Display-link foundations include EDID/CTA/DisplayID parsing, HDMI/DisplayPort capability models, VRR/DSC contracts, link-training contracts and a QEMU Standard VGA/Bochs VBE native-driver foundation.
 
-G4 now includes normalized device-independent events with stable device identity, PS/2 keyboard integration, a live IRQ12 PS/2 mouse path, secure-scene-aware hit testing, trusted focus/capture routing with lifecycle revocation, private target queues, bounded motion coalescing and runtime-verified transport-independent USB HID boot keyboard/mouse decoders. Live USB HID hardware binding remains blocked on the future xHCI/USB host stack.
+G4 includes PS/2 and live qemu-xhci USB HID keyboard/mouse input, descriptor-driven mouse wheel and five-button support, normalized routing and focus/capture policy. QEMU hot-unplug teardown and event-ring quiescence were runtime gated. MSI-X interrupt delivery and further HID device classes remain deferred; G4 V1 uses bounded polling.
+
+G5 has a kernel window-policy foundation with configure/ack, activation controls, placement/stacking, bounded move and explicit toplevel destruction. This is **not** yet an integrated Ring 3 Desktop Shell or general-purpose window protocol; compositor input/scene integration, decorations, resize/close request semantics and Shell launch/task management remain pending.
 
 ## What Aurora is not yet
 
@@ -97,7 +100,7 @@ Aurora is not yet a daily-driver replacement for Ubuntu/Linux or Windows.
 Major gaps still include:
 
 - production networking/DNS/TLS stack;
-- USB/xHCI and broad USB class support;
+- broader USB class support beyond the G4 xHCI HID foundation;
 - audio;
 - mature power management/suspend/resume;
 - broad vendor GPU acceleration and GPU scheduling;
