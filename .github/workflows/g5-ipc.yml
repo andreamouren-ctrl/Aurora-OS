@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# Verification PR: nested IPC dispatch regression.
 on:
   push:
     paths:
