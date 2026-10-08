@@ -545,5 +545,38 @@ bool usb_hid_selftest(void) {
         return false;
     }
 
+    input_init();
+
+    static struct aurora_usb_hid_mouse wheel_mouse;
+    clear_mouse(&wheel_mouse);
+
+    const uint64_t wheel_mouse_id =
+        AURORA_INPUT_DEVICE_USB_BASE + UINT64_C(11);
+    const uint8_t wheel_up[4] = {0u, 0u, 0u, 1u};
+    const uint8_t wheel_down[4] = {0u, 0u, 0u, (uint8_t)-1};
+
+    if (!usb_hid_mouse_attach(&wheel_mouse, wheel_mouse_id) ||
+        !usb_hid_mouse_process_boot_report(&wheel_mouse, wheel_up) ||
+        !usb_hid_mouse_process_boot_report(&wheel_mouse, wheel_down) ||
+        !usb_hid_mouse_detach(&wheel_mouse)) {
+        return false;
+    }
+
+    if (!input_poll_event(&event) ||
+        event.type != AURORA_INPUT_EVENT_DEVICE_ADDED ||
+        event.device_id != wheel_mouse_id ||
+        !input_poll_event(&event) ||
+        event.type != AURORA_INPUT_EVENT_SCROLL ||
+        event.scroll_y != 1 ||
+        !input_poll_event(&event) ||
+        event.type != AURORA_INPUT_EVENT_SCROLL ||
+        event.scroll_y != -1 ||
+        !input_poll_event(&event) ||
+        event.type != AURORA_INPUT_EVENT_DEVICE_REMOVED ||
+        event.device_id != wheel_mouse_id ||
+        input_poll_event(&event)) {
+        return false;
+    }
+
     return true;
 }
