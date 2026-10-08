@@ -16,7 +16,8 @@ typedef uint64_t aurora_usb_hid_binding_handle;
 enum aurora_usb_hid_protocol {
     AURORA_USB_HID_PROTOCOL_NONE = 0,
     AURORA_USB_HID_PROTOCOL_BOOT_KEYBOARD,
-    AURORA_USB_HID_PROTOCOL_BOOT_MOUSE
+    AURORA_USB_HID_PROTOCOL_BOOT_MOUSE,
+    AURORA_USB_HID_PROTOCOL_REPORT_MOUSE
 };
 
 struct aurora_usb_hid_binding {
@@ -24,6 +25,7 @@ struct aurora_usb_hid_binding {
     uint64_t device_id;
     uint32_t generation;
     bool used;
+    struct aurora_usb_hid_mouse_report_layout report_layout;
 
     union {
         struct aurora_usb_hid_keyboard keyboard;
@@ -44,6 +46,13 @@ bool usb_hid_transport_init(
 bool usb_hid_transport_bind(
     struct aurora_usb_hid_transport *transport,
     enum aurora_usb_hid_protocol protocol,
+    aurora_usb_hid_binding_handle *out_handle,
+    uint64_t *out_device_id
+);
+
+bool usb_hid_transport_bind_report_mouse(
+    struct aurora_usb_hid_transport *transport,
+    const struct aurora_usb_hid_mouse_report_layout *layout,
     aurora_usb_hid_binding_handle *out_handle,
     uint64_t *out_device_id
 );
