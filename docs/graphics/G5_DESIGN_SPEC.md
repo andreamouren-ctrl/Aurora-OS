@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D39**
+Status: **Design in progress — approved decisions D01–D40**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -49,6 +49,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D37 | Aurora Hybrid Scene Graph | Hierarchical visual transforms and ownership-independent semantic graph; explicit contracts with Spatial Index, Content Graph and compositor, without live-app duplication |
 | G5-D38 | Aurora Atomic Scene Transactions | Validated, revisioned, atomic scene updates across canonical Scene Graph, derived index, compositor projection and hit testing; conflict detection and safe rollback, excluding app-internal distributed transactions |
 | G5-D39 | Aurora Staged Persistence | G5 durably persists user-authorized Canvas structure, layers, groups, notes, relations and references via journal/checkpoints; G7 expands restoration to applications and Activity Spaces |
+| G5-D40 | Incremental Journal + Verified Snapshots | Versioned bounded append journal with periodic immutable full-scene checkpoints, integrity-checked manifest publication, quota-based compaction and fail-closed power-loss recovery |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -988,6 +989,73 @@ Use D32 capability-scoped IPC for broker operations and authorized bulk data tra
 
 **Open dependencies:** user-profile storage namespace and rights; AuroraFS atomic durable publication guarantees for mutable records; actual Ring 3 broker ABI; checkpoint frequency/size and journal quotas; retention of Canvas History across reboot; schema migration/version negotiation; application placeholder resolution in G7. These are engineering design gates, not completed source changes.
 
+
+### 3.33 Incremental Journal + Verified Snapshots — concrete storage contract (G5-D40)
+
+**Approved decision:** durable Canvas reconstruction uses immutable periodic **full logical-scene snapshots** combined with a bounded append-only **incremental transaction journal**. Compaction never destroys the last verified recoverable chain. This concretizes G5-D39, not a second persistence subsystem.
+
+#### Existing storage caveat
+\`docs/PROTECTED_SYSTEM_STATE.md\` documents durability publication for **create-once protected records** (staging, sync, same-directory transactional rename), but explicitly states that **generic atomic replacement still requires a separate implementation**. Its current Ring 3 protected record bridge is bounded to 512 bytes. G5 user workspace files must instead use a deliberately authorized profile-scoped storage broker and a newly verified append/replace/sync abstraction. Do not claim that create-once Identity storage already provides arbitrary Canvas journal durability.
+
+#### Logical storage layout (proposal, not a live path)
+\`\`\`text
+<authorized user profile workspace root>/<workspace-id>/
+  manifest.a                  # independently validated generation slot
+  manifest.b                  # alternate generation slot, never in-place overwrite of only good copy
+  snapshots/
+    snapshot-<revision>-<generation>.g5snap
+  journals/
+    journal-<base-revision>-<generation>.g5log
+  staging/                    # ephemeral, never recovery authority
+\`\`\`
+Workspace paths are broker-local, not directly addressable by unprivileged apps. The namespace and VFS atomic rename/sync API remain implementation prerequisites.
+
+#### Portable binary file envelope (v1 proposed)
+Every file uses explicit little-endian fields, checked offset/length arithmetic, explicit format version and checksum algorithm ID; no host C struct cast, no raw process handles, no arbitrary executable payload or implicit path traversal.
+- **Common header: 64 bytes (proposed):** magic[8], major(u16), minor(u16), header_size(u16), record_type(u16), flags(u32), workspace_uuid[16], generation(u64), sequence_or_revision(u64), payload_bytes(u64), checksum_algorithm(u32), reserved(u32). The field sizes sum to **64 bytes**. Reserved and unknown required flags must be zero/rejected.
+- **Snapshot .g5snap:** common header + deterministic, length-delimited scene tables (nodes, groups, layers, notes, drawings, semantic references, portals, preferences) + validated integrity footer/checksum covering file header and entire payload. User note text must not appear in diagnostic logs.
+- **Journal .g5log:** common header identifies base snapshot revision, followed by framed records: record length, monotonically increasing sequence, transaction ID, prior/revised scene revisions, typed operation count, payload, checksum, completion marker. Cap individual record sizes and operation counts before allocation; no implicit replication of physical files.
+- **Manifest slots:** common header plus snapshot ID/hash, committed journal segment ID/tail offset, durable scene revision, retention metadata and manifest checksum. On boot, validate both slots; choose the highest **fully verified recoverable** generation, not merely the highest numeric counter.
+- Forward compatibility: unknown *optional* metadata may be skipped by explicit length, unknown required features/types block loading without destroying old valid data. Migration creates a new verified generation rather than in-place rewrite.
+
+#### Publication order and consistency
+1. Serialize a D38 committed structural edit as a bounded deterministic journal record. Track \`applied_revision\` separately from \`durable_revision\`.
+2. Append journal prepare/data/commit marker through a broker. Sync record bytes and requisite filesystem metadata; publish the new durable tail only after confirmed durability. Do not declare success after a mere IPC acknowledgment.
+3. On checkpoint, write a complete immutable snapshot to a staging object, validate/checksum it, durably sync contents, then publish its final immutable name through a verified atomic operation.
+4. Create the new manifest generation in the inactive slot (or new immutable manifest plus atomically published pointer), sync file and parent namespace according to verified AuroraFS/VFS semantics, and **only then** allow release of older data.
+5. Maintain at least one preceding fully validated manifest+snapshot+journal chain until the new generation has been read back and verified. Compaction deletes only journal segments proven covered by the durable checkpoint and never while readers hold live references.
+6. Recovery scans bounded candidate manifest slots, verifies snapshot and journal chains, ignores incomplete trailing journal fragments and replays only unique committed transaction IDs. A checksum mismatch or sequence hole beyond the last consistent point produces a visible recovery warning, not guessed continuation.
+
+#### Compaction and retention policy
+- Trigger compaction based on configurable **journal byte quota**, **record count**, **replay duration** and explicit user checkpoint request; default numeric thresholds require AuroraFS/QEMU measurements.
+- Limit staging bytes and temporary coexistence of old/new snapshots. Check free space *before* compaction; failure leaves last-known-good chain intact and returns a typed insufficient-space/retry state.
+- Hold one current and at least one previous verified recovery generation by default where quota permits; never violate explicit disk quota or delete the only valid generation. Define behavior for extreme low-space separately.
+- Background checkpointing may yield to interactive rendering; bounded work per cycle and a single writer avoid starving D33/D34 frame scheduling. No unbounded full-scene serialization on UI-critical threads.
+- Keep Canvas History D17 structural undo metadata separately versioned; compacting the recovery journal does not silently remove user-visible undo/redo history. Retention across reboot requires a documented bounded history policy.
+
+#### Crash recovery and security matrix
+| Interruption | Required recovery |
+|---|---|
+| During journal append, before durability | discard torn tail; restore previous durable revision |
+| After durable journal commit, before UI confirmation | idempotently restore confirmed transaction by ID; no duplicate |
+| During snapshot write | old manifest/verified snapshot remains authoritative |
+| After snapshot sync, before manifest publication | old manifest remains authoritative; orphan snapshot may be cleaned later |
+| During manifest slot publication | choose highest fully verified slot; never trust torn pointer |
+| After new manifest verified, before old-chain deletion | new chain authoritative; old chain eligible for delayed GC |
+| Disk full / I/O fault | preserve old chain, expose unsaved/failed state, stop unsafe further accumulation |
+| Lock/logout or other-user login | cancel broker leases, purge sensitive caches and reauthorize before restore |
+| Unsupported schema / tampered checksum | fail closed and permit explicit last-good recovery; no silent reset |
+
+#### Proposed storage APIs and test cases
+- \`G5.SnapshotStore.v1\`: \`begin_snapshot\`, \`write_chunk\`, \`seal_verify_sync\`, \`publish_immutable\`, \`open_verified\`, \`delete_retired\`.
+- \`G5.JournalStore.v1\`: \`append_transaction\`, \`sync_tail\`, \`query_tx_outcome\`, \`replay_from\`, \`rotate_segment\`.
+- \`G5.ManifestStore.v1\`: \`read_slots\`, \`publish_generation\`, \`verify_chain\`, \`select_last_good\`.
+- \`G5.Compactor.v1\`: \`plan\`, \`reserve_space\`, \`checkpoint\`, \`verify\`, \`prune\`, \`cancel\`.
+- Tests: exact file header byte counts and endian golden vectors; truncated/bad lengths/checksum/magic/version; random mutation/replay equivalence; duplicate tx IDs and journal record ordering; power-cut fault injection at every sync/rename/publish boundary; alternate-manifest rollback; disk-full and cancellation during compaction; per-user permission isolation; bounded 1k/10k/100k note/node snapshots; cold reboot recovery in QEMU with AuroraFS.
+- Persist only approved Canvas data (D39). Never serialize live graphics/IPC capabilities, Identity secrets, browser process memory, protected note previews into unrelated templates or cross-user paths.
+
+**Implementation gates:** scoped profile storage API; audited durable append+sync+atomic publish semantics; binary serializers with fuzz/property tests; journal compactor; QEMU reboot and power-cut CI evidence. None is claimed implemented solely by approving this design.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -1049,6 +1117,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify G5-D37 scene reparent/cycle prevention, semantic/visual separation, coherent index/projection generations, single-instance rehost, privacy-safe hit testing and crash recovery.
 - Verify G5-D38 atomic staging/publication, conflict and duplicate rejection, fail-closed input epochs, History coherence, cancellation/timeout recovery and privacy revocation priority.
 - Verify G5-D39 durable scene restore across reboot, journal replay, last-known-good checkpoint, crash/power-loss fault injection, per-user isolation and explicit dirty-state reporting.
+- Verify G5-D40 binary format/golden vectors, dual-manifest generation recovery, journal truncation/deduplication, bounded compaction, power-cut ordering and last-known-good preservation.
 - Explicit runtime QEMU tests and CI evidence are required before marking any item implemented.
 
 ## 7. Pending design decisions
@@ -1067,7 +1136,7 @@ Isolated Ring 3 system and third-party application processes
 - G5-D36 fixed-point world-tick scale, camera-anchor arithmetic, checked screen conversion, zoom thresholds and numerical precision/drift acceptance.
 - G5-D37 scene hierarchy depth and transform scope, semantic graph linkage, compositor projection and hit-test generation coherence.
 - G5-D38 scene transaction limits, compositor batch stage/publish/ack, input epochs, idempotent commit/recovery and structural History journaling.
-- G5-D39 profile-scoped storage broker, durable journal/checkpoint publication, session-vs-saved status, fault recovery and G7 restore bridge.
+- G5-D39/D40 profile-scoped storage broker, snapshot/journal v1 binary envelope, verified dual-manifest publication, compaction quotas, durable recovery and G7 restore bridge.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
