@@ -134,6 +134,14 @@ bool window_policy_move(
     uint32_t height
 );
 
+/* Call before releasing a surface owner or tearing down a session. */
+uint32_t window_policy_revoke_surface(
+    struct aurora_window_policy *policy,
+    const struct aurora_graphics_surface *surface
+);
+
+void window_policy_reset(struct aurora_window_policy *policy);
+
 bool window_policy_destroy_toplevel(
     struct aurora_window_policy *policy,
     uint64_t window_id
