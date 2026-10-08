@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP03 batch5 delivery backpressure, ACK receipt, and revoke.
 on:
   push:
     paths:
