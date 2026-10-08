@@ -191,12 +191,24 @@ Implemented and runtime-verified USB enumeration foundation:
 - [x] interrupt-IN endpoint discovery with address/max-packet/interval extraction;
 - [x] live qemu-xhci keyboard identification (HID Boot protocol 1, endpoint 0x81, 8-byte reports).
 
+Implemented and runtime-verified live HID keyboard path:
+
+- [x] SET_CONFIGURATION standard control request;
+- [x] HID SET_PROTOCOL(Boot) class request;
+- [x] xHCI interrupt-IN Endpoint Context construction;
+- [x] Configure Endpoint command and Running-state validation;
+- [x] dedicated interrupt-IN transfer ring;
+- [x] Transfer Event completion/residual validation for HID reports;
+- [x] live HID binding into the existing generational USB HID transport;
+- [x] live 8-byte keyboard boot report delivery into the normalized input queue;
+- [x] QEMU monitor key injection runtime gate proving key A (usage 0x04) end-to-end.
+
 Remaining transport/extended-device work:
 
-- [ ] SET_CONFIGURATION control transfer;
-- [ ] xHCI endpoint context + Configure Endpoint command for HID interrupt-IN;
-- [ ] interrupt-IN transfer ring and report completion path;
-- [ ] bind live reports into the existing USB HID keyboard/mouse decoder;
+- [ ] enumerate/configure the second connected HID Boot device (mouse) instead of stopping after the first connected port;
+- [ ] verify live mouse motion/button report delivery through xHCI into normalized input;
+- [ ] live disconnect/port-change teardown and HID unbind;
+- [ ] decide/finalize MSI-X event delivery versus polling baseline for the G4 completion gate;
 - [ ] live interrupt-IN report delivery into the existing HID binding layer;
 - [ ] MSI-X interrupt delivery after the polling command/event path is established;
 - [ ] touch/pen/gamepad and accessibility/input-method layers later.
@@ -205,7 +217,7 @@ Acceptance gate:
 
 Mouse and keyboard interact with multiple surfaces without cross-client event leakage.
 
-Current G4 gate status: **runtime verified in four-CPU QEMU through live USB descriptor enumeration and HID Boot endpoint discovery**. Aurora now performs bounded EP0 Setup/Data/Status control transfers, validates Transfer Events, reads and parses the Device Descriptor and Configuration descriptor chain, classifies the connected qemu USB keyboard as HID Boot protocol 1 and discovers interrupt-IN endpoint 0x81 with 8-byte max packet. G4 remains **In progress** because the device is not yet configured for non-default endpoints and live interrupt-IN reports are not yet delivered into the normalized HID decoder.
+Current G4 gate status: **runtime verified end-to-end for a live USB HID Boot keyboard on qemu-xhci**. Aurora configures the USB device, forces HID Boot protocol, creates and enables the interrupt-IN endpoint, arms a Normal TRB, receives the hardware/emulated 8-byte report, submits it through the existing HID binding layer and verifies the resulting normalized key event. The mandatory QEMU gate injects key A and observes report usage 0x04 before the normalized-input success marker. G4 remains **In progress** because the second HID Boot device (mouse), live disconnect lifecycle and the final interrupt-delivery policy still need completion.
 
 ## Phase G5 — Window protocol and Shell
 

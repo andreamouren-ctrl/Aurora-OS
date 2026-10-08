@@ -182,9 +182,14 @@ G4 currently includes:
 - Device Descriptor parsing with USB version and VID/PID extraction;
 - bounded Configuration/Interface/Endpoint descriptor parsing;
 - HID Boot interface classification and interrupt-IN endpoint discovery;
+- SET_CONFIGURATION and HID SET_PROTOCOL(Boot) control requests;
+- interrupt-IN Endpoint Context construction and Configure Endpoint command;
+- dedicated HID transfer ring with Transfer Event residual/completion validation;
+- live report binding into the existing USB HID transport and normalized input queue;
+- QEMU sendkey runtime injection proving key-A delivery from the emulated USB keyboard;
 - separation between pointer events and Aurora Identity credential input.
 
-The current G4 foundation is runtime verified in four-CPU QEMU through live USB descriptor enumeration. The connected qemu USB keyboard is identified as HID Boot protocol 1 with endpoint 0x81, max packet 8 and polling interval 7. Live USB input is not yet claimed: Aurora still needs SET_CONFIGURATION, endpoint-context configuration and interrupt-IN transfer completion wired into the existing HID binding/decoder layer. Touch, pen, gamepad, accessibility and input-method layers remain later work.
+The current G4 foundation is runtime verified end-to-end for the first live qemu USB HID Boot keyboard. The observed 8-byte report is 00 00 04 00 00 00 00 00 and is decoded into the normalized key-A event. G4 is still not complete: Aurora currently stops after the first connected HID device; multi-device enumeration, live mouse input and disconnect teardown remain before the input transport can be considered complete. Touch, pen, gamepad, accessibility and input-method layers remain later work.
 
 ## 9. Performance direction
 
