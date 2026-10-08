@@ -241,7 +241,8 @@ Additional G5 policy hardening (implemented, runtime confirmation pending):
 Remaining:
 
 - [ ] compositor scene and input-router integration for move/resize/close;
-- [ ] explicit automatic toplevel cleanup from surface/process/session teardown;
+- [x] explicit window-policy surface revocation and policy-reset APIs (code + regression selftests, runtime verification pending);
+- [ ] wire the revocation APIs into real surface/process/session teardown paths;
 - [ ] concurrency/lifetime auditing before use with asynchronous Ring 3 clients;
 - [ ] verify new policy regression tests in QEMU and Actions;
 - [ ] decorations;
