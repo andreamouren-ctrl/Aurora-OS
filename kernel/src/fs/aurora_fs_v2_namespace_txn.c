@@ -488,8 +488,14 @@ bool aurora_fs_v2_rename_child_txn(
             (void)recover_after_failure(allocator, geometry);
             return false;
         }
-        g5_rename_debug_stage=23;
-        return finish_transaction(allocator, geometry, txn.sequence);
+        g5_rename_debug_stage=231;
+        if (!aurora_fs_v2_txn_mark_committed(
+                allocator->device, geometry->base_bytes, txn.sequence)) return false;
+        g5_rename_debug_stage=232;
+        if (!aurora_fs_v2_txn_clear(
+                allocator->device, geometry->base_bytes, txn.sequence)) return false;
+        g5_rename_debug_stage=233;
+        return true;
     }
 
     g5_rename_debug_stage=3;
