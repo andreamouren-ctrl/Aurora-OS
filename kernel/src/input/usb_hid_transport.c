@@ -170,6 +170,88 @@ bool usb_hid_transport_bind(
     return true;
 }
 
+bool usb_hid_transport_bind_report_mouse(
+    struct aurora_usb_hid_transport *transport,
+    const struct aurora_usb_hid_mouse_report_layout *layout,
+    aurora_usb_hid_binding_handle *out_handle,
+    uint64_t *out_device_id
+) {
+    if (out_handle != NULL) {
+        *out_handle = AURORA_USB_HID_BINDING_INVALID;
+    }
+    if (out_device_id != NULL) {
+        *out_device_id = AURORA_INPUT_DEVICE_UNSPECIFIED;
+    }
+
+    if (transport == NULL ||
+        !transport->initialized ||
+        layout == NULL ||
+        out_handle == NULL ||
+        out_device_id == NULL ||
+        layout->button_count == 0u ||
+        layout->button_count > 5u ||
+        !layout->has_x ||
+        !layout->has_y ||
+        layout->input_report_bits == 0u ||
+        layout->input_report_bits > 512u) {
+        return false;
+    }
+
+    uint32_t slot = AURORA_USB_HID_MAX_BINDINGS;
+
+    for (uint32_t i = 0u; i < AURORA_USB_HID_MAX_BINDINGS; ++i) {
+        if (!transport->bindings[i].used) {
+            slot = i;
+            break;
+        }
+    }
+
+    if (slot == AURORA_USB_HID_MAX_BINDINGS) {
+        return false;
+    }
+
+    struct aurora_usb_hid_binding *binding =
+        &transport->bindings[slot];
+
+    uint32_t generation = binding->generation + 1u;
+    if (generation == 0u) generation = 1u;
+
+    uint64_t device_id = allocate_device_id(transport);
+    if (device_id == AURORA_INPUT_DEVICE_UNSPECIFIED) {
+        return false;
+    }
+
+    *binding = (struct aurora_usb_hid_binding){
+        .protocol = AURORA_USB_HID_PROTOCOL_REPORT_MOUSE,
+        .device_id = device_id,
+        .generation = generation,
+        .used = true,
+        .report_layout = *layout
+    };
+
+    if (!usb_hid_mouse_attach(
+            &binding->decoder.mouse,
+            device_id)) {
+        binding->used = false;
+        binding->protocol = AURORA_USB_HID_PROTOCOL_NONE;
+        binding->device_id = AURORA_INPUT_DEVICE_UNSPECIFIED;
+        return false;
+    }
+
+    aurora_usb_hid_binding_handle handle =
+        make_handle(slot, generation);
+
+    if (handle == AURORA_USB_HID_BINDING_INVALID) {
+        (void)usb_hid_mouse_detach(&binding->decoder.mouse);
+        binding->used = false;
+        return false;
+    }
+
+    *out_handle = handle;
+    *out_device_id = device_id;
+    return true;
+}
+
 bool usb_hid_transport_submit_report(
     struct aurora_usb_hid_transport *transport,
     aurora_usb_hid_binding_handle handle,
@@ -203,6 +285,25 @@ bool usb_hid_transport_submit_report(
         );
     }
 
+    if (binding->protocol ==
+        AURORA_USB_HID_PROTOCOL_REPORT_MOUSE) {
+        size_t expected_size =
+            ((size_t)binding->report_layout.input_report_bits + 7u) / 8u;
+
+        if (expected_size == 0u ||
+            report_size != expected_size ||
+            report_size > UINT16_MAX) {
+            return false;
+        }
+
+        return usb_hid_mouse_process_report(
+            &binding->decoder.mouse,
+            &binding->report_layout,
+            report,
+            (uint16_t)report_size
+        );
+    }
+
     return false;
 }
 
@@ -220,8 +321,10 @@ bool usb_hid_transport_unbind(
         AURORA_USB_HID_PROTOCOL_BOOT_KEYBOARD
             ? usb_hid_keyboard_detach(
                 &binding->decoder.keyboard)
-            : binding->protocol ==
-                AURORA_USB_HID_PROTOCOL_BOOT_MOUSE
+            : (binding->protocol ==
+                    AURORA_USB_HID_PROTOCOL_BOOT_MOUSE ||
+               binding->protocol ==
+                    AURORA_USB_HID_PROTOCOL_REPORT_MOUSE)
                 ? usb_hid_mouse_detach(
                     &binding->decoder.mouse)
                 : false;
@@ -404,14 +507,84 @@ bool usb_hid_transport_selftest(void) {
         }
     }
 
-    return
-        saw_key_down &&
-        saw_key_up_before_remove &&
-        saw_motion &&
-        saw_button_down &&
-        saw_button_up_before_remove &&
-        keyboard_removed &&
-        mouse_removed &&
-        replacement_added &&
-        replacement_removed;
+    if (!(saw_key_down &&
+          saw_key_up_before_remove &&
+          saw_motion &&
+          saw_button_down &&
+          saw_button_up_before_remove &&
+          keyboard_removed &&
+          mouse_removed &&
+          replacement_added &&
+          replacement_removed)) {
+        return false;
+    }
+
+    input_init();
+
+    const struct aurora_usb_hid_mouse_report_layout report_layout = {
+        .input_report_bits = 32u,
+        .report_id = 0u,
+        .button_count = 5u,
+        .button_bit_offset = 0u,
+        .x_bit_offset = 8u,
+        .y_bit_offset = 16u,
+        .wheel_bit_offset = 24u,
+        .x_bit_size = 8u,
+        .y_bit_size = 8u,
+        .wheel_bit_size = 8u,
+        .has_x = true,
+        .has_y = true,
+        .has_wheel = true
+    };
+
+    aurora_usb_hid_binding_handle report_mouse =
+        AURORA_USB_HID_BINDING_INVALID;
+    uint64_t report_mouse_id = 0u;
+
+    const uint8_t back[4] = {0x08u, 0u, 0u, 0u};
+    const uint8_t forward[4] = {0x10u, 0u, 0u, 0u};
+
+    if (!usb_hid_transport_bind_report_mouse(
+            &transport,
+            &report_layout,
+            &report_mouse,
+            &report_mouse_id) ||
+        usb_hid_transport_submit_report(
+            &transport,
+            report_mouse,
+            back,
+            3u) ||
+        !usb_hid_transport_submit_report(
+            &transport,
+            report_mouse,
+            back,
+            sizeof(back)) ||
+        !usb_hid_transport_submit_report(
+            &transport,
+            report_mouse,
+            forward,
+            sizeof(forward)) ||
+        !usb_hid_transport_unbind(
+            &transport,
+            report_mouse)) {
+        return false;
+    }
+
+    bool saw_back = false;
+    bool saw_forward = false;
+
+    while (input_poll_event(&event)) {
+        if (event.type == AURORA_INPUT_EVENT_POINTER_BUTTON &&
+            event.device_id == report_mouse_id &&
+            event.pressed) {
+            if (event.button == AURORA_POINTER_BUTTON_BACK) {
+                saw_back = true;
+            }
+            if (event.button == AURORA_POINTER_BUTTON_FORWARD) {
+                saw_forward = true;
+            }
+        }
+    }
+
+    return saw_back && saw_forward;
 }
