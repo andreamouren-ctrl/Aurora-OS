@@ -205,12 +205,12 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
         return 1;
     }
 
+    if (startup->g5_endpoint != 0u &&
+        !send_g5_ready(startup->g5_endpoint,startup->session_generation)) return 1;
+
     if (!send_message(startup->control_endpoint, AURORA_USER_SESSION_HOST_READY, 0u)) {
         return 1;
     }
-
-    if (startup->g5_endpoint != 0u &&
-        !send_g5_ready(startup->g5_endpoint,startup->session_generation)) return 1;
 
     (void)syscall1(
         AURORA_SYS_BOOTSTRAP_SIGNAL,
