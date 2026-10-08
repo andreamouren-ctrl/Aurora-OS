@@ -36,6 +36,12 @@ bool g5_ipc_endpoint_poll(struct g5_ipc_endpoint_binding *b,
  const uint8_t *payload=NULL;
  enum g5_ipc_status parsed=g5_ipc_decode_received(&wire,&header,&payload);
  if(parsed!=G5_IPC_OK){*status=parsed;goto cleanup;}
+ uint64_t required=g5_ipc_opcode_required_rights(header.operation);
+ if(!required || (b->authority_rights & required)!=required ||
+    !g5_ipc_kernel_cap_check(b->receiver_caps,b->receiver_authority,
+                             b->authority_type,required)) {
+  *status=G5_IPC_DENIED;goto cleanup;
+ }
  bool tracked=false;
  if(b->pending_requests) {
   enum g5_pending_result pending=g5_pending_accept_control(
