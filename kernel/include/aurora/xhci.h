@@ -172,4 +172,10 @@ bool xhci_configure_hid_interrupt_endpoint(
     uint8_t speed_id
 );
 
+bool xhci_receive_hid_interrupt_report(
+    struct aurora_xhci_controller_state *state,
+    uint8_t *report,
+    uint16_t report_size
+);
+
 #endif
