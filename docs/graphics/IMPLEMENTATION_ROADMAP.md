@@ -10,6 +10,8 @@ This roadmap orders M4 work by hard dependencies. A checkbox in the global roadm
 - [x] Targeted current-source inspection and P0/P1 risk register: [G5_WP01_REPOSITORY_AUDIT.md](G5_WP01_REPOSITORY_AUDIT.md).
 - [ ] Fresh baseline build + QEMU CI artifact validation (not executed by this documentation audit).
 - [ ] Review/freeze actual Shell capability mapping and least-privilege launch path.
+
+- [x] **WP-02 CI verification confirmed (PR #112, commit `dc4a958c`):** GitHub Actions runs `37768852838` (G5 IPC codec), `37768852981` (Aurora OS Bootstrap Build x86_64), and `37768852921` (Identity Entropy Ring3) all completed with `success`. These certify the configured workflows for that commit, **not** a full G5 Shell/QEMU functional test.
 - [x] WP-02 PR-G5-001 source published: `kernel/include/aurora/g5_ipc_abi.h`, `kernel/src/ipc/g5_ipc_codec.c`, `tests/g5/ipc_codec_test.c`, `.github/workflows/g5-ipc.yml`.
 - [ ] WP-02 compile/test and GitHub Actions verdict independently verified; awaiting runtime and integration evidence.
 - [x] WP-02 follow-up source: `g5_ipc_decode_received()` now checks capability count (max 4), rejects zero/duplicate received handles, and preserves the rule that authoritative capability type/rights/generation validation is separate; negative tests added.
