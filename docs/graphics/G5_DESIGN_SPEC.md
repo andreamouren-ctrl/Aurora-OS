@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D34**
+Status: **Design in progress — approved decisions D01–D35**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -44,6 +44,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D32 | Hybrid capability-scoped IPC | Use current bounded Ring 3 IPC for control messages and authorized shared memory/data handles for bulk payloads; no parallel bespoke kernel messaging system |
 | G5-D33 | Aurora Adaptive Buffering | Per-surface bounded buffer pools and frame scheduling adapt to visibility, activity, memory pressure and compositor capacity, preserving atomic commits, capability isolation and release correctness |
 | G5-D34 | Aurora Spatial Rendering hybrid | Spatial visibility indexing, region/damage-driven composition, bounded caches and software-compositor-first rendering; GPU acceleration is optional and later |
+| G5-D35 | Hybrid Spatial Index Engine | Stable versioned spatial-index interface with swappable benchmark-selected dynamic R-tree/loose quadtree backends, and an authoritative correctness reference scan |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -636,6 +637,77 @@ These logical contracts may be implemented as internal C interfaces first; cross
 
 **Unresolved engineering choices:** R-tree vs loose quadtree; exact world coordinate representation; tile size/dirty thresholds; cache budget; scene-delta wire encoding; mitigation for the 64-live-node compositor limit; benchmark pass thresholds. These are planned for the next Canvas Engine architecture and MVP gate decisions.
 
+
+### 3.28 Hybrid Spatial Index Engine — backend-neutral contracts (G5-D35)
+
+**Approved:** use a stable \`G5.SpatialIndex.v1\` facade separating Canvas data/visibility consumers from index implementation. Support candidates (dynamic R-tree and loose quadtree) and a deterministic full-scan reference implementation; select the production backend only after repeatable benchmarks. This is not approval for implementing both optimized backends before the MVP.
+
+#### Index responsibility and ownership
+- The Canvas Engine owns one canonical object registry with stable opaque IDs, revisions, bounded world AABBs, layer ID and coarse visible/collapsed flags. The spatial index stores **derived location metadata**, not authoritative object ownership, credentials, raw surface handles or persistent document content.
+- Query returns bounded candidate IDs and object revisions; privacy authorization, graph visibility, semantic zoom, exact transformed geometry, occlusion, hit-test eligibility and secure-scene gating are revalidated **after** index lookup. An index result must never itself be authority.
+- Index may be reconstructed from the object registry after crash, backend switch or detected inconsistency; no requirement to persist implementation-specific tree nodes in the workspace.
+
+#### Versioned logical API (draft)
+\`\`\`c
+/* Illustrative contract only; not yet a compiled ABI. */
+typedef uint64_t g5_spatial_id;
+typedef uint64_t g5_spatial_revision;
+typedef struct { int64_t min_x, min_y, max_x, max_y; } g5_world_aabb;
+
+typedef struct {
+    g5_spatial_id object_id;
+    g5_spatial_revision object_revision;
+    g5_world_aabb bounds;
+} g5_spatial_entry;
+
+enum g5_index_status {
+    G5_INDEX_OK, G5_INDEX_INVALID, G5_INDEX_OUT_OF_BUDGET,
+    G5_INDEX_STALE, G5_INDEX_NEEDS_REBUILD
+};
+
+/* Internal logical operations: */
+create(config, backend) -> index_handle
+upsert_batch(entries, count, expected_scene_revision) -> new_scene_revision
+remove_batch(ids, count, expected_scene_revision) -> new_scene_revision
+query_aabb(viewport_bounds, scene_revision, result_limit, cursor) -> candidates
+rebuild(registry_snapshot) -> index_generation
+stats() -> counts, bytes, depth, build/query timings
+destroy() -> void
+\`\`\`
+- Coordinate representation above is a **provisional signed 64-bit world-unit AABB**, with a fixed world-unit scale to be frozen in the camera contract. Validate \`min <= max\`, overflow, extreme spans, empty bounds and off-grid origins. Camera rebasing (D34) remains mandatory before converting to compositor-local screen coordinates.
+- Updates are revisioned and either fully applied or rolled back; query is tied to a stable scene revision/index generation. A stale cursor or out-of-date result returns a retry/error instead of silently omitting newly visible objects.
+- Pagination and bounded query count prevent unbounded allocation; stable ordering for deterministic tests (e.g. ID order) is performed outside the index when necessary.
+- Objects spanning many quadtree cells must be stored once in a bounded ancestor/overflow strategy; forbid explosive per-cell duplication. R-tree nodes require controlled split/reinsert/rebalance and hard height/depth limits.
+- Static immovable primitives may later have specialized indexes, but this is not a precondition for the initial dynamic index.
+
+#### Backends, tuning and fallbacks
+| Backend | Expected strength | Tradeoff/gating |
+|---|---|---|
+| Reference scan | Simple correctness oracle, predictable traversal | O(N) queries; safe fallback for modest scenes |
+| Dynamic R-tree | Mixed sizes, large overlapping bounds and updates | Node split/rebalancing complexity |
+| Loose quadtree | Locality and pan/zoom spatial subdivisions | Sparse huge extents, object movement and broad bounds require tuned expansion |
+- Benchmark candidate backends against **identical** snapshots and deterministic event traces; collect insert/remove/move rates, viewport query p50/p95, memory per object, query candidate amplification, rebuild cost and time-to-first-scene.
+- Select the primary backend via written measurement results, not preference; allow compile-time/configured fallback. Do **not** silently change backend mid-transaction or in response to an ordinary frame without generation-safe rebuild and validation.
+- Under memory pressure reject unbounded growth; a correct bounded full scan can be used for small scenes, or an explicit degraded/error view for larger ones. Never show incorrectly filtered content or route input through stale results.
+
+#### Index ↔ compositor consistency
+1. Commit mutation in canonical scene transaction; update index generation; calculate visible-set delta.
+2. Validate privacy/session/layer state and present a compositor scene delta tied to a known revision.
+3. Update hit-test mapping only once corresponding compositor state is accepted; cancellation is safe on mismatch.
+4. On Shell/compositor restart or permission revocation, discard stale generations and rebuild from trusted registry with no unauthorized cached hints.
+5. Use coarse world-space AABB for candidate lookup, then screen-space exact check on object transform; never use the index to grant surface ownership.
+
+#### Required test matrix
+- Differential randomized property tests vs reference scan for 0, 1, 1k, 10k and 100k objects; deterministic seeds and reproducible traces.
+- Stress frequent move/resize/reparent/group/layer changes, long thin annotations, zero-area edge cases and extremely distant 64-bit coordinates.
+- Verify no missing viewport intersections (false negatives); extra coarse candidates permitted only with bounded amplification and subsequent exact filtering.
+- Pagination boundary, cursor invalidation and atomic rollback on rejected mutations or budget exhaustion.
+- Simulate index corruption/rebuild, backend switch, process restart, deleted object IDs and revocation while results are in flight.
+- Benchmark initial load, update throughput, query latency p50/p95, memory footprint, full-scene fallback threshold and integration with D34 compositor's 64-node current ceiling.
+- Use QEMU/CI for contract/runtime gates after implementation, distinguishing unit-level benchmark results from compositor end-to-end evidence.
+
+**Deferred:** definitive R-tree vs loose-quadtree choice, world-unit fixed-point scale, concrete time/memory budgets, implementation headers and benchmark acceptance thresholds. These require measured workloads and source integration.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -692,6 +764,7 @@ Isolated Ring 3 system and third-party application processes
 - Failure injection: broken module/browser does not terminate system shell; safe graphics recovery remains available.
 - Verify G5-D33 adaptive buffer admission, pressure reduction, release correctness, frame pacing, memory quotas, secure occlusion and crash recovery.
 - Verify G5-D34 spatial query equivalence, distant-camera precision, scene node virtualization, damage correctness, privacy-aware hit testing and benchmarked scalability.
+- Verify G5-D35 backend-neutral index mutations, full-scan differential equivalence, generation-safe queries, bounded memory and reproducible R-tree/quadtree benchmarking.
 - Explicit runtime QEMU tests and CI evidence are required before marking any item implemented.
 
 ## 7. Pending design decisions
@@ -706,7 +779,7 @@ Isolated Ring 3 system and third-party application processes
 - G5-D24 camera transform limits, pan gesture conflict policy, inertial parameters and touch gesture transport gates.
 - G5-D30/D31 exact process inventory and privilege/dependency map; review G5-D32 proposed 48-byte wire envelope, bulk-memory Ring 3 API, queue backpressure, typed operation schemas and failure isolation tests.
 - G5-D33 adaptive buffer pool admission/eviction thresholds, Ring 3 buffer-release notifications, frame pacing targets and multi-client performance baselines.
-- G5-D34 spatial indexing selection, world-coordinate precision and rebasing, viewport virtualization, dirty-tile budgets and the compositor 64-node capacity constraint.
+- G5-D34/D35 spatial-index benchmark backend selection, world-coordinate precision and rebasing, viewport virtualization, dirty-tile budgets and the compositor 64-node capacity constraint.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
