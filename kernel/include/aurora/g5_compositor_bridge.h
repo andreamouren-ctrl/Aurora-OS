@@ -17,5 +17,6 @@ bool g5_compositor_bridge_attach(struct g5_compositor_bridge *b,uint32_t slot,
  int32_t x,int32_t y,int32_t z,uint64_t *node_id);
 bool g5_compositor_bridge_present(struct g5_compositor_bridge *b,uint32_t slot,
  uint64_t request_id,uint64_t configure_serial,uint64_t *display_serial);
+bool g5_compositor_bridge_detach(struct g5_compositor_bridge *b,uint32_t slot);
 void g5_compositor_bridge_revoke(struct g5_compositor_bridge *b);
 #endif
