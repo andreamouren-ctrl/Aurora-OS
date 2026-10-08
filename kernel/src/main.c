@@ -1643,6 +1643,44 @@ void kmain(void) {
         log_u64(xhci_state.ep0_state);
         log_line("");
         log_line("[xhci] addressed Device Context + EP0 running gate passed");
+
+        struct aurora_usb_device_descriptor usb_device = {0};
+        if (!xhci_get_device_descriptor(
+                &xhci_state,
+                &usb_device)) {
+            kernel_panic("xHCI USB Device Descriptor read failed");
+        }
+
+        log_write("[xhci] USB device VID ");
+        log_hex64(usb_device.vendor_id);
+        log_write(" PID ");
+        log_hex64(usb_device.product_id);
+        log_write(" USB ");
+        log_hex64(usb_device.usb_version_bcd);
+        log_write(" configs ");
+        log_u64(usb_device.configuration_count);
+        log_line("");
+        log_line("[xhci] GET_DESCRIPTOR(Device) runtime gate passed");
+
+        struct aurora_usb_hid_endpoint_descriptor hid_endpoint = {0};
+        if (!xhci_find_boot_hid_endpoint(
+                &xhci_state,
+                &hid_endpoint)) {
+            kernel_panic("xHCI HID Boot interface/endpoint discovery failed");
+        }
+
+        log_write("[xhci] HID Boot interface ");
+        log_u64(hid_endpoint.interface_number);
+        log_write(" protocol ");
+        log_u64(hid_endpoint.interface_protocol);
+        log_write(" endpoint ");
+        log_hex64(hid_endpoint.endpoint_address);
+        log_write(" max-packet ");
+        log_u64(hid_endpoint.max_packet_size);
+        log_write(" interval ");
+        log_u64(hid_endpoint.interval);
+        log_line("");
+        log_line("[xhci] GET_DESCRIPTOR(Configuration)+HID endpoint runtime gate passed");
     } else {
         log_line("[xhci] controller unavailable");
     }
