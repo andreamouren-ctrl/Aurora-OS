@@ -70,6 +70,14 @@ struct aurora_usb_hid_endpoint_descriptor {
     uint16_t total_configuration_length;
 };
 
+struct aurora_xhci_hid_device {
+    uint8_t port_id;
+    uint8_t speed_id;
+    uint8_t slot_id;
+    struct aurora_usb_device_descriptor device;
+    struct aurora_usb_hid_endpoint_descriptor endpoint;
+};
+
 struct aurora_xhci_probe_result {
     uint8_t bus;
     uint8_t slot;
@@ -194,6 +202,13 @@ bool xhci_receive_hid_interrupt_report(
     struct aurora_xhci_controller_state *state,
     uint8_t *report,
     uint16_t report_size
+);
+
+bool xhci_enumerate_boot_hid_after_port(
+    const struct aurora_xhci_probe_result *probe,
+    struct aurora_xhci_controller_state *state,
+    uint8_t after_port_id,
+    struct aurora_xhci_hid_device *out_device
 );
 
 #endif
