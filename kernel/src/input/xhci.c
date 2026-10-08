@@ -64,6 +64,7 @@
 #define XHCI_TRB_TYPE_STATUS_STAGE   4u
 #define XHCI_TRB_TYPE_LINK           6u
 #define XHCI_TRB_TYPE_ENABLE_SLOT    9u
+#define XHCI_TRB_TYPE_DISABLE_SLOT   10u
 #define XHCI_TRB_TYPE_ADDRESS_DEVICE 11u
 #define XHCI_TRB_TYPE_CONFIGURE_ENDPOINT 12u
 #define XHCI_TRB_TYPE_TRANSFER_EVENT 32u
@@ -755,6 +756,82 @@ bool xhci_submit_enable_slot(
     return true;
 }
 
+
+bool xhci_disable_slot(
+    struct aurora_xhci_controller_state *state,
+    uint8_t slot_id
+) {
+    if (state == NULL ||
+        !state->dma_ready ||
+        !state->running ||
+        slot_id == 0u ||
+        state->command_ring_physical == 0u ||
+        xhci_doorbell_base == NULL ||
+        state->command_enqueue >= XHCI_RING_TRB_COUNT - 1u) {
+        return false;
+    }
+
+    struct xhci_trb *ring =
+        (struct xhci_trb *)pmm_phys_to_virt(
+            state->command_ring_physical
+        );
+
+    uint16_t index = state->command_enqueue;
+    uint32_t cycle =
+        state->command_cycle ? XHCI_TRB_CYCLE : 0u;
+
+    ring[index] = (struct xhci_trb){
+        .parameter = 0u,
+        .status = 0u,
+        .control =
+            (XHCI_TRB_TYPE_DISABLE_SLOT << XHCI_TRB_TYPE_SHIFT) |
+            ((uint32_t)slot_id << 24u) |
+            cycle
+    };
+
+    __asm__ volatile ("" ::: "memory");
+
+    uint64_t command_physical =
+        state->command_ring_physical +
+        (uint64_t)index * sizeof(struct xhci_trb);
+
+    ++state->command_enqueue;
+
+    if (state->command_enqueue ==
+        XHCI_RING_TRB_COUNT - 1u) {
+        struct xhci_trb *link =
+            &ring[XHCI_RING_TRB_COUNT - 1u];
+
+        uint32_t link_cycle =
+            state->command_cycle ? XHCI_TRB_CYCLE : 0u;
+
+        link->control =
+            (XHCI_TRB_TYPE_LINK << XHCI_TRB_TYPE_SHIFT) |
+            XHCI_TRB_TOGGLE_CYCLE |
+            link_cycle;
+
+        __asm__ volatile ("" ::: "memory");
+
+        state->command_enqueue = 0u;
+        state->command_cycle = !state->command_cycle;
+    }
+
+    xhci_mmio_write32(
+        xhci_doorbell_base,
+        0u,
+        0u
+    );
+
+    uint8_t completion_slot = 0u;
+
+    return
+        xhci_wait_command_completion(
+            state,
+            command_physical,
+            &completion_slot
+        ) &&
+        completion_slot == slot_id;
+}
 
 bool xhci_wait_command_completion(
     struct aurora_xhci_controller_state *state,
