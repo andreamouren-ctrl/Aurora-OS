@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# Verify strict compiler fix for actual compositor bridge.
 on:
   push:
     paths:
