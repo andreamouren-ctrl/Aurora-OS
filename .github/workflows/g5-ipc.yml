@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# Verify isolated Ring3 frame roundtrip in QEMU.
 on:
   push:
     paths:
