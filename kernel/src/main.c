@@ -32,6 +32,7 @@
 #include <aurora/interrupts.h>
 #include <aurora/ioapic.h>
 #include <aurora/ipc.h>
+#include <aurora/g5_ipc_endpoint.h>
 #include <aurora/log.h>
 #include <aurora/login_input.h>
 #include <aurora/memory_object.h>
@@ -2397,6 +2398,10 @@ void kmain(void) {
     }
 
     log_line("[ipc] bounded capability-transfer self-test passed");
+    if (!g5_ipc_endpoint_self_test()) {
+        kernel_panic("G5 real IPC endpoint dispatch self-test failed");
+    }
+    log_line("[g5-ipc] real channel dispatch/replay/revoke probe passed");
 #endif
 
     boot_ui_stage(
