@@ -41,7 +41,10 @@ bool g5_ipc_endpoint_poll(struct g5_ipc_endpoint_binding *b,
   enum g5_pending_result pending=g5_pending_accept_control(
     b->pending_requests,&wire);
   if(pending!=G5_PENDING_OK) {
-   *status=pending==G5_PENDING_FULL?G5_IPC_TOO_LARGE:G5_IPC_DENIED;
+   if(header.kind==G5_IPC_CANCEL && pending==G5_PENDING_NOT_FOUND)
+    *status=G5_IPC_OK; /* repeated cancel is idempotent */
+   else
+    *status=pending==G5_PENDING_FULL?G5_IPC_QUEUE_FULL:G5_IPC_DENIED;
    goto cleanup;
   }
   if(header.kind==G5_IPC_CANCEL) {
