@@ -14,7 +14,11 @@
 #define PCI_CAP_ID_MSIX             0x11u
 
 #define XHCI_MMIO_VIRTUAL           0xFFFFFFFFB0400000ull
+#define XHCI_OPERATIONAL_VIRTUAL    0xFFFFFFFFB0401000ull
+#define XHCI_RUNTIME_VIRTUAL        0xFFFFFFFFB0402000ull
+#define XHCI_DOORBELL_VIRTUAL       0xFFFFFFFFB0403000ull
 #define XHCI_PAGE_SIZE              4096ull
+#define XHCI_RESET_SPIN_LIMIT       10000000u
 
 #define XHCI_CAP_CAPLENGTH          0x00u
 #define XHCI_CAP_HCSPARAMS1         0x04u
@@ -23,7 +27,19 @@
 #define XHCI_CAP_DBOFF              0x14u
 #define XHCI_CAP_RTSOFF             0x18u
 
+#define XHCI_OP_USBCMD              0x00u
+#define XHCI_OP_USBSTS              0x04u
+#define XHCI_OP_PAGESIZE            0x08u
+
+#define XHCI_USBCMD_RUN_STOP        (1u << 0)
+#define XHCI_USBCMD_HCRST           (1u << 1)
+#define XHCI_USBSTS_HCHALTED        (1u << 0)
+#define XHCI_USBSTS_CNR             (1u << 11)
+
 static volatile uint8_t *xhci_capability_base;
+static volatile uint8_t *xhci_operational_base;
+static volatile uint8_t *xhci_runtime_base;
+static volatile uint8_t *xhci_doorbell_base;
 
 static bool xhci_map_capability_page(uint64_t physical) {
     uint64_t physical_page = physical & ~(XHCI_PAGE_SIZE - 1u);
@@ -52,6 +68,68 @@ static bool xhci_map_capability_page(uint64_t physical) {
 static uint32_t xhci_read32(uint32_t offset) {
     return *(volatile uint32_t *)(xhci_capability_base + offset);
 }
+static bool xhci_map_register_page(
+    uint64_t virtual_page,
+    uint64_t physical,
+    volatile uint8_t **out_base
+) {
+    if (out_base == NULL || physical == 0u) return false;
+
+    uint64_t physical_page = physical & ~(XHCI_PAGE_SIZE - 1u);
+    uint64_t page_offset = physical & (XHCI_PAGE_SIZE - 1u);
+
+    if (!vmm_map_page(
+            virtual_page,
+            physical_page,
+            VMM_FLAG_WRITE | VMM_FLAG_NO_CACHE)) {
+        uint64_t existing = 0u;
+
+        if (!vmm_translate(virtual_page, &existing) ||
+            (existing & ~(XHCI_PAGE_SIZE - 1u)) != physical_page) {
+            return false;
+        }
+    }
+
+    *out_base = (volatile uint8_t *)(uintptr_t)(
+        virtual_page + page_offset
+    );
+    return true;
+}
+
+static uint32_t xhci_mmio_read32(
+    volatile uint8_t *base,
+    uint32_t offset
+) {
+    return *(volatile uint32_t *)(base + offset);
+}
+
+static void xhci_mmio_write32(
+    volatile uint8_t *base,
+    uint32_t offset,
+    uint32_t value
+) {
+    *(volatile uint32_t *)(base + offset) = value;
+    __asm__ volatile ("" ::: "memory");
+}
+
+static bool xhci_wait_mask32(
+    volatile uint8_t *base,
+    uint32_t offset,
+    uint32_t mask,
+    uint32_t expected
+) {
+    for (uint32_t spin = 0u;
+         spin < XHCI_RESET_SPIN_LIMIT;
+         ++spin) {
+        if ((xhci_mmio_read32(base, offset) & mask) == expected) {
+            return true;
+        }
+        __asm__ volatile ("pause");
+    }
+
+    return false;
+}
+
 
 bool xhci_probe(struct aurora_xhci_probe_result *out_result) {
     if (out_result == NULL) return false;
@@ -205,6 +283,91 @@ bool xhci_read_controller_state(
         .runtime_physical = runtime,
         .doorbell_physical = doorbell
     };
+
+    return true;
+}
+
+
+bool xhci_prepare_controller(
+    const struct aurora_xhci_probe_result *probe,
+    struct aurora_xhci_controller_state *state
+) {
+    if (probe == NULL || state == NULL) return false;
+
+    if (!xhci_map_register_page(
+            XHCI_OPERATIONAL_VIRTUAL,
+            state->operational_physical,
+            &xhci_operational_base) ||
+        !xhci_map_register_page(
+            XHCI_RUNTIME_VIRTUAL,
+            state->runtime_physical,
+            &xhci_runtime_base) ||
+        !xhci_map_register_page(
+            XHCI_DOORBELL_VIRTUAL,
+            state->doorbell_physical,
+            &xhci_doorbell_base)) {
+        log_line("[xhci] prepare fail: register MMIO mapping");
+        return false;
+    }
+
+    uint32_t command =
+        xhci_mmio_read32(xhci_operational_base, XHCI_OP_USBCMD);
+
+    if ((command & XHCI_USBCMD_RUN_STOP) != 0u) {
+        command &= ~XHCI_USBCMD_RUN_STOP;
+        xhci_mmio_write32(
+            xhci_operational_base,
+            XHCI_OP_USBCMD,
+            command
+        );
+    }
+
+    if (!xhci_wait_mask32(
+            xhci_operational_base,
+            XHCI_OP_USBSTS,
+            XHCI_USBSTS_HCHALTED,
+            XHCI_USBSTS_HCHALTED)) {
+        log_line("[xhci] prepare fail: controller did not halt");
+        return false;
+    }
+
+    command =
+        xhci_mmio_read32(xhci_operational_base, XHCI_OP_USBCMD);
+    command |= XHCI_USBCMD_HCRST;
+    xhci_mmio_write32(
+        xhci_operational_base,
+        XHCI_OP_USBCMD,
+        command
+    );
+
+    if (!xhci_wait_mask32(
+            xhci_operational_base,
+            XHCI_OP_USBCMD,
+            XHCI_USBCMD_HCRST,
+            0u)) {
+        log_line("[xhci] prepare fail: HCRST did not clear");
+        return false;
+    }
+
+    if (!xhci_wait_mask32(
+            xhci_operational_base,
+            XHCI_OP_USBSTS,
+            XHCI_USBSTS_CNR,
+            0u)) {
+        log_line("[xhci] prepare fail: controller not ready");
+        return false;
+    }
+
+    uint32_t page_size =
+        xhci_mmio_read32(xhci_operational_base, XHCI_OP_PAGESIZE);
+
+    state->page_size_mask = page_size;
+    state->supports_4k_pages = (page_size & 1u) != 0u;
+
+    if (!state->supports_4k_pages) {
+        log_line("[xhci] prepare fail: 4KiB pages unsupported");
+        return false;
+    }
 
     return true;
 }
