@@ -1142,3 +1142,67 @@ bool xhci_submit_address_device(
 
     return true;
 }
+
+
+bool xhci_validate_addressed_device(
+    struct aurora_xhci_controller_state *state,
+    uint8_t slot_id
+) {
+    if (state == NULL ||
+        slot_id == 0u ||
+        state->addressed_slot_id != slot_id ||
+        state->device_context_physical == 0u ||
+        state->context_size == 0u) {
+        return false;
+    }
+
+    uint32_t *slot = xhci_context_ptr(
+        state->device_context_physical,
+        state->context_size,
+        XHCI_CONTEXT_SLOT_INDEX
+    );
+    uint32_t *ep0 = xhci_context_ptr(
+        state->device_context_physical,
+        state->context_size,
+        XHCI_CONTEXT_EP0_INDEX
+    );
+
+    if (slot == NULL || ep0 == NULL) return false;
+
+    uint8_t usb_address = (uint8_t)(slot[3] & 0xFFu);
+    uint8_t slot_state = (uint8_t)((slot[3] >> 27u) & 0x1Fu);
+    uint8_t ep0_state =
+        (uint8_t)(ep0[0] & XHCI_EP_CONTEXT_STATE_MASK);
+
+    /*
+     * After Address Device completes successfully, the controller must have
+     * assigned a non-zero USB address, advanced the Slot Context out of the
+     * disabled state and placed default control endpoint 0 into Running.
+     */
+    if (usb_address == 0u ||
+        slot_state == 0u ||
+        ep0_state != 1u) {
+        log_write("[xhci] addressed context invalid address=");
+        log_u64(usb_address);
+        log_write(" slot-state=");
+        log_u64(slot_state);
+        log_write(" ep0-state=");
+        log_u64(ep0_state);
+        log_line("");
+        return false;
+    }
+
+    uint64_t *dcbaa =
+        (uint64_t *)pmm_phys_to_virt(
+            state->dcbaa_physical
+        );
+
+    if (dcbaa[slot_id] != state->device_context_physical) {
+        log_line("[xhci] addressed context invalid DCBAA slot pointer");
+        return false;
+    }
+
+    state->usb_device_address = usb_address;
+    state->ep0_state = ep0_state;
+    return true;
+}
