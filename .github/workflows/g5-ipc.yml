@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# Verify WP03 session revision fence baseline.
 on:
   push:
     paths:
