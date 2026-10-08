@@ -48,6 +48,9 @@
 
 #define XHCI_TRB_TYPE_LINK           6u
 #define XHCI_TRB_TYPE_ENABLE_SLOT    9u
+#define XHCI_TRB_TYPE_COMMAND_COMPLETION 33u
+#define XHCI_COMPLETION_SUCCESS      1u
+#define XHCI_EVENT_SPIN_LIMIT        10000000u
 #define XHCI_TRB_CYCLE               (1u << 0)
 #define XHCI_TRB_TOGGLE_CYCLE        (1u << 1)
 #define XHCI_TRB_TYPE_SHIFT          10u
@@ -677,5 +680,99 @@ bool xhci_submit_enable_slot(
         0u
     );
 
+    return true;
+}
+
+
+bool xhci_wait_command_completion(
+    struct aurora_xhci_controller_state *state,
+    uint64_t command_trb_physical,
+    uint8_t *out_slot_id
+) {
+    if (out_slot_id != NULL) *out_slot_id = 0u;
+
+    if (state == NULL ||
+        out_slot_id == NULL ||
+        !state->dma_ready ||
+        !state->running ||
+        state->event_ring_physical == 0u ||
+        xhci_runtime_base == NULL ||
+        state->event_dequeue >= XHCI_RING_TRB_COUNT) {
+        return false;
+    }
+
+    struct xhci_trb *events =
+        (struct xhci_trb *)pmm_phys_to_virt(
+            state->event_ring_physical
+        );
+
+    struct xhci_trb event = {0};
+    bool ready = false;
+
+    for (uint32_t spin = 0u;
+         spin < XHCI_EVENT_SPIN_LIMIT;
+         ++spin) {
+        event = events[state->event_dequeue];
+
+        bool cycle =
+            (event.control & XHCI_TRB_CYCLE) != 0u;
+
+        if (cycle == state->event_cycle) {
+            ready = true;
+            break;
+        }
+
+        __asm__ volatile ("pause");
+    }
+
+    if (!ready) {
+        log_line("[xhci] command completion timeout");
+        return false;
+    }
+
+    uint32_t type =
+        (event.control >> XHCI_TRB_TYPE_SHIFT) & 0x3Fu;
+    uint8_t completion_code =
+        (uint8_t)(event.status >> 24u);
+    uint8_t slot_id =
+        (uint8_t)(event.control >> 24u);
+
+    if (type != XHCI_TRB_TYPE_COMMAND_COMPLETION ||
+        completion_code != XHCI_COMPLETION_SUCCESS ||
+        event.parameter != command_trb_physical ||
+        slot_id == 0u) {
+        log_write("[xhci] bad command completion type=");
+        log_u64(type);
+        log_write(" code=");
+        log_u64(completion_code);
+        log_write(" slot=");
+        log_u64(slot_id);
+        log_write(" ptr=");
+        log_hex64(event.parameter);
+        log_line("");
+        return false;
+    }
+
+    ++state->event_dequeue;
+    if (state->event_dequeue == XHCI_RING_TRB_COUNT) {
+        state->event_dequeue = 0u;
+        state->event_cycle = !state->event_cycle;
+    }
+
+    uint64_t dequeue_physical =
+        state->event_ring_physical +
+        (uint64_t)state->event_dequeue *
+        sizeof(struct xhci_trb);
+
+    volatile uint8_t *interrupter0 =
+        xhci_runtime_base + XHCI_RUNTIME_INTERRUPTER0;
+
+    xhci_mmio_write64(
+        interrupter0,
+        XHCI_INTR_ERDP,
+        dequeue_physical | (1ull << 3)
+    );
+
+    *out_slot_id = slot_id;
     return true;
 }
