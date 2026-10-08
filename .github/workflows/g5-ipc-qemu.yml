@@ -1,4 +1,5 @@
 name: G5 IPC QEMU Cold Boot Recovery
+# Identify AuroraFS replacement precondition on reboot.
 
 on:
   workflow_dispatch:
