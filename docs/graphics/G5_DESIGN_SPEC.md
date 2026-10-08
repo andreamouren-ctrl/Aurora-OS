@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D41**
+Status: **Design in progress — approved decisions D01–D42**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -51,6 +51,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D39 | Aurora Staged Persistence | G5 durably persists user-authorized Canvas structure, layers, groups, notes, relations and references via journal/checkpoints; G7 expands restoration to applications and Activity Spaces |
 | G5-D40 | Incremental Journal + Verified Snapshots | Versioned bounded append journal with periodic immutable full-scene checkpoints, integrity-checked manifest publication, quota-based compaction and fail-closed power-loss recovery |
 | G5-D41 | Aurora Hybrid Autosave | Continuous edits are coalesced into bounded structural transactions, journaled asynchronously with explicit durable acknowledgments, critical-operation durability barriers and visible unsaved-state tracking |
+| G5-D42 | Aurora Guided Recovery | Fail-safe automatic recovery to the last verified Canvas generation plus a guided UI for checkpoints, integrity status, recoverable revisions and explicit restore choices, without overwriting valid backups |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -1111,6 +1112,60 @@ User-facing statuses:
 
 **Implementation prerequisites:** profile-scoped broker, verified AuroraFS sync/atomic-tail publication, bounded journal queue, async Ring 3 IPC completion, durable acknowledgment and UI indicator. Timings remain tentative until measurement and policy review.
 
+
+### 3.35 Aurora Guided Recovery — recovery UX, authority and fault injection (G5-D42)
+
+**Approved:** automatically select the most recent **fully verified** recoverable Canvas generation, and present a guided recovery interface when corruption, incomplete saves, uncertain revisions or alternative valid checkpoints require user attention. It must never silently overwrite the remaining known-good data or claim that unconfirmed edits survived.
+
+#### Recovery flow and security model
+1. **Preflight:** after authorized user login and before publishing a restored Canvas to ordinary input, invoke the per-user G5-D39/D40 persistence broker with fresh session capability. Never parse private workspace files into the pre-login recovery UI.
+2. **Inspect:** enumerate a bounded number of manifest generations, snapshot checksum/schema status, complete journal records, last durable scene revision, and incomplete/torn segments. Check integrity and authorization before showing any titles/previews.
+3. **Select:** choose the highest **fully verified recoverable** generation by default. If ambiguity or damage exists, load a safe read-only preview/summary or defer normal Canvas mutation pending user choice; do not infer missing journal commits.
+4. **Inform:** explain in accessible nontechnical language which revision was verified, whether later unconfirmed modifications may be missing, whether an older checkpoint is available, and what actions are safe. Advanced detail can expose coarse technical error code, generation and journal position without sensitive document text.
+5. **Choose:** user may **Open last verified**, **Inspect other verified checkpoints**, **Keep current recovery state without restoring**, or **Export a sanitized diagnostic report** if the service supports it. Explicit restore makes a *new* generation; it does not destructively overwrite the selected or the last-known-good checkpoint.
+6. **Recover:** validate the selected snapshot plus committed journal tail, perform idempotent bounded replay, rebuild D37 Scene Graph, D35 Spatial Index, D34 visible set and remap unresolved application references to inert placeholders per D39/G7.
+7. **Publish:** compositor and input must accept matching generations using D38 scene transaction rules; disallow ghost input/obsolete capability reuse, honor D22 privacy and protect secure Identity overlays.
+8. **Finalize:** record a new recoverability generation and clear recovery UI only after the broker confirms consistent state; if durable publication fails, remain in a safe read-only/unsaved state with the old recovery copies intact.
+
+#### Logical interfaces (design proposals)
+| Contract | Minimal operations/data | Invariant |
+|---|---|---|
+| \`G5.RecoveryInspect.v1\` | list_candidates, verify_chain, estimate_replay, report_corruption | bounded enumeration; private data filtered |
+| \`G5.RecoveryPlan.v1\` | select_candidate, dry_run, describe_loss_window, verify_permissions | no changes during inspection |
+| \`G5.RecoveryExecute.v1\` | begin, replay, rebuild_projection, publish_new_generation, cancel | idempotent transaction IDs; no destructive overwrite |
+| \`G5.RecoveryUI.v1\` | status, verified_revision, candidate_count, warnings, user_choice | accessible and clear about confirmed vs uncertain data |
+| \`G5.RecoveryDiagnostics.v1\` | export coarse sanitized errors/revisions/checksums | never emit note text, credentials, paths or protected references |
+
+#### Failure and choice behavior
+| Situation | Expected response |
+|---|---|
+| Healthy latest manifest and journal | restore automatically without interrupting ordinary login |
+| Torn last journal record | recover through last complete durable commit; warn if more recent changes were unconfirmed |
+| Latest snapshot invalid; earlier verified chain exists | offer guided older checkpoint; preserve damaged evidence for non-destructive inspection |
+| Two divergent valid chains | explain ambiguity and require user confirmation; never merge silently |
+| No verified chain | safe recovery screen without invented empty workspace; explicit new-workspace choice only after warning |
+| Unknown schema or incompatible feature | refuse automatic migration; offer safe read-only/compatible inspection if possible |
+| Workspace ownership or session authorization mismatch | fail closed without revealing that other users' workspace contents exist |
+| Crash during replay/recovery | leave verified source untouched, mark staging invalid and permit bounded idempotent retry |
+| Storage quota or low space | preserve original chains, report insufficient capacity and allow safe defer/export diagnostics |
+| Lock/logout during recovery | revoke operations, clear sensitive previews and return to trusted lock/session path |
+
+#### Fault-injection and acceptance matrix
+1. Cut power at each append, data sync, commit marker, checkpoint write, manifest slot publication, directory sync and old-generation prune boundary. Select only fully validated durable state.
+2. Mutate header magic, version, payload length, checksum and record order; reject malformed chains without unsafe reads, crash, or partial publication.
+3. Generate truncated journal tails, duplicate transaction IDs and out-of-order revisions; idempotent replay with no missing-confirmed/extra-unconfirmed operations.
+4. Corrupt newest checkpoint but leave previous valid; verify user can choose older copy and recovery never destroys either source.
+5. Create divergent valid manifests; ensure guided conflict view rather than arbitrary or silent merge.
+6. Force disk full, broker crash, Shell crash and compositor crash during plan/replay/publish; confirm safe rollback, bounded retry and restored generation alignment.
+7. Cross-user login, expired capability, lock and logout during recovery; privacy-safe UI and immediate revoked input.
+8. Test keyboard-only/screen-reader navigation, clear loss language, safe default choice and no accidental destructive confirmation.
+9. Rebuild 1k/10k/100k logical-node fixtures; record scan/replay latency, memory, progress and watchdog behavior, with QEMU/AuroraFS cold-boot evidence.
+10. Assert normal valid workspace startup is not delayed by unnecessary guided prompts; recovery appears only when needed or requested explicitly.
+
+**G5/G7 boundary:** G5 reconstructs durable Canvas objects and inert application references; G7 owns application relaunch and session/Activity Space restoration. The recovery interface does not bypass Identity authorization or promote unverified journal entries to committed state.
+
+**Implementation gate:** user-profile storage broker and verified durable atomic publication (D39–D40), G5-D41 autosave ACKs, idempotent replay, graphics projection commits, and QEMU fault-injection harness must be built and tested before calling Guided Recovery operational.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -1174,6 +1229,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify G5-D39 durable scene restore across reboot, journal replay, last-known-good checkpoint, crash/power-loss fault injection, per-user isolation and explicit dirty-state reporting.
 - Verify G5-D40 binary format/golden vectors, dual-manifest generation recovery, journal truncation/deduplication, bounded compaction, power-cut ordering and last-known-good preservation.
 - Verify G5-D41 batching, debounce/dispatch timing, durable save barriers, non-misleading UI status, bounded outage behavior and recovered revision under crash.
+- Verify G5-D42 guided selection among valid chains, torn journal recovery, privacy-safe diagnostics, non-destructive restore and repeated power-cut/rollback scenarios.
 - Explicit runtime QEMU tests and CI evidence are required before marking any item implemented.
 
 ## 7. Pending design decisions
@@ -1194,6 +1250,7 @@ Isolated Ring 3 system and third-party application processes
 - G5-D38 scene transaction limits, compositor batch stage/publish/ack, input epochs, idempotent commit/recovery and structural History journaling.
 - G5-D39/D40 profile-scoped storage broker, snapshot/journal v1 binary envelope, verified dual-manifest publication, compaction quotas, durable recovery and G7 restore bridge.
 - G5-D41 async autosave durability barrier, typed save states, bounded pending-journal queues, debounce/flush performance targets and loss-exposure measurements.
+- G5-D42 recovery candidate inspection, guided checkpoint selection, idempotent replay, nondestructive generation publication, privacy-safe recovery UI and power-cut fault injection.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
