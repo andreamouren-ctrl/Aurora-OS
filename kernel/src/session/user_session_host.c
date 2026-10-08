@@ -14,6 +14,7 @@
 #include <aurora/user_session_host_abi.h>
 #include <aurora/user_session_host_image.h>
 #include <aurora/g5_ipc_endpoint.h>
+#include <aurora/g5_shell_session.h>
 #include <aurora/usercopy.h>
 
 #define USER_SESSION_HOST_TIMEOUT_NS UINT64_C(2000000000)
@@ -38,6 +39,7 @@ struct user_session_host_runtime {
 };
 
 static struct user_session_host_runtime host;
+static struct g5_shell_session shell_session;
 static struct g5_dispatch_context *session_g5_dispatcher;
 
 bool user_session_host_register_g5_dispatcher(struct g5_dispatch_context *d) {
@@ -116,6 +118,7 @@ static void revoke_g5_sender(void) {
 }
 
 static void cleanup_finished_host(void) {
+    g5_shell_session_end(&shell_session);
     if (session_g5_dispatcher != NULL)
         g5_ipc_dispatch_revoke(session_g5_dispatcher);
     revoke_g5_sender();
@@ -320,12 +323,17 @@ static bool start_with_context(
         }
         host.g5_ready=true;
     }
+    if (!g5_shell_session_ready(&shell_session,generation)) {
+        cleanup_unstarted_host();
+        return false;
+    }
     host.active = true;
     return true;
 }
 
 bool user_session_host_stop(void) {
     /* Fail closed immediately, including IPC send timeout/failure paths. */
+    g5_shell_session_end(&shell_session);
     if (session_g5_dispatcher != NULL)
         g5_ipc_dispatch_revoke(session_g5_dispatcher);
     revoke_g5_sender();
