@@ -46,6 +46,7 @@
 #include <aurora/scheduler.h>
 #include <aurora/smp.h>
 #include <aurora/software_compositor.h>
+#include <aurora/window_policy.h>
 #include <aurora/syscall.h>
 #include <aurora/timer.h>
 #include <aurora/usb_hid.h>
@@ -1469,6 +1470,12 @@ void kmain(void) {
     }
 
     log_line("[compositor] scene/z-order/clipping/alpha/damage self-test passed");
+
+    if (!window_policy_selftest()) {
+        kernel_panic("G5 window configure/activation/placement policy self-test failed");
+    }
+
+    log_line("[window-policy] configure-ack/activation/placement self-test passed");
 
     if (!input_selftest() ||
         !ps2_mouse_selftest() ||
