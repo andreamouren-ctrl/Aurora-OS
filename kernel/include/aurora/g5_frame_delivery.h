@@ -10,6 +10,7 @@ struct g5_frame_delivery_entry {
 };
 struct g5_frame_delivery {
  struct g5_frame_submission *submission;
+ uint64_t bound_generation;
  struct g5_frame_delivery_entry entries[G5_FRAME_DELIVERY_CAPACITY];
  uint64_t last_delivered_serial;
 };
