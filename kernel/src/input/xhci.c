@@ -60,6 +60,7 @@
 
 #define XHCI_TRB_TYPE_LINK           6u
 #define XHCI_TRB_TYPE_ENABLE_SLOT    9u
+#define XHCI_TRB_TYPE_ADDRESS_DEVICE 11u
 #define XHCI_TRB_TYPE_COMMAND_COMPLETION 33u
 #define XHCI_TRB_TYPE_PORT_STATUS_CHANGE 34u
 #define XHCI_COMPLETION_SUCCESS      1u
@@ -69,6 +70,23 @@
 #define XHCI_TRB_TYPE_SHIFT          10u
 #define XHCI_RING_TRB_COUNT          256u
 #define XHCI_BOOTSTRAP_SCRATCHPAD_MAX 64u
+
+#define XHCI_CONTEXT_SLOT_INDEX      0u
+#define XHCI_CONTEXT_EP0_INDEX       1u
+#define XHCI_INPUT_CONTROL_CONTEXT   0u
+#define XHCI_INPUT_SLOT_CONTEXT      1u
+#define XHCI_INPUT_EP0_CONTEXT       2u
+
+#define XHCI_SLOT_CONTEXT_ENTRIES_SHIFT 27u
+#define XHCI_SLOT_CONTEXT_SPEED_SHIFT   20u
+#define XHCI_SLOT_CONTEXT_ROOT_PORT_SHIFT 16u
+
+#define XHCI_EP_CONTEXT_STATE_MASK   0x7u
+#define XHCI_EP_CONTEXT_CERR_SHIFT   1u
+#define XHCI_EP_CONTEXT_TYPE_SHIFT   3u
+#define XHCI_EP_CONTEXT_MAX_PACKET_SHIFT 16u
+#define XHCI_EP_TYPE_CONTROL         4u
+#define XHCI_EP0_ERROR_COUNT         3u
 
 static volatile uint8_t *xhci_capability_base;
 static volatile uint8_t *xhci_operational_base;
@@ -165,6 +183,35 @@ struct xhci_erst_entry {
     uint32_t segment_size;
     uint32_t reserved;
 };
+
+
+static uint32_t *xhci_context_ptr(
+    uint64_t physical,
+    uint8_t context_size,
+    uint32_t index
+) {
+    if (physical == 0u ||
+        (context_size != 32u && context_size != 64u)) {
+        return NULL;
+    }
+
+    uint8_t *base =
+        (uint8_t *)pmm_phys_to_virt(physical);
+
+    return (uint32_t *)(
+        base + (uint64_t)context_size * index
+    );
+}
+
+static uint16_t xhci_ep0_max_packet(uint8_t speed_id) {
+    switch (speed_id) {
+        case 1u: return 64u;   /* Full-speed */
+        case 2u: return 8u;    /* Low-speed */
+        case 3u: return 64u;   /* High-speed */
+        case 4u: return 512u;  /* SuperSpeed */
+        default: return 0u;
+    }
+}
 
 
 static bool xhci_wait_mask32(
@@ -904,4 +951,112 @@ bool xhci_reset_first_connected_port(
     }
 
     return false;
+}
+
+
+bool xhci_prepare_address_device(
+    struct aurora_xhci_controller_state *state,
+    uint8_t slot_id,
+    uint8_t port_id,
+    uint8_t speed_id
+) {
+    if (state == NULL ||
+        !state->dma_ready ||
+        !state->running ||
+        state->dcbaa_physical == 0u ||
+        slot_id == 0u ||
+        port_id == 0u ||
+        speed_id == 0u ||
+        state->context_size == 0u ||
+        state->device_context_physical != 0u ||
+        state->input_context_physical != 0u ||
+        state->ep0_ring_physical != 0u) {
+        return false;
+    }
+
+    uint16_t max_packet = xhci_ep0_max_packet(speed_id);
+    if (max_packet == 0u) return false;
+
+    uint64_t device_context = pmm_alloc_page();
+    uint64_t input_context = pmm_alloc_page();
+    uint64_t ep0_ring = pmm_alloc_page();
+
+    if (device_context == 0u ||
+        input_context == 0u ||
+        ep0_ring == 0u) {
+        if (ep0_ring != 0u) pmm_free_page(ep0_ring);
+        if (input_context != 0u) pmm_free_page(input_context);
+        if (device_context != 0u) pmm_free_page(device_context);
+        return false;
+    }
+
+    uint64_t *dcbaa =
+        (uint64_t *)pmm_phys_to_virt(
+            state->dcbaa_physical
+        );
+    dcbaa[slot_id] = device_context;
+
+    uint32_t *control = xhci_context_ptr(
+        input_context,
+        state->context_size,
+        XHCI_INPUT_CONTROL_CONTEXT
+    );
+    uint32_t *slot = xhci_context_ptr(
+        input_context,
+        state->context_size,
+        XHCI_INPUT_SLOT_CONTEXT
+    );
+    uint32_t *ep0 = xhci_context_ptr(
+        input_context,
+        state->context_size,
+        XHCI_INPUT_EP0_CONTEXT
+    );
+
+    if (control == NULL || slot == NULL || ep0 == NULL) {
+        dcbaa[slot_id] = 0u;
+        pmm_free_page(ep0_ring);
+        pmm_free_page(input_context);
+        pmm_free_page(device_context);
+        return false;
+    }
+
+    /*
+     * Add Slot Context (bit 0) and Endpoint 0 Context (bit 1).
+     */
+    control[1] = (1u << 0) | (1u << 1);
+
+    slot[0] =
+        ((uint32_t)speed_id << XHCI_SLOT_CONTEXT_SPEED_SHIFT) |
+        (1u << XHCI_SLOT_CONTEXT_ENTRIES_SHIFT);
+    slot[1] =
+        ((uint32_t)port_id << XHCI_SLOT_CONTEXT_ROOT_PORT_SHIFT);
+
+    ep0[1] =
+        ((uint32_t)XHCI_EP0_ERROR_COUNT << XHCI_EP_CONTEXT_CERR_SHIFT) |
+        ((uint32_t)XHCI_EP_TYPE_CONTROL << XHCI_EP_CONTEXT_TYPE_SHIFT) |
+        ((uint32_t)max_packet << XHCI_EP_CONTEXT_MAX_PACKET_SHIFT);
+
+    ep0[2] = (uint32_t)(ep0_ring | 1u);
+    ep0[3] = (uint32_t)(ep0_ring >> 32u);
+    ep0[4] = 8u;
+
+    struct xhci_trb *ring =
+        (struct xhci_trb *)pmm_phys_to_virt(ep0_ring);
+
+    ring[XHCI_RING_TRB_COUNT - 1u] = (struct xhci_trb){
+        .parameter = ep0_ring,
+        .status = 0u,
+        .control =
+            (XHCI_TRB_TYPE_LINK << XHCI_TRB_TYPE_SHIFT) |
+            XHCI_TRB_TOGGLE_CYCLE |
+            XHCI_TRB_CYCLE
+    };
+
+    __asm__ volatile ("" ::: "memory");
+
+    state->device_context_physical = device_context;
+    state->input_context_physical = input_context;
+    state->ep0_ring_physical = ep0_ring;
+    state->addressed_slot_id = slot_id;
+    return true;
 }
