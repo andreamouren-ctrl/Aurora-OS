@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP03 native Shell receiver binding polling and revoke triple integration.
 on:
   push:
     paths:
