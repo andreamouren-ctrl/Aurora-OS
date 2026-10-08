@@ -1,4 +1,5 @@
 name: Aurora Identity Entropy Handoff
+# Diagnose trusted RDSEED drop before Ring3 test.
 
 on:
   workflow_dispatch:
