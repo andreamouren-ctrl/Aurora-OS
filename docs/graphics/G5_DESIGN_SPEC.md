@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D31**
+Status: **Design in progress — approved decisions D01–D32**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -41,6 +41,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D29 | Aurora Canvas Templates | Bundled and user-created reusable, exportable Canvas templates for groups, layers, notes, portals and spatial layouts, with private data excluded by default |
 | G5-D30 | Modular Shell with isolated services | Lightweight Shell coordinator, explicit versioned interfaces and separated processes at security/failure boundaries; not one monolith or a process for every helper |
 | G5-D31 | Selective process isolation | Trusted Shell modules may share its process; compositor/display, privileged brokers and untrusted applications execute across justified isolation boundaries with supervised restart and fresh capabilities |
+| G5-D32 | Hybrid capability-scoped IPC | Use current bounded Ring 3 IPC for control messages and authorized shared memory/data handles for bulk payloads; no parallel bespoke kernel messaging system |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -411,6 +412,103 @@ Wire frames should include version, message type, request ID, session generation
 - No promises of implemented browser multi-process sandbox, production compositor restart or generic service discovery before their runtime gates.
 - No shared-memory payload ABI assumed to exist merely because internal shared memory objects exist.
 
+
+### 3.25 G5 Hybrid capability-scoped IPC — draft wire ABI (G5-D32)
+
+**Approved decision:** reuse native capability-aware IPC for control and event delivery, while bulk/graphics data flows use individually authorized shared-memory objects or data-broker handles. **Design-only:** no claim that a public Ring 3 shared-memory mapping ABI exists today. The implementation is gated on real runtime verification.
+
+#### Existing kernel constraints (source checked 2026-10-08)
+- \`kernel/include/aurora/ipc.h\`: \`AURORA_IPC_PAYLOAD_MAX=256\`, \`AURORA_IPC_CAPS_MAX=4\`, \`AURORA_IPC_QUEUE_DEPTH=16\`; dual-ended channel and escrowed capability delegation.
+- \`kernel/include/aurora/capability_abi.h\`: \`aurora_cap_handle\` is \`uint64_t\`; existing cap types include MEMORY, GRAPHICS_BUFFER and SURFACE; rights include READ, WRITE, MAP, CONTROL, TRANSFER. No G5-specific elevated cap type is assumed to exist.
+- \`kernel/include/aurora/capability.h\`: generation-checked capability table, lookup/retain/release, revoke, rights reduction and delegation; 256 entries per table today.
+- \`docs/RING3_IPC_SYSCALLS.md\`: SEND=4, RECEIVE=5, WAIT=8; one waiter per endpoint; queue-full send currently returns error. Received transfers are issued new receiver-local handles; never serialize sender-local handle numbers as authoritative.
+- Privileged service discovery, bulk payload mapping, general service-registry and production backpressure require additional implementation.
+
+#### Proposed header file structure (not created in source yet)
+\`\`\`text
+kernel/include/aurora/g5_ipc_abi.h       # fixed-width wire framing and opcodes only
+kernel/include/aurora/g5_shared_abi.h    # descriptor for future mapped bulk objects
+services/shell/include/g5_client.h       # userspace encode/decode and request lifecycle
+services/shell/include/g5_protocol.h     # module-specific typed requests and replies
+tests/g5_ipc_contract_tests.c            # serializer/parser/permission regression
+\`\`\`
+Paths are **proposals**; verify repo layout and ownership before implementation.
+
+#### Proposed fixed 48-byte control frame
+All fields are **explicit little-endian on wire**, no host C struct memory memcpy. G5 common frame bytes:
+| Offset | Bytes | Field | Rule |
+|---|---:|---|---|
+| 0 | 4 | magic | ASCII \`G5IP\` |
+| 4 | 2 | major | 1 |
+| 6 | 2 | minor | 0 initially |
+| 8 | 2 | header_bytes | 48 |
+| 10 | 2 | message_type | request/response/event/cancel |
+| 12 | 4 | operation | namespaced opcode |
+| 16 | 4 | flags | reject unknown mandatory flags |
+| 20 | 4 | payload_bytes | 0..208 |
+| 24 | 8 | request_id | caller-unique in endpoint generation |
+| 32 | 8 | session_generation | validated against trusted session context |
+| 40 | 8 | object_generation | expected target revision/generation or 0 |
+Total **48 bytes** + maximum **208-byte inline payload** = **256 bytes**. Target object authority is passed in a validated capability slot or resolved through a scoped broker; IDs in payload are not authority. Header has no raw pointers.
+
+Proposed C-facing *logical* definitions:
+\`\`\`c
+#define G5_IPC_MAGIC 0x50493547u /* LE bytes: 'G','5','I','P' */
+#define G5_IPC_MAJOR 1u
+#define G5_IPC_HEADER_BYTES 48u
+#define G5_IPC_INLINE_MAX (AURORA_IPC_PAYLOAD_MAX - G5_IPC_HEADER_BYTES)
+#define G5_IPC_ATTACH_MAX AURORA_IPC_CAPS_MAX
+
+enum g5_ipc_kind { G5_IPC_REQUEST=1, G5_IPC_RESPONSE=2,
+                   G5_IPC_EVENT=3, G5_IPC_CANCEL=4 };
+struct g5_ipc_frame_logical {
+    uint16_t major, minor, header_bytes, kind;
+    uint32_t operation, flags, payload_bytes;
+    uint64_t request_id, session_generation, object_generation;
+};
+/* Encode/decode field-by-field; this is NOT a wire-castable packed struct. */
+\`\`\`
+**Review note:** Current field-count/offset layout above totals 48; any extension uses a new header size/version and strict bounds. Use explicit operation schemas with numeric bounds, length prefixes and type validation. Do not attempt fragmentation of large arbitrary payloads as a substitute for a validated bulk path.
+
+#### Bulk descriptor: design candidate (requires ABI implementation)
+A control message may identify a transfer of type \`G5_BULK_REF\` and carry an **IPC-transferred capability**, offset, length, read/write role, content type, object generation and expiration/lease policy. Kernel checks mapping rights and owner/session; receiver maps only its authorized range.
+- For content/metadata: prefer immutable/read-only sealed snapshot after producer commit; for mutable buffer streams: an explicit writer/reader lifecycle with release and fence semantics.
+- Validated: offset+length overflow, page alignment where required, per-client byte quotas, stale generation, MAP/READ/WRITE rights, ownership, mapping teardown, zeroing on reuse, and sender death during transfer.
+- GRAPHICS_BUFFER ownership must preserve compositor-specific buffer attach/commit/fence rules; **G5_IPC** transports control, not necessarily pixel bytes.
+- Large payload exchange is **blocked** until a verified Ring 3 create/map/unmap/revoke shared object or a vetted existing broker IPC path is available. The mere existence of internal shared-memory objects does not satisfy this acceptance gate.
+
+#### Capability distribution and authority
+- Only Session Manager/trusted supervisor bootstraps service endpoints; untrusted apps never acquire \`MANAGE_WINDOWS\` by messaging a privileged endpoint.
+- SEND needs endpoint WRITE; RECEIVE/WAIT need READ; capability transfer needs source TRANSFER and delegated rights are an intersection of source rights and authorized policy, never an escalation.
+- Limit to **four** transfers per IPC message. Transferred capability handles are receiver-local and must be interpreted by ordinal slot + validated expected type/rights; never trust the sender's numeric cap handle embedded in bytes.
+- Every operation validates session generation, target object generation, caller endpoint identity/rights and per-operation allowed types. Reauthentication/identity secrets remain with protected Identity services.
+- Session lock/logout or process death invalidates leases, mapped views, queued transfers, broker references and pending requests. Protect against escrow leaks when send/receive/cancel/restart fails.
+
+#### Request/reply, cancellation, queues and errors
+- Requests use unique monotonically advancing request IDs per endpoint generation; responses correlate request ID, operation and session generation. Replays/stale replies rejected.
+- A CANCEL is best-effort, idempotent and scoped to the originating caller/request. Never roll back a committed side effect merely because cancellation arrives late; signal a terminal committed result.
+- Use \`IPC_WAIT\` + \`IPC_RECEIVE\` event loop with **one waiter per endpoint**; replies and events are multiplexed. Queue depth is 16; producer must coalesce replaceable camera/motion updates but **never** coalesce irreversible commits, permission decisions or keyboard/button transitions.
+- Queue full produces explicit backpressure and bounded retry/cancel. Avoid busy-spin; do not hold compositor or graph locks while waiting on RPC/IPC.
+- Logical statuses: OK, INVALID_FORMAT, UNSUPPORTED_VERSION, UNKNOWN_OPERATION, PERMISSION_DENIED, STALE_HANDLE, WRONG_SESSION, BUSY, QUEUE_FULL, TOO_LARGE, TIMEOUT, CANCELLED, CONFLICT, INTERNAL_ERROR; map to existing kernel error transport without claiming distinct syscall errno support today.
+- No secrets/credentials in logs; ensure request IDs and resource generations are sufficient to diagnose failure without exposing user data.
+
+#### Tests and acceptance gates
+| Test ID | Required proof |
+|---|---|
+| G5-IPC-01 | fixed 48-byte framing, little-endian encode/decode and 208-byte inline boundary |
+| G5-IPC-02 | reject bad magic/version/header size, unknown required flags/opcodes, truncated and oversized messages |
+| G5-IPC-03 | strict capability type/rights reduction and at-most-four transferred handles |
+| G5-IPC-04 | stale handle/object/session generation, replayed request ID and spoofed caller rejection |
+| G5-IPC-05 | full 16-slot queue behavior, bounded backpressure/coalescing and no dropped critical updates |
+| G5-IPC-06 | cancellation races before/after commit; one waiter and lost-wakeup paths |
+| G5-IPC-07 | bulk offset/length overflow, quotas, readonly mapping, teardown/revocation, reuse scrubbing |
+| G5-IPC-08 | isolate crash of source/destination during mapping and capability escrow; no leaks |
+| G5-IPC-09 | separate isolated Ring 3 clients exercise Shell ↔ compositor and Shell ↔ module control flows |
+| G5-IPC-10 | repeated login/logout, restart and injected crashes show no cross-session data/graphics/input leaks |
+| G5-IPC-11 | QEMU runtime plus CI smoke and negative/malformed-message tests; no unverified production claims |
+
+**Blocking dependencies:** versioned user-space ABI headers and libraries, Ring 3 shared-memory create/map/unmap/revoke or approved broker path, scoped service endpoint discovery, queue overload policy and actual compositor Shell IPC migration. These are required before G5-D32 can be marked *implemented/runtime verified*.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -477,7 +575,7 @@ Isolated Ring 3 system and third-party application processes
 - Universal Command registry schema, AI provider policy and approval thresholds.
 - G5-D23 theme token schema, preset export format, minimum accessibility contrast and graphics effect budgets.
 - G5-D24 camera transform limits, pan gesture conflict policy, inertial parameters and touch gesture transport gates.
-- G5-D30/D31 exact process inventory and privilege/dependency map; G5.IPC.v1 on-wire layout, queue backpressure and failure isolation tests.
+- G5-D30/D31 exact process inventory and privilege/dependency map; review G5-D32 proposed 48-byte wire envelope, bulk-memory Ring 3 API, queue backpressure, typed operation schemas and failure isolation tests.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
