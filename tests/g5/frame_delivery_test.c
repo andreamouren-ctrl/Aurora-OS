@@ -48,6 +48,15 @@ int main(void) {
  assert(g5_frame_submission_begin(&f,11));
  assert(g5_frame_delivery_bind(&d,&f));
  assert(!g5_frame_delivery_ack(&d,10,4));
- g5_frame_delivery_revoke(&d);g5_frame_submission_end(&f);
+ /* Stale delivery binding must not inherit the next session epoch. */
+ assert(g5_frame_delivery_publish(&d,slot,99,config,&snapshot,&serial)==false);
+ assert(d.bound_generation==11);
+ g5_frame_submission_end(&f);
+ assert(g5_frame_submission_begin(&f,12));
+ assert(!g5_frame_delivery_ack(&d,12,1));
+ assert(!g5_frame_delivery_publish(&d,slot,100,config,&snapshot,&serial));
+ g5_frame_delivery_revoke(&d);
+ assert(d.bound_generation==0);
+ g5_frame_submission_end(&f);
  return 0;
 }
