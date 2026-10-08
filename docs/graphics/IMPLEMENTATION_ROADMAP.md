@@ -11,6 +11,7 @@ This roadmap orders M4 work by hard dependencies. A checkbox in the global roadm
 - [ ] Fresh baseline build + QEMU CI artifact validation (not executed by this documentation audit).
 - [ ] Review/freeze actual Shell capability mapping and least-privilege launch path.
 
+- [x] **WP-02 PR #113 CI evidence:** `G5 IPC Wire Contract` and `Aurora OS Bootstrap Build` completed successfully; `Identity Entropy Handoff` initially failed because the Ring 3 entropy probe was skipped (`entropy_ready()` false) but its failed-job rerun `113292813520` completed successfully. Investigate test flakiness separately; no claim of a deterministic fix or full Shell QEMU acceptance.
 - [x] **WP-02 CI verification confirmed (PR #112, commit `dc4a958c`):** GitHub Actions runs `37768852838` (G5 IPC codec), `37768852981` (Aurora OS Bootstrap Build x86_64), and `37768852921` (Identity Entropy Ring3) all completed with `success`. These certify the configured workflows for that commit, **not** a full G5 Shell/QEMU functional test.
 - [x] WP-02 PR-G5-001 source published: `kernel/include/aurora/g5_ipc_abi.h`, `kernel/src/ipc/g5_ipc_codec.c`, `tests/g5/ipc_codec_test.c`, `.github/workflows/g5-ipc.yml`.
 - [ ] WP-02 compile/test and GitHub Actions verdict independently verified; awaiting runtime and integration evidence.
