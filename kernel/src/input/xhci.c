@@ -34,11 +34,23 @@
 #define XHCI_OP_CRCR                0x18u
 #define XHCI_OP_DCBAAP              0x30u
 #define XHCI_OP_CONFIG              0x38u
+#define XHCI_OP_PORT_BASE           0x400u
+#define XHCI_OP_PORT_STRIDE         0x10u
+#define XHCI_PORTSC                 0x00u
 
 #define XHCI_USBCMD_RUN_STOP        (1u << 0)
 #define XHCI_USBCMD_HCRST           (1u << 1)
 #define XHCI_USBSTS_HCHALTED        (1u << 0)
 #define XHCI_USBSTS_CNR             (1u << 11)
+
+#define XHCI_PORTSC_CCS             (1u << 0)
+#define XHCI_PORTSC_PED             (1u << 1)
+#define XHCI_PORTSC_PR              (1u << 4)
+#define XHCI_PORTSC_PP              (1u << 9)
+#define XHCI_PORTSC_SPEED_SHIFT     10u
+#define XHCI_PORTSC_SPEED_MASK      (0xFu << XHCI_PORTSC_SPEED_SHIFT)
+#define XHCI_PORTSC_RW1C_MASK       ((1u << 17) | (1u << 18) | (1u << 19) | (1u << 20) | (1u << 21) | (1u << 22) | (1u << 23))
+#define XHCI_PORT_RESET_SPIN_LIMIT  10000000u
 
 #define XHCI_RUNTIME_INTERRUPTER0    0x20u
 #define XHCI_INTR_IMAN               0x00u
@@ -775,4 +787,97 @@ bool xhci_wait_command_completion(
 
     *out_slot_id = slot_id;
     return true;
+}
+
+
+bool xhci_reset_first_connected_port(
+    const struct aurora_xhci_probe_result *probe,
+    uint8_t *out_port_id,
+    uint8_t *out_speed_id
+) {
+    if (out_port_id != NULL) *out_port_id = 0u;
+    if (out_speed_id != NULL) *out_speed_id = 0u;
+
+    if (probe == NULL ||
+        out_port_id == NULL ||
+        out_speed_id == NULL ||
+        xhci_operational_base == NULL ||
+        probe->max_ports == 0u) {
+        return false;
+    }
+
+    for (uint8_t port = 0u; port < probe->max_ports; ++port) {
+        uint32_t offset =
+            XHCI_OP_PORT_BASE +
+            (uint32_t)port * XHCI_OP_PORT_STRIDE +
+            XHCI_PORTSC;
+
+        uint32_t portsc =
+            xhci_mmio_read32(xhci_operational_base, offset);
+
+        if ((portsc & XHCI_PORTSC_CCS) == 0u) {
+            continue;
+        }
+
+        /*
+         * PORTSC change-status bits are RW1C. Clear them from the value we
+         * write back so starting a reset cannot accidentally acknowledge
+         * unrelated status transitions.
+         */
+        uint32_t reset_value =
+            portsc & ~XHCI_PORTSC_RW1C_MASK;
+
+        reset_value |= XHCI_PORTSC_PP;
+        reset_value |= XHCI_PORTSC_PR;
+
+        xhci_mmio_write32(
+            xhci_operational_base,
+            offset,
+            reset_value
+        );
+
+        bool reset_done = false;
+
+        for (uint32_t spin = 0u;
+             spin < XHCI_PORT_RESET_SPIN_LIMIT;
+             ++spin) {
+            portsc =
+                xhci_mmio_read32(
+                    xhci_operational_base,
+                    offset
+                );
+
+            if ((portsc & XHCI_PORTSC_PR) == 0u &&
+                (portsc & XHCI_PORTSC_PED) != 0u &&
+                (portsc & XHCI_PORTSC_CCS) != 0u) {
+                reset_done = true;
+                break;
+            }
+
+            __asm__ volatile ("pause");
+        }
+
+        if (!reset_done) {
+            log_write("[xhci] port reset failed port ");
+            log_u64((uint64_t)port + 1u);
+            log_line("");
+            return false;
+        }
+
+        uint8_t speed =
+            (uint8_t)(
+                (portsc & XHCI_PORTSC_SPEED_MASK) >>
+                XHCI_PORTSC_SPEED_SHIFT
+            );
+
+        if (speed == 0u) {
+            return false;
+        }
+
+        *out_port_id = (uint8_t)(port + 1u);
+        *out_speed_id = speed;
+        return true;
+    }
+
+    return false;
 }
