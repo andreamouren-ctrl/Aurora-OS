@@ -155,4 +155,9 @@ bool xhci_find_boot_hid_endpoint(
     struct aurora_usb_hid_endpoint_descriptor *out_endpoint
 );
 
+bool xhci_set_configuration_and_boot_protocol(
+    struct aurora_xhci_controller_state *state,
+    const struct aurora_usb_hid_endpoint_descriptor *endpoint
+);
+
 #endif
