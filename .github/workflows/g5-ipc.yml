@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# Batch: ownership, configure gate, and lifecycle revocation.
 on:
   push:
     paths:
