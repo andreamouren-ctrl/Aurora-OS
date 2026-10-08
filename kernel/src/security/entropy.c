@@ -121,10 +121,20 @@ bool entropy_init_with_source(
     for (uint32_t i = 0u; i < AURORA_ENTROPY_STARTUP_SAMPLES; ++i) {
         uint64_t sample = 0u;
 
-        if (!ops->read_seed64(ops->context, &sample)) {
+        /* RDSEED is permitted to report temporary unavailability when its
+         * hardware entropy pool is empty. Retry each STARTUP sample with a
+         * finite budget; never substitute auxiliary RDRAND, and never retry
+         * a failed health test. A persistently unavailable source remains
+         * fail-closed. */
+        bool acquired = false;
+        for (uint32_t attempt = 0u; attempt < 8u; ++attempt) {
+            if (ops->read_seed64(ops->context, &sample)) {
+                acquired = true;
+                break;
+            }
             ++source_failures;
-            break;
         }
+        if (!acquired) break;
 
         if (!sample_is_healthy(sample, have_previous, previous)) {
             ++health_failures;
