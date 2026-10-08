@@ -2029,3 +2029,204 @@ bool xhci_configure_hid_interrupt_endpoint(
     state->hid_endpoint_running = true;
     return true;
 }
+
+
+static bool xhci_wait_hid_transfer_completion(
+    struct aurora_xhci_controller_state *state,
+    uint64_t trb_physical,
+    uint16_t requested_length,
+    uint16_t *out_transferred
+) {
+    if (out_transferred != NULL) *out_transferred = 0u;
+
+    if (state == NULL ||
+        out_transferred == NULL ||
+        trb_physical == 0u ||
+        requested_length == 0u ||
+        state->hid_endpoint_id <= 1u ||
+        state->event_ring_physical == 0u ||
+        xhci_runtime_base == NULL) {
+        return false;
+    }
+
+    struct xhci_trb *events =
+        (struct xhci_trb *)pmm_phys_to_virt(
+            state->event_ring_physical
+        );
+
+    volatile uint8_t *interrupter0 =
+        xhci_runtime_base + XHCI_RUNTIME_INTERRUPTER0;
+
+    for (uint32_t spin = 0u;
+         spin < XHCI_EVENT_SPIN_LIMIT * 20u;
+         ++spin) {
+        struct xhci_trb event =
+            events[state->event_dequeue];
+
+        bool cycle =
+            (event.control & XHCI_TRB_CYCLE) != 0u;
+
+        if (cycle != state->event_cycle) {
+            __asm__ volatile ("pause");
+            continue;
+        }
+
+        uint32_t type =
+            (event.control >> XHCI_TRB_TYPE_SHIFT) & 0x3Fu;
+
+        if (type != XHCI_TRB_TYPE_TRANSFER_EVENT &&
+            type != XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
+            log_write("[xhci] unexpected event while waiting HID report type=");
+            log_u64(type);
+            log_line("");
+            return false;
+        }
+
+        ++state->event_dequeue;
+        if (state->event_dequeue == XHCI_RING_TRB_COUNT) {
+            state->event_dequeue = 0u;
+            state->event_cycle = !state->event_cycle;
+        }
+
+        uint64_t dequeue_physical =
+            state->event_ring_physical +
+            (uint64_t)state->event_dequeue *
+            sizeof(struct xhci_trb);
+
+        xhci_mmio_write64(
+            interrupter0,
+            XHCI_INTR_ERDP,
+            dequeue_physical | (1ull << 3)
+        );
+
+        if (type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
+            continue;
+        }
+
+        uint8_t completion_code =
+            (uint8_t)(event.status >> 24u);
+        uint32_t residual = event.status & 0x00FFFFFFu;
+        uint8_t event_slot =
+            (uint8_t)(event.control >> 24u);
+        uint8_t endpoint_id =
+            (uint8_t)((event.control >> 16u) & 0x1Fu);
+
+        if ((completion_code != XHCI_COMPLETION_SUCCESS &&
+             completion_code != 13u) ||
+            event_slot != state->addressed_slot_id ||
+            endpoint_id != state->hid_endpoint_id ||
+            event.parameter != trb_physical ||
+            residual > requested_length) {
+            log_write("[xhci] bad HID transfer completion code=");
+            log_u64(completion_code);
+            log_write(" slot=");
+            log_u64(event_slot);
+            log_write(" ep=");
+            log_u64(endpoint_id);
+            log_write(" residual=");
+            log_u64(residual);
+            log_line("");
+            return false;
+        }
+
+        *out_transferred =
+            (uint16_t)(requested_length - residual);
+        return true;
+    }
+
+    log_line("[xhci] HID interrupt-IN transfer timeout");
+    return false;
+}
+
+bool xhci_receive_hid_interrupt_report(
+    struct aurora_xhci_controller_state *state,
+    uint8_t *report,
+    uint16_t report_size
+) {
+    if (state == NULL ||
+        report == NULL ||
+        report_size == 0u ||
+        report_size > XHCI_PAGE_SIZE ||
+        !state->hid_endpoint_running ||
+        state->hid_ring_physical == 0u ||
+        state->hid_endpoint_id <= 1u ||
+        state->hid_enqueue >= XHCI_RING_TRB_COUNT - 1u ||
+        xhci_doorbell_base == NULL) {
+        return false;
+    }
+
+    uint64_t buffer_page = pmm_alloc_page();
+    if (buffer_page == 0u) return false;
+
+    struct xhci_trb *ring =
+        (struct xhci_trb *)pmm_phys_to_virt(
+            state->hid_ring_physical
+        );
+
+    uint16_t index = state->hid_enqueue;
+    uint32_t cycle =
+        state->hid_cycle ? XHCI_TRB_CYCLE : 0u;
+
+    ring[index] = (struct xhci_trb){
+        .parameter = buffer_page,
+        .status = (uint32_t)report_size,
+        .control =
+            (XHCI_TRB_TYPE_NORMAL << XHCI_TRB_TYPE_SHIFT) |
+            XHCI_TRB_IOC |
+            cycle
+    };
+
+    __asm__ volatile ("" ::: "memory");
+
+    uint64_t trb_physical =
+        state->hid_ring_physical +
+        (uint64_t)index * sizeof(struct xhci_trb);
+
+    ++state->hid_enqueue;
+
+    if (state->hid_enqueue ==
+        XHCI_RING_TRB_COUNT - 1u) {
+        struct xhci_trb *link =
+            &ring[XHCI_RING_TRB_COUNT - 1u];
+
+        uint32_t link_cycle =
+            state->hid_cycle ? XHCI_TRB_CYCLE : 0u;
+
+        link->control =
+            (XHCI_TRB_TYPE_LINK << XHCI_TRB_TYPE_SHIFT) |
+            XHCI_TRB_TOGGLE_CYCLE |
+            link_cycle;
+
+        __asm__ volatile ("" ::: "memory");
+
+        state->hid_enqueue = 0u;
+        state->hid_cycle = !state->hid_cycle;
+    }
+
+    xhci_mmio_write32(
+        xhci_doorbell_base,
+        (uint32_t)state->addressed_slot_id * 4u,
+        state->hid_endpoint_id
+    );
+
+    uint16_t transferred = 0u;
+    if (!xhci_wait_hid_transfer_completion(
+            state,
+            trb_physical,
+            report_size,
+            &transferred) ||
+        transferred != report_size) {
+        pmm_free_page(buffer_page);
+        return false;
+    }
+
+    const uint8_t *source =
+        (const uint8_t *)pmm_phys_to_virt(buffer_page);
+
+    for (uint16_t i = 0u; i < report_size; ++i) {
+        report[i] = source[i];
+    }
+
+    pmm_free_page(buffer_page);
+    return true;
+}
