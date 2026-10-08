@@ -638,5 +638,28 @@ bool window_policy_selftest(void) {
         return false;
     }
 
+    /* Reject stale surface generations across every policy entry point. */
+    uint64_t stale_id = 0u;
+    struct aurora_graphics_surface stale_surface = {
+        .generation = 13u,
+        .state = AURORA_GRAPHICS_SURFACE_READY
+    };
+    if (!window_policy_create_toplevel(
+            &policy, &stale_surface, &stale_id) ||
+        window_policy_create_toplevel(
+            &policy, &stale_surface, &token)) {
+        return false;
+    }
+    stale_surface.generation++;
+    uint64_t serial = 0u;
+    if (window_policy_configure(&policy, stale_id, 400u, 300u, 0u, &serial) ||
+        window_policy_issue_activation_token(&policy, stale_id, 400u, &token) ||
+        window_policy_activate(&policy, stale_id, 0u, 0u, true) ||
+        window_policy_raise(&policy, stale_id) ||
+        window_policy_read_toplevel(&policy, stale_id, &first_snapshot) ||
+        !window_policy_destroy_toplevel(&policy, stale_id)) {
+        return false;
+    }
+
     return true;
 }
