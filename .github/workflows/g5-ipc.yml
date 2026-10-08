@@ -122,6 +122,13 @@ jobs:
             tests/g5/presentation_queue_test.c -o build/g5/presentation_queue_test
           ./build/g5/presentation_queue_test
           cc -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all \
+            -Ikernel/include kernel/src/graphics/g5_session_context.c \
+            kernel/src/graphics/g5_surface_configure.c kernel/src/graphics/g5_surface_bridge.c \
+            kernel/src/graphics/g5_surface_registry.c kernel/src/graphics/g5_presentation_queue.c \
+            kernel/src/graphics/g5_frame_submission.c tests/g5/frame_submission_test.c \
+            -o build/g5/frame_submission_test
+          ./build/g5/frame_submission_test
+          cc -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all \
             -Ikernel/include kernel/src/ipc/g5_ipc_codec.c kernel/src/ipc/g5_ipc_pending.c tests/g5/ipc_pending_test.c \
             -o build/g5/ipc_pending_test
           ./build/g5/ipc_pending_test
