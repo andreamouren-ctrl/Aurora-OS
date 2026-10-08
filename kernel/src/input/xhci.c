@@ -65,6 +65,7 @@
 #define XHCI_TRB_TYPE_LINK           6u
 #define XHCI_TRB_TYPE_ENABLE_SLOT    9u
 #define XHCI_TRB_TYPE_ADDRESS_DEVICE 11u
+#define XHCI_TRB_TYPE_CONFIGURE_ENDPOINT 12u
 #define XHCI_TRB_TYPE_TRANSFER_EVENT 32u
 #define XHCI_TRB_TYPE_COMMAND_COMPLETION 33u
 #define XHCI_TRB_TYPE_PORT_STATUS_CHANGE 34u
@@ -96,6 +97,7 @@
 #define XHCI_EP_CONTEXT_TYPE_SHIFT   3u
 #define XHCI_EP_CONTEXT_MAX_PACKET_SHIFT 16u
 #define XHCI_EP_TYPE_CONTROL         4u
+#define XHCI_EP_TYPE_INTERRUPT_IN    7u
 #define XHCI_EP0_ERROR_COUNT         3u
 
 static volatile uint8_t *xhci_capability_base;
@@ -1792,5 +1794,238 @@ bool xhci_set_configuration_and_boot_protocol(
         return false;
     }
 
+    return true;
+}
+
+
+static uint8_t xhci_endpoint_id_from_address(uint8_t endpoint_address) {
+    uint8_t number = endpoint_address & 0x0Fu;
+    bool direction_in = (endpoint_address & 0x80u) != 0u;
+
+    if (number == 0u) return 1u;
+
+    return (uint8_t)(number * 2u + (direction_in ? 1u : 0u));
+}
+
+static uint8_t xhci_encode_interrupt_interval(
+    uint8_t speed_id,
+    uint8_t usb_interval
+) {
+    if (usb_interval == 0u) return 0u;
+
+    if (speed_id == 3u || speed_id == 4u) {
+        return usb_interval > 16u ? 15u : (uint8_t)(usb_interval - 1u);
+    }
+
+    uint8_t exponent = 0u;
+    uint8_t value = 1u;
+
+    while (value < usb_interval && exponent < 7u) {
+        value <<= 1u;
+        ++exponent;
+    }
+
+    return (uint8_t)(exponent + 3u);
+}
+
+bool xhci_configure_hid_interrupt_endpoint(
+    struct aurora_xhci_controller_state *state,
+    const struct aurora_usb_hid_endpoint_descriptor *endpoint,
+    uint8_t speed_id
+) {
+    if (state == NULL ||
+        endpoint == NULL ||
+        !state->dma_ready ||
+        !state->running ||
+        state->addressed_slot_id == 0u ||
+        state->device_context_physical == 0u ||
+        state->input_context_physical == 0u ||
+        endpoint->max_packet_size == 0u ||
+        endpoint->max_packet_size > 1024u ||
+        endpoint->interval == 0u ||
+        (endpoint->endpoint_address & 0x80u) == 0u ||
+        state->hid_ring_physical != 0u) {
+        return false;
+    }
+
+    uint8_t endpoint_id =
+        xhci_endpoint_id_from_address(endpoint->endpoint_address);
+
+    if (endpoint_id <= 1u || endpoint_id >= 32u) {
+        return false;
+    }
+
+    uint8_t interval =
+        xhci_encode_interrupt_interval(speed_id, endpoint->interval);
+
+    if (interval == 0u || interval > 15u) {
+        return false;
+    }
+
+    uint64_t hid_ring = pmm_alloc_page();
+    if (hid_ring == 0u) return false;
+
+    struct xhci_trb *ring =
+        (struct xhci_trb *)pmm_phys_to_virt(hid_ring);
+
+    ring[XHCI_RING_TRB_COUNT - 1u] = (struct xhci_trb){
+        .parameter = hid_ring,
+        .status = 0u,
+        .control =
+            (XHCI_TRB_TYPE_LINK << XHCI_TRB_TYPE_SHIFT) |
+            XHCI_TRB_TOGGLE_CYCLE |
+            XHCI_TRB_CYCLE
+    };
+
+    uint8_t *input_bytes =
+        (uint8_t *)pmm_phys_to_virt(
+            state->input_context_physical
+        );
+    for (uint32_t i = 0u; i < XHCI_PAGE_SIZE; ++i) {
+        input_bytes[i] = 0u;
+    }
+
+    uint32_t *control = xhci_context_ptr(
+        state->input_context_physical,
+        state->context_size,
+        XHCI_INPUT_CONTROL_CONTEXT
+    );
+    uint32_t *input_slot = xhci_context_ptr(
+        state->input_context_physical,
+        state->context_size,
+        XHCI_INPUT_SLOT_CONTEXT
+    );
+    uint32_t *device_slot = xhci_context_ptr(
+        state->device_context_physical,
+        state->context_size,
+        XHCI_CONTEXT_SLOT_INDEX
+    );
+    uint32_t *input_ep = xhci_context_ptr(
+        state->input_context_physical,
+        state->context_size,
+        (uint32_t)endpoint_id + 1u
+    );
+
+    if (control == NULL ||
+        input_slot == NULL ||
+        device_slot == NULL ||
+        input_ep == NULL) {
+        pmm_free_page(hid_ring);
+        return false;
+    }
+
+    uint32_t context_dwords =
+        (uint32_t)state->context_size / sizeof(uint32_t);
+
+    for (uint32_t i = 0u; i < context_dwords; ++i) {
+        input_slot[i] = device_slot[i];
+    }
+
+    input_slot[0] &= ~(0x1Fu << XHCI_SLOT_CONTEXT_ENTRIES_SHIFT);
+    input_slot[0] |=
+        ((uint32_t)endpoint_id << XHCI_SLOT_CONTEXT_ENTRIES_SHIFT);
+
+    control[1] =
+        (1u << 0) |
+        (1u << endpoint_id);
+
+    input_ep[0] =
+        ((uint32_t)interval << 16u);
+
+    input_ep[1] =
+        ((uint32_t)XHCI_EP0_ERROR_COUNT << XHCI_EP_CONTEXT_CERR_SHIFT) |
+        ((uint32_t)XHCI_EP_TYPE_INTERRUPT_IN << XHCI_EP_CONTEXT_TYPE_SHIFT) |
+        ((uint32_t)endpoint->max_packet_size << XHCI_EP_CONTEXT_MAX_PACKET_SHIFT);
+
+    input_ep[2] = (uint32_t)(hid_ring | 1u);
+    input_ep[3] = (uint32_t)(hid_ring >> 32u);
+    input_ep[4] =
+        (uint32_t)endpoint->max_packet_size |
+        ((uint32_t)endpoint->max_packet_size << 16u);
+
+    struct xhci_trb *command_ring =
+        (struct xhci_trb *)pmm_phys_to_virt(
+            state->command_ring_physical
+        );
+
+    if (state->command_enqueue >= XHCI_RING_TRB_COUNT - 1u) {
+        pmm_free_page(hid_ring);
+        return false;
+    }
+
+    uint16_t command_index = state->command_enqueue;
+    uint32_t cycle =
+        state->command_cycle ? XHCI_TRB_CYCLE : 0u;
+
+    command_ring[command_index] = (struct xhci_trb){
+        .parameter = state->input_context_physical,
+        .status = 0u,
+        .control =
+            (XHCI_TRB_TYPE_CONFIGURE_ENDPOINT << XHCI_TRB_TYPE_SHIFT) |
+            ((uint32_t)state->addressed_slot_id << 24u) |
+            cycle
+    };
+
+    __asm__ volatile ("" ::: "memory");
+
+    uint64_t command_physical =
+        state->command_ring_physical +
+        (uint64_t)command_index * sizeof(struct xhci_trb);
+
+    ++state->command_enqueue;
+
+    if (state->command_enqueue ==
+        XHCI_RING_TRB_COUNT - 1u) {
+        struct xhci_trb *link =
+            &command_ring[XHCI_RING_TRB_COUNT - 1u];
+
+        uint32_t link_cycle =
+            state->command_cycle ? XHCI_TRB_CYCLE : 0u;
+
+        link->control =
+            (XHCI_TRB_TYPE_LINK << XHCI_TRB_TYPE_SHIFT) |
+            XHCI_TRB_TOGGLE_CYCLE |
+            link_cycle;
+
+        __asm__ volatile ("" ::: "memory");
+
+        state->command_enqueue = 0u;
+        state->command_cycle = !state->command_cycle;
+    }
+
+    xhci_mmio_write32(
+        xhci_doorbell_base,
+        0u,
+        0u
+    );
+
+    uint8_t completion_slot = 0u;
+    if (!xhci_wait_command_completion(
+            state,
+            command_physical,
+            &completion_slot) ||
+        completion_slot != state->addressed_slot_id) {
+        pmm_free_page(hid_ring);
+        return false;
+    }
+
+    uint32_t *device_ep = xhci_context_ptr(
+        state->device_context_physical,
+        state->context_size,
+        endpoint_id
+    );
+
+    if (device_ep == NULL ||
+        (device_ep[0] & XHCI_EP_CONTEXT_STATE_MASK) != 1u) {
+        log_line("[xhci] HID interrupt endpoint not Running after Configure Endpoint");
+        pmm_free_page(hid_ring);
+        return false;
+    }
+
+    state->hid_ring_physical = hid_ring;
+    state->hid_endpoint_id = endpoint_id;
+    state->hid_enqueue = 0u;
+    state->hid_cycle = true;
+    state->hid_endpoint_running = true;
     return true;
 }
