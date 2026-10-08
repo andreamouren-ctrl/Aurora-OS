@@ -13,7 +13,7 @@ int main(void) {
  assert(g5_ipc_validate_semantics(&h,bytes)==G5_IPC_BAD_FORMAT);
  bytes[8]=128;
  h.operation=G5_OP_WINDOW_CONFIGURE_ACK;
- bytes[8]=2;
+ bytes[8]=2;bytes[12]=0; /* ACK generation is a full uint64 LE */
  assert(g5_ipc_validate_semantics(&h,bytes)==G5_IPC_OK);
  bytes[8]=3;
  assert(g5_ipc_validate_semantics(&h,bytes)==G5_IPC_BAD_FORMAT);
