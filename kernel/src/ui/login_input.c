@@ -14,6 +14,7 @@
 #include <aurora/ipc_wait_probe.h>
 #include <aurora/g5_ipc_endpoint.h>
 #include <aurora/g5_ipc_durable.h>
+#include <aurora/aurora_fs_v2_namespace_txn.h>
 #include <aurora/log.h>
 #include <aurora/login_input.h>
 #include <aurora/login_ui.h>
@@ -668,6 +669,9 @@ void login_input_init(void) {
         log_line("");
         log_line("[g5-ipc] protected replace stage:");
         log_u64(protected_state_replace_debug_stage());
+        log_line("");
+        log_line("[g5-ipc] AuroraFS rename stage:");
+        log_u64(aurora_fs_v2_rename_debug_stage());
         log_line("");
         kernel_panic("G5 durable IPC replay cold-boot probe failed");
     }
