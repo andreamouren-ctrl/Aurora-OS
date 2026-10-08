@@ -12,7 +12,9 @@ This roadmap orders M4 work by hard dependencies. A checkbox in the global roadm
 - [ ] Review/freeze actual Shell capability mapping and least-privilege launch path.
 - [x] WP-02 PR-G5-001 source published: `kernel/include/aurora/g5_ipc_abi.h`, `kernel/src/ipc/g5_ipc_codec.c`, `tests/g5/ipc_codec_test.c`, `.github/workflows/g5-ipc.yml`.
 - [ ] WP-02 compile/test and GitHub Actions verdict independently verified; awaiting runtime and integration evidence.
-- [ ] WP-02 full scope: capability ordinal/type checks, per-operation schemas, cancellation/queue/backpressure integration and Ring 3 tests.
+- [x] WP-02 follow-up source: `g5_ipc_decode_received()` now checks capability count (max 4), rejects zero/duplicate received handles, and preserves the rule that authoritative capability type/rights/generation validation is separate; negative tests added.
+- [ ] WP-02 full scope: server-side cap type/rights/ownership checks, per-operation typed payload schemas, cancellation/queue/backpressure integration and Ring 3 tests.
+- [ ] Fresh CI verdict for latest WP-02 changes: no commit checks / PR-triggered workflow runs exposed by connector at audit time; do not claim passing.
 
 The audit is **documentation/source review only**, not a completed G5 Core implementation/runtime gate. It identifies already present graphics syscalls and a stricter 32-input-target ceiling to preserve during integration.
 
