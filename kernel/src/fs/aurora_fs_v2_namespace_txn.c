@@ -431,6 +431,9 @@ bool aurora_fs_v2_create_child_txn(
     return finish_transaction(allocator, geometry, txn.sequence);
 }
 
+static uint32_t g5_rename_debug_stage;
+uint32_t aurora_fs_v2_rename_debug_stage(void) {return g5_rename_debug_stage;}
+
 bool aurora_fs_v2_rename_child_txn(
     struct aurora_fs_v2_allocator *allocator,
     const struct aurora_fs_v2_format_geometry *geometry,
@@ -438,6 +441,7 @@ bool aurora_fs_v2_rename_child_txn(
     const char *old_name,
     const char *new_name
 ) {
+    g5_rename_debug_stage=1;
     if (allocator == NULL || allocator->device == NULL || allocator->device->read_only ||
         !name_valid(old_name, NULL) || !name_valid(new_name, NULL)) return false;
 
@@ -450,6 +454,7 @@ bool aurora_fs_v2_rename_child_txn(
         (parent.size % V2NS_DIRECTORY_RECORD_SIZE) != 0u ||
         !find_record(allocator->device, geometry, &parent, old_name, &source_index, &source))
         return false;
+    g5_rename_debug_stage=2;
     if (record_name_equals(&source, new_name)) return true;
 
     uint64_t target_index;
@@ -484,11 +489,13 @@ bool aurora_fs_v2_rename_child_txn(
         return finish_transaction(allocator, geometry, txn.sequence);
     }
 
+    g5_rename_debug_stage=3;
     uint64_t count = parent.size / V2NS_DIRECTORY_RECORD_SIZE;
     if (count < 2u || source_index != count - 1u || source_index == target_index ||
         source.type != (uint32_t)AURORA_FS_V2_OBJECT_FILE ||
         target.type != (uint32_t)AURORA_FS_V2_OBJECT_FILE) return false;
 
+    g5_rename_debug_stage=4;
     uint64_t target_inode_index;
     struct v2ns_inode_disk target_inode;
     if (!find_inode_by_object_id(
@@ -499,6 +506,7 @@ bool aurora_fs_v2_rename_child_txn(
         target_inode.extent_tree_root != 0u ||
         target_inode.extent_count > AURORA_FS_V2_INLINE_EXTENT_COUNT) return false;
 
+    g5_rename_debug_stage=5;
     struct v2ns_directory_record_disk target_after;
     struct v2ns_directory_record_disk zero_record;
     if (!make_record(&target_after, source.object_id, source.type, new_name)) return false;
@@ -529,6 +537,7 @@ bool aurora_fs_v2_rename_child_txn(
         txn.cleanup_ranges[i].block_count = target_inode.extents[i].block_count;
     }
 
+    g5_rename_debug_stage=6;
     if (!aurora_fs_v2_txn_prepare(allocator->device, geometry->base_bytes, &txn)) return false;
 
     if (!write_slot(allocator->device, geometry, &parent, target_index, &target_after)) {
