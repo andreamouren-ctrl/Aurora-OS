@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP03 compositor lifecycle header correction and full CI.
 on:
   push:
     paths:
