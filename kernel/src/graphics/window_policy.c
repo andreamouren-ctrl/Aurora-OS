@@ -404,6 +404,28 @@ bool window_policy_destroy_toplevel(
     return true;
 }
 
+uint32_t window_policy_revoke_surface(
+    struct aurora_window_policy *policy,
+    const struct aurora_graphics_surface *surface
+) {
+    if (policy == NULL || !policy->initialized || surface == NULL)
+        return 0u;
+    uint32_t revoked = 0u;
+    for (uint32_t i = 0u; i < AURORA_WINDOW_POLICY_MAX_TOPLEVELS; ++i) {
+        if (policy->toplevels[i].used &&
+            policy->toplevels[i].surface == surface) {
+            uint64_t id = policy->toplevels[i].window_id;
+            if (window_policy_destroy_toplevel(policy, id)) ++revoked;
+        }
+    }
+    return revoked;
+}
+
+void window_policy_reset(struct aurora_window_policy *policy) {
+    if (policy == NULL) return;
+    clear_bytes(policy, sizeof(*policy));
+}
+
 bool window_policy_raise(
     struct aurora_window_policy *policy,
     uint64_t window_id
@@ -658,6 +680,28 @@ bool window_policy_selftest(void) {
         window_policy_raise(&policy, stale_id) ||
         window_policy_read_toplevel(&policy, stale_id, &first_snapshot) ||
         !window_policy_destroy_toplevel(&policy, stale_id)) {
+        return false;
+    }
+
+    /* Surface teardown revokes all outstanding activation authority. */
+    struct aurora_graphics_surface cleanup_surface = {
+        .generation = 20u,
+        .state = AURORA_GRAPHICS_SURFACE_READY
+    };
+    uint64_t cleanup_id = 0u;
+    uint64_t cleanup_token = 0u;
+    if (!window_policy_create_toplevel(&policy, &cleanup_surface, &cleanup_id) ||
+        !window_policy_issue_activation_token(&policy, cleanup_id, 450u,
+                                               &cleanup_token) ||
+        window_policy_revoke_surface(&policy, &cleanup_surface) != 1u ||
+        window_policy_revoke_surface(&policy, &cleanup_surface) != 0u ||
+        window_policy_activate(&policy, cleanup_id, cleanup_token, 450u, false)) {
+        return false;
+    }
+    window_policy_reset(&policy);
+    if (window_policy_create_toplevel(&policy, &cleanup_surface, &cleanup_id) ||
+        window_policy_issue_activation_token(&policy, cleanup_id, 451u,
+                                              &cleanup_token)) {
         return false;
     }
 
