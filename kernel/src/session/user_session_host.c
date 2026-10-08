@@ -243,9 +243,10 @@ static bool start_with_context(
     /* The session manager supplied generation is the only binding source. */
     if (session_g5_dispatcher != NULL &&
         !g5_ipc_dispatch_bind_session(session_g5_dispatcher, generation)) {
-        (void)session_profile_lease_revoke_process(host.process);
-        cleanup_finished_host();
-        return false;
+        /* Optional G5 integration failure must not strand a live Ring 3
+         * User Session Host. Disable/unregister G5, preserve host startup. */
+        g5_ipc_dispatch_revoke(session_g5_dispatcher);
+        session_g5_dispatcher = NULL;
     }
     host.active = true;
     return true;
