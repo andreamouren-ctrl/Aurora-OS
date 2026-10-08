@@ -1546,6 +1546,49 @@ void kmain(void) {
         log_line("");
 
         log_line("[xhci] DCBAA/command/event/ERST polling bootstrap passed");
+
+        uint8_t xhci_port_id = 0u;
+        uint8_t xhci_speed_id = 0u;
+
+        if (!xhci_reset_first_connected_port(
+                &xhci,
+                &xhci_port_id,
+                &xhci_speed_id)) {
+            kernel_panic("xHCI connected-port discovery/reset failed");
+        }
+
+        log_write("[xhci] connected port ");
+        log_u64(xhci_port_id);
+        log_write(" reset enabled speed-id ");
+        log_u64(xhci_speed_id);
+        log_line("");
+        log_line("[xhci] connected-port reset gate passed");
+
+        uint64_t enable_slot_trb = 0u;
+        uint8_t xhci_slot_id = 0u;
+
+        if (!xhci_submit_enable_slot(
+                &xhci_state,
+                &enable_slot_trb)) {
+            kernel_panic("xHCI Enable Slot submission failed");
+        }
+
+        log_write("[xhci] Enable Slot TRB ");
+        log_hex64(enable_slot_trb);
+        log_line("");
+        log_line("[xhci] Enable Slot command submitted");
+
+        if (!xhci_wait_command_completion(
+                &xhci_state,
+                enable_slot_trb,
+                &xhci_slot_id)) {
+            kernel_panic("xHCI Enable Slot completion failed");
+        }
+
+        log_write("[xhci] Enable Slot completed slot ");
+        log_u64(xhci_slot_id);
+        log_line("");
+        log_line("[xhci] Enable Slot command-completion gate passed");
     } else {
         log_line("[xhci] controller unavailable");
     }
