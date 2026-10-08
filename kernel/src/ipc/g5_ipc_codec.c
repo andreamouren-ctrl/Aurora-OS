@@ -162,3 +162,51 @@ enum g5_ipc_status g5_ipc_validate_schema(const struct g5_ipc_header *h, uint32_
  }
  return (h->payload_bytes==n && h->kind==k)?G5_IPC_OK:G5_IPC_BAD_FORMAT;
 }
+
+/* First-pass v1 payload semantics; retain explicit little-endian decoding. */
+enum g5_ipc_status g5_ipc_validate_semantics(
+    const struct g5_ipc_header *h,const uint8_t *p
+) {
+ if(h==NULL)return G5_IPC_BAD_ARGUMENT;
+ enum g5_ipc_status shape=g5_ipc_validate_schema(h,0);
+ if(shape!=G5_IPC_OK)return shape;
+ if(h->payload_bytes && p==NULL)return G5_IPC_BAD_ARGUMENT;
+ switch(h->operation) {
+ case G5_OP_SHELL_READY:
+ case G5_OP_SHELL_HEALTH:
+  return h->object_generation==0?G5_IPC_OK:G5_IPC_BAD_FORMAT;
+ case G5_OP_WINDOW_CONFIGURE:
+  if(h->object_generation==0 || get64(p)==0 ||
+     get32(p+8)==0 || get32(p+8)>8192 ||
+     get32(p+12)==0 || get32(p+12)>8192)
+   return G5_IPC_BAD_FORMAT;
+  break;
+ case G5_OP_WINDOW_CONFIGURE_ACK:
+  if(h->object_generation==0 || get64(p)==0 ||
+     get64(p+8)!=h->object_generation)
+   return G5_IPC_BAD_FORMAT;
+  break;
+ case G5_OP_WINDOW_PLACE: {
+  int64_t x=(int32_t)get32(p), y=(int32_t)get32(p+4);
+  if(h->object_generation==0 || x < -1000000 || x > 1000000 ||
+     y < -1000000 || y > 1000000 ||
+     get32(p+8)==0 || get32(p+8)>8192 ||
+     get32(p+12)==0 || get32(p+12)>8192 ||
+     get64(p+16)==0)
+   return G5_IPC_BAD_FORMAT;
+  break;
+ }
+ case G5_OP_WINDOW_CLOSE:
+  if(h->object_generation==0 || get64(p)>3)
+   return G5_IPC_BAD_FORMAT;
+  break;
+ case G5_OP_SCENE_PREPARE:
+ case G5_OP_SCENE_PUBLISH:
+  if(h->object_generation==0 || get64(p)==0 || get64(p+8)==0)
+   return G5_IPC_BAD_FORMAT;
+  break;
+ default:
+  return G5_IPC_UNSUPPORTED_OPERATION;
+ }
+ return G5_IPC_OK;
+}
