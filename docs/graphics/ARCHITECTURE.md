@@ -174,9 +174,13 @@ G4 currently includes:
 - connected-port detection/reset on live qemu-xhci;
 - command-ring Enable Slot submission and event-ring Command Completion validation;
 - asynchronous Port Status Change event consumption while waiting for command completions;
+- context-size-aware Input/Device Context construction;
+- PMM-backed EP0 transfer-ring provisioning;
+- Address Device command completion with controller-populated USB address validation;
+- EP0 Running-state validation from the resulting Device Context;
 - separation between pointer events and Aurora Identity credential input.
 
-The current G4 foundation is runtime verified in four-CPU QEMU through xHCI port reset and Enable Slot completion. The transport-independent HID decoder/binding layer and hardware-facing xHCI command/event path are both executable. Live USB input is not yet claimed: Aurora still needs input/device contexts, Address Device, USB descriptor/control transfers, endpoint configuration and interrupt-IN report delivery before the emulated keyboard/mouse can feed normalized input. Touch, pen, gamepad, accessibility and input-method layers remain later work.
+The current G4 foundation is runtime verified in four-CPU QEMU through xHCI Address Device. The transport-independent HID decoder/binding layer and hardware-facing xHCI command/event/default-control-endpoint path are executable. Live USB input is not yet claimed: Aurora still needs EP0 control transfers, USB descriptor parsing, endpoint configuration and interrupt-IN report delivery before the emulated keyboard/mouse can feed normalized input. Touch, pen, gamepad, accessibility and input-method layers remain later work.
 
 ## 9. Performance direction
 
