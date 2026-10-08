@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# Verify composed Ring3 endpoint, bounded queue and durable ledger.
 on:
   push:
     paths:
