@@ -168,12 +168,17 @@ Implemented and runtime-verified xHCI host-controller foundation:
 - [x] 4 KiB xHCI page-size support gate;
 - [x] PMM-backed DCBAA, command ring, event ring and ERST setup;
 - [x] polling-mode interrupter-0 event-ring bootstrap;
-- [x] controller Run transition with mandatory QEMU runtime marker.
+- [x] controller Run transition with mandatory QEMU runtime marker;
+- [x] connected-port discovery and reset on live qemu-xhci hardware;
+- [x] command-ring producer with Enable Slot submission;
+- [x] event-ring consumer with asynchronous Port Status Change draining;
+- [x] validated Command Completion Event matching command pointer/completion code;
+- [x] live Enable Slot completion with controller-assigned nonzero Slot ID.
 
 Remaining transport/extended-device work:
 
-- [ ] command submission/completion starting with Enable Slot;
-- [ ] port status/reset + USB device enumeration/addressing;
+- [ ] input/device context construction + Address Device;
+- [ ] USB device enumeration/addressing;
 - [ ] control transfers for descriptors and HID interface/endpoint discovery;
 - [ ] live interrupt-IN report delivery into the existing HID binding layer;
 - [ ] MSI-X interrupt delivery after the polling command/event path is established;
@@ -183,7 +188,7 @@ Acceptance gate:
 
 Mouse and keyboard interact with multiple surfaces without cross-client event leakage.
 
-Current G4 gate status: **runtime verified in four-CPU QEMU through xHCI controller discovery, reset and DMA-ring bootstrap**. In addition to the PS/2 and transport-independent HID routing/binding gates, Aurora now discovers a real emulated qemu-xhci controller, decodes its BAR/MMIO capabilities, resets it, verifies 4 KiB pages, programs DCBAA/command/event/ERST structures from PMM-owned physical pages and enters Run state. G4 remains **In progress** because Aurora has not yet submitted Enable Slot, enumerated USB devices or delivered live interrupt-IN HID reports into the existing HID binding layer.
+Current G4 gate status: **runtime verified in four-CPU QEMU through xHCI connected-port reset and Enable Slot command completion**. In addition to the PS/2 and transport-independent HID routing/binding gates, Aurora now discovers a real emulated qemu-xhci controller, resets and starts it, programs DCBAA/command/event/ERST structures, resets a connected USB port, submits an Enable Slot command, drains the resulting asynchronous Port Status Change event and validates the subsequent successful Command Completion Event with a controller-assigned Slot ID. G4 remains **In progress** because Address Device/input-context setup, USB descriptors, endpoint configuration and live interrupt-IN HID reports are not yet implemented.
 
 ## Phase G5 — Window protocol and Shell
 
