@@ -220,7 +220,31 @@ jobs:
                                   f"QMP device_del failed: {response!r}"
                               )
 
-                          return True
+                          deadline = time.time() + 5.0
+                          while time.time() < deadline:
+                              line = stream.readline()
+                              if not line:
+                                  continue
+                              try:
+                                  event = json.loads(line.decode("utf-8"))
+                              except Exception:
+                                  continue
+
+                              if event.get("event") != "DEVICE_DELETED":
+                                  continue
+
+                              data = event.get("data", {})
+                              if data.get("device") == device_id or \
+                                 data.get("path", "").endswith("/" + device_id):
+                                  print(
+                                      f"QMP confirmed DEVICE_DELETED for {device_id}",
+                                      file=sys.stderr
+                                  )
+                                  return True
+
+                          raise OSError(
+                              f"QMP did not confirm DEVICE_DELETED for {device_id}"
+                          )
                   except OSError as exc:
                       last_error = exc
                       time.sleep(0.1)
