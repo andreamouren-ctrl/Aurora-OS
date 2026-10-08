@@ -166,9 +166,14 @@ G4 currently includes:
 - transport-independent USB HID boot keyboard/mouse report decoders with device lifecycle events;
 - bounded HID binding registry with generational handles and stale-reference rejection;
 - strict report-size/protocol dispatch and pressed-state sanitization before removal;
+- bounded PCI capability-list traversal for controller feature discovery;
+- live qemu-xhci PCI/BAR/MMIO discovery and xHCI 1.0 capability parsing;
+- xHCI halt/reset/readiness and 4 KiB page-size validation;
+- PMM-backed DCBAA, command ring, event ring and ERST programming;
+- polling-mode interrupter-0 bootstrap and verified controller Run transition;
 - separation between pointer events and Aurora Identity credential input.
 
-The current G4 foundation is runtime verified in four-CPU QEMU. The HID decoder and binding layers are implemented and executable without a controller-specific dependency, while live USB enumeration and report delivery remain pending until Aurora has an xHCI/USB host-controller transport. Touch, pen, gamepad, accessibility and input-method layers remain later work.
+The current G4 foundation is runtime verified in four-CPU QEMU through xHCI controller initialization. The transport-independent HID decoder/binding layer and the hardware-facing xHCI controller/DMA foundation are both executable. Live USB is not yet claimed: Enable Slot command completion, port reset/device addressing, descriptor/control transfers, endpoint setup and interrupt-IN report delivery still remain before USB keyboard/mouse input can flow from the emulated hardware into the normalized input router. Touch, pen, gamepad, accessibility and input-method layers remain later work.
 
 ## 9. Performance direction
 

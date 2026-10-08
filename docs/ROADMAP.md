@@ -281,7 +281,9 @@ Architecture contracts: [`graphics/README.md`](graphics/README.md).
 - [x] explicit pointer capture/revocation completion
 - [x] transport-agnostic USB HID boot keyboard/mouse decoder foundation
 - [x] bounded HID binding/dispatch layer with stale-handle and disconnect hardening
-- [ ] xHCI/USB host controller + live USB enumeration/report transport
+- [x] xHCI PCI/BAR/MMIO discovery + reset/readiness runtime gate
+- [x] xHCI DCBAA/command/event/ERST DMA bootstrap + Run-state QEMU gate
+- [ ] xHCI command completion + USB port/device enumeration + live HID report transport
 - [ ] G5 window-management protocol and Desktop Shell
 - [ ] Activity Space prototype
 - [ ] persistent activity state

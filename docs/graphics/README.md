@@ -81,7 +81,7 @@ Current G1-G3 foundations include:
 - display capability/link foundations for EDID/CTA/DisplayID, HDMI, DisplayPort, VRR and DSC;
 - QEMU Standard VGA / Bochs VBE native-driver foundation.
 
-G4 now adds the runtime-verified PS/2 + normalized routing foundation: secure hit testing, isolated pointer/keyboard focus, owned capture with lifecycle revocation, session/compositor teardown cleanup and bounded motion coalescing under queue pressure. Normalized events now carry stable device identity, and transport-independent USB HID boot keyboard/mouse decoders plus a bounded generational binding/dispatch layer are runtime verified in QEMU. The binding layer rejects stale handles, validates report sizes and releases pressed state before device removal. Live USB hardware enumeration/report delivery remains gated on a future xHCI/USB host-controller transport.
+G4 now adds the runtime-verified PS/2 + normalized routing foundation: secure hit testing, isolated pointer/keyboard focus, owned capture with lifecycle revocation, session/compositor teardown cleanup and bounded motion coalescing under queue pressure. Normalized events carry stable device identity, and transport-independent USB HID boot keyboard/mouse decoders plus a bounded generational binding/dispatch layer are runtime verified in QEMU. The hardware-facing path has also advanced: Aurora discovers qemu-xhci through PCI, maps BAR0 MMIO, parses xHCI capabilities, performs halt/reset/readiness, verifies 4 KiB pages, programs PMM-backed DCBAA/command/event/ERST structures and enters Run state. Live USB HID is still not claimed until command completion, port/device enumeration, control transfers and interrupt-IN report delivery are connected to the existing HID binding layer.
 
 ## Canonical documents
 

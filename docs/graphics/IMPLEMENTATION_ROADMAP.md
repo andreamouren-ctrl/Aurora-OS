@@ -159,16 +159,31 @@ Implemented and runtime-verified modern-input decoder/binding foundation:
 - [x] validated protocol/report-size dispatch with stale-handle rejection;
 - [x] disconnect sanitization publishes key/button releases before DEVICE_REMOVED.
 
+Implemented and runtime-verified xHCI host-controller foundation:
+
+- [x] bounded PCI capability-list walker;
+- [x] live q35/qemu-xhci PCI class/BAR/MMIO capability discovery;
+- [x] xHCI 1.0 capability parsing, context-size/scratchpad discovery and operational/runtime/doorbell base derivation;
+- [x] halt -> HCRST -> Controller Not Ready clear sequence;
+- [x] 4 KiB xHCI page-size support gate;
+- [x] PMM-backed DCBAA, command ring, event ring and ERST setup;
+- [x] polling-mode interrupter-0 event-ring bootstrap;
+- [x] controller Run transition with mandatory QEMU runtime marker.
+
 Remaining transport/extended-device work:
 
-- [ ] xHCI/USB host controller transport and live hardware enumeration/binding;
+- [ ] command submission/completion starting with Enable Slot;
+- [ ] port status/reset + USB device enumeration/addressing;
+- [ ] control transfers for descriptors and HID interface/endpoint discovery;
+- [ ] live interrupt-IN report delivery into the existing HID binding layer;
+- [ ] MSI-X interrupt delivery after the polling command/event path is established;
 - [ ] touch/pen/gamepad and accessibility/input-method layers later.
 
 Acceptance gate:
 
 Mouse and keyboard interact with multiple surfaces without cross-client event leakage.
 
-Current G4 gate status: **runtime verified in four-CPU QEMU for PS/2 routing plus the transport-independent USB HID decoder and binding foundation**. Hit testing, pointer/keyboard focus, capture ownership, hidden/destroyed-surface revocation, secure-scene revocation, session/compositor teardown, queue-pressure motion coalescing, stable device identity, HID boot keyboard/mouse report decoding, generational binding handles, stale-handle rejection and disconnect state sanitization all execute inside mandatory boot validation. G4 remains **In progress** because live USB hardware enumeration/report delivery still depends on the future xHCI/USB host controller stack and the extended input classes are intentionally later work.
+Current G4 gate status: **runtime verified in four-CPU QEMU through xHCI controller discovery, reset and DMA-ring bootstrap**. In addition to the PS/2 and transport-independent HID routing/binding gates, Aurora now discovers a real emulated qemu-xhci controller, decodes its BAR/MMIO capabilities, resets it, verifies 4 KiB pages, programs DCBAA/command/event/ERST structures from PMM-owned physical pages and enters Run state. G4 remains **In progress** because Aurora has not yet submitted Enable Slot, enumerated USB devices or delivered live interrupt-IN HID reports into the existing HID binding layer.
 
 ## Phase G5 — Window protocol and Shell
 
