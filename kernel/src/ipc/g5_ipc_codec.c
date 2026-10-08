@@ -145,3 +145,20 @@ enum g5_ipc_status g5_ipc_validate_caps(
     }
     return G5_IPC_OK;
 }
+
+enum g5_ipc_status g5_ipc_validate_schema(const struct g5_ipc_header *h, uint32_t caps) {
+ if (!h) return G5_IPC_BAD_ARGUMENT;
+ enum g5_ipc_status s=check_header(h); if(s!=G5_IPC_OK)return s;
+ if(!g5_ipc_opcode_known(h->operation))return G5_IPC_UNSUPPORTED_OPERATION;
+ if(caps) return G5_IPC_BAD_CAPABILITIES;
+ uint32_t n=0; uint16_t k=G5_IPC_REQUEST;
+ switch(h->operation){
+ case G5_OP_SHELL_READY:k=G5_IPC_EVENT;break;
+ case G5_OP_SHELL_HEALTH:break;
+ case G5_OP_WINDOW_CONFIGURE:case G5_OP_WINDOW_CONFIGURE_ACK:case G5_OP_SCENE_PREPARE:case G5_OP_SCENE_PUBLISH:n=16;break;
+ case G5_OP_WINDOW_PLACE:n=24;break;
+ case G5_OP_WINDOW_CLOSE:n=8;break;
+ default:return G5_IPC_UNSUPPORTED_OPERATION;
+ }
+ return (h->payload_bytes==n && h->kind==k)?G5_IPC_OK:G5_IPC_BAD_FORMAT;
+}
