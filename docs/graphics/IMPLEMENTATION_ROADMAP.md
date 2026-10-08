@@ -5,6 +5,15 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+## G5 WP-01 — Source audit baseline (2026-10-08)
+
+- [x] Targeted current-source inspection and P0/P1 risk register: [G5_WP01_REPOSITORY_AUDIT.md](G5_WP01_REPOSITORY_AUDIT.md).
+- [ ] Fresh baseline build + QEMU CI artifact validation (not executed by this documentation audit).
+- [ ] Review/freeze actual Shell capability mapping and least-privilege launch path.
+- [ ] Start WP-02 versioned IPC codec and negative regression tests.
+
+The audit is **documentation/source review only**, not a completed G5 Core implementation/runtime gate. It identifies already present graphics syscalls and a stricter 32-input-target ceiling to preserve during integration.
+
 ## Phase G0 — Contracts
 
 Status: **Complete (architecture only)**
