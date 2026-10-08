@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP03 node lifecycle capability preflight and cleanup retry.
 on:
   push:
     paths:
