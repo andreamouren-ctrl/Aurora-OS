@@ -77,5 +77,7 @@ void g5_compositor_bridge_revoke(struct g5_compositor_bridge *b) {
    (void)g5_compositor_bridge_detach(b,i);
   }
  }
+ for(unsigned i=0;i<G5_SURFACE_REGISTRY_CAPACITY;i++)
+  if(b->node_ids[i])return; /* keep owner for a later cleanup attempt */
  b->delivery=NULL;b->compositor=NULL;b->generation=0;
 }
