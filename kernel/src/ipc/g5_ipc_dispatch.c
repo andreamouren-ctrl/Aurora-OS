@@ -25,10 +25,13 @@ enum g5_ipc_status g5_ipc_dispatch(
     if (!d->authorize(d->context, header.operation,
                       header.session_generation))
         return G5_IPC_DENIED;
+    /* Reserve the accepted request before invoking side-effecting code.
+     * If the handler fails after a partial side effect, an identical retry
+     * must not execute it again in this dispatcher lifetime. This is NOT
+     * crash-durable exactly-once: journalled operations still need durable
+     * deduplication and recovery through the State Broker. */
+    d->last_request_id = header.request_id;
     if (!d->handler(d->context, &header, payload))
         return G5_IPC_DENIED;
-
-    /* Failed authorization/handler never advances the accepted sequence. */
-    d->last_request_id = header.request_id;
     return G5_IPC_OK;
 }
