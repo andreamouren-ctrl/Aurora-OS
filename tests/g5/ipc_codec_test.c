@@ -11,6 +11,12 @@ static struct g5_ipc_header valid_header(uint32_t size) {
         .request_id=7,.session_generation=11,.object_generation=15
     };
 }
+static bool check_surface_control(void *ctx, aurora_cap_handle handle,
+    enum aurora_cap_type type, uint64_t rights) {
+    (void)ctx;
+    return handle == 88 && type == AURORA_CAP_SURFACE &&
+           rights == AURORA_RIGHT_CONTROL;
+}
 int main(void) {
     uint8_t bytes[257]={0}, data[208]={0};
     for (unsigned i=0;i<208;++i) data[i]=(uint8_t)i;
@@ -67,6 +73,21 @@ int main(void) {
     received.capability_count=0;
     received.length=257;
     assert(g5_ipc_decode_received(&received,&decoded,&payload)==G5_IPC_TOO_LARGE);
+    received.capability_count=1;
+    received.length=(uint32_t)n;
+    received.capabilities[0]=88;
+    struct g5_ipc_cap_requirement needed={
+        AURORA_CAP_SURFACE,AURORA_RIGHT_CONTROL
+    };
+    assert(g5_ipc_opcode_known(G5_OP_WINDOW_CONFIGURE));
+    assert(!g5_ipc_opcode_known(0xff000001u));
+    assert(g5_ipc_validate_caps(&received,&needed,1,check_surface_control,NULL)==G5_IPC_OK);
+    needed.rights=AURORA_RIGHT_WRITE;
+    assert(g5_ipc_validate_caps(&received,&needed,1,check_surface_control,NULL)==G5_IPC_DENIED);
+    needed.rights=AURORA_RIGHT_CONTROL;
+    assert(g5_ipc_validate_caps(&received,&needed,1,NULL,NULL)==G5_IPC_DENIED);
+    received.capability_count=0;
+    assert(g5_ipc_validate_caps(&received,NULL,0,NULL,NULL)==G5_IPC_OK);
     puts("G5 IPC v1 codec contract tests: PASS");
     return 0;
 }
