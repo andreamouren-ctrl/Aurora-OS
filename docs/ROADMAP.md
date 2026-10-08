@@ -287,7 +287,8 @@ Architecture contracts: [`graphics/README.md`](graphics/README.md).
 - [x] xHCI Input/Device Context + Address Device + EP0 Running runtime gate
 - [x] xHCI EP0 control transfer + Device/Configuration/HID endpoint descriptor runtime gate
 - [x] SET_CONFIGURATION + Configure Endpoint + live HID keyboard interrupt-IN → normalized input runtime gate
-- [ ] multi-device HID enumeration + live mouse path + disconnect teardown
+- [x] connected-port iterator + HID unbind + Disable Slot + per-device DMA/context teardown runtime gate
+- [ ] second-device HID enumeration + live mouse path + actual port-disconnect trigger
 - [ ] G5 window-management protocol and Desktop Shell
 - [ ] Activity Space prototype
 - [ ] persistent activity state
