@@ -268,13 +268,15 @@ bool usb_hid_mouse_detach(
      * never observes a permanently pressed button after unplug/revocation.
      * State is cleared per successful release for retry safety.
      */
-    const enum aurora_pointer_button buttons[3] = {
+    const enum aurora_pointer_button buttons[5] = {
         AURORA_POINTER_BUTTON_LEFT,
         AURORA_POINTER_BUTTON_RIGHT,
-        AURORA_POINTER_BUTTON_MIDDLE
+        AURORA_POINTER_BUTTON_MIDDLE,
+        AURORA_POINTER_BUTTON_BACK,
+        AURORA_POINTER_BUTTON_FORWARD
     };
 
-    for (uint32_t i = 0u; i < 3u; ++i) {
+    for (uint32_t i = 0u; i < 5u; ++i) {
         uint8_t mask = (uint8_t)(1u << i);
 
         if ((mouse->buttons & mask) == 0u) continue;
@@ -359,6 +361,171 @@ bool usb_hid_mouse_process_boot_report(
         };
 
         if (!input_push_event(&scroll)) return false;
+    }
+
+    mouse->buttons = new_buttons;
+    return true;
+}
+
+
+static bool hid_extract_unsigned_bits(
+    const uint8_t *report,
+    uint16_t report_size,
+    uint16_t bit_offset,
+    uint8_t bit_size,
+    uint32_t *out_value
+) {
+    if (report == NULL ||
+        out_value == NULL ||
+        bit_size == 0u ||
+        bit_size > 32u ||
+        (uint32_t)bit_offset + bit_size >
+            (uint32_t)report_size * 8u) {
+        return false;
+    }
+
+    uint32_t value = 0u;
+    for (uint8_t bit = 0u; bit < bit_size; ++bit) {
+        uint16_t source_bit = (uint16_t)(bit_offset + bit);
+        uint8_t source =
+            (uint8_t)((report[source_bit / 8u] >> (source_bit % 8u)) & 1u);
+        value |= (uint32_t)source << bit;
+    }
+
+    *out_value = value;
+    return true;
+}
+
+static bool hid_extract_signed_bits(
+    const uint8_t *report,
+    uint16_t report_size,
+    uint16_t bit_offset,
+    uint8_t bit_size,
+    int32_t *out_value
+) {
+    uint32_t raw = 0u;
+    if (out_value == NULL ||
+        !hid_extract_unsigned_bits(
+            report, report_size, bit_offset, bit_size, &raw)) {
+        return false;
+    }
+
+    if (bit_size < 32u &&
+        (raw & (1u << (bit_size - 1u))) != 0u) {
+        raw |= ~((1u << bit_size) - 1u);
+    }
+
+    *out_value = (int32_t)raw;
+    return true;
+}
+
+bool usb_hid_mouse_process_report(
+    struct aurora_usb_hid_mouse *mouse,
+    const struct aurora_usb_hid_mouse_report_layout *layout,
+    const uint8_t *report,
+    uint16_t report_size
+) {
+    if (mouse == NULL ||
+        layout == NULL ||
+        report == NULL ||
+        !mouse->connected ||
+        layout->button_count == 0u ||
+        layout->button_count > 5u ||
+        !layout->has_x ||
+        !layout->has_y ||
+        layout->x_bit_size == 0u ||
+        layout->y_bit_size == 0u ||
+        report_size == 0u ||
+        (uint32_t)report_size * 8u < layout->input_report_bits) {
+        return false;
+    }
+
+    if (layout->report_id != 0u &&
+        report[0] != layout->report_id) {
+        return false;
+    }
+
+    uint32_t raw_buttons = 0u;
+    if (!hid_extract_unsigned_bits(
+            report,
+            report_size,
+            layout->button_bit_offset,
+            layout->button_count,
+            &raw_buttons)) {
+        return false;
+    }
+
+    uint8_t mask =
+        (uint8_t)((1u << layout->button_count) - 1u);
+    uint8_t new_buttons = (uint8_t)raw_buttons & mask;
+    uint8_t changed = (uint8_t)(new_buttons ^ mouse->buttons);
+
+    int32_t dx = 0;
+    int32_t dy = 0;
+
+    if (!hid_extract_signed_bits(
+            report, report_size,
+            layout->x_bit_offset,
+            layout->x_bit_size,
+            &dx) ||
+        !hid_extract_signed_bits(
+            report, report_size,
+            layout->y_bit_offset,
+            layout->y_bit_size,
+            &dy)) {
+        return false;
+    }
+
+    if (dx != 0 || dy != 0) {
+        const struct aurora_input_event motion = {
+            .type = AURORA_INPUT_EVENT_POINTER_RELATIVE,
+            .source = AURORA_INPUT_SOURCE_USB_HID,
+            .device_id = mouse->device_id,
+            .delta_x = dx,
+            .delta_y = dy
+        };
+        if (!input_push_event(&motion)) return false;
+    }
+
+    const enum aurora_pointer_button buttons[5] = {
+        AURORA_POINTER_BUTTON_LEFT,
+        AURORA_POINTER_BUTTON_RIGHT,
+        AURORA_POINTER_BUTTON_MIDDLE,
+        AURORA_POINTER_BUTTON_BACK,
+        AURORA_POINTER_BUTTON_FORWARD
+    };
+
+    for (uint8_t i = 0u; i < layout->button_count; ++i) {
+        uint8_t bit = (uint8_t)(1u << i);
+        if ((changed & bit) != 0u &&
+            !emit_mouse_button(
+                mouse,
+                buttons[i],
+                (new_buttons & bit) != 0u)) {
+            return false;
+        }
+    }
+
+    if (layout->has_wheel) {
+        int32_t wheel = 0;
+        if (layout->wheel_bit_size == 0u ||
+            !hid_extract_signed_bits(
+                report, report_size,
+                layout->wheel_bit_offset,
+                layout->wheel_bit_size,
+                &wheel)) {
+            return false;
+        }
+
+        if (wheel != 0) {
+            const struct aurora_input_event scroll = {
+                .type = AURORA_INPUT_EVENT_SCROLL,
+                .source = AURORA_INPUT_SOURCE_USB_HID,
+                .device_id = mouse->device_id,
+                .scroll_y = wheel
+            };
+            if (!input_push_event(&scroll)) return false;
+        }
     }
 
     mouse->buttons = new_buttons;
@@ -575,6 +742,77 @@ bool usb_hid_selftest(void) {
         event.type != AURORA_INPUT_EVENT_DEVICE_REMOVED ||
         event.device_id != wheel_mouse_id ||
         input_poll_event(&event)) {
+        return false;
+    }
+
+
+    input_init();
+
+    static struct aurora_usb_hid_mouse report_mouse;
+    clear_mouse(&report_mouse);
+
+    const uint64_t report_mouse_id =
+        AURORA_INPUT_DEVICE_USB_BASE + UINT64_C(12);
+    const struct aurora_usb_hid_mouse_report_layout report_layout = {
+        .descriptor_length = 52u,
+        .input_report_bits = 32u,
+        .report_id = 0u,
+        .button_count = 5u,
+        .button_bit_offset = 0u,
+        .x_bit_offset = 8u,
+        .y_bit_offset = 16u,
+        .wheel_bit_offset = 24u,
+        .x_bit_size = 8u,
+        .y_bit_size = 8u,
+        .wheel_bit_size = 8u,
+        .has_x = true,
+        .has_y = true,
+        .has_wheel = true
+    };
+    const uint8_t back_report[4] = {0x08u, 0u, 0u, 0u};
+    const uint8_t forward_report[4] = {0x10u, 0u, 0u, 0u};
+    const uint8_t report_release[4] = {0u, 0u, 0u, 0u};
+
+    if (!usb_hid_mouse_attach(&report_mouse, report_mouse_id) ||
+        !usb_hid_mouse_process_report(
+            &report_mouse, &report_layout,
+            back_report, sizeof(back_report)) ||
+        !usb_hid_mouse_process_report(
+            &report_mouse, &report_layout,
+            forward_report, sizeof(forward_report)) ||
+        !usb_hid_mouse_process_report(
+            &report_mouse, &report_layout,
+            report_release, sizeof(report_release)) ||
+        !usb_hid_mouse_detach(&report_mouse)) {
+        return false;
+    }
+
+    bool saw_back_down = false;
+    bool saw_back_up = false;
+    bool saw_forward_down = false;
+    bool saw_forward_up = false;
+
+    while (input_poll_event(&event)) {
+        if (event.type != AURORA_INPUT_EVENT_POINTER_BUTTON ||
+            event.device_id != report_mouse_id) {
+            continue;
+        }
+
+        if (event.button == AURORA_POINTER_BUTTON_BACK) {
+            if (event.pressed) saw_back_down = true;
+            else saw_back_up = true;
+        }
+
+        if (event.button == AURORA_POINTER_BUTTON_FORWARD) {
+            if (event.pressed) saw_forward_down = true;
+            else saw_forward_up = true;
+        }
+    }
+
+    if (!saw_back_down ||
+        !saw_back_up ||
+        !saw_forward_down ||
+        !saw_forward_up) {
         return false;
     }
 
