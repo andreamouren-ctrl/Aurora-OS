@@ -1718,6 +1718,7 @@ bool xhci_find_boot_hid_endpoint(
     uint8_t interface_number = 0u;
     uint8_t interface_subclass = 0u;
     uint8_t interface_protocol = 0u;
+    uint16_t report_descriptor_length = 0u;
 
     uint16_t offset = 0u;
 
@@ -1743,6 +1744,7 @@ bool xhci_find_boot_hid_endpoint(
             uint8_t interface_class = raw[offset + 5u];
             interface_subclass = raw[offset + 6u];
             interface_protocol = raw[offset + 7u];
+            report_descriptor_length = 0u;
 
             in_boot_hid_interface =
                 alternate_setting == 0u &&
@@ -1750,6 +1752,31 @@ bool xhci_find_boot_hid_endpoint(
                 interface_subclass == 0x01u &&
                 (interface_protocol == 0x01u ||
                  interface_protocol == 0x02u);
+        } else if (type == 0x21u &&
+                   in_boot_hid_interface) {
+            if (length < 9u) return false;
+
+            uint8_t descriptor_count = raw[offset + 5u];
+            if (descriptor_count == 0u) return false;
+
+            uint16_t cursor = (uint16_t)(offset + 6u);
+            uint16_t descriptor_end = (uint16_t)(offset + length);
+
+            for (uint8_t i = 0u; i < descriptor_count; ++i) {
+                if ((uint16_t)(descriptor_end - cursor) < 3u) {
+                    return false;
+                }
+
+                uint8_t subordinate_type = raw[cursor];
+                uint16_t subordinate_length =
+                    usb_read_le16(&raw[cursor + 1u]);
+
+                if (subordinate_type == 0x22u) {
+                    report_descriptor_length = subordinate_length;
+                }
+
+                cursor = (uint16_t)(cursor + 3u);
+            }
         } else if (type == 0x05u &&
                    in_boot_hid_interface) {
             if (length < 7u) return false;
@@ -1768,7 +1795,8 @@ bool xhci_find_boot_hid_endpoint(
             if (direction_in &&
                 interrupt_transfer &&
                 max_packet != 0u &&
-                interval != 0u) {
+                interval != 0u &&
+                report_descriptor_length != 0u) {
                 *out_endpoint =
                     (struct aurora_usb_hid_endpoint_descriptor){
                         .configuration_value = configuration_value,
@@ -1778,7 +1806,8 @@ bool xhci_find_boot_hid_endpoint(
                         .endpoint_address = endpoint_address,
                         .max_packet_size = max_packet,
                         .interval = interval,
-                        .total_configuration_length = total_length
+                        .total_configuration_length = total_length,
+                        .report_descriptor_length = report_descriptor_length
                     };
 
                 return true;
