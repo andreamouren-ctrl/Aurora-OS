@@ -1472,3 +1472,75 @@ bool xhci_control_in(
     pmm_free_page(data_page);
     return true;
 }
+
+
+static uint16_t usb_read_le16(const uint8_t *bytes) {
+    return (uint16_t)bytes[0] |
+        ((uint16_t)bytes[1] << 8u);
+}
+
+bool xhci_get_device_descriptor(
+    struct aurora_xhci_controller_state *state,
+    struct aurora_usb_device_descriptor *out_descriptor
+) {
+    if (state == NULL || out_descriptor == NULL) {
+        return false;
+    }
+
+    uint8_t raw[18] = {0};
+
+    if (!xhci_control_in(
+            state,
+            0x80u,
+            0x06u,
+            0x0100u,
+            0u,
+            raw,
+            sizeof(raw))) {
+        log_line("[xhci] GET_DESCRIPTOR(Device) transfer failed");
+        return false;
+    }
+
+    if (raw[0] != 18u || raw[1] != 0x01u) {
+        log_write("[xhci] invalid Device Descriptor length/type ");
+        log_u64(raw[0]);
+        log_write("/");
+        log_u64(raw[1]);
+        log_line("");
+        return false;
+    }
+
+    uint8_t max_packet = raw[7];
+
+    if (max_packet != 8u &&
+        max_packet != 16u &&
+        max_packet != 32u &&
+        max_packet != 64u) {
+        log_write("[xhci] invalid bMaxPacketSize0 ");
+        log_u64(max_packet);
+        log_line("");
+        return false;
+    }
+
+    if (raw[17] == 0u) {
+        log_line("[xhci] Device Descriptor reports zero configurations");
+        return false;
+    }
+
+    *out_descriptor = (struct aurora_usb_device_descriptor){
+        .usb_version_bcd = usb_read_le16(&raw[2]),
+        .device_class = raw[4],
+        .device_subclass = raw[5],
+        .device_protocol = raw[6],
+        .max_packet_size0 = max_packet,
+        .vendor_id = usb_read_le16(&raw[8]),
+        .product_id = usb_read_le16(&raw[10]),
+        .device_version_bcd = usb_read_le16(&raw[12]),
+        .manufacturer_string = raw[14],
+        .product_string = raw[15],
+        .serial_string = raw[16],
+        .configuration_count = raw[17]
+    };
+
+    return true;
+}
