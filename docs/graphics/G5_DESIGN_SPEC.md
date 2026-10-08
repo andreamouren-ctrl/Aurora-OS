@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D37**
+Status: **Design in progress — approved decisions D01–D38**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -47,6 +47,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D35 | Hybrid Spatial Index Engine | Stable versioned spatial-index interface with swappable benchmark-selected dynamic R-tree/loose quadtree backends, and an authoritative correctness reference scan |
 | G5-D36 | Aurora Hybrid Coordinates | Persistent deterministic signed 64-bit fixed-point world coordinates with double-precision camera math, camera-relative origin rebasing and checked screen conversion |
 | G5-D37 | Aurora Hybrid Scene Graph | Hierarchical visual transforms and ownership-independent semantic graph; explicit contracts with Spatial Index, Content Graph and compositor, without live-app duplication |
+| G5-D38 | Aurora Atomic Scene Transactions | Validated, revisioned, atomic scene updates across canonical Scene Graph, derived index, compositor projection and hit testing; conflict detection and safe rollback, excluding app-internal distributed transactions |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -843,6 +844,71 @@ Hierarchy translation-only transforms are the **proposed initial subset**. Scali
 
 **Implementation blockers:** actual source layout for the Shell Canvas registry; graph broker authority; compositor atomic scene-delta API; validated surface rehost semantics; fixed numeric transform conventions; performance and depth limits. Design approval does not claim these APIs exist today.
 
+
+### 3.31 Aurora Atomic Scene Transactions — staging, commit, rollback and revisions (G5-D38)
+
+**Approved:** each user-visible multi-object Canvas structural operation is validated and prepared as a unit; its effective presentation and input targeting switch between coherent scene revisions rather than observing partially updated groups, layers or relationships. This is **not** an ACID distributed transaction covering independent application-internal documents or remote services.
+
+#### Authority, revisions and transaction state
+- Shell Canvas Engine owns the **canonical scene registry** and monotonically increasing \`scene_revision\` scoped to \`session_generation\`. Each node has \`object_generation\`; camera movement has a separate \`camera_revision\`; Content Graph can independently track \`graph_revision\`. Never reuse a revision/handle as authority across session or service restarts.
+- Logical transaction includes unique \`transaction_id\`, caller session/capability, \`expected_scene_revision\`, bounded ordered operations, affected-object generation preconditions, and policy-context revisions (layers/privacy) where relevant. Side effects are forbidden during input parsing/validation.
+- Proposed lifecycle: \`CREATED → VALIDATING → PREPARED → SUBMITTING → COMMITTED\`, with terminal \`REJECTED\`, \`ABORTED\`, \`CONFLICT\`, or \`RECOVERY_REQUIRED\` states. Timeouts and crashes never mean "assume committed".
+- Concurrent conflicting edits use optimistic revision checks and explicit \`CONFLICT\` results; the client may refresh/rebase and retry by deliberate action. A queued gesture update may coalesce only before transaction preparation and cannot silently supersede a security-critical mutation.
+
+#### Atomic scene commit protocol (design)
+1. **Begin:** reserve a bounded transaction context and snapshot the relevant scene revision. Authenticate caller and resolve every target through capability/session checks.
+2. **Validate:** check types, bounds, group-cycle constraints, D26 layer locks, D22 privacy, compositor surface ownership and resource quotas; gather all touched objects, previous bounds and authorized link edges.
+3. **Prepare:** build copy-on-write or reversible deltas for canonical registry, D35 Spatial Index mutations, D34 viewport/dirty-region change set, graph-view references and compositor scene projection. Do not expose provisional indices or hit-test targets.
+4. **Submit:** send a **generation-tagged compositor scene batch**; compositor verifies privileges, completeness, stale serials, secure overlay priority and resource limits, staging without changing its visible state. An explicit accept/commit acknowledgment mechanism must be designed and implemented: the present compositor contracts do not yet prove a general atomic scene-batch IPC API.
+5. **Commit / publish:** after successful compositor acceptance, advance authoritative scene revision and publish the new visible scene and matching hit-test routing **at one observable boundary** (e.g. frame boundary with synchronized input epoch). When the compositor cannot guarantee this boundary, block input for affected targets and use safe fallback until consistency is restored. Do not announce success solely on a send acknowledgment.
+6. **Finalize:** append one reversible structural command to Canvas History D17, complete user notification and release retired resources only after compositor references/fences drain.
+7. **Abort/rollback:** before publish, discard provisional deltas and preserve old scene/index/projection. If compositor state is uncertain after timeout/crash, query/reconcile exact committed generation or reconstruct from trusted scene checkpoint; fail closed on input rather than guessing.
+8. **Revocation priority:** privacy, lock/logout, destroyed surface and credential/session revocations **preempt ordinary batches**. They cannot wait behind optional animation, retry loops or normal scene-history updates.
+
+#### Logical contracts (proposed; no source API claim)
+| Contract | Operations / core fields | Invariant |
+|---|---|---|
+| \`G5.SceneTx.v1\` | begin, add_op, validate, prepare, submit, commit, abort; transaction/session IDs, expected revision | bounded operation count, least privilege, conflict detection |
+| \`G5.SceneSnapshot.v1\` | immutable prepared registry/index/visible-set revision | candidate data not externally observable |
+| \`G5.CompositorBatch.v1\` | scene transaction ID, generation, ordered node/surface ops, atomic stage/publish acknowledgment | no partial render, privileged overlays retained |
+| \`G5.InputEpoch.v1\` | active scene revision + camera revision + compositor accepted revision | hit test never routes via mixed versions |
+| \`G5.SceneRecovery.v1\` | query committed batch revision, replay/rebuild checkpoint, invalidate handles | idempotent recovery, no stale privilege resurrection |
+| \`G5.HistoryCommit.v1\` | committed structural delta/inverse metadata and checkpoint reference | exactly one user undo step per completed transaction |
+
+Cross-process control uses G5-D32 \`G5.IPC.v1\` bounded 256-byte messages and capability-attached bulk descriptors for oversized batches *only after* the Ring 3 shared-data ABI is runtime-verified. A single IPC send/receipt is not a cross-process atomic commit guarantee.
+
+#### Consistency model and limits
+- **Single logical writer/serialized commit point** per Canvas session in the G5 MVP. Parallel readers consume immutable generation-tagged snapshots; conflicting submissions are serialized/rejected rather than racing shared mutable indices.
+- Structural hierarchy and its derived Spatial Index must represent the **same committed revision**. Content Graph semantic edges may have separately versioned eventual indexing, but permissions and graph-sensitive visible/selection effects must be checked synchronously against authorized source data at projection time.
+- D33 buffers retain their existing atomic pending/committed ownership flow; scene structural commit cannot recycle a buffer still \`IN_USE\`. An app surface configure/ACK is a separately validated protocol handshake, not implicitly committed by Canvas movement.
+- No transaction may unilaterally alter app-owned documents, process memory, identity grants or remote state. Smart Transfer D16/D28 requires its own source-preserving commit/abort semantics; only its Canvas placement delta participates here.
+- Retry is safe only when request_id / transaction_id, session generation and target generation match; duplicate commit returns the prior outcome or a clearly unresolved status, **never executes twice**. Revision integers use checked monotonic advancement and explicit rollover handling.
+
+#### Failure matrix
+| Failure point | Behavior |
+|---|---|
+| Validation / quota / permission failure | reject without mutation |
+| Index rebuild or graph query error before submit | abort staged work and restore stable revision |
+| Compositor refuses batch | rollback; report typed failure |
+| Client CANCEL before publication | abort if still cancellable |
+| CANCEL after committed publication | report committed; offer new inverse/history operation if authorized |
+| IPC timeout after submit | \`RECOVERY_REQUIRED\`; reconcile committed revision before any retry |
+| Shell crash during commit | supervisor issues new process/session service generation; trusted journal/checkpoint reconciliation, no blind replay |
+| Compositor crash during commit | invalidate old surface/batch handles, rebuild projection from trusted scene, block stale input |
+| Session lock/revocation | urgent fail-closed hide/input revoke regardless of pending ordinary transaction |
+
+#### Acceptance and test gates
+1. Atomic multi-node move/reparent/layer and relation-view updates: all visible together, or none; no input ghost targets.
+2. Conflicting expected revisions and stale target/session generations reject cleanly.
+3. Duplicate submit/commit/retry requests are idempotent across IPC delivery races.
+4. Fault injection before prepare, after prepare, after compositor acceptance and around publish/ack; no partial state, no lost acknowledged edit or unacknowledged success.
+5. Compositor rejects malformed/incomplete or unauthorized batches; secure overlays always override.
+6. Undo/redo integrates as one inverse transaction with user-visible History only after successful commit.
+7. Measure batch preparation and publication p50/p95, peak staging memory, input suppression duration, scene rebuild cost and commit queue depth under 1k/10k/100k *logical* nodes.
+8. QEMU/CI multi-client verification, including fast camera transitions, process death, lock/logout and buffer-release races.
+
+**Implementation blockers:** compositor batch stage/publish/ack contract and input-epoch synchronization; durable checkpoint reconciliation; finite transaction/batch/memory budgets; Ring 3 bulk transfer ABI where needed. Design approval is not implementation or runtime verification.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -902,6 +968,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify G5-D35 backend-neutral index mutations, full-scan differential equivalence, generation-safe queries, bounded memory and reproducible R-tree/quadtree benchmarking.
 - Verify G5-D36 world coordinate overflow handling, camera-rebase precision, anchored-zoom stability, round-trip transform/hit-testing and negative/extreme world coordinates.
 - Verify G5-D37 scene reparent/cycle prevention, semantic/visual separation, coherent index/projection generations, single-instance rehost, privacy-safe hit testing and crash recovery.
+- Verify G5-D38 atomic staging/publication, conflict and duplicate rejection, fail-closed input epochs, History coherence, cancellation/timeout recovery and privacy revocation priority.
 - Explicit runtime QEMU tests and CI evidence are required before marking any item implemented.
 
 ## 7. Pending design decisions
@@ -918,7 +985,8 @@ Isolated Ring 3 system and third-party application processes
 - G5-D33 adaptive buffer pool admission/eviction thresholds, Ring 3 buffer-release notifications, frame pacing targets and multi-client performance baselines.
 - G5-D34/D35 spatial-index benchmark backend selection, viewport virtualization, dirty-tile budgets and the compositor 64-node capacity constraint.
 - G5-D36 fixed-point world-tick scale, camera-anchor arithmetic, checked screen conversion, zoom thresholds and numerical precision/drift acceptance.
-- G5-D37 scene hierarchy depth and transform scope, atomic registry/index update, semantic graph linkage, compositor projection/ack and hit-test generation coherence.
+- G5-D37 scene hierarchy depth and transform scope, semantic graph linkage, compositor projection and hit-test generation coherence.
+- G5-D38 scene transaction limits, compositor batch stage/publish/ack, input epochs, idempotent commit/recovery and structural History journaling.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
