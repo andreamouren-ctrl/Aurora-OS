@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D30**
+Status: **Design in progress — approved decisions D01–D31**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -40,6 +40,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D28 | Aurora Spatial Clipboard | Clipboard history, multi-item spatial copy/cut/paste, preview and paste-as-copy/link, preserving relative placement without automatically duplicating underlying files |
 | G5-D29 | Aurora Canvas Templates | Bundled and user-created reusable, exportable Canvas templates for groups, layers, notes, portals and spatial layouts, with private data excluded by default |
 | G5-D30 | Modular Shell with isolated services | Lightweight Shell coordinator, explicit versioned interfaces and separated processes at security/failure boundaries; not one monolith or a process for every helper |
+| G5-D31 | Selective process isolation | Trusted Shell modules may share its process; compositor/display, privileged brokers and untrusted applications execute across justified isolation boundaries with supervised restart and fresh capabilities |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -330,6 +331,86 @@ Every cross-process request should carry a **version**, **request ID**, **sessio
 - Set latency/memory budgets and queue backpressure/restart policy.
 - Write API header/schema files **only after** contract review and integration with existing Aurora interfaces.
 
+
+### 3.24 Selective process isolation — concrete topology & recovery (G5-D31)
+
+**Decision approved:** selective isolation. The roles/process placements below are an initial target topology for design review, not a claim that this exact process topology is running today.
+
+#### Target topology
+```text
+Session Manager / trusted supervision [existing foundational services]
+  | grants fresh session generation and explicit capabilities
+  +-- Desktop Shell Ring 3 process (trusted session policy)
+  |    +-- Shell Coordinator / Hub Controller
+  |    +-- Canvas Engine + Camera + Semantic Zoom
+  |    +-- Navigator + Interaction & Selection state
+  |    +-- Graph view/cache (untrusted data parsed through broker)
+  |    +-- Theme resolver + UI (validated declarative tokens)
+  |    +-- State/History frontend + command registry
+  |
+  +-- Aurora Compositor service [separate privileged process TARGET]
+  |    +-- authoritative surface ownership, composition, input focus/capture
+  |    +-- Display backend may be initially co-located with compositor
+  |
+  +-- Identity / Session security services [separate trusted authority]
+  +-- Content/Graph broker [separate if privileged indexing/storage is used]
+  +-- State persistence broker [separate if durable storage privilege is needed]
+  +-- Transfer/Clipboard broker [separate if inter-client data access demands it]
+  +-- Application processes [untrusted Ring 3; isolated by process/capability]
+       +-- browser engine/renderers [additional sandboxing as support evolves]
+       +-- editor/media/third-party clients
+Recovery framebuffer login remains independent of the normal compositor.
+```
+
+**Process placement principle:** logical modules may remain in the Shell process when they do not process unsafe executable payloads or need independent privileged access. A facade/IPC client in Shell is not permission to put the corresponding privileged broker in Shell. Broker deployment is conditional and requires a dependency/privilege assessment; do not prematurely create a separate service for every feature.
+
+#### Reuse of existing runtime foundations
+- `AURORA_SYS_IPC_SEND=4`, `RECEIVE=5`, `WAIT=8` already support capability-checked Ring 3 messages. Current IPC payload **maximum 256 bytes**; **maximum four transferred capability handles**. G5 messages must fit or use an explicitly authorized shared-memory/data broker path after its Ring 3 ABI is implemented and verified.
+- IPC endpoint `WRITE` is required to send, `READ` to receive/wait. Current wait supports one waiter per endpoint; G5 designs may multiplex a single event loop and must not assume arbitrary multi-consumer waiting. Queue-full is an error; retry/backpressure is a client policy still requiring measured design.
+- Existing service supervision supplies `NEVER`, `ON_FAILURE`, `ALWAYS` and bounded restart attempts, fresh process IDs/capability tables per generation and full reap before restart. Time-based backoff/health-registry/general service discovery are **not yet implemented**; G5 must add them or operate without claiming production-grade recovery.
+- Existing Shell contract grants session-scoped `MANAGE_WINDOWS` only as required, never implicit filesystem, credential or display capture authority. Existing window protocol configure/ACK, activation token and generation rules remain authoritative.
+- Exact process allocation and compositor migration require implementation work; architecture documentation explicitly allows early Display/Compositor co-location while keeping policy separate.
+
+#### G5 IPC contract mapping (proposal, pending ABI review)
+| Link | Channel/payload | Capability model | Failure rule |
+|---|---|---|---|
+| Session Manager → Shell | session-ready/revoke/generation | minted session-bound Shell policy rights | revoke before reuse; rebuild Shell on restart |
+| Shell → Compositor | scene operations, focus/activation policy, configure/ack references | scoped `MANAGE_WINDOWS` and verified surface generation | reject stale/foreign surface, fail closed |
+| App ↔ Compositor | typed surface attach/commit/configure and callback notifications | owned surface/buffer handles; no window-admin rights | app death detaches surfaces, revokes input |
+| Hub/Canvas → Module App | layout size class, semantic zoom level, host attach/detach | one module instance, scoped endpoint & authorized surface | transfer rollback on timeout/crash |
+| Shell ↔ Content/Graph broker | paginated IDs/relations/query tokens | least-privilege scoped query/metadata rights | unavailable broker means safe empty/error state |
+| Shell ↔ State broker | typed journal operations, checkpoint/restore | user/session-scoped state authority | never claim commit before durable ack |
+| Shell ↔ Transfer broker | typed offer/accept/commit/abort | time-limited source and destination handles | no premature delete on cut; revoke on abort |
+| Command UI → deterministic registry | parse/preview/authorize/execute | no implicit execution from optional AI | reject unsupported or unauthorized operations |
+
+Wire frames should include version, message type, request ID, session generation, target handle/generation, flags and bounded payload length. Capability handles are resolved through kernel tables, not raw pointers. Exact binary layout, endian policy and operation IDs remain to be frozen.
+
+#### Crash/failure behavior matrix
+| Failure | Required G5 behavior |
+|---|---|
+| One application crashes | close/invalidate only its surface and capture; Shell/other clients continue |
+| Browser renderer crashes | isolate failure to renderer/module, show recoverable panel; never crash Shell |
+| Shell crashes | compositor removes policy/focus authority, suppresses stale input, supervisor reconstructs fresh session-scoped Shell; recover UI from trusted durable state where available |
+| Compositor crashes | revoke presentation/input handles and show safe recovery framebuffer path; rebuild compositor and graph bindings with fresh generations |
+| Content/Graph broker crashes | no stale/private suggestions or graphs; mark unavailable and retry only after verified service readiness |
+| State broker crashes | preserve confirmed state, refuse unacknowledged commits, journal conflicts are surfaced, no fabricated persistence success |
+| Transfer broker crashes | abort pending copy/cut/link transactions and leave original source intact |
+| Identity/session revoked | immediately invalidate all scoped Shell/client rights, cached private previews and display/input authority |
+| Restart loops | bounded attempts; no uncontrolled spawning; safe fallback and diagnostics |
+
+#### Implementation gates
+1. Enumerate existing process/bootstrap, IPC and graphics capabilities; map smallest deployment topology.
+2. Define typed `G5.IPC.v1` envelopes inside 256-byte cap, with explicit serialization and parser fuzz tests.
+3. Define service ownership, generation revocation, lock ordering, queue-full/timeouts, event loop and capability handoff.
+4. Separate Shell policy from compositor authority and verify multiple isolated Ring 3 window clients.
+5. Inject crash/termination at every boundary and assert cleanup, no cross-session leakage and bounded recovery.
+6. Require QEMU runtime markers/CI regression results before marking any topology or crash behavior **implemented**.
+
+#### Explicit non-goals of D31
+- No forced service-per-widget microservice architecture.
+- No promises of implemented browser multi-process sandbox, production compositor restart or generic service discovery before their runtime gates.
+- No shared-memory payload ABI assumed to exist merely because internal shared memory objects exist.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -396,7 +477,7 @@ Isolated Ring 3 system and third-party application processes
 - Universal Command registry schema, AI provider policy and approval thresholds.
 - G5-D23 theme token schema, preset export format, minimum accessibility contrast and graphics effect budgets.
 - G5-D24 camera transform limits, pan gesture conflict policy, inertial parameters and touch gesture transport gates.
-- G5-D30 process topology, IPC envelope, versioned contract definitions, scheduling/backpressure and failure isolation tests.
+- G5-D30/D31 exact process inventory and privilege/dependency map; G5.IPC.v1 on-wire layout, queue backpressure and failure isolation tests.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
