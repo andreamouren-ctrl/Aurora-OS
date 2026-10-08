@@ -43,7 +43,8 @@ enum g5_ipc_status {
     G5_IPC_TOO_LARGE,
     G5_IPC_UNSUPPORTED_FLAGS,
     G5_IPC_BAD_CAPABILITIES,
-    G5_IPC_DENIED
+    G5_IPC_DENIED,
+    G5_IPC_UNSUPPORTED_OPERATION
 };
 
 /* Logical decoded representation only; this is NOT the on-wire layout. */
@@ -109,6 +110,13 @@ enum g5_ipc_status g5_ipc_validate_caps(
     uint32_t required_count,
     g5_ipc_cap_check_fn checker,
     void *context
+);
+
+/* Initial strict control-message schema. These are version-1 byte lengths,
+ * not native C struct sizes. Schema checks do not authorize the sender. */
+enum g5_ipc_status g5_ipc_validate_schema(
+    const struct g5_ipc_header *header,
+    uint32_t capability_count
 );
 
 #endif
