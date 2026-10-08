@@ -10,7 +10,9 @@ This roadmap orders M4 work by hard dependencies. A checkbox in the global roadm
 - [x] Targeted current-source inspection and P0/P1 risk register: [G5_WP01_REPOSITORY_AUDIT.md](G5_WP01_REPOSITORY_AUDIT.md).
 - [ ] Fresh baseline build + QEMU CI artifact validation (not executed by this documentation audit).
 - [ ] Review/freeze actual Shell capability mapping and least-privilege launch path.
-- [ ] Start WP-02 versioned IPC codec and negative regression tests.
+- [x] WP-02 PR-G5-001 source published: `kernel/include/aurora/g5_ipc_abi.h`, `kernel/src/ipc/g5_ipc_codec.c`, `tests/g5/ipc_codec_test.c`, `.github/workflows/g5-ipc.yml`.
+- [ ] WP-02 compile/test and GitHub Actions verdict independently verified; awaiting runtime and integration evidence.
+- [ ] WP-02 full scope: capability ordinal/type checks, per-operation schemas, cancellation/queue/backpressure integration and Ring 3 tests.
 
 The audit is **documentation/source review only**, not a completed G5 Core implementation/runtime gate. It identifies already present graphics syscalls and a stricter 32-input-target ceiling to preserve during integration.
 
