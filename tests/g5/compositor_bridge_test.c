@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <aurora/g5_compositor_bridge.h>
 static struct aurora_graphics_surface surface;
