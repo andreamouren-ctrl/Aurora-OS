@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D42**
+Status: **Design in progress — approved decisions D01–D43**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -52,6 +52,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D40 | Incremental Journal + Verified Snapshots | Versioned bounded append journal with periodic immutable full-scene checkpoints, integrity-checked manifest publication, quota-based compaction and fail-closed power-loss recovery |
 | G5-D41 | Aurora Hybrid Autosave | Continuous edits are coalesced into bounded structural transactions, journaled asynchronously with explicit durable acknowledgments, critical-operation durability barriers and visible unsaved-state tracking |
 | G5-D42 | Aurora Guided Recovery | Fail-safe automatic recovery to the last verified Canvas generation plus a guided UI for checkpoints, integrity status, recoverable revisions and explicit restore choices, without overwriting valid backups |
+| G5-D43 | Aurora Recovery Test Harness | Deterministic fault injection, automated QEMU reboot/cold-boot recovery assertions, revision/integrity/capability checks and CI regression gates |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -1166,6 +1167,73 @@ User-facing statuses:
 
 **Implementation gate:** user-profile storage broker and verified durable atomic publication (D39–D40), G5-D41 autosave ACKs, idempotent replay, graphics projection commits, and QEMU fault-injection harness must be built and tested before calling Guided Recovery operational.
 
+
+### 3.36 Aurora Recovery Test Harness — deterministic fault injection & CI gates (G5-D43)
+
+**Approved:** build a deterministic, automated test harness for G5-D38 through D42 (transactions, autosave, journal/snapshot, guided recovery), and integrate required negative/power-cut recovery scenarios into QEMU-based CI. This is a **test design contract**, not a claim that the harness already exists.
+
+#### Existing integration baseline (checked 2026-10-08)
+- \`.github/workflows/build.yml\` already builds bootable Aurora artifacts, installs QEMU and exercises BIOS four-CPU smoke tests, serial markers, QEMU monitor/QMP interactions and an AuroraFS-backed storage image. **Extend** those mechanisms rather than create a disconnected VM environment.
+- \`docs/identity/TEST_PLAN.md\` already establishes unit, service, boot/runtime, fault-injection, security and performance test tiers, which G5 should align with.
+- AuroraFS durable append/replace/sync for the proposed user-profile Canvas store remains a **dependency**, not a demonstrated test-harness capability. No G5 end-to-end crash-recovery tests are considered complete yet.
+
+#### Test architecture and suggested files (not yet created)
+\`\`\`text
+tests/g5/recovery/
+  scenarios.json              # versioned deterministic test matrix and cutpoints
+  expected_state.py            # offline canonical scene/journal reference model
+  run_recovery.py              # orchestration, QMP/monitor, disk isolation and assertions
+  fixtures/                    # bounded deterministic snapshot/journal binaries
+  corpus/                      # malformed/truncated recovery files
+.github/workflows/g5-recovery.yml   # optional separate CI workflow or gated build job
+\`\`\`
+- A guest **fault-point probe** in the State Broker records \`scenario_id\`, \`seed\`, \`tx_id\`, \`workspace_id\`, stage, durable revision and sequence through a minimal serial/test-only interface. The probe cannot access Identity secrets or run in production builds.
+- A host orchestrator creates a fresh *copy-on-write or copied* base disk per case, boots QEMU, drives scripted Canvas edits, waits for an exact fault-point ACK, injects process kill, system reset or simulated abrupt power loss as appropriate, restarts guest with the **same test disk**, and inspects recovery assertions and post-replay durable state.
+- A pure offline reference model creates expected committed transaction IDs, scene revision, node sets, note checksums, relation sets and manifest generations. It must distinguish **applied**, **write completed**, **durably acknowledged** and **possibly durable but ACK lost** operations.
+- All scripts have bounded timeouts, stable deterministic seeds, no uncontrolled polling, no reliance on wall-clock waits as the sole fault injection synchronization, and unique test-case IDs/log namespaces.
+
+#### Required cutpoints
+| Marker | Inject after | Expected property |
+|---|---|---|
+| FI-01 | transaction validated but before journal prepare | old durable scene remains |
+| FI-02 | append started / partial journal record | reject torn tail; last complete revision only |
+| FI-03 | full data write before sync | do not assume durability |
+| FI-04 | sync completed before final commit publication | distinguish pending from confirmed commit |
+| FI-05 | committed journal durable, before sender ACK | idempotent recovery, no duplicate edits |
+| FI-06 | snapshot staging write partial | old checkpoint chain remains authoritative |
+| FI-07 | snapshot verified/synced, before manifest switch | older manifest still valid |
+| FI-08 | one manifest slot publication interrupted | choose fully verified chain, not merely max counter |
+| FI-09 | new manifest verified, before old-chain pruning | new chain valid, previous chain still retained |
+| FI-10 | compaction/pruning interrupted | at least one verified recoverable chain remains |
+| FI-11 | compositor batch prepared, before publish | no ghost input/mixed scene epoch |
+| FI-12 | Shell, State Broker or compositor killed during restart/replay | generation-bound handles invalidated, bounded supervised recovery |
+
+#### Test suites and CI tiers
+1. **Pure unit/property suite** on host: serializer round-trip, reference state machine, checksum corruption, duplicate/out-of-order journal records, endian golden vectors, bounds and revisions.
+2. **Guest service integration** in QEMU: typed Ring 3 broker IPC, durability ACKs, capability isolation, bounded queues and replay of saved structural transactions.
+3. **QEMU crash reboot suite**: each FI-01..FI-12 at deterministic synchronization points and variant kills/resets, then verify authoritative last-known-good generation and D42 recovery UI state.
+4. **Cross-user security suite**: stale session generation, protected note preview, unauthorized workspace, login/logout/revoke while replaying; ensure no leaked labels, pixels or journal contents.
+5. **Scale/performance suite**: synthetic 1k/10k/100k logical-object fixtures (within available hardware quotas), journal append/sync p50/p95, recovery duration, memory peak and compositor responsiveness.
+
+**CI policy:** quick host tests and a selected deterministic QEMU recovery subset on each PR; complete fault-point matrix on main/nightly/manual trigger as CI capacity allows. A flaky failure is a failure to investigate, not permission to silently retry into a green result. Collect exact image build SHA, deterministic seed, guest serial log, QMP action trace, disk image checksum (not private data), fault marker and verdict.
+
+#### Oracle and pass/fail contract
+- The restored scene must be **exactly equivalent** to the valid durable reference revision and authorized object/relationship content. A transaction durable but with lost ACK may legitimately appear once; the oracle uses physical durable chain verification to determine outcome, never relies solely on the UI ACK.
+- All *acknowledged durable* transactions must survive reboot. **No uncommitted/torn** journal record may be replayed. Duplicates must never apply twice. Checkpoints and manifest slots may not regress beneath an already confirmed durable revision.
+- For every injected failure, at least one verified recovery chain survives, except an explicitly tested unrecoverable underlying-disk corruption case which must fail closed and show Guided Recovery without silently fabricating data.
+- Broker/shell/compositor restarts must not grant stale capability handles, display private scene pixels, leak input or leave unbounded processes/allocations. Scene/projected input generation must match after recovery.
+- No scenario may hang beyond a bounded configured timeout, silently claim saved data that lacks durable proof, or corrupt the original golden fixture.
+- A CI run **fails** on any model mismatch, missing marker, unexpected revision, stale authority, corrupted good checkpoint, timeout, leaked private preview, or unjustified automatic recovery.
+- Record benchmark measurements, but numeric latency/throughput thresholds are **not declared achieved** until calibrated on stable QEMU runner hardware and measured baseline.
+
+#### Test safety, reproducibility and release gate
+- Fault injection is compiled only into explicit test builds and authenticated by the harness test channel; never expose power-cut/kill triggers to ordinary application IPC.
+- Cases use isolated disposable disk images; prohibit execution against an actual user profile or production storage volume.
+- Seed and cutpoint determine the same logical transaction trace; test artifact parser cannot execute arbitrary code from guest logs or binary fixtures.
+- G5-D39..D43 cannot be marked **runtime verified** until QEMU/CI artifacts show every mandatory class passing, including repeated cold-boot recovery. Design approval alone does not satisfy this gate.
+
+**Open implementation tasks:** add test-only guest fault hooks to State Broker, stabilize profile-store durability API, build host orchestration/QMP reboot scripts and reference oracle, choose CI subset cadence and establish measured time/memory pass thresholds.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -1230,6 +1298,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify G5-D40 binary format/golden vectors, dual-manifest generation recovery, journal truncation/deduplication, bounded compaction, power-cut ordering and last-known-good preservation.
 - Verify G5-D41 batching, debounce/dispatch timing, durable save barriers, non-misleading UI status, bounded outage behavior and recovered revision under crash.
 - Verify G5-D42 guided selection among valid chains, torn journal recovery, privacy-safe diagnostics, non-destructive restore and repeated power-cut/rollback scenarios.
+- Verify G5-D43 automated repeatable fault-point runs, cold boot after power-cut, byte/version corruption cases, authoritative revision oracle, privacy isolation and CI failure on mismatch.
 - Explicit runtime QEMU tests and CI evidence are required before marking any item implemented.
 
 ## 7. Pending design decisions
@@ -1251,6 +1320,7 @@ Isolated Ring 3 system and third-party application processes
 - G5-D39/D40 profile-scoped storage broker, snapshot/journal v1 binary envelope, verified dual-manifest publication, compaction quotas, durable recovery and G7 restore bridge.
 - G5-D41 async autosave durability barrier, typed save states, bounded pending-journal queues, debounce/flush performance targets and loss-exposure measurements.
 - G5-D42 recovery candidate inspection, guided checkpoint selection, idempotent replay, nondestructive generation publication, privacy-safe recovery UI and power-cut fault injection.
+- G5-D43 deterministic host/QEMU fault-point orchestration, reference oracle, per-PR/main CI tiers, security checks and recovery release gate.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
