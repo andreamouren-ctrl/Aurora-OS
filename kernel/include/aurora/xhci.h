@@ -33,6 +33,7 @@ struct aurora_xhci_controller_state {
     uint16_t hid_enqueue;
     bool hid_cycle;
     bool hid_endpoint_running;
+    bool addressed_slot_disabled;
 
     uint16_t command_enqueue;
     bool command_cycle;
@@ -112,6 +113,11 @@ bool xhci_submit_enable_slot(
 );
 
 bool xhci_disable_slot(
+    struct aurora_xhci_controller_state *state,
+    uint8_t slot_id
+);
+
+bool xhci_release_addressed_device(
     struct aurora_xhci_controller_state *state,
     uint8_t slot_id
 );
