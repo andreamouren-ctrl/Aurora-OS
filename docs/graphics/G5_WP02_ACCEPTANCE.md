@@ -30,6 +30,9 @@ Date: 2026-10-08. Ground truth is the referenced source and GitHub Actions logs.
 
 - Session-host production boundary increment (2026-10-08): `user_session_host_abi.h` v2 exposes optional `g5_endpoint` without growing the 64-byte startup block. `user_session_host.c` provisions the only sender capability directly to the authenticated Ring 3 User Session Host process with WRITE-only (no TRANSFER), retains READ-only receiver authority in kernel, binds dispatcher to trusted Session Manager generation, and consumes one framed `SHELL_READY` before declaring host active. Ring 3 runtime sends READY over the dedicated endpoint. Sender grant is revoked at logout and teardown. Boot self-test explicitly registers an authorized test dispatcher and verifies one accepted READY. PR #134 is the fresh CI acceptance gate; until all checks pass this is **implemented but not accepted**. This is a session-host bootstrap control-plane, **not yet a full graphical Shell/compositor service**.
 
+
+- Entropy regression check (2026-10-08): PR #134 Identity/Entropy job `37782570946` **failed** after early RDSEED readiness, later `[ring3-entropy] trusted seed unavailable; capability probe skipped`. PR #135 (diagnostic commit `9e33765d`) introduces read-only status telemetry (`health_failed`, source failures, health failures, samples and output words). The first subsequent Identity/Entropy run `37783441649` completed **successfully**. Because the previously observed drop was intermittent, this is **not proof that the underlying problem was fixed**; keep the prior failure recorded and preserve fail-closed behavior. A future failing run with telemetry is needed to distinguish source-health failure from other state changes.
+
 ## Security and scope notes
 
 - Capability receiver table must be owned by the service; an integer in the IPC data payload never grants authority.
