@@ -27,6 +27,9 @@ Date: 2026-10-08. Ground truth is the referenced source and GitHub Actions logs.
 
 - PR #131 (2026-10-08, commit `1ba23ea4`): **all three workflows green** — G5 IPC QEMU Cold Boot Recovery `37781500265`, Identity Entropy Handoff `37781500330`, and Aurora OS Bootstrap Build `37781500474`. The QEMU two-boot ledger recovery passes on the same disk after correcting `v2d_rename()` to permit journaled regular-file replacement. This closes the **cold-boot replay verification blocker**, not the outstanding production Shell principal-provisioning/revocation gate.
 
+
+- Session-host production boundary increment (2026-10-08): `user_session_host_abi.h` v2 exposes optional `g5_endpoint` without growing the 64-byte startup block. `user_session_host.c` provisions the only sender capability directly to the authenticated Ring 3 User Session Host process with WRITE-only (no TRANSFER), retains READ-only receiver authority in kernel, binds dispatcher to trusted Session Manager generation, and consumes one framed `SHELL_READY` before declaring host active. Ring 3 runtime sends READY over the dedicated endpoint. Sender grant is revoked at logout and teardown. Boot self-test explicitly registers an authorized test dispatcher and verifies one accepted READY. PR #134 is the fresh CI acceptance gate; until all checks pass this is **implemented but not accepted**. This is a session-host bootstrap control-plane, **not yet a full graphical Shell/compositor service**.
+
 ## Security and scope notes
 
 - Capability receiver table must be owned by the service; an integer in the IPC data payload never grants authority.
