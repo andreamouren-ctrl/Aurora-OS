@@ -2008,7 +2008,7 @@ void kmain(void) {
 
         log_line("[xhci] live HID mouse wheel decoded into normalized input");
 
-        struct aurora_usb_hid_report_layout report_layout = {0};
+        struct aurora_usb_hid_mouse_report_layout report_layout = {0};
 
         if (!xhci_get_hid_report_layout(
                 &xhci_state,
@@ -2045,7 +2045,95 @@ void kmain(void) {
 
         if (!usb_hid_transport_unbind(
                 &live_hid_transport,
-                mouse_handle) ||
+                mouse_handle)) {
+            kernel_panic("live USB Boot Mouse unbind before Report Protocol failed");
+        }
+
+        aurora_usb_hid_binding_handle report_mouse_handle =
+            AURORA_USB_HID_BINDING_INVALID;
+        uint64_t report_mouse_device_id = 0u;
+
+        if (!usb_hid_transport_bind_report_mouse(
+                &live_hid_transport,
+                &report_layout,
+                &report_mouse_handle,
+                &report_mouse_device_id)) {
+            kernel_panic("live USB Report Mouse binding failed");
+        }
+
+        uint16_t report_mouse_size =
+            (uint16_t)((report_layout.input_report_bits + 7u) / 8u);
+
+        if (report_mouse_size == 0u ||
+            report_mouse_size > sizeof(live_hid_report)) {
+            kernel_panic("live USB Report Mouse size unsupported");
+        }
+
+        uint8_t report_mouse_back[8] = {0};
+        log_line("[xhci] HID Report Mouse Back interrupt-IN armed");
+
+        if (!xhci_receive_hid_interrupt_report(
+                &xhci_state,
+                report_mouse_back,
+                report_mouse_size) ||
+            !usb_hid_transport_submit_report(
+                &live_hid_transport,
+                report_mouse_handle,
+                report_mouse_back,
+                report_mouse_size)) {
+            kernel_panic("live USB Report Mouse Back report failed");
+        }
+
+        bool saw_report_back = false;
+        while (input_poll_event(&live_event)) {
+            if (live_event.type == AURORA_INPUT_EVENT_POINTER_BUTTON &&
+                live_event.device_id == report_mouse_device_id &&
+                live_event.button == AURORA_POINTER_BUTTON_BACK &&
+                live_event.pressed) {
+                saw_report_back = true;
+            }
+        }
+
+        if (!saw_report_back) {
+            kernel_panic("live USB Report Mouse Back verification failed");
+        }
+
+        log_line("[xhci] live HID Report Mouse Back decoded into normalized input");
+
+        uint8_t report_mouse_forward[8] = {0};
+        log_line("[xhci] HID Report Mouse Forward interrupt-IN armed");
+
+        if (!xhci_receive_hid_interrupt_report(
+                &xhci_state,
+                report_mouse_forward,
+                report_mouse_size) ||
+            !usb_hid_transport_submit_report(
+                &live_hid_transport,
+                report_mouse_handle,
+                report_mouse_forward,
+                report_mouse_size)) {
+            kernel_panic("live USB Report Mouse Forward report failed");
+        }
+
+        bool saw_report_forward = false;
+        while (input_poll_event(&live_event)) {
+            if (live_event.type == AURORA_INPUT_EVENT_POINTER_BUTTON &&
+                live_event.device_id == report_mouse_device_id &&
+                live_event.button == AURORA_POINTER_BUTTON_FORWARD &&
+                live_event.pressed) {
+                saw_report_forward = true;
+            }
+        }
+
+        if (!saw_report_forward) {
+            kernel_panic("live USB Report Mouse Forward verification failed");
+        }
+
+        log_line("[xhci] live HID Report Mouse Forward decoded into normalized input");
+
+        if (!usb_hid_transport_unbind(
+                &live_hid_transport,
+                report_mouse_handle) ||
             !xhci_disable_slot(
                 &xhci_state,
                 mouse_device.slot_id) ||
