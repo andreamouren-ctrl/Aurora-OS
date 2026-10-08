@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D15**
+Status: **Design in progress — approved decisions D01–D16**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -25,6 +25,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D13 | Hub-to-Canvas module transfer | Drag a compatible Hub module onto Living Canvas as a spatial panel, preserving its logical state and permissions |
 | G5-D14 | Bidirectional Hub ↔ Canvas transfer | Move compatible modules in either direction with preserved state and permissions; simultaneous multi-view instances are not included in this decision |
 | G5-D15 | Fully adaptive modules | Module interface automatically reorganizes available controls, information density and presentation in response to panel geometry, Hub/Canvas context and semantic zoom; application state remains intact |
+| G5-D16 | Aurora Smart Transfer | Cross-module drag-and-drop offers context-sensitive, compatible actions such as open, embed, copy or link; explicit consent and capability controls protect data |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -87,6 +88,18 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 - Fallback for non-adaptive or legacy clients: bounded scaling/letterboxing or scroll containers with Shell-managed chrome; never claim fully adaptive behavior for an incompatible client.
 - Validation: resize Hub panel and Canvas panel, transfer both directions, change zoom, verify continuity of unsaved text/state, focus/input ownership, and absence of oscillating layout.
 
+
+### 3.9 Aurora Smart Transfer (G5-D16)
+- Aurora supports user-initiated drag-and-drop between Hub modules, Canvas spatial panels, Content Fabric objects and relationship nodes.
+- A drag carries a bounded, typed **transfer offer**, not an unrestricted file pointer or direct access to the originating process. The receiving module advertises compatible operations, such as **open**, **embed**, **copy** or **link**; only genuinely supported choices appear.
+- The user chooses the operation where ambiguous or consequential. Hover/preview must never silently mutate data or establish a permanent relation.
+- **Open** invokes the destination app on an authorized read handle; **embed** creates an app-defined embedding/reference only with explicit destination support; **copy** creates distinct content only when confirmed; **link** creates a semantic Content Fabric/Relation Graph edge without duplicating the payload.
+- Drag success must be acknowledged by the destination before the Shell treats the operation as completed. Cancellation, target disappearance, session change, timeout or failed authorization must leave the source intact and cleanly revoke temporary transfer capabilities.
+- All transfer authority is session-scoped, short-lived and operation-specific. Cross-application data transfer is mediated by the trusted Shell/content broker with data ownership, type/size bounds and access checks. Untrusted applications must not impersonate drop targets or read a drag without being the authorized receiver.
+- Respect secure surfaces, private objects, accessibility/keyboard drag alternatives and contextual focus. Transfers cannot bypass Aurora Identity or client isolation.
+- Initial G5 acceptance: native test clients exchange a document/image reference with explicit open/copy/link alternatives, an approved graph relation is reflected in Canvas, and rejected/aborted transfers produce no side effects.
+- Automatic AI interpretation and arbitrary format conversion are future extensions, not required for the deterministic Smart Transfer baseline.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -114,7 +127,7 @@ Isolated Ring 3 system and third-party application processes
 - G5.2: compositor spatial scene, focus, mouse interactions, zoom/pan.
 - G5.3: live application panels and semantic representations.
 - G5.4: minimal modular Hub, system-module host, basic launcher/search.
-- G5.5: Navigator, manual relation pins/links, basic suggested layouts.
+- G5.5: Navigator, manual relation pins/links, basic suggested layouts and a capability-mediated Smart Transfer baseline.
 - G5.6: QEMU/CI end-to-end, security, performance and recovery tests.
 - Rich Content Fabric, full native browser engine and advanced graph indexing may require later dedicated milestones, not blockers for a coherent first G5 release.
 
@@ -124,6 +137,7 @@ Isolated Ring 3 system and third-party application processes
 - Demonstrate Hub → Canvas → Hub for a live module, preserving application state and correct focus, including abort/failed-transfer rollback.
 - Show navigation to offscreen content; semantic zoom behaves without flicker or stale input.
 - User-approved relation creation and undo; rejected proposals have no effect.
+- Demonstrate typed cross-module Smart Transfer with explicit user-selected open/copy/link operations, authorization checks and cancellation rollback.
 - No cross-client graphics/control privilege escalation, stale-generation use or cross-session content leak.
 - Closing a process/session cleans all spatial objects and tokens safely.
 - Failure injection: broken module/browser does not terminate system shell; safe graphics recovery remains available.
