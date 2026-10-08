@@ -23,4 +23,6 @@ bool g5_shell_receiver_poll(struct g5_shell_receiver *receiver,
  enum g5_ipc_status *status);
 void g5_shell_receiver_disconnect(struct g5_shell_receiver *receiver);
 void g5_shell_receiver_revoke(struct g5_shell_receiver *receiver);
+/* Actual in-kernel IPC channel integration regression (QEMU bootstrap). */
+bool g5_shell_receiver_native_self_test(void);
 #endif
