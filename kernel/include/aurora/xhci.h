@@ -144,6 +144,10 @@ bool xhci_validate_polling_event_baseline(
     const struct aurora_xhci_controller_state *state
 );
 
+bool xhci_event_ring_quiescent(
+    const struct aurora_xhci_controller_state *state
+);
+
 bool xhci_wait_command_completion(
     struct aurora_xhci_controller_state *state,
     uint64_t command_trb_physical,
