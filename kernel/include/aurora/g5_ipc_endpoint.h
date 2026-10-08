@@ -24,4 +24,6 @@ bool g5_ipc_endpoint_poll(struct g5_ipc_endpoint_binding *binding,
  enum g5_ipc_status *status);
 /* Kernel boot-validation probe using actual Aurora IPC queues. */
 bool g5_ipc_endpoint_self_test(void);
+/* Ring 3 IPC transfer exercise with existing isolated user probe image. */
+bool g5_ipc_ring3_self_test(void);
 #endif
