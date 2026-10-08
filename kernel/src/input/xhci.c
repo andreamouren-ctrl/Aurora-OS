@@ -824,13 +824,19 @@ bool xhci_disable_slot(
 
     uint8_t completion_slot = 0u;
 
-    return
+    bool completed =
         xhci_wait_command_completion(
             state,
             command_physical,
             &completion_slot
         ) &&
         completion_slot == slot_id;
+
+    if (completed && state->addressed_slot_id == slot_id) {
+        state->addressed_slot_disabled = true;
+    }
+
+    return completed;
 }
 
 bool xhci_wait_command_completion(
@@ -2326,5 +2332,61 @@ bool xhci_receive_hid_interrupt_report(
     }
 
     pmm_free_page(buffer_page);
+    return true;
+}
+
+
+bool xhci_release_addressed_device(
+    struct aurora_xhci_controller_state *state,
+    uint8_t slot_id
+) {
+    if (state == NULL ||
+        slot_id == 0u ||
+        state->addressed_slot_id != slot_id ||
+        !state->addressed_slot_disabled ||
+        state->dcbaa_physical == 0u) {
+        return false;
+    }
+
+    uint64_t *dcbaa =
+        (uint64_t *)pmm_phys_to_virt(
+            state->dcbaa_physical
+        );
+
+    /*
+     * Remove controller visibility before freeing any backing memory.
+     */
+    dcbaa[slot_id] = 0u;
+    __asm__ volatile ("" ::: "memory");
+
+    if (state->hid_ring_physical != 0u) {
+        pmm_free_page(state->hid_ring_physical);
+    }
+    if (state->ep0_ring_physical != 0u) {
+        pmm_free_page(state->ep0_ring_physical);
+    }
+    if (state->input_context_physical != 0u) {
+        pmm_free_page(state->input_context_physical);
+    }
+    if (state->device_context_physical != 0u) {
+        pmm_free_page(state->device_context_physical);
+    }
+
+    state->device_context_physical = 0u;
+    state->input_context_physical = 0u;
+    state->ep0_ring_physical = 0u;
+    state->addressed_slot_id = 0u;
+    state->usb_device_address = 0u;
+    state->ep0_state = 0u;
+    state->ep0_enqueue = 0u;
+    state->ep0_cycle = true;
+
+    state->hid_ring_physical = 0u;
+    state->hid_endpoint_id = 0u;
+    state->hid_enqueue = 0u;
+    state->hid_cycle = true;
+    state->hid_endpoint_running = false;
+    state->addressed_slot_disabled = false;
+
     return true;
 }
