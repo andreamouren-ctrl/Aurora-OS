@@ -20,5 +20,7 @@ bool g5_frame_delivery_publish(struct g5_frame_delivery *d,uint32_t slot,
  struct aurora_graphics_surface_snapshot *snapshot,uint64_t *presentation_serial);
 bool g5_frame_delivery_ack(struct g5_frame_delivery *d,uint64_t session_generation,
  uint64_t presentation_serial);
+bool g5_frame_delivery_abort(struct g5_frame_delivery *d,uint64_t session_generation,
+ uint64_t presentation_serial);
 void g5_frame_delivery_revoke(struct g5_frame_delivery *d);
 #endif
