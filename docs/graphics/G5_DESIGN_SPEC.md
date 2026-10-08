@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D14**
+Status: **Design in progress — approved decisions D01–D15**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -24,6 +24,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D12 | Modular customizable Aurora Hub | Add/remove/reorder/resize modules; universal search remains accessible |
 | G5-D13 | Hub-to-Canvas module transfer | Drag a compatible Hub module onto Living Canvas as a spatial panel, preserving its logical state and permissions |
 | G5-D14 | Bidirectional Hub ↔ Canvas transfer | Move compatible modules in either direction with preserved state and permissions; simultaneous multi-view instances are not included in this decision |
+| G5-D15 | Fully adaptive modules | Module interface automatically reorganizes available controls, information density and presentation in response to panel geometry, Hub/Canvas context and semantic zoom; application state remains intact |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -74,6 +75,18 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 - Neither direction may bypass surface generation, configure/ack, authorization, focus, input or session boundaries. The transfer must not silently duplicate a process, live session or view.
 - Simultaneous multi-view instances, cloning and persistent Hub shortcuts remain candidates for later decisions, not yet approved.
 
+
+### 3.8 Fully adaptive Hub and Canvas modules (G5-D15)
+- One application/module retains a stable logical identity and underlying session when moving between Hub and Canvas or changing size.
+- The Shell supplies authorized layout context: container dimensions, available input modalities, scale/zoom representation and visibility. It must not dictate untrusted application internals.
+- Modules respond through responsive layout variants automatically: compact (essential controls), regular (standard interactive UI), expanded (richer tools/data), and zoom-derived summary/icon presentations. These are conceptual variants, not user-selectable manual layout presets.
+- Resize and context transitions must not discard unsaved edits, navigation/media state, accessibility focus or application permissions. Focus continuity should be preserved when feasible; otherwise a safe accessible focus target is chosen.
+- Geometric resize and semantic zoom are distinct: enlarging a panel at the same camera zoom may reorganize controls, while zooming the camera out may switch to summary/icon representation without mutating panel dimensions.
+- Transitions should be stable (hysteresis, minimum readable control size, no oscillation at thresholds), performance-bounded and compatible with reduced-motion settings.
+- Module authoring contract should expose size-class changes and semantic-level change notifications through a versioned, capability-scoped protocol; clients must not be able to alter placement or grant themselves elevated Shell privileges.
+- Fallback for non-adaptive or legacy clients: bounded scaling/letterboxing or scroll containers with Shell-managed chrome; never claim fully adaptive behavior for an incompatible client.
+- Validation: resize Hub panel and Canvas panel, transfer both directions, change zoom, verify continuity of unsaved text/state, focus/input ownership, and absence of oscillating layout.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -117,7 +130,7 @@ Isolated Ring 3 system and third-party application processes
 - Explicit runtime QEMU tests and CI evidence are required before marking any item implemented.
 
 ## 7. Pending design decisions
-- Actual Hub module layout and lifecycle; gesture/accessibility details of G5-D13, bidirectional transfer interaction details and view cloning.
+- Actual Hub module layout and lifecycle; responsive size-class thresholds and client notifications for G5-D15; gesture/accessibility details of G5-D13, bidirectional transfer interaction details and view cloning.
 - Camera gesture details, shortcuts, zoom thresholds and 64-bit coordinate limits.
 - Widget security model, spatial surface protocol and focus strategy.
 - Content Fabric storage/index format and relation graph semantic schema.
