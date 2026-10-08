@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# Verify G5 two-thread dispatch race.
 on:
   push:
     paths:
