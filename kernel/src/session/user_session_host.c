@@ -13,6 +13,7 @@
 #include <aurora/user_session_host.h>
 #include <aurora/user_session_host_abi.h>
 #include <aurora/user_session_host_image.h>
+#include <aurora/g5_ipc_endpoint.h>
 #include <aurora/usercopy.h>
 
 #define USER_SESSION_HOST_TIMEOUT_NS UINT64_C(2000000000)
@@ -27,6 +28,13 @@ struct user_session_host_runtime {
     aurora_cap_handle profile_handle;
     uint64_t next_request_id;
     bool active;
+    struct aurora_ipc_channel g5_channel;
+    struct g5_ipc_endpoint_binding g5_binding;
+    struct g5_pending_queue g5_pending;
+    aurora_cap_handle g5_receiver_handle;
+    aurora_cap_handle g5_authority_handle;
+    aurora_cap_handle g5_sender_handle;
+    bool g5_ready;
 };
 
 static struct user_session_host_runtime host;
@@ -124,6 +132,7 @@ static void cleanup_finished_host(void) {
     host.control_handle = AURORA_CAP_INVALID;
     host.profile_handle = AURORA_CAP_INVALID;
     host.active = false;
+    host.g5_ready = false;
 }
 
 static void cleanup_unstarted_host(void) {
@@ -152,6 +161,9 @@ static bool start_with_context(
     clear_bytes(&host, sizeof(host));
     host.control_handle = AURORA_CAP_INVALID;
     host.profile_handle = AURORA_CAP_INVALID;
+    host.g5_receiver_handle = AURORA_CAP_INVALID;
+    host.g5_authority_handle = AURORA_CAP_INVALID;
+    host.g5_sender_handle = AURORA_CAP_INVALID;
     host.next_request_id = UINT64_C(0x5553455200000001);
 
     host.process = process_create_image(
@@ -194,11 +206,56 @@ static bool start_with_context(
         return false;
     }
 
+    /* Optional dedicated G5 channel: the only sender grant is held by this
+     * authenticated session process. No TRANSFER and no sender READ right.
+     * The receiver remains in the kernel-owned capability table. */
+    if (session_g5_dispatcher != NULL) {
+        ipc_channel_init(&host.g5_channel);
+        struct aurora_ipc_endpoint *sender =
+            ipc_channel_endpoint(&host.g5_channel, 0u);
+        struct aurora_ipc_endpoint *receiver =
+            ipc_channel_endpoint(&host.g5_channel, 1u);
+        if (sender == NULL || receiver == NULL) {
+            cleanup_unstarted_host();
+            return false;
+        }
+        host.g5_sender_handle = cap_grant(
+            &host.process->capabilities, sender,
+            AURORA_CAP_IPC_ENDPOINT, AURORA_RIGHT_WRITE);
+        host.g5_receiver_handle = cap_grant(
+            &host.kernel_caps, receiver,
+            AURORA_CAP_IPC_ENDPOINT, AURORA_RIGHT_READ);
+        host.g5_authority_handle = cap_grant(
+            &host.kernel_caps, &host.g5_channel,
+            AURORA_CAP_SYSTEM, AURORA_RIGHT_READ);
+        if (host.g5_sender_handle == AURORA_CAP_INVALID ||
+            host.g5_receiver_handle == AURORA_CAP_INVALID ||
+            host.g5_authority_handle == AURORA_CAP_INVALID ||
+            !g5_ipc_dispatch_bind_session(session_g5_dispatcher,generation)) {
+            cleanup_unstarted_host();
+            return false;
+        }
+        g5_pending_reset(&host.g5_pending,generation);
+        host.g5_binding=(struct g5_ipc_endpoint_binding){
+            .receiver=receiver,
+            .receiver_endpoint_handle=host.g5_receiver_handle,
+            .receiver_caps=&host.kernel_caps,
+            .dispatch=session_g5_dispatcher,
+            .receiver_authority=host.g5_authority_handle,
+            .authority_type=AURORA_CAP_SYSTEM,
+            .authority_rights=AURORA_RIGHT_READ,
+            .provisioned_exclusively=true,
+            .pending_requests=&host.g5_pending
+        };
+    }
+
     struct aurora_user_session_host_startup startup;
     clear_bytes(&startup, sizeof(startup));
     startup.abi_version = AURORA_USER_SESSION_HOST_ABI_VERSION;
     startup.control_endpoint = host.control_handle;
     startup.profile_handle = host.profile_handle;
+    startup.g5_endpoint = host.g5_sender_handle == AURORA_CAP_INVALID ?
+        0u : host.g5_sender_handle;
     startup.session_generation = generation;
     for (size_t i = 0u; i < sizeof(startup.user_id); ++i) {
         startup.user_id[i] = user_id[i];
@@ -240,13 +297,19 @@ static bool start_with_context(
         return false;
     }
 
-    /* The session manager supplied generation is the only binding source. */
-    if (session_g5_dispatcher != NULL &&
-        !g5_ipc_dispatch_bind_session(session_g5_dispatcher, generation)) {
-        /* Optional G5 integration failure must not strand a live Ring 3
-         * User Session Host. Disable/unregister G5, preserve host startup. */
-        g5_ipc_dispatch_revoke(session_g5_dispatcher);
-        session_g5_dispatcher = NULL;
+    /* Startup generation comes only from the trusted Session Manager.
+     * The Ring3 process must prove its possession of the exclusively
+     * delegated endpoint by sending an authenticated framed READY. */
+    if (session_g5_dispatcher != NULL) {
+        enum g5_ipc_status ready=G5_IPC_DENIED;
+        if (!g5_ipc_endpoint_poll(&host.g5_binding,&ready) ||
+            ready!=G5_IPC_OK) {
+            g5_ipc_dispatch_revoke(session_g5_dispatcher);
+            (void)session_profile_lease_revoke_process(host.process);
+            host.profile_handle=AURORA_CAP_INVALID;
+            return false;
+        }
+        host.g5_ready=true;
     }
     host.active = true;
     return true;
