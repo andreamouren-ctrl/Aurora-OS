@@ -2390,3 +2390,113 @@ bool xhci_release_addressed_device(
 
     return true;
 }
+
+
+bool xhci_enumerate_boot_hid_after_port(
+    const struct aurora_xhci_probe_result *probe,
+    struct aurora_xhci_controller_state *state,
+    uint8_t after_port_id,
+    struct aurora_xhci_hid_device *out_device
+) {
+    if (probe == NULL ||
+        state == NULL ||
+        out_device == NULL ||
+        state->addressed_slot_id != 0u ||
+        state->device_context_physical != 0u ||
+        state->input_context_physical != 0u ||
+        state->ep0_ring_physical != 0u ||
+        state->hid_ring_physical != 0u) {
+        return false;
+    }
+
+    *out_device = (struct aurora_xhci_hid_device){0};
+
+    uint8_t port_id = 0u;
+    uint8_t speed_id = 0u;
+
+    if (!xhci_reset_connected_port_after(
+            probe,
+            after_port_id,
+            &port_id,
+            &speed_id)) {
+        return false;
+    }
+
+    uint64_t enable_slot_trb = 0u;
+    uint8_t slot_id = 0u;
+
+    if (!xhci_submit_enable_slot(
+            state,
+            &enable_slot_trb) ||
+        !xhci_wait_command_completion(
+            state,
+            enable_slot_trb,
+            &slot_id) ||
+        slot_id == 0u) {
+        return false;
+    }
+
+    bool slot_enabled = true;
+
+    if (!xhci_prepare_address_device(
+            state,
+            slot_id,
+            port_id,
+            speed_id)) {
+        (void)xhci_disable_slot(state, slot_id);
+        return false;
+    }
+
+    uint64_t address_device_trb = 0u;
+    uint8_t completion_slot = 0u;
+
+    if (!xhci_submit_address_device(
+            state,
+            slot_id,
+            &address_device_trb) ||
+        !xhci_wait_command_completion(
+            state,
+            address_device_trb,
+            &completion_slot) ||
+        completion_slot != slot_id ||
+        !xhci_validate_addressed_device(
+            state,
+            slot_id)) {
+        if (slot_enabled && xhci_disable_slot(state, slot_id)) {
+            (void)xhci_release_addressed_device(state, slot_id);
+        }
+        return false;
+    }
+
+    struct aurora_usb_device_descriptor device = {0};
+    struct aurora_usb_hid_endpoint_descriptor endpoint = {0};
+
+    if (!xhci_get_device_descriptor(
+            state,
+            &device) ||
+        !xhci_find_boot_hid_endpoint(
+            state,
+            &endpoint) ||
+        !xhci_set_configuration_and_boot_protocol(
+            state,
+            &endpoint) ||
+        !xhci_configure_hid_interrupt_endpoint(
+            state,
+            &endpoint,
+            speed_id)) {
+        if (xhci_disable_slot(state, slot_id)) {
+            (void)xhci_release_addressed_device(state, slot_id);
+        }
+        return false;
+    }
+
+    *out_device = (struct aurora_xhci_hid_device){
+        .port_id = port_id,
+        .speed_id = speed_id,
+        .slot_id = slot_id,
+        .device = device,
+        .endpoint = endpoint
+    };
+
+    return true;
+}
