@@ -3,7 +3,8 @@
 bool g5_frame_delivery_bind(struct g5_frame_delivery *d,struct g5_frame_submission *f) {
  if(!d||!f||d->submission||!f->registry.session.active||
     !f->queue.active||f->registry.session.generation!=f->queue.generation)return false;
- d->submission=f;d->last_delivered_serial=0;return true;
+ d->submission=f;d->bound_generation=f->registry.session.generation;
+ d->last_delivered_serial=0;return true;
 }
 bool g5_frame_delivery_publish(struct g5_frame_delivery *d,uint32_t slot,
  uint64_t request_id,uint64_t config,
@@ -12,6 +13,7 @@ bool g5_frame_delivery_publish(struct g5_frame_delivery *d,uint32_t slot,
  if(!d||!d->submission||!serial||!snapshot)return false;
  struct g5_frame_submission *f=d->submission;
  if(!f->registry.session.active||!f->queue.active||
+    f->registry.session.generation!=d->bound_generation||
     f->registry.session.generation!=f->queue.generation)return false;
  unsigned free_slot=G5_FRAME_DELIVERY_CAPACITY;
  for(unsigned i=0;i<G5_FRAME_DELIVERY_CAPACITY;i++) {
@@ -30,6 +32,9 @@ bool g5_frame_delivery_publish(struct g5_frame_delivery *d,uint32_t slot,
 bool g5_frame_delivery_ack(struct g5_frame_delivery *d,uint64_t gen,uint64_t serial) {
  if(!d||!d->submission||!gen||!serial||
     !d->submission->registry.session.active||
+    !d->submission->queue.active||
+    d->submission->queue.generation!=gen||
+    d->bound_generation!=gen||
     d->submission->registry.session.generation!=gen)return false;
  for(unsigned i=0;i<G5_FRAME_DELIVERY_CAPACITY;i++) {
   struct g5_frame_delivery_entry *e=&d->entries[i];
@@ -42,5 +47,5 @@ bool g5_frame_delivery_ack(struct g5_frame_delivery *d,uint64_t gen,uint64_t ser
 void g5_frame_delivery_revoke(struct g5_frame_delivery *d) {
  if(!d)return;
  for(unsigned i=0;i<G5_FRAME_DELIVERY_CAPACITY;i++)d->entries[i].active=false;
- d->submission=NULL;d->last_delivered_serial=0;
+ d->submission=NULL;d->bound_generation=0;d->last_delivered_serial=0;
 }
