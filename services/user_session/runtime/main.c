@@ -208,13 +208,14 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
     if (startup->g5_endpoint != 0u &&
         !send_g5_ready(startup->g5_endpoint,startup->session_generation)) return 1;
 
+    /* Publish bootstrap proof before READY: the kernel can consume READY
+     * immediately without racing a later BOOTSTRAP_SIGNAL syscall. */
+    if (syscall1(AURORA_SYS_BOOTSTRAP_SIGNAL,
+                 AURORA_USER_SESSION_HOST_READY_MAGIC) != 0u) return 1;
+
     if (!send_message(startup->control_endpoint, AURORA_USER_SESSION_HOST_READY, 0u)) {
         return 1;
     }
-
-    (void)syscall1(
-        AURORA_SYS_BOOTSTRAP_SIGNAL,
-        AURORA_USER_SESSION_HOST_READY_MAGIC);
 
     for (;;) {
         if (!wait_message(startup->control_endpoint)) return 1;
