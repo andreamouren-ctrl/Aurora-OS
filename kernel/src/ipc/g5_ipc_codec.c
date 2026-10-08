@@ -79,3 +79,25 @@ enum g5_ipc_status g5_ipc_decode(
     *payload=src+G5_IPC_WIRE_HEADER_BYTES;
     return G5_IPC_OK;
 }
+
+enum g5_ipc_status g5_ipc_decode_received(
+    const struct aurora_sys_ipc_received *msg,
+    struct g5_ipc_header *out,
+    const uint8_t **payload
+) {
+    if (msg == NULL || out == NULL || payload == NULL)
+        return G5_IPC_BAD_ARGUMENT;
+    *payload = NULL;
+    if (msg->length > G5_IPC_WIRE_MAX_BYTES)
+        return G5_IPC_TOO_LARGE;
+    if (msg->capability_count > G5_IPC_WIRE_MAX_CAPS)
+        return G5_IPC_BAD_CAPABILITIES;
+    for (uint32_t i = 0; i < msg->capability_count; ++i) {
+        if (msg->capabilities[i] == 0)
+            return G5_IPC_BAD_CAPABILITIES;
+        for (uint32_t j = 0; j < i; ++j)
+            if (msg->capabilities[i] == msg->capabilities[j])
+                return G5_IPC_BAD_CAPABILITIES;
+    }
+    return g5_ipc_decode(msg->data, msg->length, out, payload);
+}
