@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP03 Shell receiver policy triple integration acceptance.
 on:
   push:
     paths:
