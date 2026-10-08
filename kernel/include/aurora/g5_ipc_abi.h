@@ -120,4 +120,11 @@ enum g5_ipc_status g5_ipc_validate_schema(
     uint32_t capability_count
 );
 
+/* Numeric range validation for the initial little-endian opcode payloads.
+ * A valid payload is NOT proof of ownership/authorization. */
+enum g5_ipc_status g5_ipc_validate_semantics(
+    const struct g5_ipc_header *header,
+    const uint8_t *payload
+);
+
 #endif
