@@ -24,6 +24,9 @@ Date: 2026-10-08. Ground truth is the referenced source and GitHub Actions logs.
 
 - PR #127 (2026-10-08): cold-boot QEMU reproduced failure after successfully restoring the prior ledger (G5 probe stage **4**). `protected_state_replace_record_durable()` failed at stage **5**, specifically `vfs_rename(staging, target)` on AuroraFS v2. This is a **storage namespace replacement path** failure, not wire codec / first-boot persistence. Recovery test remains red. Investigate `aurora_fs_v2_rename_child_txn()` constraints (including source-last-directory-slot restriction and target inode preconditions) before any filesystem change; do not weaken atomicity.
 
+
+- PR #131 (2026-10-08, commit `1ba23ea4`): **all three workflows green** — G5 IPC QEMU Cold Boot Recovery `37781500265`, Identity Entropy Handoff `37781500330`, and Aurora OS Bootstrap Build `37781500474`. The QEMU two-boot ledger recovery passes on the same disk after correcting `v2d_rename()` to permit journaled regular-file replacement. This closes the **cold-boot replay verification blocker**, not the outstanding production Shell principal-provisioning/revocation gate.
+
 ## Security and scope notes
 
 - Capability receiver table must be owned by the service; an integer in the IPC data payload never grants authority.
