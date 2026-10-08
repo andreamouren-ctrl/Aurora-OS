@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D24**
+Status: **Design in progress — approved decisions D01–D25**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -34,6 +34,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D22 | Aurora Privacy Layers | Granular privacy for Canvas items, groups and relationships, private areas, presentation mode and Identity-mediated authorization |
 | G5-D23 | Aurora Visual Studio | Visual theme editor for Canvas, nodes, relation threads, Hub modules, typography, transparency, borders and aesthetic behaviors; reusable exportable presets |
 | G5-D24 | Aurora Spatial Gestures | Pan, pointer-anchored zoom, adjustable inertial navigation, keyboard shortcuts, and progressive multi-touch gesture support; Canvas rotation is not included |
+| G5-D25 | Aurora Canvas Portals | Spatial bookmarks and visible portal nodes jump to saved coordinates, authorized groups or projects without duplicating content; live remote-area previews excluded |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -211,6 +212,19 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 - Test pan, pointer-centered zoom, inertia stop/cancel, rapid opposing wheel events, input capture lost during device removal, secure scene activation, session teardown and reduced-motion behavior. Test precision on large world-coordinate offsets and high zoom factors.
 - Rotating the entire Canvas and advanced immersive spatial controls were not approved in D24; they require a later decision.
 
+
+### 3.18 Aurora Canvas Portals (G5-D25)
+- Users may create named spatial bookmarks and place **portal nodes** anywhere on Living Canvas. Activating one navigates the camera to a saved coordinate/zoom or to the current, authorized spatial bounds of a designated group/project.
+- Portals are **navigation references**, not copies, mounts, file containers, remote-desktop streams or new capabilities. Linking to an object never grants access to that object's content.
+- A target descriptor has a typed kind (camera bookmark, group, project), stable ID where applicable, target session/user scope, optional fallback camera coordinates, display label and creation/update metadata. Resolve references and permissions at activation time; never trust stale coordinates or a reused object ID.
+- Show destination label and an optional static, privacy-filtered icon/summary; live rendering of a remote Canvas area is **not approved** by D25 and requires a separate design/performance/security review.
+- Navigation can animate according to Spatial Gestures (D24) with reduced-motion fallback to an instant jump. Keep a reliable **Back to previous view** action; portal activation does not modify Layout/Canvas History structural entries.
+- A portal can be associated with a Spatial Group (D19), appear in Navigator (D07) and be searchable from Universal Command (D21). Portal relationships are distinguishable from ordinary semantic graph edges (D09/D10).
+- A moved/deleted group, unavailable project, invalid reference or insufficient authorization produces a safe unavailable-target state, with no leaked title/preview and no unauthorized traversal. User can repair or remove a broken portal.
+- Portal visuals and labels may be themed through Aurora Visual Studio (D23), but secure status and privacy masking cannot be overridden by theme.
+- Enforce no accidental jump while dragging/selecting; activation requires explicit click/keyboard action, not pointer hover.
+- Acceptance: create/edit/delete bookmark and portal, jump to distant coordinate and group, navigate back, confirm privacy filtering, reject stale/deleted or cross-session targets, and ensure no item duplication or session-state reset.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -238,7 +252,7 @@ Isolated Ring 3 system and third-party application processes
 - G5.2: compositor spatial scene, focus, mouse interactions, Spatial Gestures with pan/pointer-centered zoom and optional inertia.
 - G5.3: live application panels and semantic representations.
 - G5.4: minimal modular Hub, system-module host, launcher/search, deterministic Universal Command palette (AI interpretation optional), and Aurora Visual Studio theme-editor baseline.
-- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History, spatial/semantic selection, hybrid Spatial Groups and contextual Spatial Focus.
+- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History, spatial/semantic selection, hybrid Spatial Groups, contextual Spatial Focus and basic Canvas Portals.
 - G5.6: QEMU/CI end-to-end, privacy/authorization, performance and recovery tests.
 - Rich Content Fabric, full native browser engine and advanced graph indexing may require later dedicated milestones, not blockers for a coherent first G5 release.
 
@@ -257,6 +271,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify G5-D22 privacy enforcement across Canvas, Hub, graph, search, Navigator, history, presentation mode, lock/revocation and cached rendering.
 - Verify Visual Studio theme preview/apply/cancel, validated export/import, accessibility fallback and refusal of unsafe theme resources.
 - Verify D24 pan, pointer-anchored zoom, inertial cancellation, keyboard alternatives, reduced-motion behavior and safe input capture revocation.
+- Verify D25 bookmark/portal creation, typed destination resolution, back navigation, stale-target handling and privacy-safe cross-session denial.
 - No cross-client graphics/control privilege escalation, stale-generation use or cross-session content leak.
 - Closing a process/session cleans all spatial objects and tokens safely.
 - Failure injection: broken module/browser does not terminate system shell; safe graphics recovery remains available.
