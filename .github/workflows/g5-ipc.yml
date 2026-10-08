@@ -84,7 +84,7 @@ jobs:
             -o build/g5/ipc_pending_test
           ./build/g5/ipc_pending_test
           cc -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all \
-            -Ikernel/include kernel/src/ipc/g5_ipc_durable.c tests/g5/ipc_durable_test.c \
+            -Ikernel/include kernel/src/ipc/g5_ipc_codec.c kernel/src/ipc/g5_ipc_dispatch.c kernel/src/ipc/g5_ipc_durable.c tests/g5/ipc_durable_test.c \
             -o build/g5/ipc_durable_test
           ./build/g5/ipc_durable_test
           cc -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all \
