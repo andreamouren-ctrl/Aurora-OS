@@ -44,7 +44,8 @@ enum g5_ipc_status {
     G5_IPC_UNSUPPORTED_FLAGS,
     G5_IPC_BAD_CAPABILITIES,
     G5_IPC_DENIED,
-    G5_IPC_UNSUPPORTED_OPERATION
+    G5_IPC_UNSUPPORTED_OPERATION,
+    G5_IPC_QUEUE_FULL
 };
 
 /* Logical decoded representation only; this is NOT the on-wire layout. */
