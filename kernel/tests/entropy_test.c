@@ -15,6 +15,8 @@ struct fake_source {
     size_t sample_count;
     size_t sample_index;
     size_t fail_at;
+    size_t fail_once_at;
+    bool fail_once_consumed;
 };
 
 static int failures;
@@ -44,6 +46,12 @@ static bool fake_read_seed64(void *context, uint64_t *out_value) {
     struct fake_source *source = (struct fake_source *)context;
 
     if (source == NULL || out_value == NULL) {
+        return false;
+    }
+
+    if (source->sample_index == source->fail_once_at &&
+        !source->fail_once_consumed) {
+        source->fail_once_consumed = true;
         return false;
     }
 
@@ -92,6 +100,7 @@ static void prepare_good_source(struct fake_source *source) {
         AURORA_ENTROPY_SOURCE_RDSEED |
         AURORA_ENTROPY_SOURCE_RDRAND;
     source->fail_at = NO_FAILURE;
+    source->fail_once_at = NO_FAILURE;
     source->sample_count = FAKE_SAMPLE_CAPACITY;
 
     for (size_t i = 0u; i < source->sample_count; ++i) {
@@ -224,8 +233,37 @@ static void test_invalid_requests_fail_closed(void) {
     expect(!entropy_fill_seed(NULL, 1u), "NULL output must be rejected");
 }
 
+static void test_startup_transient_rdseed_refill(void) {
+    struct fake_source source;
+    prepare_good_source(&source);
+    source.fail_once_at = 7u; /* simulate the QEMU eighth RDSEED refill */
+    struct aurora_entropy_source_ops ops = fake_ops(&source);
+    expect(entropy_init_with_source(&ops),
+           "one temporary RDSEED miss must be retried during startup");
+    struct aurora_entropy_status status = entropy_get_status();
+    expect(status.ready && status.startup_samples == AURORA_ENTROPY_STARTUP_SAMPLES,
+           "all eight valid samples must still pass startup health");
+    expect(status.source_failures == 1u && !status.health_failed,
+           "temporary RDSEED miss must remain observable");
+}
+
+static void test_startup_persistent_rdseed_unavailable(void) {
+    struct fake_source source;
+    prepare_good_source(&source);
+    source.fail_at = 7u;
+    struct aurora_entropy_source_ops ops = fake_ops(&source);
+    expect(!entropy_init_with_source(&ops),
+           "persistent RDSEED refill exhaustion must fail closed");
+    struct aurora_entropy_status status = entropy_get_status();
+    expect(!status.ready && status.startup_samples == 7u &&
+           status.source_failures == 8u && !status.health_failed,
+           "exhausted retries must not forge a healthy sample");
+}
+
 int main(void) {
     test_untrusted_source_stays_unready();
+    test_startup_transient_rdseed_refill();
+    test_startup_persistent_rdseed_unavailable();
     test_good_source_initializes_and_fills();
     test_startup_duplicate_fails_health();
     test_runtime_duplicate_disables_source_and_zeroes_output();
