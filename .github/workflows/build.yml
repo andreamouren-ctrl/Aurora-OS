@@ -174,6 +174,15 @@ jobs:
               if not send_commands(commands):
                   sys.exit(1)
 
+          disconnect_marker = "[xhci] HID mouse disconnect Port Status Change armed"
+          if not wait_marker(disconnect_marker):
+              print(f"Timed out waiting for {disconnect_marker}", file=sys.stderr)
+              sys.exit(1)
+
+          if not send_commands(["device_del usbmouse"]):
+              print("QEMU usbmouse device_del failed", file=sys.stderr)
+              sys.exit(1)
+
           sys.exit(0)
           PY
               if [ "$?" -eq 0 ]; then
@@ -196,7 +205,7 @@ jobs:
             -vga std \
             -device qemu-xhci,id=xhci \
             -device usb-kbd,bus=xhci.0 \
-            -device usb-mouse,bus=xhci.0 \
+            -device usb-mouse,id=usbmouse,bus=xhci.0 \
             -cdrom build/AuroraOS-x86_64.iso \
             -drive file="$STORAGE_IMAGE",format=raw,if=none,id=aurora_disk \
             -device ide-hd,drive=aurora_disk \
@@ -285,7 +294,9 @@ jobs:
           grep -F "[xhci] HID SET_PROTOCOL(Report) gate passed" "$SERIAL_LOG"
           grep -F "[xhci] descriptor-derived Report Mouse Back decoded into normalized input" "$SERIAL_LOG"
           grep -F "[xhci] descriptor-derived Report Mouse Forward decoded into normalized input" "$SERIAL_LOG"
-          grep -F "[xhci] second HID Boot Mouse teardown gate passed" "$SERIAL_LOG"
+          grep -F "[xhci] live mouse Port Status Change disconnect gate passed" "$SERIAL_LOG"
+          grep -F "[xhci] disconnect-driven HID unbind DEVICE_REMOVED gate passed" "$SERIAL_LOG"
+          grep -F "[xhci] disconnect-driven Disable Slot/context teardown gate passed" "$SERIAL_LOG"
           grep -F "[input] PS/2 mouse IRQ path online" "$SERIAL_LOG"
 
           if ! grep -F \
