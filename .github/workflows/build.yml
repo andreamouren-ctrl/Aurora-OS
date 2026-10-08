@@ -274,6 +274,7 @@ jobs:
 
           set +e
           timeout 25s qemu-system-x86_64 \
+            -cpu max \
             -M q35 \
             -m 512M \
             -smp 4,sockets=1,cores=2,threads=2 \
@@ -473,6 +474,7 @@ jobs:
 
           set +e
           timeout 25s qemu-system-x86_64 \
+            -cpu max \
             -M pc \
             -m 512M \
             -smp 1 \
@@ -521,6 +523,7 @@ jobs:
 
           set +e
           timeout 25s qemu-system-x86_64 \
+            -cpu max \
             -M pc \
             -m 512M \
             -smp 1 \
