@@ -20,4 +20,6 @@ struct g5_ipc_endpoint_binding {
  * Callers must serialize access to this binding and its dispatcher. */
 bool g5_ipc_endpoint_poll(struct g5_ipc_endpoint_binding *binding,
  enum g5_ipc_status *status);
+/* Kernel boot-validation probe using actual Aurora IPC queues. */
+bool g5_ipc_endpoint_self_test(void);
 #endif
