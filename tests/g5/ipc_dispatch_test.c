@@ -35,14 +35,18 @@ int main(void) {
  assert(d.last_request_id==1);
  count.allow=true;count.handle=false;
  assert(g5_ipc_dispatch(&d,&m)==G5_IPC_DENIED);
- count.handle=true;
- assert(g5_ipc_dispatch(&d,&m)==G5_IPC_OK);
  assert(d.last_request_id==2);
+ count.handle=true;
+ assert(g5_ipc_dispatch(&d,&m)==G5_IPC_DENIED);
+ assert(count.handled==1);
+ m=packet(3,17);
+ assert(g5_ipc_dispatch(&d,&m)==G5_IPC_OK);
+ assert(d.last_request_id==3 && count.handled==2);
  m.capability_count=1; m.capabilities[0]=12;
  assert(g5_ipc_dispatch(&d,&m)==G5_IPC_BAD_CAPABILITIES);
- m=packet(3,17);m.data[0]=0;
+ m=packet(4,17);m.data[0]=0;
  assert(g5_ipc_dispatch(&d,&m)==G5_IPC_BAD_FORMAT);
- d.authorize=NULL;m=packet(3,17);
+ d.authorize=NULL;m=packet(4,17);
  assert(g5_ipc_dispatch(&d,&m)==G5_IPC_DENIED);
  return 0;
 }
