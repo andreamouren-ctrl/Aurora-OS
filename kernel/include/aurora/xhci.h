@@ -4,6 +4,16 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+struct aurora_xhci_controller_state {
+    uint8_t context_size;
+    uint16_t scratchpad_count;
+    uint32_t page_size_mask;
+    uint64_t operational_physical;
+    uint64_t runtime_physical;
+    uint64_t doorbell_physical;
+    bool supports_4k_pages;
+};
+
 struct aurora_xhci_probe_result {
     uint8_t bus;
     uint8_t slot;
@@ -25,5 +35,10 @@ struct aurora_xhci_probe_result {
 };
 
 bool xhci_probe(struct aurora_xhci_probe_result *out_result);
+
+bool xhci_read_controller_state(
+    const struct aurora_xhci_probe_result *probe,
+    struct aurora_xhci_controller_state *out_state
+);
 
 #endif
