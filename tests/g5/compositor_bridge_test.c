@@ -5,6 +5,7 @@ static struct aurora_graphics_surface surface;
 static unsigned adds,removes,presents,releases;
 static bool fail_compose;
 static bool deny_surface_read;
+static bool fail_remove;
 bool graphics_surface_lookup(struct aurora_cap_table *c,aurora_cap_handle h,
  uint64_t rights,struct aurora_graphics_surface **out) {
  if(!c||h!=17||!out||deny_surface_read||
@@ -28,7 +29,7 @@ bool software_compositor_add_surface(struct aurora_software_compositor *c,
  ++adds;*out=500;return true;
 }
 bool software_compositor_remove_surface(struct aurora_software_compositor *c,uint64_t id) {
- if(!c||id!=500)return false;
+ if(!c||id!=500||fail_remove)return false;
  ++removes;
  return true;
 }
@@ -80,8 +81,12 @@ int main(void) {
  surface.generation=2;
  g5_session_context_revoke(&f.registry.session);
  assert(!g5_compositor_bridge_present(&b,slot,4,config,&serial));
+ fail_remove=true;
  g5_compositor_bridge_revoke(&b);
- assert(removes==1&&!b.delivery);
+ assert(b.compositor!=NULL&&b.node_ids[slot]==500);
+ fail_remove=false;
+ g5_compositor_bridge_revoke(&b);
+ assert(removes==1&&!b.delivery&&!b.compositor);
  g5_frame_delivery_revoke(&d);
  g5_frame_submission_end(&f);
  return 0;
