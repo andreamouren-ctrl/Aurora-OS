@@ -10,7 +10,9 @@ bool graphics_surface_lookup(struct aurora_cap_table *c,aurora_cap_handle h,
 }
 bool graphics_surface_read_committed(struct aurora_cap_table *c,aurora_cap_handle h,
  struct aurora_graphics_surface_snapshot *out) {
- if(!c||h!=17||!out)return false;*out=surface.committed;return true;
+ if(!c||h!=17||!out)return false;
+ *out=surface.committed;
+ return true;
 }
 void graphics_surface_snapshot_release(struct aurora_graphics_surface_snapshot *s) {
  assert(s);++releases;
@@ -23,10 +25,15 @@ bool software_compositor_add_surface(struct aurora_software_compositor *c,
  ++adds;*out=500;return true;
 }
 bool software_compositor_remove_surface(struct aurora_software_compositor *c,uint64_t id) {
- if(!c||id!=500)return false;++removes;return true;
+ if(!c||id!=500)return false;
+ ++removes;
+ return true;
 }
 bool software_compositor_compose_present(struct aurora_software_compositor *c,uint64_t *out) {
- if(!c||!out)return false;++presents;*out=presents;return true;
+ if(!c||!out)return false;
+ ++presents;
+ *out=presents;
+ return true;
 }
 int main(void) {
  struct g5_frame_submission f={0};
