@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP03 Shell receiver dispatcher, policy and generation lifecycle validation.
 on:
   push:
     paths:
