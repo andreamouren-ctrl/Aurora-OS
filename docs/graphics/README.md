@@ -113,3 +113,6 @@ The live USB mouse gate also verifies right-click, middle-click and vertical whe
 
 
 Aurora now reads the live mouse HID Report Descriptor and switches the interface to Report Protocol. The qemu USB mouse advertises five buttons, X/Y and a vertical wheel in a 32-bit report with no Report ID. Back/Forward decoding can therefore be implemented and runtime-tested against real emulated report bits rather than synthetic-only data.
+
+
+Back/Forward are now supported by the descriptor-driven Report Mouse decoder. Aurora reads the real mouse Report Descriptor, which on QEMU advertises five buttons, then maps button 4 to Back and button 5 to Forward through the normal HID transport and normalized input queue. Because QEMU does not route side/extra host input into usb-mouse, the current Back/Forward gate is descriptor-derived runtime verification rather than external live side-button injection.

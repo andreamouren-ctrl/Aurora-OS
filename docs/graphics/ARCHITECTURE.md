@@ -242,3 +242,8 @@ G4 Boot Mouse live coverage now includes relative motion, left/right/middle-butt
 
 
 The xHCI HID path now reads and parses the HID Report Descriptor instead of relying exclusively on Boot Protocol. The live QEMU mouse descriptor resolves to a 32-bit input report with Report ID 0, X/Y, vertical wheel and five button bits. Aurora also successfully issues HID SET_PROTOCOL(Report). This establishes the descriptor-driven foundation required for Back/Forward and other non-Boot controls without hardcoded report assumptions.
+
+
+Aurora's USB HID mouse path now supports a descriptor-driven five-button Report Mouse in addition to fixed Boot Mouse decoding. The generic HID layer owns the report layout and arbitrary-bit decoder; xHCI is responsible only for acquiring the descriptor and delivering bytes. Buttons 4 and 5 map to normalized Back/Forward events, while X/Y/wheel are decoded from the actual Report Descriptor offsets and sizes.
+
+The QEMU mouse advertises exactly five buttons in a 32-bit report and accepts SET_PROTOCOL(Report). QEMU's monitor/input routing cannot currently inject side/extra buttons through usb-mouse, so the Back/Forward runtime gate uses the live descriptor-derived layout to construct conforming reports inside Aurora and verifies the complete HID transport/decoder/normalized-input path. This distinction is intentionally documented to avoid overstating emulated-hardware coverage.

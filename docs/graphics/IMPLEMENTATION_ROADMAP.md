@@ -340,3 +340,28 @@ Implemented and runtime verified on the live qemu-xhci mouse:
 - [x] live QEMU report-layout runtime gate.
 
 The qemu USB mouse reports **5 buttons**, a **32-bit input report**, **Report ID 0**, and a **wheel field**. This means buttons 4 and 5 are genuinely advertised by the emulated device and can be mapped to Aurora Back/Forward in the next G4 block rather than being synthesized or assumed.
+
+
+### G4 five-button HID Report Mouse — runtime verified
+
+Implemented:
+
+- [x] generic HID mouse report-layout model shared outside the xHCI layer;
+- [x] bounded arbitrary-bit extraction for descriptor-driven reports;
+- [x] signed X/Y/wheel field decoding from Report Descriptor offsets and widths;
+- [x] five-button transition decoding;
+- [x] button 4 -> Aurora Back mapping;
+- [x] button 5 -> Aurora Forward mapping;
+- [x] detach/revocation releases extended buttons as well as left/right/middle;
+- [x] REPORT_MOUSE transport binding with per-device descriptor layout;
+- [x] descriptor-derived report-size validation and dispatch;
+- [x] stale/generational transport lifecycle preserved for Report Mouse bindings.
+
+Runtime verification:
+
+- [x] live qemu-xhci Report Descriptor reports 5 buttons, 32 input bits, Report ID 0 and wheel;
+- [x] live HID SET_PROTOCOL(Report) succeeds;
+- [x] using that live descriptor layout, a conforming button-4 report decodes to AURORA_POINTER_BUTTON_BACK;
+- [x] using that live descriptor layout, a conforming button-5 report decodes to AURORA_POINTER_BUTTON_FORWARD.
+
+QEMU limitation: HMP mouse_button only exposes left/right/middle, and QEMU's current host/QMP pointer injection path does not deliver side/extra events to the emulated usb-mouse data path. Therefore Back/Forward are **descriptor-derived runtime verified**, not claimed as externally injected live USB side-button events. Real-hardware/pass-through validation remains desirable for a future hardware matrix.

@@ -378,3 +378,6 @@ Every milestone is evaluated against performance, memory efficiency, latency, pr
 
 
 - [x] G4 HID Report Descriptor + Report Protocol runtime gate (QEMU mouse advertises 5 buttons)
+
+
+- [x] G4 five-button Report Mouse Back/Forward decoder + descriptor-derived runtime gate
