@@ -210,6 +210,8 @@ jobs:
           grep -F "[xhci] Configure Endpoint + HID interrupt-IN Running gate passed" "$SERIAL_LOG"
           grep -F "[xhci] HID interrupt-IN armed" "$SERIAL_LOG"
           grep -F "[xhci] live HID report decoded into normalized input" "$SERIAL_LOG"
+          grep -F "[xhci] Disable Slot command-completion gate passed" "$SERIAL_LOG"
+          grep -F "[xhci] per-device DCBAA/context/ring teardown gate passed" "$SERIAL_LOG"
           grep -F "[input] PS/2 mouse IRQ path online" "$SERIAL_LOG"
 
           if ! grep -F \
