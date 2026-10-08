@@ -68,6 +68,7 @@ struct aurora_usb_hid_endpoint_descriptor {
     uint16_t max_packet_size;
     uint8_t interval;
     uint16_t total_configuration_length;
+    uint16_t report_descriptor_length;
 };
 
 struct aurora_xhci_hid_device {
