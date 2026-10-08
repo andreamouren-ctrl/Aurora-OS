@@ -33,6 +33,9 @@ Date: 2026-10-08. Ground truth is the referenced source and GitHub Actions logs.
 
 - Entropy regression check (2026-10-08): PR #134 Identity/Entropy job `37782570946` **failed** after early RDSEED readiness, later `[ring3-entropy] trusted seed unavailable; capability probe skipped`. PR #135 (diagnostic commit `9e33765d`) introduces read-only status telemetry (`health_failed`, source failures, health failures, samples and output words). The first subsequent Identity/Entropy run `37783441649` completed **successfully**. Because the previously observed drop was intermittent, this is **not proof that the underlying problem was fixed**; keep the prior failure recorded and preserve fail-closed behavior. A future failing run with telemetry is needed to distinguish source-health failure from other state changes.
 
+
+- CI configuration diagnosis (2026-10-08): PR #136 `Aurora OS Bootstrap Build` failed when QEMU reported **RDSEED unavailable, RDRAND unavailable**, with zero startup samples/failures. Unlike the Identity smoke, `.github/workflows/build.yml` invoked its three QEMU boots without `-cpu max`. Commit `ec25cad2` sets `-cpu max` for all three, preserving mandatory Ring 3 entropy validation and hardware fail-closed semantics. PR #137 executes verification on this revised CPU profile. **Do not interpret a green CPU-configured QEMU run as proof of deterministic RDSEED availability on all physical machines.**
+
 ## Security and scope notes
 
 - Capability receiver table must be owned by the service; an integer in the IPC data payload never grants authority.
