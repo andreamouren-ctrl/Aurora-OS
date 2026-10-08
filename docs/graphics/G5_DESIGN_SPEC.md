@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D35**
+Status: **Design in progress — approved decisions D01–D36**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -45,6 +45,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D33 | Aurora Adaptive Buffering | Per-surface bounded buffer pools and frame scheduling adapt to visibility, activity, memory pressure and compositor capacity, preserving atomic commits, capability isolation and release correctness |
 | G5-D34 | Aurora Spatial Rendering hybrid | Spatial visibility indexing, region/damage-driven composition, bounded caches and software-compositor-first rendering; GPU acceleration is optional and later |
 | G5-D35 | Hybrid Spatial Index Engine | Stable versioned spatial-index interface with swappable benchmark-selected dynamic R-tree/loose quadtree backends, and an authoritative correctness reference scan |
+| G5-D36 | Aurora Hybrid Coordinates | Persistent deterministic signed 64-bit fixed-point world coordinates with double-precision camera math, camera-relative origin rebasing and checked screen conversion |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -708,6 +709,72 @@ destroy() -> void
 
 **Deferred:** definitive R-tree vs loose-quadtree choice, world-unit fixed-point scale, concrete time/memory budgets, implementation headers and benchmark acceptance thresholds. These require measured workloads and source integration.
 
+
+### 3.29 Aurora Hybrid Coordinates — numeric types, camera transforms and precision (G5-D36)
+
+**Approved:** use deterministic integral/fixed-point coordinates for persistent Canvas world geometry, double-precision floating point for transient camera and zoom calculations, and camera-relative rebasing to compositor-local integer pixel coordinates. Actual numeric parameters below are a **proposed G5 v1 wire/storage contract**, subject to API review and precision tests before freeze.
+
+#### Coordinate domains and proposed types
+- Persistent **world units**: signed \`int64_t\` ticks, **1024 ticks per logical Canvas unit** (Q54.10 conceptual scale). \`g5_world_coord_t=int64_t\`; object AABBs use four such values, with min ≤ max. Avoid unchecked addition/subtraction even on integer offsets; valid workspace extents are bounded by signed 64-bit representable range, not literally mathematically infinite.
+- Positions are absolute world ticks; widths/heights are validated nonnegative differences using checked wide intermediates. Long strokes/paths store bounded arrays of local deltas relative to an anchor, rather than repeated high-magnitude absolute coordinates.
+- Camera state uses \`double center_x_units\`, \`center_y_units\`, \`zoom\`, viewport physical dimensions, display scale, and monotonic \`camera_revision\`; calculations use finite values only. For truly distant scene coordinates, first subtract **integer world-space origin** close to the camera using overflow-checked/wide arithmetic, then cast small differences to double.
+- Screen-space compositor bridge uses checked rounded \`int32_t\` pixel positions after clipping to output/working viewport; existing compositor positions are \`int32_t\` and existing integer scale limit is 4. Fractional/arbitrary semantic zoom therefore needs Shell-side representation/transform support or an explicitly verified compositor extension; never assume the present compositor directly implements arbitrary \`double\` scales.
+- World-space AABB is always authoritative for placement/indexing; screen-space bounds are temporary, recomputed from current camera state rather than persisted. Serializing raw C struct bytes is forbidden because of padding, endian and ABI evolution.
+
+#### Camera transform (logical)
+Given world point ticks \`W=(wx,wy)\`, integer rebasing origin \`O=(ox,oy)\`, camera center world ticks \`C=(cx,cy)\`, normalized zoom \`z>0\`, viewport center pixels \`V/2\`, and device scale \`d>0\`:
+\`\`\`text
+delta_ticks = checked_wide_sub(W, O) - checked_wide_sub(C, O)
+delta_units = double(delta_ticks) / 1024
+screen_px = viewport_center_px + delta_units * z * d
+\`\`\`
+Implement the delta using overflow-checked wide arithmetic (e.g. audited 128-bit intermediate) or safe branch decomposition **before** any double conversion. The origin terms must never silently overflow. Inverse pointer mapping starts from screen delta and applies \`1/(z*d)\`, then performs explicitly checked rounding into world ticks with a documented nearest-even or other consistent rounding rule. Treat camera center as an integer-tick anchor plus a **bounded fractional camera offset** if precision tests show plain doubles cannot retain sub-tick motion across far coordinates.
+- Pointer-anchored zoom D24 preserves the same world point beneath the cursor to within an explicitly measured tolerance; focus D20, portal D25 and Navigator D07 share one camera implementation.
+- Pan, wheel/pinch zoom and inertial movement operate on transient floating-point deltas and commit checked camera state; rejected/NaN/Inf inputs preserve the last valid camera unchanged.
+- Zoom limits, pan velocity and device-scale ranges must be bounded and measured with G5-D06 semantic zoom and font/readability behavior; min/max values remain open until UI/graphics benchmarks.
+- Store camera checkpoint/portal target as validated integer world anchor, bounded fractional offset if supported, zoom and version; camera navigation alone does not change object placement or structural Canvas History.
+
+#### Type/interface sketch (proposed header, not written to source)
+\`\`\`c
+typedef int64_t g5_world_coord_t;
+#define G5_WORLD_TICKS_PER_UNIT INT64_C(1024)
+typedef struct {
+    g5_world_coord_t x, y;
+} g5_world_point;
+typedef struct {
+    g5_world_point min, max;
+} g5_world_aabb;
+typedef struct {
+    g5_world_point center_anchor;
+    double offset_x_units, offset_y_units;
+    double zoom, device_scale;
+    uint32_t viewport_width_px, viewport_height_px;
+    uint64_t revision;
+} g5_camera_state;
+/* Candidate APIs: checked_world_add/sub, world_to_screen_clipped,
+   screen_to_world_checked, camera_pan, camera_zoom_at_pointer,
+   camera_rebase, camera_fit_bounds, camera_validate. */
+\`\`\`
+These types belong in a shared, versioned user-space Canvas/graphics header to be selected when implementing G5; they do not modify \`graphics_surface.h\` or kernel pointer ABI today.
+
+#### Numeric invariants and concurrency
+- Quantize persistent transforms once per committed layout transaction; reuse canonical world ticks in scene history, clipboard geometry and template manifests for deterministic round-trips.
+- Negative coordinates work symmetrically. Sub-tick visual movements can be accumulated transiently but persist only after a consistent rounding policy; no hidden silent mutation across camera transitions.
+- Camera generation and scene revision are independent. Each hit-test/visible-set query includes both, so input arriving after camera movement cannot act using a previous viewport transform.
+- Clipped offscreen objects must never be passed to compositor with invalid pixel coordinates; privacy/secure scene priority applies independent of transform results.
+
+#### Precision and regression tests
+1. Unit conversion and checked arithmetic at zero, negatives, \`INT64_MIN/MAX\`, crossing origin and invalid AABB dimensions.
+2. Round-trip world→screen→world and zoom→inverse zoom across distant world anchors, typical/small/large bounded zoom and high-DPI viewports; define maximum tolerable tick/pixel error after benchmark.
+3. Repeated pan and pointer-anchored zoom cycles (e.g. 100k deterministic operations), checking drift, under/overflow, no NaN/Inf, no camera-jump on origin rebasing and stable snapped placement.
+4. Pixel-perfect/deterministic reproducibility for recorded Canvas transactions, clipboard/template export and history undo/redo on supported target architectures.
+5. Viewport intersection and \`G5.SpatialIndex.v1\` query equivalence with brute force near coordinate boundaries; no false negatives from rounding.
+6. Hit-test correctness during rapid moving camera, portal jump, focus and compositor resize; reject stale generation and preserve valid input ownership.
+7. Verify conversions to current compositor \`int32_t\` coordinates and maximum supported scale; explicitly gate future arbitrary zoom transform changes.
+8. QEMU multi-client software rendering under stress, with measured p50/p95 camera-update and hit-test latency, jitter, frame time and memory; distinguish design unit tests from runtime integration evidence.
+
+**Still to freeze after measurements:** supported world distance/window, fixed-point tick scale (1024 proposed), rounding mode, zoom clamp, transform tolerance, interpolation details and whether a compositor affine-transform protocol extension is required for arbitrary scales.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -765,6 +832,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify G5-D33 adaptive buffer admission, pressure reduction, release correctness, frame pacing, memory quotas, secure occlusion and crash recovery.
 - Verify G5-D34 spatial query equivalence, distant-camera precision, scene node virtualization, damage correctness, privacy-aware hit testing and benchmarked scalability.
 - Verify G5-D35 backend-neutral index mutations, full-scan differential equivalence, generation-safe queries, bounded memory and reproducible R-tree/quadtree benchmarking.
+- Verify G5-D36 world coordinate overflow handling, camera-rebase precision, anchored-zoom stability, round-trip transform/hit-testing and negative/extreme world coordinates.
 - Explicit runtime QEMU tests and CI evidence are required before marking any item implemented.
 
 ## 7. Pending design decisions
@@ -779,7 +847,8 @@ Isolated Ring 3 system and third-party application processes
 - G5-D24 camera transform limits, pan gesture conflict policy, inertial parameters and touch gesture transport gates.
 - G5-D30/D31 exact process inventory and privilege/dependency map; review G5-D32 proposed 48-byte wire envelope, bulk-memory Ring 3 API, queue backpressure, typed operation schemas and failure isolation tests.
 - G5-D33 adaptive buffer pool admission/eviction thresholds, Ring 3 buffer-release notifications, frame pacing targets and multi-client performance baselines.
-- G5-D34/D35 spatial-index benchmark backend selection, world-coordinate precision and rebasing, viewport virtualization, dirty-tile budgets and the compositor 64-node capacity constraint.
+- G5-D34/D35 spatial-index benchmark backend selection, viewport virtualization, dirty-tile budgets and the compositor 64-node capacity constraint.
+- G5-D36 fixed-point world-tick scale, camera-anchor arithmetic, checked screen conversion, zoom thresholds and numerical precision/drift acceptance.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
