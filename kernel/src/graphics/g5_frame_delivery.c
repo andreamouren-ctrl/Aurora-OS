@@ -44,6 +44,18 @@ bool g5_frame_delivery_ack(struct g5_frame_delivery *d,uint64_t gen,uint64_t ser
  }
  return false;
 }
+bool g5_frame_delivery_abort(struct g5_frame_delivery *d,uint64_t gen,uint64_t serial) {
+ if(!d||!d->submission||!gen||!serial||d->bound_generation!=gen ||
+    !d->submission->registry.session.active ||
+    d->submission->registry.session.generation!=gen)return false;
+ for(unsigned i=0;i<G5_FRAME_DELIVERY_CAPACITY;i++) {
+  struct g5_frame_delivery_entry *e=&d->entries[i];
+  if(e->active&&e->session_generation==gen&&e->presentation_serial==serial) {
+   e->active=false;return true;
+  }
+ }
+ return false;
+}
 void g5_frame_delivery_revoke(struct g5_frame_delivery *d) {
  if(!d)return;
  for(unsigned i=0;i<G5_FRAME_DELIVERY_CAPACITY;i++)d->entries[i].active=false;
