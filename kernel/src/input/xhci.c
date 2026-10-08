@@ -639,6 +639,7 @@ bool xhci_bootstrap_dma(
     state->command_ring_physical = command_ring;
     state->event_ring_physical = event_ring;
     state->erst_physical = erst;
+    state->event_delivery_mode = AURORA_XHCI_EVENT_DELIVERY_POLLING;
     state->command_enqueue = 0u;
     state->command_cycle = true;
     state->event_dequeue = 0u;
