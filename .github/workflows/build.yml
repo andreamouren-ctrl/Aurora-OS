@@ -84,31 +84,31 @@ jobs:
             for attempt in $(seq 1 250); do
               if grep -Fq "[xhci] HID interrupt-IN armed" "$SERIAL_LOG" 2>/dev/null; then
                 python3 - "$MONITOR_PORT" <<'PY'
-import socket
-import sys
-import time
+          import socket
+          import sys
+          import time
 
-port = int(sys.argv[1])
-last_error = None
+          port = int(sys.argv[1])
+          last_error = None
 
-for _ in range(50):
-    try:
-        with socket.create_connection(("127.0.0.1", port), timeout=1.0) as sock:
-            sock.settimeout(1.0)
-            try:
-                sock.recv(4096)
-            except Exception:
-                pass
-            sock.sendall(b"sendkey a 1000\n")
-            time.sleep(0.2)
-        sys.exit(0)
-    except OSError as exc:
-        last_error = exc
-        time.sleep(0.1)
+          for _ in range(50):
+              try:
+                  with socket.create_connection(("127.0.0.1", port), timeout=1.0) as sock:
+                      sock.settimeout(1.0)
+                      try:
+                          sock.recv(4096)
+                      except Exception:
+                          pass
+                      sock.sendall(b"sendkey a 1000\\n")
+                      time.sleep(0.2)
+                  sys.exit(0)
+              except OSError as exc:
+                  last_error = exc
+                  time.sleep(0.1)
 
-print(f"QEMU monitor injection failed: {last_error}", file=sys.stderr)
-sys.exit(1)
-PY
+          print(f"QEMU monitor injection failed: {last_error}", file=sys.stderr)
+          sys.exit(1)
+          PY
                 status=$?
                 if [ "$status" -eq 0 ]; then
                   injected=1
