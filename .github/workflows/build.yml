@@ -141,6 +141,10 @@ jobs:
           grep -F "[xhci] connected-port reset gate passed" "$SERIAL_LOG"
           grep -F "[xhci] Enable Slot command submitted" "$SERIAL_LOG"
           grep -F "[xhci] Enable Slot command-completion gate passed" "$SERIAL_LOG"
+          grep -F "[xhci] Input/Device Context + EP0 ring preparation passed" "$SERIAL_LOG"
+          grep -F "[xhci] Address Device command submitted" "$SERIAL_LOG"
+          grep -F "[xhci] Address Device command-completion gate passed" "$SERIAL_LOG"
+          grep -F "[xhci] addressed Device Context + EP0 running gate passed" "$SERIAL_LOG"
           grep -F "[input] PS/2 mouse IRQ path online" "$SERIAL_LOG"
 
           if ! grep -F \
