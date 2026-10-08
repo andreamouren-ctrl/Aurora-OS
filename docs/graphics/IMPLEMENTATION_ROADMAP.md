@@ -208,9 +208,7 @@ Remaining transport/extended-device work:
 - [ ] enumerate/configure the second connected HID Boot device (mouse) instead of stopping after the first connected port;
 - [ ] verify live mouse motion/button report delivery through xHCI into normalized input;
 - [ ] live disconnect/port-change teardown and HID unbind;
-- [ ] decide/finalize MSI-X event delivery versus polling baseline for the G4 completion gate;
-- [ ] live interrupt-IN report delivery into the existing HID binding layer;
-- [ ] MSI-X interrupt delivery after the polling command/event path is established;
+- [ ] replace or formally retire the polling validation path with the final MSI-X event-delivery policy;
 - [ ] touch/pen/gamepad and accessibility/input-method layers later.
 
 Acceptance gate:
