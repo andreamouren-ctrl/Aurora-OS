@@ -36,6 +36,9 @@ Date: 2026-10-08. Ground truth is the referenced source and GitHub Actions logs.
 
 - CI configuration diagnosis (2026-10-08): PR #136 `Aurora OS Bootstrap Build` failed when QEMU reported **RDSEED unavailable, RDRAND unavailable**, with zero startup samples/failures. Unlike the Identity smoke, `.github/workflows/build.yml` invoked its three QEMU boots without `-cpu max`. Commit `ec25cad2` sets `-cpu max` for all three, preserving mandatory Ring 3 entropy validation and hardware fail-closed semantics. PR #137 executes verification on this revised CPU profile. **Do not interpret a green CPU-configured QEMU run as proof of deterministic RDSEED availability on all physical machines.**
 
+
+- **Entropy failure root-cause and bounded retry correction (2026-10-08):** PR #137 Identity QEMU log recorded `RDSEED: available`, `startup_samples=7`, `source_failures=1`, `health_failures=0`, with mandatory Ring 3 entropy gate aborting boot validation. This is a transient startup source-read exhaustion, not a failed health sample. `kernel/src/security/entropy.c` now retries each startup sample up to eight source calls, counts failures, refuses RDRAND fallback, and still latches any failed health test; source exhaustion remains fail-closed. `kernel/tests/entropy_test.c` covers a single eighth-sample miss and permanent exhaustion; new `Aurora Entropy Source Policy` CI job **passed** on PR #139. QEMU multi-workflow outcome must be checked independently before accepting WP-02.
+
 ## Security and scope notes
 
 - Capability receiver table must be owned by the service; an integer in the IPC data payload never grants authority.
