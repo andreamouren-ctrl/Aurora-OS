@@ -1511,6 +1511,41 @@ void kmain(void) {
         log_line("");
 
         log_line("[xhci] PCI/BAR/MMIO capability probe passed");
+
+        struct aurora_xhci_controller_state xhci_state = {0};
+
+        if (!xhci_read_controller_state(&xhci, &xhci_state)) {
+            kernel_panic("xHCI controller-state parse failed");
+        }
+
+        log_write("[xhci] context ");
+        log_u64(xhci_state.context_size);
+        log_write(" scratchpads ");
+        log_u64(xhci_state.scratchpad_count);
+        log_line("");
+
+        if (!xhci_prepare_controller(&xhci, &xhci_state)) {
+            kernel_panic("xHCI halt/reset/ready sequence failed");
+        }
+
+        log_write("[xhci] page-size mask ");
+        log_hex64(xhci_state.page_size_mask);
+        log_line("");
+        log_line("[xhci] halt/reset/4KiB readiness gate passed");
+
+        if (!xhci_bootstrap_dma(&xhci, &xhci_state)) {
+            kernel_panic("xHCI DMA bootstrap failed");
+        }
+
+        log_write("[xhci] DCBAA ");
+        log_hex64(xhci_state.dcbaa_physical);
+        log_write(" command ");
+        log_hex64(xhci_state.command_ring_physical);
+        log_write(" event ");
+        log_hex64(xhci_state.event_ring_physical);
+        log_line("");
+
+        log_line("[xhci] DCBAA/command/event/ERST polling bootstrap passed");
     } else {
         log_line("[xhci] controller unavailable");
     }
