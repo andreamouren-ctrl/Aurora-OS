@@ -19,6 +19,13 @@ struct aurora_xhci_controller_state {
     uint64_t event_ring_physical;
     uint64_t erst_physical;
 
+    uint64_t device_context_physical;
+    uint64_t input_context_physical;
+    uint64_t ep0_ring_physical;
+    uint8_t addressed_slot_id;
+    uint8_t usb_device_address;
+    uint8_t ep0_state;
+
     uint16_t command_enqueue;
     bool command_cycle;
     uint16_t event_dequeue;
@@ -80,6 +87,13 @@ bool xhci_reset_first_connected_port(
     const struct aurora_xhci_probe_result *probe,
     uint8_t *out_port_id,
     uint8_t *out_speed_id
+);
+
+bool xhci_prepare_address_device(
+    struct aurora_xhci_controller_state *state,
+    uint8_t slot_id,
+    uint8_t port_id,
+    uint8_t speed_id
 );
 
 #endif
