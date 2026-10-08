@@ -3,6 +3,7 @@
 
 #include <aurora/log.h>
 #include <aurora/pci.h>
+#include <aurora/pmm.h>
 #include <aurora/vmm.h>
 #include <aurora/xhci.h>
 
@@ -30,11 +31,27 @@
 #define XHCI_OP_USBCMD              0x00u
 #define XHCI_OP_USBSTS              0x04u
 #define XHCI_OP_PAGESIZE            0x08u
+#define XHCI_OP_CRCR                0x18u
+#define XHCI_OP_DCBAAP              0x30u
+#define XHCI_OP_CONFIG              0x38u
 
 #define XHCI_USBCMD_RUN_STOP        (1u << 0)
 #define XHCI_USBCMD_HCRST           (1u << 1)
 #define XHCI_USBSTS_HCHALTED        (1u << 0)
 #define XHCI_USBSTS_CNR             (1u << 11)
+
+#define XHCI_RUNTIME_INTERRUPTER0    0x20u
+#define XHCI_INTR_IMAN               0x00u
+#define XHCI_INTR_ERSTSZ             0x08u
+#define XHCI_INTR_ERSTBA             0x10u
+#define XHCI_INTR_ERDP               0x18u
+
+#define XHCI_TRB_TYPE_LINK           6u
+#define XHCI_TRB_CYCLE               (1u << 0)
+#define XHCI_TRB_TOGGLE_CYCLE        (1u << 1)
+#define XHCI_TRB_TYPE_SHIFT          10u
+#define XHCI_RING_TRB_COUNT          256u
+#define XHCI_BOOTSTRAP_SCRATCHPAD_MAX 64u
 
 static volatile uint8_t *xhci_capability_base;
 static volatile uint8_t *xhci_operational_base;
@@ -111,6 +128,27 @@ static void xhci_mmio_write32(
     *(volatile uint32_t *)(base + offset) = value;
     __asm__ volatile ("" ::: "memory");
 }
+static void xhci_mmio_write64(
+    volatile uint8_t *base,
+    uint32_t offset,
+    uint64_t value
+) {
+    *(volatile uint64_t *)(base + offset) = value;
+    __asm__ volatile ("" ::: "memory");
+}
+
+struct xhci_trb {
+    uint64_t parameter;
+    uint32_t status;
+    uint32_t control;
+};
+
+struct xhci_erst_entry {
+    uint64_t segment_base;
+    uint32_t segment_size;
+    uint32_t reserved;
+};
+
 
 static bool xhci_wait_mask32(
     volatile uint8_t *base,
@@ -370,4 +408,190 @@ bool xhci_prepare_controller(
     }
 
     return true;
+}
+
+
+bool xhci_bootstrap_dma(
+    const struct aurora_xhci_probe_result *probe,
+    struct aurora_xhci_controller_state *state
+) {
+    if (probe == NULL ||
+        state == NULL ||
+        xhci_operational_base == NULL ||
+        xhci_runtime_base == NULL ||
+        !state->supports_4k_pages ||
+        state->running) {
+        return false;
+    }
+
+    if (state->scratchpad_count > XHCI_BOOTSTRAP_SCRATCHPAD_MAX) {
+        log_line("[xhci] DMA bootstrap fail: scratchpad count exceeds bootstrap bound");
+        return false;
+    }
+
+    uint64_t dcbaa = pmm_alloc_page();
+    uint64_t command_ring = pmm_alloc_page();
+    uint64_t event_ring = pmm_alloc_page();
+    uint64_t erst = pmm_alloc_page();
+    uint64_t scratchpad_array = 0u;
+    static uint64_t scratchpad_pages[XHCI_BOOTSTRAP_SCRATCHPAD_MAX];
+
+    for (uint32_t i = 0u; i < XHCI_BOOTSTRAP_SCRATCHPAD_MAX; ++i) {
+        scratchpad_pages[i] = 0u;
+    }
+
+    if (dcbaa == 0u ||
+        command_ring == 0u ||
+        event_ring == 0u ||
+        erst == 0u) {
+        goto fail;
+    }
+
+    uint64_t *dcbaa_virtual =
+        (uint64_t *)pmm_phys_to_virt(dcbaa);
+
+    if (state->scratchpad_count != 0u) {
+        scratchpad_array = pmm_alloc_page();
+        if (scratchpad_array == 0u) goto fail;
+
+        uint64_t *array =
+            (uint64_t *)pmm_phys_to_virt(scratchpad_array);
+
+        for (uint16_t i = 0u; i < state->scratchpad_count; ++i) {
+            uint64_t page = pmm_alloc_page();
+            if (page == 0u) goto fail;
+
+            scratchpad_pages[i] = page;
+            array[i] = page;
+        }
+
+        dcbaa_virtual[0] = scratchpad_array;
+    }
+
+    struct xhci_trb *command =
+        (struct xhci_trb *)pmm_phys_to_virt(command_ring);
+
+    command[XHCI_RING_TRB_COUNT - 1u] = (struct xhci_trb){
+        .parameter = command_ring,
+        .status = 0u,
+        .control =
+            (XHCI_TRB_TYPE_LINK << XHCI_TRB_TYPE_SHIFT) |
+            XHCI_TRB_TOGGLE_CYCLE |
+            XHCI_TRB_CYCLE
+    };
+
+    struct xhci_erst_entry *erst_virtual =
+        (struct xhci_erst_entry *)pmm_phys_to_virt(erst);
+
+    erst_virtual[0] = (struct xhci_erst_entry){
+        .segment_base = event_ring,
+        .segment_size = XHCI_RING_TRB_COUNT,
+        .reserved = 0u
+    };
+
+    xhci_mmio_write64(
+        xhci_operational_base,
+        XHCI_OP_DCBAAP,
+        dcbaa
+    );
+
+    xhci_mmio_write64(
+        xhci_operational_base,
+        XHCI_OP_CRCR,
+        command_ring | XHCI_TRB_CYCLE
+    );
+
+    uint32_t config =
+        xhci_mmio_read32(xhci_operational_base, XHCI_OP_CONFIG);
+    config &= ~0xFFu;
+    config |= (uint32_t)probe->max_device_slots;
+    xhci_mmio_write32(
+        xhci_operational_base,
+        XHCI_OP_CONFIG,
+        config
+    );
+
+    volatile uint8_t *interrupter0 =
+        xhci_runtime_base + XHCI_RUNTIME_INTERRUPTER0;
+
+    xhci_mmio_write32(
+        interrupter0,
+        XHCI_INTR_IMAN,
+        0u
+    );
+    xhci_mmio_write32(
+        interrupter0,
+        XHCI_INTR_ERSTSZ,
+        1u
+    );
+    xhci_mmio_write64(
+        interrupter0,
+        XHCI_INTR_ERSTBA,
+        erst
+    );
+    xhci_mmio_write64(
+        interrupter0,
+        XHCI_INTR_ERDP,
+        event_ring
+    );
+
+    uint32_t command_reg =
+        xhci_mmio_read32(xhci_operational_base, XHCI_OP_USBCMD);
+    command_reg |= XHCI_USBCMD_RUN_STOP;
+    xhci_mmio_write32(
+        xhci_operational_base,
+        XHCI_OP_USBCMD,
+        command_reg
+    );
+
+    if (!xhci_wait_mask32(
+            xhci_operational_base,
+            XHCI_OP_USBSTS,
+            XHCI_USBSTS_HCHALTED,
+            0u)) {
+        log_line("[xhci] DMA bootstrap fail: controller did not enter run state");
+        goto fail_running;
+    }
+
+    state->dcbaa_physical = dcbaa;
+    state->scratchpad_array_physical = scratchpad_array;
+    state->command_ring_physical = command_ring;
+    state->event_ring_physical = event_ring;
+    state->erst_physical = erst;
+    state->dma_ready = true;
+    state->running = true;
+    return true;
+
+fail_running:
+    command_reg =
+        xhci_mmio_read32(xhci_operational_base, XHCI_OP_USBCMD);
+    command_reg &= ~XHCI_USBCMD_RUN_STOP;
+    xhci_mmio_write32(
+        xhci_operational_base,
+        XHCI_OP_USBCMD,
+        command_reg
+    );
+    (void)xhci_wait_mask32(
+        xhci_operational_base,
+        XHCI_OP_USBSTS,
+        XHCI_USBSTS_HCHALTED,
+        XHCI_USBSTS_HCHALTED
+    );
+
+fail:
+    for (uint16_t i = 0u;
+         i < state->scratchpad_count &&
+         i < XHCI_BOOTSTRAP_SCRATCHPAD_MAX;
+         ++i) {
+        if (scratchpad_pages[i] != 0u) {
+            pmm_free_page(scratchpad_pages[i]);
+        }
+    }
+
+    if (scratchpad_array != 0u) pmm_free_page(scratchpad_array);
+    if (erst != 0u) pmm_free_page(erst);
+    if (event_ring != 0u) pmm_free_page(event_ring);
+    if (command_ring != 0u) pmm_free_page(command_ring);
+    if (dcbaa != 0u) pmm_free_page(dcbaa);
+    return false;
 }
