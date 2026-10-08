@@ -37,5 +37,10 @@ int main(void) {
  assert(g5_ipc_validate_semantics(&h,NULL)==G5_IPC_OK);
  h.object_generation=1;
  assert(g5_ipc_validate_semantics(&h,NULL)==G5_IPC_BAD_FORMAT);
+ assert(g5_ipc_opcode_required_rights(G5_OP_WINDOW_CLOSE)==AURORA_RIGHT_CONTROL);
+ assert(g5_ipc_opcode_required_rights(G5_OP_SCENE_PUBLISH)==
+   (AURORA_RIGHT_CONTROL|AURORA_RIGHT_WRITE));
+ assert(g5_ipc_opcode_required_rights(G5_OP_SHELL_READY)==AURORA_RIGHT_READ);
+ assert(g5_ipc_opcode_required_rights(0xffffffffu)==0);
  return 0;
 }
