@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP03 batch6 immutable delivery epoch, queue-gated ACK and restart revocation.
 on:
   push:
     paths:
