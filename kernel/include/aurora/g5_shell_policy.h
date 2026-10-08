@@ -8,6 +8,8 @@ struct g5_shell_policy {
  struct g5_shell_session *session;
  uint32_t permitted_operations;
  uint64_t accepted_requests;
+ bool (*apply)(void *context,const struct g5_ipc_header *,const uint8_t *);
+ void *apply_context;
 };
 #define G5_SHELL_PERMIT_CONFIGURE (1u << 0)
 #define G5_SHELL_PERMIT_ACK       (1u << 1)
