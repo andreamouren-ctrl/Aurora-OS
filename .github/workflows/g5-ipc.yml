@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP03 registry/presentation/teardown triple-batch regression.
 on:
   push:
     paths:
