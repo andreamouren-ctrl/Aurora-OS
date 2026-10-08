@@ -20,6 +20,7 @@ struct g5_dispatch_context {
     g5_dispatch_handler_fn handler;
     void *context;
     uint64_t last_revoked_generation; /* no rebind to prior session */
+    bool dispatch_in_progress; /* reject nested callbacks; NOT a thread lock */
 };
 /* Explicitly disable an endpoint on lock/logout: old traffic must fail closed. */
 void g5_ipc_dispatch_revoke(struct g5_dispatch_context *dispatch);
