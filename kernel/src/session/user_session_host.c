@@ -30,6 +30,21 @@ struct user_session_host_runtime {
 };
 
 static struct user_session_host_runtime host;
+static struct g5_dispatch_context *session_g5_dispatcher;
+
+bool user_session_host_register_g5_dispatcher(struct g5_dispatch_context *d) {
+    if (d == NULL || host.active || session_g5_dispatcher != NULL ||
+        d->active_session_generation != 0) return false;
+    session_g5_dispatcher = d;
+    return true;
+}
+
+void user_session_host_unregister_g5_dispatcher(struct g5_dispatch_context *d) {
+    if (d == NULL || d != session_g5_dispatcher) return;
+    g5_ipc_dispatch_revoke(d);
+    session_g5_dispatcher = NULL;
+}
+
 
 static void clear_bytes(void *buffer, size_t size) {
     uint8_t *bytes = (uint8_t *)buffer;
@@ -85,6 +100,8 @@ static bool receive_expected(
 }
 
 static void cleanup_finished_host(void) {
+    if (session_g5_dispatcher != NULL)
+        g5_ipc_dispatch_revoke(session_g5_dispatcher);
     if (host.process != NULL) {
         (void)session_profile_lease_revoke_process(host.process);
     }
@@ -223,11 +240,21 @@ static bool start_with_context(
         return false;
     }
 
+    /* The session manager supplied generation is the only binding source. */
+    if (session_g5_dispatcher != NULL &&
+        !g5_ipc_dispatch_bind_session(session_g5_dispatcher, generation)) {
+        (void)session_profile_lease_revoke_process(host.process);
+        cleanup_finished_host();
+        return false;
+    }
     host.active = true;
     return true;
 }
 
 bool user_session_host_stop(void) {
+    /* Fail closed immediately, including IPC send timeout/failure paths. */
+    if (session_g5_dispatcher != NULL)
+        g5_ipc_dispatch_revoke(session_g5_dispatcher);
     if (!host.active ||
         host.process == NULL ||
         host.thread == 0u ||
