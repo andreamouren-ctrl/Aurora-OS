@@ -25,6 +25,8 @@ struct aurora_xhci_controller_state {
     uint8_t addressed_slot_id;
     uint8_t usb_device_address;
     uint8_t ep0_state;
+    uint16_t ep0_enqueue;
+    bool ep0_cycle;
 
     uint16_t command_enqueue;
     bool command_cycle;
@@ -105,6 +107,16 @@ bool xhci_submit_address_device(
 bool xhci_validate_addressed_device(
     struct aurora_xhci_controller_state *state,
     uint8_t slot_id
+);
+
+bool xhci_control_in(
+    struct aurora_xhci_controller_state *state,
+    uint8_t request_type,
+    uint8_t request,
+    uint16_t value,
+    uint16_t index,
+    void *buffer,
+    uint16_t length
 );
 
 #endif
