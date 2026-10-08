@@ -1,0 +1,30 @@
+name: Aurora Entropy Source Policy
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+    paths:
+      - 'kernel/src/security/entropy.c'
+      - 'kernel/tests/entropy_test.c'
+      - 'kernel/include/aurora/entropy.h'
+      - 'kernel/include/aurora/entropy_source.h'
+      - '.github/workflows/entropy-unit.yml'
+
+jobs:
+  entropy-source-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and test trusted source failure handling
+        run: |
+          mkdir -p build/entropy
+          cc -std=c11 -O2 -Wall -Wextra -Werror -pedantic \
+            -fsanitize=undefined -fno-sanitize-recover=all \
+            -Ikernel/include \
+            kernel/src/security/entropy.c kernel/tests/entropy_test.c \
+            -o build/entropy/entropy_test
+          ./build/entropy/entropy_test
