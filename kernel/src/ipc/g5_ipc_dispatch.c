@@ -35,3 +35,18 @@ enum g5_ipc_status g5_ipc_dispatch(
         return G5_IPC_DENIED;
     return G5_IPC_OK;
 }
+
+void g5_ipc_dispatch_revoke(struct g5_dispatch_context *d) {
+    if (d == NULL) return;
+    d->active_session_generation = 0;
+    d->last_request_id = 0;
+}
+
+bool g5_ipc_dispatch_bind_session(struct g5_dispatch_context *d,
+                                  uint64_t generation) {
+    if (d == NULL || generation == 0 ||
+        d->active_session_generation != 0) return false;
+    d->last_request_id = 0;
+    d->active_session_generation = generation;
+    return true;
+}
