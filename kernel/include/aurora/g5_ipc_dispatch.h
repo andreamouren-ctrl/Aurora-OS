@@ -20,6 +20,13 @@ struct g5_dispatch_context {
     g5_dispatch_handler_fn handler;
     void *context;
 };
+/* Explicitly disable an endpoint on lock/logout: old traffic must fail closed. */
+void g5_ipc_dispatch_revoke(struct g5_dispatch_context *dispatch);
+
+/* Rebind only after the session authority has authenticated a new generation. */
+bool g5_ipc_dispatch_bind_session(struct g5_dispatch_context *dispatch,
+                                  uint64_t session_generation);
+
 enum g5_ipc_status g5_ipc_dispatch(
     struct g5_dispatch_context *dispatch,
     const struct aurora_sys_ipc_received *message
