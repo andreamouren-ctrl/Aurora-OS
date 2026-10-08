@@ -28,6 +28,12 @@ struct aurora_xhci_controller_state {
     uint16_t ep0_enqueue;
     bool ep0_cycle;
 
+    uint64_t hid_ring_physical;
+    uint8_t hid_endpoint_id;
+    uint16_t hid_enqueue;
+    bool hid_cycle;
+    bool hid_endpoint_running;
+
     uint16_t command_enqueue;
     bool command_cycle;
     uint16_t event_dequeue;
@@ -158,6 +164,12 @@ bool xhci_find_boot_hid_endpoint(
 bool xhci_set_configuration_and_boot_protocol(
     struct aurora_xhci_controller_state *state,
     const struct aurora_usb_hid_endpoint_descriptor *endpoint
+);
+
+bool xhci_configure_hid_interrupt_endpoint(
+    struct aurora_xhci_controller_state *state,
+    const struct aurora_usb_hid_endpoint_descriptor *endpoint,
+    uint8_t speed_id
 );
 
 #endif
