@@ -281,6 +281,8 @@ jobs:
           grep -F "[xhci] live HID mouse right-button decoded into normalized input" "$SERIAL_LOG"
           grep -F "[xhci] live HID mouse middle-button decoded into normalized input" "$SERIAL_LOG"
           grep -F "[xhci] live HID mouse wheel decoded into normalized input" "$SERIAL_LOG"
+          grep -F "[xhci] GET_DESCRIPTOR(HID Report) mouse layout gate passed" "$SERIAL_LOG"
+          grep -F "[xhci] HID SET_PROTOCOL(Report) gate passed" "$SERIAL_LOG"
           grep -F "[xhci] second HID Boot Mouse teardown gate passed" "$SERIAL_LOG"
           grep -F "[input] PS/2 mouse IRQ path online" "$SERIAL_LOG"
 
