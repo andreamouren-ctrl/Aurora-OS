@@ -956,6 +956,101 @@ bool xhci_wait_command_completion(
     return false;
 }
 
+bool xhci_wait_port_status_change(
+    struct aurora_xhci_controller_state *state,
+    uint8_t expected_port_id,
+    uint32_t *out_portsc
+) {
+    if (out_portsc != NULL) *out_portsc = 0u;
+
+    if (state == NULL ||
+        out_portsc == NULL ||
+        expected_port_id == 0u ||
+        state->event_ring_physical == 0u ||
+        xhci_runtime_base == NULL ||
+        xhci_operational_base == NULL ||
+        state->event_dequeue >= XHCI_RING_TRB_COUNT) {
+        return false;
+    }
+
+    struct xhci_trb *events =
+        (struct xhci_trb *)pmm_phys_to_virt(
+            state->event_ring_physical
+        );
+
+    volatile uint8_t *interrupter0 =
+        xhci_runtime_base + XHCI_RUNTIME_INTERRUPTER0;
+
+    for (uint32_t spin = 0u;
+         spin < XHCI_EVENT_SPIN_LIMIT;
+         ++spin) {
+        struct xhci_trb event =
+            events[state->event_dequeue];
+
+        bool cycle =
+            (event.control & XHCI_TRB_CYCLE) != 0u;
+
+        if (cycle != state->event_cycle) {
+            __asm__ volatile ("pause");
+            continue;
+        }
+
+        uint32_t type =
+            (event.control >> XHCI_TRB_TYPE_SHIFT) & 0x3Fu;
+
+        if (type != XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
+            log_write("[xhci] unexpected event while waiting port change type=");
+            log_u64(type);
+            log_line("");
+            return false;
+        }
+
+        ++state->event_dequeue;
+        if (state->event_dequeue == XHCI_RING_TRB_COUNT) {
+            state->event_dequeue = 0u;
+            state->event_cycle = !state->event_cycle;
+        }
+
+        uint64_t dequeue_physical =
+            state->event_ring_physical +
+            (uint64_t)state->event_dequeue *
+            sizeof(struct xhci_trb);
+
+        xhci_mmio_write64(
+            interrupter0,
+            XHCI_INTR_ERDP,
+            dequeue_physical | (1ull << 3)
+        );
+
+        uint8_t port_id =
+            (uint8_t)(event.parameter >> 24u);
+
+        if (port_id != expected_port_id) {
+            log_write("[xhci] port-status event for unexpected port ");
+            log_u64(port_id);
+            log_line("");
+            return false;
+        }
+
+        uint32_t offset =
+            XHCI_OP_PORT_BASE +
+            (uint32_t)(port_id - 1u) *
+            XHCI_OP_PORT_STRIDE +
+            XHCI_PORTSC;
+
+        *out_portsc =
+            xhci_mmio_read32(
+                xhci_operational_base,
+                offset
+            );
+
+        return true;
+    }
+
+    log_line("[xhci] port-status change timeout");
+    return false;
+}
+
 bool xhci_reset_connected_port_after(
     const struct aurora_xhci_probe_result *probe,
     uint8_t after_port_id,
