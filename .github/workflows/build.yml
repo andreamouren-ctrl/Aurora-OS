@@ -76,6 +76,7 @@ jobs:
           PY
 
           MONITOR_PORT=4444
+          QMP_PORT=4445
           INJECTOR_STATUS_FILE=build/qemu-hid-injector.status
           rm -f "$INJECTOR_STATUS_FILE"
 
@@ -120,13 +121,15 @@ jobs:
 
             mouse_injected=0
             if [ "$injected" -eq 1 ]; then
-              python3 - "$MONITOR_PORT" "$SERIAL_LOG" <<'PY'
+              python3 - "$MONITOR_PORT" "$QMP_PORT" "$SERIAL_LOG" <<'PY'
+          import json
           import socket
           import sys
           import time
 
           port = int(sys.argv[1])
-          serial_log = sys.argv[2]
+          qmp_port = int(sys.argv[2])
+          serial_log = sys.argv[3]
 
           stages = [
               ("[xhci] HID mouse interrupt-IN armed", ["mouse_move 6 -4"]),
@@ -134,8 +137,6 @@ jobs:
               ("[xhci] HID mouse right-button interrupt-IN armed", ["mouse_button 2"]),
               ("[xhci] HID mouse middle-button interrupt-IN armed", ["mouse_button 4"]),
               ("[xhci] HID mouse wheel interrupt-IN armed", ["mouse_move 0 0 1"]),
-              ("[xhci] HID Report Mouse Back interrupt-IN armed", ["mouse_button 8"]),
-              ("[xhci] HID Report Mouse Forward interrupt-IN armed", ["mouse_button 16"]),
           ]
 
           def wait_marker(marker):
@@ -176,6 +177,78 @@ jobs:
               if not send_commands(commands):
                   sys.exit(1)
 
+          def qmp_button(marker, button):
+              if not wait_marker(marker):
+                  print(f"Timed out waiting for {marker}", file=sys.stderr)
+                  return False
+
+              last_error = None
+              for _ in range(50):
+                  try:
+                      with socket.create_connection(
+                          ("127.0.0.1", qmp_port),
+                          timeout=1.0
+                      ) as sock:
+                          stream = sock.makefile("rwb", buffering=0)
+                          greeting = stream.readline()
+                          if not greeting:
+                              raise OSError("missing QMP greeting")
+
+                          stream.write(
+                              json.dumps({
+                                  "execute": "qmp_capabilities"
+                              }).encode("utf-8") + b"\n"
+                          )
+                          capabilities = stream.readline()
+                          if b'"return"' not in capabilities:
+                              raise OSError(
+                                  f"QMP capabilities failed: {capabilities!r}"
+                              )
+
+                          stream.write(
+                              json.dumps({
+                                  "execute": "input-send-event",
+                                  "arguments": {
+                                      "events": [{
+                                          "type": "btn",
+                                          "data": {
+                                              "down": True,
+                                              "button": button
+                                          }
+                                      }]
+                                  }
+                              }).encode("utf-8") + b"\n"
+                          )
+                          response = stream.readline()
+                          if b'"return"' not in response:
+                              raise OSError(
+                                  f"QMP input-send-event failed: {response!r}"
+                              )
+
+                          time.sleep(0.15)
+                          return True
+                  except OSError as exc:
+                      last_error = exc
+                      time.sleep(0.1)
+
+              print(
+                  f"QMP side-button injection failed: {last_error}",
+                  file=sys.stderr
+              )
+              return False
+
+          if not qmp_button(
+              "[xhci] HID Report Mouse Back interrupt-IN armed",
+              "side"
+          ):
+              sys.exit(1)
+
+          if not qmp_button(
+              "[xhci] HID Report Mouse Forward interrupt-IN armed",
+              "extra"
+          ):
+              sys.exit(1)
+
           sys.exit(0)
           PY
               if [ "$?" -eq 0 ]; then
@@ -204,6 +277,7 @@ jobs:
             -device ide-hd,drive=aurora_disk \
             -serial file:"$SERIAL_LOG" \
             -monitor tcp:127.0.0.1:$MONITOR_PORT,server=on,wait=off \
+            -qmp tcp:127.0.0.1:$QMP_PORT,server=on,wait=off \
             -d int,cpu_reset \
             -D "$DEBUG_LOG" \
             -display none \
