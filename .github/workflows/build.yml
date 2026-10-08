@@ -118,7 +118,49 @@ jobs:
               sleep 0.1
             done
 
+            mouse_injected=0
             if [ "$injected" -eq 1 ]; then
+              for attempt in $(seq 1 250); do
+                if grep -Fq "[xhci] HID mouse interrupt-IN armed" "$SERIAL_LOG" 2>/dev/null; then
+                  python3 - "$MONITOR_PORT" <<'PY'
+          import socket
+          import sys
+          import time
+
+          port = int(sys.argv[1])
+          last_error = None
+
+          for _ in range(50):
+              try:
+                  with socket.create_connection(("127.0.0.1", port), timeout=1.0) as sock:
+                      sock.settimeout(1.0)
+                      try:
+                          sock.recv(4096)
+                      except Exception:
+                          pass
+                      sock.sendall(b"mouse_move 6 -4\n")
+                      time.sleep(0.15)
+                      sock.sendall(b"mouse_button 1\n")
+                      time.sleep(0.2)
+                  sys.exit(0)
+              except OSError as exc:
+                  last_error = exc
+                  time.sleep(0.1)
+
+          print(f"QEMU mouse injection failed: {last_error}", file=sys.stderr)
+          sys.exit(1)
+          PY
+                  status=$?
+                  if [ "$status" -eq 0 ]; then
+                    mouse_injected=1
+                  fi
+                  break
+                fi
+                sleep 0.1
+              done
+            fi
+
+            if [ "$injected" -eq 1 ] && [ "$mouse_injected" -eq 1 ]; then
               echo 0 > "$INJECTOR_STATUS_FILE"
             else
               echo 1 > "$INJECTOR_STATUS_FILE"
@@ -212,6 +254,11 @@ jobs:
           grep -F "[xhci] live HID report decoded into normalized input" "$SERIAL_LOG"
           grep -F "[xhci] Disable Slot command-completion gate passed" "$SERIAL_LOG"
           grep -F "[xhci] per-device DCBAA/context/ring teardown gate passed" "$SERIAL_LOG"
+          grep -F "[xhci] second connected HID Boot Mouse enumeration gate passed" "$SERIAL_LOG"
+          grep -F "[xhci] HID mouse interrupt-IN armed" "$SERIAL_LOG"
+          grep -F "[xhci] HID mouse button interrupt-IN armed" "$SERIAL_LOG"
+          grep -F "[xhci] live HID mouse motion+button decoded into normalized input" "$SERIAL_LOG"
+          grep -F "[xhci] second HID Boot Mouse teardown gate passed" "$SERIAL_LOG"
           grep -F "[input] PS/2 mouse IRQ path online" "$SERIAL_LOG"
 
           if ! grep -F \
