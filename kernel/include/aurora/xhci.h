@@ -19,6 +19,11 @@ struct aurora_xhci_controller_state {
     uint64_t event_ring_physical;
     uint64_t erst_physical;
 
+    uint16_t command_enqueue;
+    bool command_cycle;
+    uint16_t event_dequeue;
+    bool event_cycle;
+
     bool dma_ready;
     bool running;
 };
@@ -58,6 +63,11 @@ bool xhci_prepare_controller(
 bool xhci_bootstrap_dma(
     const struct aurora_xhci_probe_result *probe,
     struct aurora_xhci_controller_state *state
+);
+
+bool xhci_submit_enable_slot(
+    struct aurora_xhci_controller_state *state,
+    uint64_t *out_command_trb_physical
 );
 
 #endif
