@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP-02 QEMU endpoint validation PR.
 on:
   push:
     paths:
