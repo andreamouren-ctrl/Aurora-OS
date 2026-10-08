@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# Verify pending queue test in PR.
 on:
   push:
     paths:
