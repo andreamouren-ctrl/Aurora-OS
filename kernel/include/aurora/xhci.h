@@ -111,6 +111,11 @@ bool xhci_submit_enable_slot(
     uint64_t *out_command_trb_physical
 );
 
+bool xhci_disable_slot(
+    struct aurora_xhci_controller_state *state,
+    uint8_t slot_id
+);
+
 bool xhci_wait_command_completion(
     struct aurora_xhci_controller_state *state,
     uint64_t command_trb_physical,
