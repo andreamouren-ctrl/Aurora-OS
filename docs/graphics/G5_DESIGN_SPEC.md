@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D38**
+Status: **Design in progress — approved decisions D01–D39**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -48,6 +48,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D36 | Aurora Hybrid Coordinates | Persistent deterministic signed 64-bit fixed-point world coordinates with double-precision camera math, camera-relative origin rebasing and checked screen conversion |
 | G5-D37 | Aurora Hybrid Scene Graph | Hierarchical visual transforms and ownership-independent semantic graph; explicit contracts with Spatial Index, Content Graph and compositor, without live-app duplication |
 | G5-D38 | Aurora Atomic Scene Transactions | Validated, revisioned, atomic scene updates across canonical Scene Graph, derived index, compositor projection and hit testing; conflict detection and safe rollback, excluding app-internal distributed transactions |
+| G5-D39 | Aurora Staged Persistence | G5 durably persists user-authorized Canvas structure, layers, groups, notes, relations and references via journal/checkpoints; G7 expands restoration to applications and Activity Spaces |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -909,6 +910,84 @@ Cross-process control uses G5-D32 \`G5.IPC.v1\` bounded 256-byte messages and ca
 
 **Implementation blockers:** compositor batch stage/publish/ack contract and input-epoch synchronization; durable checkpoint reconciliation; finite transaction/batch/memory budgets; Ring 3 bulk transfer ABI where needed. Design approval is not implementation or runtime verification.
 
+
+### 3.32 Aurora Staged Persistence — storage, journal, checkpoint and crash recovery (G5-D39)
+
+**Approved:** G5 durably preserves the authenticated user's Canvas *structural state* across Shell crashes, logout and OS restart; G7 subsequently adds Activity Space lifecycle and restoration intents for full application/session reconstruction. Do not save raw process memory, live capability numbers, compositor buffer pointers or credentials.
+
+#### Scope and privilege boundary
+- **Persist in G5:** versioned scene hierarchy and spatial IDs; D36 fixed-point positions; layer/group metadata; user-authored notes and drawing geometry; authorized relationship/link descriptors and portal/bookmark targets; theme/template references; privacy labels and visibility preferences (subject to Identity-controlled policy); journal/checkpoint metadata.
+- **Do not persist as G5 live restoration:** live application memory/processes, active compositor surfaces/buffer leases, IPC endpoint handles, reauthentication tokens, camera input capture, clipboard sensitive caches or browser cookies outside app-owned secure persistence.
+- Persistent records belong to a user/profile-scoped workspace storage domain, accessed via a narrow **State Persistence Broker** with Identity/Session-granted read/write capabilities; Shell has no implicit unrestricted filesystem or Protected System State access.
+- Checked existing storage facts (2026-10-08): \`docs/PROTECTED_SYSTEM_STATE.md\` provides a privileged capability-controlled namespace specifically for security-sensitive service records above AuroraFS/VFS. **Do not** store arbitrary large personal Canvas data under \`/system/.protected\` or grant the Shell Identity's protected-state capability. Exact user-profile AuroraFS namespace and public Ring 3 profile storage ABI require confirmation/implementation.
+- Private G5 workspace records require per-user isolation, authorization on read/write/list, safe encryption only if the chosen profile storage policy/keys support it; do not imply at-rest encryption already exists.
+
+#### Versioned storage model (logical draft)
+\`\`\`text
+WorkspaceManifest.v1
+  schema_version, user_scope_id, workspace_id, workspace_generation
+  last_durable_scene_revision, checkpoint_id, journal_tail_sequence
+  integrity_algorithm_id, manifest_checksum, feature_flags
+
+CanvasCheckpoint.v1
+  checkpoint_id, scene_revision, schema_version, object_count
+  nodes[]: stable_id, type, parent, layer, fixed-point geometry, flags
+  groups[], notes[], drawings[], graph_reference_edges[], portals[]
+  bounded authorized metadata and per-record integrity
+
+CanvasJournalRecord.v1
+  record_version, sequence, transaction_id, session_generation
+  prior_scene_revision, resulting_scene_revision
+  operation_type, bounded typed delta/inverse-or-replay metadata
+  payload_length, checksum, commit_marker
+\`\`\`
+All formats use explicit endian/length/checking; stable opaque object references are persisted, not process-local capability handles. Privacy permissions are re-evaluated upon restoration against the new authenticated session. Templates and Clipboard exports never bypass this boundary.
+
+#### Write protocol and durability semantics
+1. On D38 scene transaction validate/prepare, construct a bounded deterministic persistence delta for the intended scene revision; reject edits that cannot be safely encoded/quota-checked.
+2. Stage a **journal prepare** with transaction ID, expected base revision and integrity checks. Compositor presentation and durable state are distinct systems: a scene becoming visible must never be represented to users as *durably saved* before persistence confirmation.
+3. On authoritative D38 scene commit, finalize durable journal record using ordered write, sync and an atomic publication strategy supported by AuroraFS/VFS. An acknowledgment for **durably saved** requires successful sync/publication; earlier acknowledgment may indicate only **applied in the current session**.
+4. If durable finalization fails after a visible scene commit, retain a clearly marked dirty/unsaved state, retry with bounded limits or offer rollback through a new authorized inverse transaction. Do not silently report success or overwrite a previously valid checkpoint.
+5. Write copy-on-write checkpoints periodically/on explicit user request when supported, sync and atomically switch the manifest pointer. Keep at least one last-known-good checkpoint until new checkpoint verified and published. Prune journals only after checkpoint verification and within quota.
+6. In case of power loss, replay only complete committed journal records in monotonic order from the last valid checkpoint; ignore or quarantine torn/uncommitted tails; never apply a transaction twice. On checksum or revision-chain mismatch, stop and report a recovery-needed state without guessing.
+7. Multi-process/OS restart must replace session-scoped handles and surface links with safe unresolved **application placeholders**; application actual relaunch/state restoration is owned by G7.
+
+#### Storage broker interface (proposed)
+| Contract | Operations | Invariants |
+|---|---|---|
+| \`G5.WorkspaceStore.v1\` | open/list/create, read manifest/checkpoint, commit journal, save checkpoint, validate, recover | per-user capability, session and workspace scope |
+| \`G5.Journal.v1\` | append_prepare, durable_commit, query_tx, replay, truncate_after_checkpoint | idempotent transaction IDs, checksums, ordered revision chain |
+| \`G5.Recovery.v1\` | inspect valid generations, recover last checkpoint+tail, mark damaged, export diagnostics | fail closed on corruption, no private-data disclosure |
+| \`G5.PersistenceStatus.v1\` | applied_revision, durable_revision, dirty_count, last_error, checkpoint_progress | distinguish in-memory from durably saved |
+| \`G5.G7RestoreBridge.v1\` | enumerate versioned content/app references and restoration hints | no live capability resurrection, G7 owns app relaunch |
+
+Use D32 capability-scoped IPC for broker operations and authorized bulk data transport only after verified Ring 3 ABI. Log only coarse IDs/statuses; never dump note text or private graph content. A single serialized per-workspace writer owns journal/manifest publication, with bounded queue and explicit conflict handling.
+
+#### Recovery conditions and access rules
+| Condition | Required behavior |
+|---|---|
+| Shell crash after applied, before durable commit | recover last durable revision, explicitly indicate loss of unconfirmed changes if any |
+| Power failure during journal write | ignore incomplete tail; retain prior verified revision |
+| Crash while checkpointing | retain old manifest/checkpoint, discard invalid staging |
+| Duplicate transaction/replayed message | return prior durable outcome; never replay twice |
+| Storage full/unavailable | show unsaved state; bound pending data; deny new edits when safe durability cannot be maintained |
+| Corrupt checkpoint and valid earlier checkpoint | recover earlier version with user-visible warning, never silently replace |
+| Identity lock/logout/revoke | revoke broker handles, erase sensitive in-memory buffers, no cross-user restore |
+| G7 relaunch following reboot | resolve app refs with user authorization; never resurrect old process or compositor handles |
+
+#### G5-D39 acceptance gates
+1. Save, cold reboot and recover mixed scene groups/layers/fixed-point coordinates/notes/links/portals with identical stable IDs and no unauthorized previews.
+2. Inject crash/power loss before/after prepare, sync, journal finalization and manifest pointer publication; last durable committed revision remains recoverable.
+3. Test duplicate/reordered journal records, truncated payloads, corrupted checksums and revision-chain discontinuity; fail closed or recover documented last-known-good state.
+4. Journal compaction and checkpoint quota tests, including disk-full and interrupted cleanup; no deletion of last verified checkpoint.
+5. Per-user storage isolation, logout, session generation renewal, privacy revocation and restored relationship filtering.
+6. Verify accepted visual state vs durable saved revision are distinguishable; user never receives misleading save confirmation.
+7. Reconcile D38 transaction IDs with D17 History undo/redo and D27 note autosave, avoiding app-document rollback.
+8. Verify G7 bridge returns reconnection intents/placeholders rather than forged or persisted process/surface capability handles.
+9. QEMU/AuroraFS reboot tests and CI smoke evidence; no production durability claim prior to backend implementation and fault tests.
+
+**Open dependencies:** user-profile storage namespace and rights; AuroraFS atomic durable publication guarantees for mutable records; actual Ring 3 broker ABI; checkpoint frequency/size and journal quotas; retention of Canvas History across reboot; schema migration/version negotiation; application placeholder resolution in G7. These are engineering design gates, not completed source changes.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -969,6 +1048,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify G5-D36 world coordinate overflow handling, camera-rebase precision, anchored-zoom stability, round-trip transform/hit-testing and negative/extreme world coordinates.
 - Verify G5-D37 scene reparent/cycle prevention, semantic/visual separation, coherent index/projection generations, single-instance rehost, privacy-safe hit testing and crash recovery.
 - Verify G5-D38 atomic staging/publication, conflict and duplicate rejection, fail-closed input epochs, History coherence, cancellation/timeout recovery and privacy revocation priority.
+- Verify G5-D39 durable scene restore across reboot, journal replay, last-known-good checkpoint, crash/power-loss fault injection, per-user isolation and explicit dirty-state reporting.
 - Explicit runtime QEMU tests and CI evidence are required before marking any item implemented.
 
 ## 7. Pending design decisions
@@ -987,6 +1067,7 @@ Isolated Ring 3 system and third-party application processes
 - G5-D36 fixed-point world-tick scale, camera-anchor arithmetic, checked screen conversion, zoom thresholds and numerical precision/drift acceptance.
 - G5-D37 scene hierarchy depth and transform scope, semantic graph linkage, compositor projection and hit-test generation coherence.
 - G5-D38 scene transaction limits, compositor batch stage/publish/ack, input epochs, idempotent commit/recovery and structural History journaling.
+- G5-D39 profile-scoped storage broker, durable journal/checkpoint publication, session-vs-saved status, fault recovery and G7 restore bridge.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
