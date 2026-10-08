@@ -1,4 +1,5 @@
 name: Aurora Entropy Source Policy
+# Verify transient and persistent RDSEED fail-closed cases.
 
 on:
   workflow_dispatch:
