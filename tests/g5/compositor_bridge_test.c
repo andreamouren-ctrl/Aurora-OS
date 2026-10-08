@@ -70,6 +70,12 @@ int main(void) {
  fail_compose=false;
  assert(!g5_compositor_bridge_present(&b,slot,1,config,&serial));
  assert(g5_frame_submission_request(&f,slot,4,&req_config));
+ /* A reused registry slot cannot silently inherit an old compositor node. */
+ f.registry.entries[slot].bridge.object_id=99;
+ assert(!g5_compositor_bridge_present(&b,slot,4,config,&serial));
+ f.registry.entries[slot].bridge.object_id=33;
+ assert(b.attached_object_ids[slot]==33);
+
  deny_surface_read=true;
  assert(!g5_compositor_bridge_present(&b,slot,4,config,&serial));
  assert(serial==0&&presents==1&&releases==2);
@@ -88,6 +94,7 @@ int main(void) {
  fail_remove=false;
  g5_compositor_bridge_revoke(&b);
  assert(removes==1&&!b.delivery&&!b.compositor);
+ assert(b.attached_object_ids[slot]==0&&b.attached_object_generations[slot]==0);
  g5_frame_delivery_revoke(&d);
  g5_frame_submission_end(&f);
  return 0;
