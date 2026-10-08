@@ -43,7 +43,8 @@ bool g5_ipc_endpoint_poll(struct g5_ipc_endpoint_binding *b,
   *status=G5_IPC_DENIED;goto cleanup;
  }
  bool tracked=false;
- if(b->pending_requests) {
+ if(b->pending_requests &&
+    (header.kind==G5_IPC_REQUEST || header.kind==G5_IPC_CANCEL)) {
   enum g5_pending_result pending=g5_pending_accept_control(
     b->pending_requests,&wire);
   if(pending!=G5_PENDING_OK) {
