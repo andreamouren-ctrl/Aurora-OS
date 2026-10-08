@@ -9,6 +9,12 @@ on:
       - 'tests/g5/ipc_dispatch_test.c'
       - 'tests/g5/ipc_reentry_test.c'
       - 'tests/g5/ipc_pending_test.c'
+      - 'tests/g5/ipc_durable_test.c'
+      - 'kernel/include/aurora/g5_ipc_durable.h'
+      - 'kernel/src/ipc/g5_ipc_durable.c'
+      - 'kernel/include/aurora/g5_ipc_endpoint.h'
+      - 'kernel/src/ipc/g5_ipc_endpoint.c'
+      - 'kernel/src/ipc/g5_ipc_endpoint_probe.c'
       - 'kernel/include/aurora/g5_ipc_pending.h'
       - 'kernel/src/ipc/g5_ipc_pending.c'
       - 'tests/g5/ipc_session_test.c'
@@ -30,6 +36,12 @@ on:
       - 'tests/g5/ipc_dispatch_test.c'
       - 'tests/g5/ipc_reentry_test.c'
       - 'tests/g5/ipc_pending_test.c'
+      - 'tests/g5/ipc_durable_test.c'
+      - 'kernel/include/aurora/g5_ipc_durable.h'
+      - 'kernel/src/ipc/g5_ipc_durable.c'
+      - 'kernel/include/aurora/g5_ipc_endpoint.h'
+      - 'kernel/src/ipc/g5_ipc_endpoint.c'
+      - 'kernel/src/ipc/g5_ipc_endpoint_probe.c'
       - 'kernel/include/aurora/g5_ipc_pending.h'
       - 'kernel/src/ipc/g5_ipc_pending.c'
       - 'tests/g5/ipc_session_test.c'
@@ -71,6 +83,10 @@ jobs:
             -Ikernel/include kernel/src/ipc/g5_ipc_codec.c kernel/src/ipc/g5_ipc_pending.c tests/g5/ipc_pending_test.c \
             -o build/g5/ipc_pending_test
           ./build/g5/ipc_pending_test
+          cc -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all \
+            -Ikernel/include kernel/src/ipc/g5_ipc_durable.c tests/g5/ipc_durable_test.c \
+            -o build/g5/ipc_durable_test
+          ./build/g5/ipc_durable_test
           cc -std=c11 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all \
             -Ikernel/include kernel/src/ipc/g5_ipc_codec.c kernel/src/ipc/g5_ipc_dispatch.c tests/g5/ipc_session_test.c \
             -o build/g5/ipc_session_test
