@@ -33,6 +33,16 @@ enum g5_ipc_status g5_ipc_dispatch(
         d->dispatch_in_progress = false;
         return G5_IPC_DENIED;
     }
+    if (d->require_durable_reservation && d->reserve == NULL) {
+        d->dispatch_in_progress = false;
+        return G5_IPC_DENIED;
+    }
+    if (d->reserve != NULL &&
+        !d->reserve(d->reserve_context,
+                    header.session_generation,header.request_id)) {
+        d->dispatch_in_progress = false;
+        return G5_IPC_DENIED;
+    }
     /* Reserve the accepted request before invoking side-effecting code.
      * If the handler fails after a partial side effect, an identical retry
      * must not execute it again in this dispatcher lifetime. This is NOT
