@@ -146,6 +146,11 @@ bool xhci_wait_port_status_change(
     uint32_t *out_portsc
 );
 
+bool xhci_acknowledge_port_disconnect(
+    uint8_t port_id,
+    uint32_t portsc
+);
+
 bool xhci_reset_connected_port_after(
     const struct aurora_xhci_probe_result *probe,
     uint8_t after_port_id,
