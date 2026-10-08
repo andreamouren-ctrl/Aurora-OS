@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D28**
+Status: **Design in progress — approved decisions D01–D29**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -38,6 +38,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D26 | Aurora Spatial Layers | Named Canvas layers support independent visibility, edit locks, stacking order and item membership, with authorized interactions and no advanced per-layer effects in this decision |
 | G5-D27 | Aurora Spatial Notes | Canvas-native rich-text notes, sticky notes, arrows, shapes, highlighters, freehand annotations and links to Canvas content, with AI enhancements optional and not included |
 | G5-D28 | Aurora Spatial Clipboard | Clipboard history, multi-item spatial copy/cut/paste, preview and paste-as-copy/link, preserving relative placement without automatically duplicating underlying files |
+| G5-D29 | Aurora Canvas Templates | Bundled and user-created reusable, exportable Canvas templates for groups, layers, notes, portals and spatial layouts, with private data excluded by default |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -269,6 +270,19 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 - Shortcuts, screen-reader-readable operations, explicit history removal, and predictable paste placement are required. Clipboard synchronization with other devices and AI-based paste suggestions are not approved in D28.
 - Acceptance: copy/paste multi-object selection with preserved geometry, paste-as-link with no file clone, cancel/failed cut rollback, clipboard history previews, authorization isolation, stale-generation rejection and sensitive-history cleanup.
 
+
+### 3.22 Aurora Canvas Templates (G5-D29)
+- Provide bundled starting templates and user-authored reusable layouts for the Infinite Living Canvas, including selected spatial regions, group structures, layers, visual notes/shape placeholders, portal definitions and layout arrangements.
+- Templates are **blueprints**, not copies of a user's live session. Default exports contain declarative structure and safe presentation tokens only; no embedded credentials, session tokens, app process state, document bytes, private previews or unrestricted filesystem paths.
+- Support create-from-selection, preview, save-as-template, instantiate, rename, duplicate, delete and portable import/export through a versioned validated schema. Users may opt into explicitly supported non-sensitive assets with warnings and permissions checks; private references remain excluded unless a separate authorized export workflow is defined.
+- Instantiation creates fresh Canvas object IDs and rebinds internal references among the new objects; unresolved external app/content/portal targets become clearly marked placeholders requiring deliberate user binding. Never create active application sessions or grant capabilities merely by importing a template.
+- Template contents may specify default Group (D19), Layer (D26), Note (D27), Portal (D25), Relation Graph (D09/D10) and Visual Studio (D23) styling structures. Rendering adapts to target workspace dimensions, scale and user theme without overwriting stronger accessibility/privacy choices.
+- A template application is a previewable, user-approved atomic Canvas History (D17) transaction; cancel or failure has no partial side effects. Applying a template must not overwrite existing Canvas content without explicit confirmation.
+- A template is a user-controlled reusable asset, distinct from the persistent Activity Space reconstruction model planned for G7. Import/export and template inventory must be protected by Aurora Identity and Privacy Layers (D22).
+- Resource policy: bounds on number of objects, nested group depth, graphs, embedded asset size and parse complexity; no executable scripts, arbitrary resource fetches or privileged settings in template bundles.
+- Acceptance: create a template from a mixed selection (groups/layers/notes/portals), export/import it, preview/instantiate with fresh IDs, resolve placeholders, preserve relative positioning, undo application, reject malicious/oversized bundles and verify no protected content leaked.
+- Dynamic AI-driven template generation/adaptation is not approved as part of G5-D29.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -296,7 +310,7 @@ Isolated Ring 3 system and third-party application processes
 - G5.2: compositor spatial scene, focus, mouse interactions, Spatial Gestures with pan/pointer-centered zoom and optional inertia.
 - G5.3: live application panels and semantic representations.
 - G5.4: minimal modular Hub, system-module host, launcher/search, deterministic Universal Command palette (AI interpretation optional), and Aurora Visual Studio theme-editor baseline.
-- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History, spatial/semantic selection, hybrid Spatial Groups, contextual Spatial Focus, basic Canvas Portals, functional Spatial Layers, Spatial Notes and Spatial Clipboard.
+- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History, spatial/semantic selection, hybrid Spatial Groups, contextual Spatial Focus, basic Canvas Portals, functional Spatial Layers, Spatial Notes, Spatial Clipboard and Canvas Templates.
 - G5.6: QEMU/CI end-to-end, privacy/authorization, performance and recovery tests.
 - Rich Content Fabric, full native browser engine and advanced graph indexing may require later dedicated milestones, not blockers for a coherent first G5 release.
 
@@ -319,6 +333,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify D26 layer create/rename/reorder, visibility/hit-test coherence, edit locking, history undo and secure-overlay priority.
 - Verify D27 rich-text note and drawing primitives, edit/undo, zoom/layers/groups integration, bounds limits and privacy-safe persistence/recovery.
 - Verify D28 multi-object clipboard geometry, paste copy/link semantics, atomic cut rollback, permission isolation and sensitive-history cleanup.
+- Verify D29 template round-trip, fresh-ID remapping, placeholder resolution, atomic instantiation/undo and non-disclosure of private data.
 - No cross-client graphics/control privilege escalation, stale-generation use or cross-session content leak.
 - Closing a process/session cleans all spatial objects and tokens safely.
 - Failure injection: broken module/browser does not terminate system shell; safe graphics recovery remains available.
