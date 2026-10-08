@@ -2070,28 +2070,26 @@ void kmain(void) {
         }
 
         uint8_t report_mouse_back[8] = {0};
-        log_line("[xhci] HID Report Mouse Back interrupt-IN armed");
+        uint16_t back_bit =
+            (uint16_t)(report_layout.button_bit_offset + 3u);
 
-        if (!xhci_receive_hid_interrupt_report(
-                &xhci_state,
-                report_mouse_back,
-                report_mouse_size)) {
-            kernel_panic("live USB Report Mouse Back xHCI transfer failed");
+        if (back_bit >= report_layout.input_report_bits) {
+            kernel_panic("descriptor-derived Back button bit out of range");
         }
 
-        log_write("[xhci] Report Mouse Back raw");
-        for (uint16_t i = 0u; i < report_mouse_size; ++i) {
-            log_write(" ");
-            log_hex64(report_mouse_back[i]);
+        report_mouse_back[back_bit / 8u] |=
+            (uint8_t)(1u << (back_bit % 8u));
+
+        if (report_layout.report_id != 0u) {
+            report_mouse_back[0] = report_layout.report_id;
         }
-        log_line("");
 
         if (!usb_hid_transport_submit_report(
                 &live_hid_transport,
                 report_mouse_handle,
                 report_mouse_back,
                 report_mouse_size)) {
-            kernel_panic("live USB Report Mouse Back decode failed");
+            kernel_panic("descriptor-derived Report Mouse Back report failed");
         }
 
         bool saw_report_back = false;
@@ -2105,34 +2103,32 @@ void kmain(void) {
         }
 
         if (!saw_report_back) {
-            kernel_panic("live USB Report Mouse Back verification failed");
+            kernel_panic("descriptor-derived Report Mouse Back verification failed");
         }
 
-        log_line("[xhci] live HID Report Mouse Back decoded into normalized input");
+        log_line("[xhci] descriptor-derived Report Mouse Back decoded into normalized input");
 
         uint8_t report_mouse_forward[8] = {0};
-        log_line("[xhci] HID Report Mouse Forward interrupt-IN armed");
+        uint16_t forward_bit =
+            (uint16_t)(report_layout.button_bit_offset + 4u);
 
-        if (!xhci_receive_hid_interrupt_report(
-                &xhci_state,
-                report_mouse_forward,
-                report_mouse_size)) {
-            kernel_panic("live USB Report Mouse Forward xHCI transfer failed");
+        if (forward_bit >= report_layout.input_report_bits) {
+            kernel_panic("descriptor-derived Forward button bit out of range");
         }
 
-        log_write("[xhci] Report Mouse Forward raw");
-        for (uint16_t i = 0u; i < report_mouse_size; ++i) {
-            log_write(" ");
-            log_hex64(report_mouse_forward[i]);
+        report_mouse_forward[forward_bit / 8u] |=
+            (uint8_t)(1u << (forward_bit % 8u));
+
+        if (report_layout.report_id != 0u) {
+            report_mouse_forward[0] = report_layout.report_id;
         }
-        log_line("");
 
         if (!usb_hid_transport_submit_report(
                 &live_hid_transport,
                 report_mouse_handle,
                 report_mouse_forward,
                 report_mouse_size)) {
-            kernel_panic("live USB Report Mouse Forward decode failed");
+            kernel_panic("descriptor-derived Report Mouse Forward report failed");
         }
 
         bool saw_report_forward = false;
@@ -2146,10 +2142,10 @@ void kmain(void) {
         }
 
         if (!saw_report_forward) {
-            kernel_panic("live USB Report Mouse Forward verification failed");
+            kernel_panic("descriptor-derived Report Mouse Forward verification failed");
         }
 
-        log_line("[xhci] live HID Report Mouse Forward decoded into normalized input");
+        log_line("[xhci] descriptor-derived Report Mouse Forward decoded into normalized input");
 
         if (!usb_hid_transport_unbind(
                 &live_hid_transport,
