@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP-02 verification PR: exercises full G5 host regression suite.
 on:
   push:
     paths:
