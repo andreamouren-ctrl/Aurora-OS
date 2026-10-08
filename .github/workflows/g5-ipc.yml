@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# Verify corrected typed ACK fixture and all WP-02 tests.
 on:
   push:
     paths:
