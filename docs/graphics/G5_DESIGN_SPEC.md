@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D32**
+Status: **Design in progress — approved decisions D01–D33**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -42,6 +42,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D30 | Modular Shell with isolated services | Lightweight Shell coordinator, explicit versioned interfaces and separated processes at security/failure boundaries; not one monolith or a process for every helper |
 | G5-D31 | Selective process isolation | Trusted Shell modules may share its process; compositor/display, privileged brokers and untrusted applications execute across justified isolation boundaries with supervised restart and fresh capabilities |
 | G5-D32 | Hybrid capability-scoped IPC | Use current bounded Ring 3 IPC for control messages and authorized shared memory/data handles for bulk payloads; no parallel bespoke kernel messaging system |
+| G5-D33 | Aurora Adaptive Buffering | Per-surface bounded buffer pools and frame scheduling adapt to visibility, activity, memory pressure and compositor capacity, preserving atomic commits, capability isolation and release correctness |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -509,6 +510,70 @@ A control message may identify a transfer of type \`G5_BULK_REF\` and carry an *
 
 **Blocking dependencies:** versioned user-space ABI headers and libraries, Ring 3 shared-memory create/map/unmap/revoke or approved broker path, scoped service endpoint discovery, queue overload policy and actual compositor Shell IPC migration. These are required before G5-D32 can be marked *implemented/runtime verified*.
 
+
+### 3.26 Aurora Adaptive Buffering — graphics protocol and performance (G5-D33)
+
+**Approved choice:** adaptive bounded buffer pools, not permanently fixed double/triple buffering and not unlimited dynamic allocation. Runtime tuning is a policy layered on existing surface/buffer commit contracts, not a different graphics transport.
+
+#### Verified source-level foundations (inspected 2026-10-08)
+- \`kernel/include/aurora/graphics_buffer.h\`: \`AURORA_GRAPHICS_BUFFER_MAX_OBJECTS=64\`, \`MAX_DIMENSION=8192\`, \`MAX_BYTES=64 MiB\`; buffer state FREE/READY/COMMITTED/IN_USE/RELEASED and generation/ref-counted capability-backed ownership.
+- \`kernel/include/aurora/graphics_surface.h\`: \`MAX_OBJECTS=128\`, \`MAX_DAMAGE_RECTS=16\`, \`MAX_FRAME_CALLBACKS=8\`; pending/committed snapshot, commit serial and presentation callback fields.
+- \`docs/graphics/SURFACE_BUFFER_PROTOCOL.md\`: attached pending/committed surface state, validated atomic commit, damage, explicit release and bounded backpressure.
+- \`docs/graphics/COMPOSITOR_CONTRACT.md\`: compositor owns presentation scheduling, frame callbacks, release, clipping, damage and scene visibility; software rendering baseline, GPU optional.
+- These are **existing definitions/contracts**, not evidence that the G5 adaptive policy has been implemented or performance-tested.
+
+#### Pool and scheduling policy
+- Each authorized application surface uses a **logical adaptive buffer pool** with policy-selected target depth: 1 retained completed frame for quiescent/non-updating scenes (if safe), generally **2** for interactive operation, and **up to 3** only when frame pacing benefits and memory permits. Values are policy targets, not promises of immediately released objects.
+- New allocations require compositor/buffer-manager admission under global, per-session, per-client and per-surface budgets, constrained by existing kernel maximums. Track bytes by actual allocated stride * height, including simultaneously retained prior generations and intermediate compositor output buffers.
+- An application cannot force a larger pool by excessive COMMIT or callback requests; limit outstanding frames and coalesce replaceable redraws. Give currently focused/interactive surfaces priority under measured demand while preserving fairness for visible background panels.
+- Fully hidden/occluded, far-away or semantic-zoom-collapsed panels may be throttled and eventually release **reusable** old buffers after explicit compositor release; do not reclaim an \`IN_USE\` buffer or silently mutate a client buffer. Visibility alone is neither authorization to read private pixels nor permission to discard app/document state.
+- Reduced refresh rate and texture/cache eviction are distinct from forced buffer deallocation. An inactive client may retain its last authorized completed image for fast redisplay; private/locked scenes follow G5-D22 secure-redaction policy, not generic cache optimization.
+- Scale-aware representations under G5-D06 may use independent summary/icon render objects; the compositor does **not** invent low-resolution private app screenshots or rescale a surface into an unauthorized preview.
+
+#### Proposed protocol additions — not yet existing ABI
+| Operation/event | Meaning | Invariant |
+|---|---|---|
+| \`BUFFER_POOL_HINT\` | Client supplies optional expected cadence/latency class | Hint only; no allocation privilege |
+| \`BUFFER_BUDGET\` | Trusted compositor communicates admitted limits and preferred maximum in-flight frames | Cannot exceed checked ownership/memory budgets |
+| \`BUFFER_ATTACH\` + \`SURFACE_COMMIT\` | Use existing capability-checked surface snapshot flow | Atomic validation; old committed state remains on failure |
+| \`FRAME_CALLBACK\` | Compositor signals an opportunity/result associated with a serial | Not guaranteed display timing or a license to overwrite buffers |
+| \`BUFFER_RELEASE\` | Explicit generation-bound notification that compositor is finished reading | Old/stale generation ignored; never release twice |
+| \`THROTTLE\` / \`RESUME\` | Advisory policy on new frames based on occlusion/pressure | Must not suspend client process without distinct policy authority |
+| \`BUFFER_BUDGET_CHANGED\` | Pressure-related new limits | Existing in-use allocations safely drain before shrinking target |
+
+Transport control messages through G5-D32 \`G5.IPC.v1\` where process boundaries exist. Existing internal \`graphics_surface_*()\` / \`graphics_buffer_*()\` functions and existing configure/ACK remain authoritative until explicit extension and QEMU verification. For 256-byte IPC messages, attach only bounded descriptors/handles, never inline large pixels.
+
+#### Lifetime and synchronization state machine
+\`\`\`text
+FREE/RELEASED -> client obtains reusable writable buffer
+ -> READY (client finished drawing)
+ -> ATTACHED_PENDING -> COMMITTED -> IN_USE (compositor may sample)
+ -> RELEASED (compositor no longer samples; callback/serial checked)
+ -> reusable or destroyed when references/leases reach zero
+\`\`\`
+This is a **logical** state machine; map to existing enum states without renaming existing ABI. Never render into an in-use buffer. Buffer generation and commit/presentation serials reject out-of-order/stale releases; refcounts and process teardown must preserve memory while any authorized reader remains.
+
+#### Performance design targets and measurements (to be calibrated in QEMU)
+- **Correctness first:** no torn/partially committed presentation, use-after-free, uninitialized pixels or privacy leaks; safe degraded rendering under pressure.
+- **Latency:** instrument input-to-frame-present time and median/p95; do not assert a specific production latency SLA before baseline benchmarks.
+- **Frame pacing:** count dropped, coalesced, repeated and late frames, callback latency and per-client fairness. Favor smooth interaction without unlimited queuing.
+- **Memory:** track per-buffer allocations, peak pool bytes, retained buffers by reason, memory-pressure evictions and failure rates; quotas must include 64 MiB object max, 64 total buffers today and compositor backbuffers.
+- **Scalability:** measure increasing numbers of panels, visible surfaces, occluded surfaces and mixed refresh demands across multiple camera zoom levels; verify proportional CPU rendering where damage/occlusion culling is available.
+- **Power/CPU:** background panels must avoid unnecessary redraws when not visible, unless app-level work is independently authorized.
+- Runtime targets for frame interval/latency, minimum supported resolution/number of panels and memory thresholds will be set from test hardware plus QEMU observations, not fabricated in this document.
+
+#### G5-D33 acceptance tests
+1. Default interactive two-buffer workflow and opportunistic third buffer; simulate memory pressure and ensure bounded growth and reliable shrink.
+2. Verify no overwrite of \`IN_USE\` buffer, no premature release, serial/generation checks, safe reuse and teardown.
+3. Alternate visible/occluded/hidden semantic-zoom states rapidly; check frame callback, focus, input capture and privacy behavior.
+4. Ensure pending/committed surface transactions are atomic under invalid metadata, stale configure ACK, window resize and failed buffer allocation.
+5. Exercise 64 MiB-per-buffer and 64-object global limits, checked width/height/stride overflow and per-client quota denials.
+6. Crash app, compositor and Shell between attach/commit/release; verify complete reference/lease recovery without leaking pixels or kernel memory.
+7. Run QEMU software-compositor stress with multiple independent Ring 3 clients; record p50/p95 input latency, frame cadence, frame drops, peak bytes and CPU.
+8. Regression: secure overlays supersede ordinary surfaces, revoke/lock prevents stale previews, and software mode remains usable without GPU acceleration.
+
+**Implementation dependency:** Define and verify public buffer lifecycle notifications and any necessary Ring 3 graphics buffer mapping/transfer ABI. Exact scheduling/admission algorithm, measurable memory thresholds and frame cadence numbers remain engineering tasks, not features claimed complete.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -563,6 +628,7 @@ Isolated Ring 3 system and third-party application processes
 - No cross-client graphics/control privilege escalation, stale-generation use or cross-session content leak.
 - Closing a process/session cleans all spatial objects and tokens safely.
 - Failure injection: broken module/browser does not terminate system shell; safe graphics recovery remains available.
+- Verify G5-D33 adaptive buffer admission, pressure reduction, release correctness, frame pacing, memory quotas, secure occlusion and crash recovery.
 - Explicit runtime QEMU tests and CI evidence are required before marking any item implemented.
 
 ## 7. Pending design decisions
@@ -576,6 +642,7 @@ Isolated Ring 3 system and third-party application processes
 - G5-D23 theme token schema, preset export format, minimum accessibility contrast and graphics effect budgets.
 - G5-D24 camera transform limits, pan gesture conflict policy, inertial parameters and touch gesture transport gates.
 - G5-D30/D31 exact process inventory and privilege/dependency map; review G5-D32 proposed 48-byte wire envelope, bulk-memory Ring 3 API, queue backpressure, typed operation schemas and failure isolation tests.
+- G5-D33 adaptive buffer pool admission/eviction thresholds, Ring 3 buffer-release notifications, frame pacing targets and multi-client performance baselines.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
