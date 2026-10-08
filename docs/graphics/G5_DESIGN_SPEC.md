@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D18**
+Status: **Design in progress — approved decisions D01–D19**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -28,6 +28,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D16 | Aurora Smart Transfer | Cross-module drag-and-drop offers context-sensitive, compatible actions such as open, embed, copy or link; explicit consent and capability controls protect data |
 | G5-D17 | Aurora Canvas History | Undo/redo, restore points and a navigable timeline for Canvas layout and relation changes; no implicit rollback of application-internal data |
 | G5-D18 | Spatial and semantic selection | Multi-select by rectangle/lasso and semantic graph criteria, plus group transforms, alignment and locks, subject to permissions |
+| G5-D19 | Hybrid Aurora Spatial Groups | Visual spatial regions and semantic memberships coexist; groups may be moved, collapsed to one node or expanded without duplicating content |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -126,6 +127,20 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 - Provide accessible selection counts, keyboard alternatives, clear-focus and clear-selection commands, reduced-motion behavior and touch/pen extensibility without requiring those hardware transports for G5.
 - Acceptance: select via lasso/rectangle and via connected-node rule; preview selection count; batch align/move; undo a grouped edit; validate locks, stale objects, protected nodes and large-graph traversal bounds.
 
+
+### 3.12 Hybrid Aurora Spatial Groups (G5-D19)
+- A Spatial Group combines optional **visual region** (title, theme, bounds, positioning) with **semantic collection membership** (typed references to content, panels or other eligible groups). Logical membership need not imply physical proximity.
+- The visual region can gather associated spatial items, while a semantically related item may remain elsewhere on the Canvas; the Shell must clearly distinguish membership from actual spatial containment and avoid involuntary movement.
+- Support **collapse to a single representative group node** and **expand back to its member display**. Smart Semantic Zoom (G5-D06) may automatically select compact aggregated representations at distant scales, without changing membership or deleting child surfaces.
+- Group operations: create, add/remove references, rename, style, collapse/expand, pin/lock, move contained items as an explicitly selected batch, align or reorganize with preview and user confirmation. Every mutable group operation participates in Canvas History (G5-D17).
+- A content object may appear in multiple groups through references; no duplication of underlying files or application instances occurs. Sharing a reference is not equivalent to granting read/modify access.
+- Relation Graph (G5-D09/D10) supports connections between individual members, between groups and their members, and between two groups. At low zoom, aggregated edges show that links exist without leaking protected titles or counts.
+- Support explicit nesting of groups only with bounded depth and cycle prevention; cyclic *semantic links* can exist, but a group cannot recursively contain itself as a visual parent.
+- When moving a group, distinguish **move visual frame only** from **move frame and visible contained items**, with accessible controls and a clear operation preview. Distant semantic members are not silently repositioned.
+- Per-item capability, ownership and session checks still apply during bulk operations and group expansion. Removing a group must not delete referenced documents, application state or unrelated items.
+- Very large groups use bounded graph walks, virtualized previews, incremental search and cancellation; inaccessible members are filtered before rendering or summarizing.
+- Acceptance: create a visual group, add local and distant semantic references, collapse/expand under zoom, move with preview, edit graph link, undo actions, enforce permissions, and demonstrate that no source content was duplicated/deleted.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -153,7 +168,7 @@ Isolated Ring 3 system and third-party application processes
 - G5.2: compositor spatial scene, focus, mouse interactions, zoom/pan.
 - G5.3: live application panels and semantic representations.
 - G5.4: minimal modular Hub, system-module host, basic launcher/search.
-- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History and spatial/semantic selection.
+- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History, spatial/semantic selection and hybrid Spatial Groups.
 - G5.6: QEMU/CI end-to-end, security, performance and recovery tests.
 - Rich Content Fabric, full native browser engine and advanced graph indexing may require later dedicated milestones, not blockers for a coherent first G5 release.
 
@@ -166,6 +181,7 @@ Isolated Ring 3 system and third-party application processes
 - Demonstrate typed cross-module Smart Transfer with explicit user-selected open/copy/link operations, authorization checks and cancellation rollback.
 - Verify Canvas History undo/redo and restore-point preview, conflict-safe restore, and isolation from application-internal document state.
 - Verify marquee/lasso and graph-based selection with permission filtering, bounded traversal, atomic batch edits and history undo.
+- Verify visual and semantic group membership, collapse/expand, nested-group cycle rejection, permission-scoped aggregations, and non-destructive group removal.
 - No cross-client graphics/control privilege escalation, stale-generation use or cross-session content leak.
 - Closing a process/session cleans all spatial objects and tokens safely.
 - Failure injection: broken module/browser does not terminate system shell; safe graphics recovery remains available.
