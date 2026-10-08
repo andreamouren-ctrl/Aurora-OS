@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP03 batch7 real software compositor attach present teardown bridge.
 on:
   push:
     paths:
