@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define AURORA_USER_SESSION_HOST_ABI_VERSION 1u
+#define AURORA_USER_SESSION_HOST_ABI_VERSION 2u
 #define AURORA_USER_SESSION_HOST_STARTUP_STACK_OFFSET 64u
 #define AURORA_USER_SESSION_HOST_USER_ID_SIZE 16u
 
@@ -22,7 +22,7 @@ struct aurora_user_session_host_startup {
     uint64_t profile_handle;
     uint64_t session_generation;
     uint8_t user_id[AURORA_USER_SESSION_HOST_USER_ID_SIZE];
-    uint64_t reserved0;
+    uint64_t g5_endpoint; /* optional, exclusive non-transferable G5 sender */
     uint64_t reserved1;
 };
 
