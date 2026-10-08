@@ -24,4 +24,6 @@ bool g5_durable_reserve(struct g5_ipc_durable_ledger *ledger,
 /* Suitable for g5_dispatch_context.reserve after authenticated restore. */
 bool g5_durable_reserve_callback(void *context,
  uint64_t generation,uint64_t request_id);
+/* Kernel-only QEMU cold-reboot probe; recovered=true after a prior ledger. */
+bool g5_ipc_durable_boot_probe(bool *recovered);
 #endif
