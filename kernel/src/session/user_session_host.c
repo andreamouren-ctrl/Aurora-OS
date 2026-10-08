@@ -388,6 +388,20 @@ bool user_session_host_active(void) {
         process_state(host.process) == AURORA_PROCESS_RUNNING;
 }
 
+static uint32_t g5_session_ready_events;
+static bool g5_session_test_authorize(void *ctx,uint32_t operation,uint64_t generation) {
+    (void)ctx;
+    return operation==G5_OP_SHELL_READY && generation==1u;
+}
+static bool g5_session_test_handle(void *ctx,const struct g5_ipc_header *header,
+                                   const uint8_t *payload) {
+    (void)ctx;(void)payload;
+    if (header->operation!=G5_OP_SHELL_READY || header->session_generation!=1u)
+        return false;
+    ++g5_session_ready_events;
+    return true;
+}
+
 bool user_session_host_self_test(void) {
     if (host.active || session_profile_lease_active()) return false;
 
@@ -431,9 +445,22 @@ bool user_session_host_self_test(void) {
         return false;
     }
 
+    static struct g5_dispatch_context g5_test_dispatcher;
+    clear_bytes(&g5_test_dispatcher,sizeof(g5_test_dispatcher));
+    g5_test_dispatcher.authorize=g5_session_test_authorize;
+    g5_test_dispatcher.handler=g5_session_test_handle;
+    g5_session_ready_events=0u;
+    if (!user_session_host_register_g5_dispatcher(&g5_test_dispatcher)) {
+        session_profile_lease_end();
+        (void)cap_revoke(&bridge.capabilities,profile);
+        (void)cap_revoke(&bridge.capabilities,root);
+        return false;
+    }
     bool started = start_with_context(user_id, UINT64_C(1));
-    bool running = started && user_session_host_active();
+    bool running = started && user_session_host_active() &&
+        host.g5_ready && g5_session_ready_events==1u;
     bool stopped = running && user_session_host_stop();
+    user_session_host_unregister_g5_dispatcher(&g5_test_dispatcher);
 
     session_profile_lease_end();
     bool source_revoked =
