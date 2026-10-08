@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP03 live Ring3 host Shell lifecycle ready/revoke/restart integration.
 on:
   push:
     paths:
