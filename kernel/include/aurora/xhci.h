@@ -41,4 +41,9 @@ bool xhci_read_controller_state(
     struct aurora_xhci_controller_state *out_state
 );
 
+bool xhci_prepare_controller(
+    const struct aurora_xhci_probe_result *probe,
+    struct aurora_xhci_controller_state *state
+);
+
 #endif
