@@ -287,6 +287,9 @@ jobs:
             -serial file:"$SERIAL_LOG" \
             -monitor tcp:127.0.0.1:$MONITOR_PORT,server=on,wait=off \
             -qmp tcp:127.0.0.1:$QMP_PORT,server=on,wait=off \
+            -trace enable=usb_xhci_port_notify \
+            -trace enable=usb_xhci_port_link \
+            -trace enable=usb_xhci_queue_event \
             -d int,cpu_reset \
             -D "$DEBUG_LOG" \
             -display none \
