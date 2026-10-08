@@ -1685,3 +1685,112 @@ bool xhci_find_boot_hid_endpoint(
     log_line("[xhci] no HID Boot interrupt-IN endpoint found");
     return false;
 }
+
+
+static bool xhci_control_no_data(
+    struct aurora_xhci_controller_state *state,
+    uint8_t request_type,
+    uint8_t request,
+    uint16_t value,
+    uint16_t index
+) {
+    if (state == NULL ||
+        state->addressed_slot_id == 0u ||
+        state->ep0_state != 1u ||
+        state->ep0_ring_physical == 0u ||
+        xhci_doorbell_base == NULL) {
+        return false;
+    }
+
+    uint64_t setup_packet =
+        (uint64_t)request_type |
+        ((uint64_t)request << 8u) |
+        ((uint64_t)value << 16u) |
+        ((uint64_t)index << 32u);
+
+    struct xhci_trb setup = {
+        .parameter = setup_packet,
+        .status = 8u,
+        .control =
+            (XHCI_TRB_TYPE_SETUP_STAGE << XHCI_TRB_TYPE_SHIFT) |
+            XHCI_TRB_IDT |
+            XHCI_TRB_CHAIN
+    };
+
+    struct xhci_trb status = {
+        .parameter = 0u,
+        .status = 0u,
+        .control =
+            (XHCI_TRB_TYPE_STATUS_STAGE << XHCI_TRB_TYPE_SHIFT) |
+            XHCI_TRB_DIR_IN |
+            XHCI_TRB_IOC
+    };
+
+    uint64_t ignored = 0u;
+    uint64_t completion_trb = 0u;
+
+    if (!xhci_ep0_push_trb(state, &setup, &ignored) ||
+        !xhci_ep0_push_trb(
+            state,
+            &status,
+            &completion_trb)) {
+        return false;
+    }
+
+    __asm__ volatile ("" ::: "memory");
+
+    xhci_mmio_write32(
+        xhci_doorbell_base,
+        (uint32_t)state->addressed_slot_id * 4u,
+        1u
+    );
+
+    return xhci_wait_transfer_completion(
+        state,
+        state->addressed_slot_id,
+        completion_trb
+    );
+}
+
+bool xhci_set_configuration_and_boot_protocol(
+    struct aurora_xhci_controller_state *state,
+    const struct aurora_usb_hid_endpoint_descriptor *endpoint
+) {
+    if (state == NULL ||
+        endpoint == NULL ||
+        endpoint->configuration_value == 0u ||
+        endpoint->interface_subclass != 0x01u ||
+        (endpoint->interface_protocol != 0x01u &&
+         endpoint->interface_protocol != 0x02u)) {
+        return false;
+    }
+
+    /*
+     * Standard SET_CONFIGURATION: host-to-device, device recipient.
+     */
+    if (!xhci_control_no_data(
+            state,
+            0x00u,
+            0x09u,
+            endpoint->configuration_value,
+            0u)) {
+        log_line("[xhci] SET_CONFIGURATION failed");
+        return false;
+    }
+
+    /*
+     * HID SET_PROTOCOL(0): force boot protocol so the already implemented
+     * fixed-size keyboard/mouse decoders match the live wire format.
+     */
+    if (!xhci_control_no_data(
+            state,
+            0x21u,
+            0x0Bu,
+            0u,
+            endpoint->interface_number)) {
+        log_line("[xhci] HID SET_PROTOCOL(Boot) failed");
+        return false;
+    }
+
+    return true;
+}
