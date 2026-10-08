@@ -293,23 +293,70 @@ bool window_policy_place_initial(
     uint32_t height,
     struct aurora_window_placement *out_placement
 ) {
-    (void)policy;
-    (void)window_id;
-    (void)width;
-    (void)height;
     if (out_placement != NULL) {
         *out_placement = (struct aurora_window_placement){0};
     }
-    return false;
+
+    struct aurora_window_toplevel *window =
+        find_toplevel(policy, window_id);
+
+    if (window == NULL ||
+        out_placement == NULL ||
+        width == 0u ||
+        height == 0u ||
+        width > policy->output_width ||
+        height > policy->output_height) {
+        return false;
+    }
+
+    uint32_t centered_x =
+        (policy->output_width - width) / 2u;
+    uint32_t centered_y =
+        (policy->output_height - height) / 2u;
+
+    uint32_t cascade = policy->cascade_index++;
+    uint32_t offset = (cascade % 8u) * 32u;
+
+    uint32_t max_x = policy->output_width - width;
+    uint32_t max_y = policy->output_height - height;
+
+    uint32_t x = centered_x + offset;
+    uint32_t y = centered_y + offset;
+
+    if (x > max_x) x = max_x;
+    if (y > max_y) y = max_y;
+
+    int32_t z = policy->next_z++;
+    if (policy->next_z <= 0) {
+        policy->next_z = 1;
+    }
+
+    window->placement = (struct aurora_window_placement){
+        .x = (int32_t)x,
+        .y = (int32_t)y,
+        .z = z
+    };
+
+    *out_placement = window->placement;
+    return true;
 }
 
 bool window_policy_raise(
     struct aurora_window_policy *policy,
     uint64_t window_id
 ) {
-    (void)policy;
-    (void)window_id;
-    return false;
+    struct aurora_window_toplevel *window =
+        find_toplevel(policy, window_id);
+
+    if (window == NULL) return false;
+
+    int32_t z = policy->next_z++;
+    if (policy->next_z <= 0) {
+        policy->next_z = 1;
+    }
+
+    window->placement.z = z;
+    return true;
 }
 
 bool window_policy_read_toplevel(
@@ -456,6 +503,62 @@ bool window_policy_selftest(void) {
             0u,
             0u,
             true)) {
+        return false;
+    }
+
+    struct aurora_graphics_surface second_surface = {
+        .generation = 8u,
+        .state = AURORA_GRAPHICS_SURFACE_READY
+    };
+    uint64_t second_window = 0u;
+
+    if (!window_policy_create_toplevel(
+            &policy,
+            &second_surface,
+            &second_window) ||
+        second_window == 0u ||
+        second_window == window) {
+        return false;
+    }
+
+    struct aurora_window_placement first_place = {0};
+    struct aurora_window_placement second_place = {0};
+
+    if (!window_policy_place_initial(
+            &policy,
+            window,
+            800u,
+            600u,
+            &first_place) ||
+        !window_policy_place_initial(
+            &policy,
+            second_window,
+            800u,
+            600u,
+            &second_place) ||
+        first_place.x != 560 ||
+        first_place.y != 240 ||
+        second_place.x <= first_place.x ||
+        second_place.y <= first_place.y ||
+        second_place.z <= first_place.z ||
+        !window_policy_raise(
+            &policy,
+            window)) {
+        return false;
+    }
+
+    struct aurora_window_toplevel first_snapshot = {0};
+    struct aurora_window_toplevel second_snapshot = {0};
+
+    if (!window_policy_read_toplevel(
+            &policy,
+            window,
+            &first_snapshot) ||
+        !window_policy_read_toplevel(
+            &policy,
+            second_window,
+            &second_snapshot) ||
+        first_snapshot.placement.z <= second_snapshot.placement.z) {
         return false;
     }
 
