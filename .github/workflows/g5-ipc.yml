@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# Verify actual session-host G5 startup capability and Ring3 READY.
 on:
   push:
     paths:
