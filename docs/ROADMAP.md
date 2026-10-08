@@ -393,3 +393,7 @@ Every milestone is evaluated against performance, memory efficiency, latency, pr
 ## G4 input stack — COMPLETE
 
 G4 is runtime verified on q35/qemu-xhci with live USB keyboard, live USB mouse motion/buttons/wheel, descriptor-driven five-button Report Mouse support, hot-unplug Port Status Change teardown, and a bounded-polling Event Ring baseline. MSI-X remains a later PCI/interrupt hardening item rather than a G4 V1 blocker.
+
+
+- [x] G5 toplevel configure/ack + activation + placement/stacking policy foundation
+- [ ] G5 Desktop Shell/decorations/window lifecycle integration

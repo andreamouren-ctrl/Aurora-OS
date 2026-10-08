@@ -68,3 +68,17 @@ Closing a window is a request to the client first where possible; policy may for
 ## Activity Spaces
 
 A toplevel belongs to an Activity Space or a Shell-defined global/system scope. Moving between spaces is Shell policy and does not transfer client memory ownership.
+
+
+## Implementation status
+
+The first G5 policy foundation is implemented and runtime verified:
+
+- TOPLEVEL configure serial generation and exact ACK;
+- stale/future ACK rejection;
+- target-bound one-shot activation tokens with bounded interaction-serial age;
+- trusted Shell activation authority;
+- centered/cascaded initial placement;
+- Shell-controlled stacking and raise.
+
+Decorations, Desktop Shell process behavior, launcher/panel/task switching and full move/resize/close compositor integration remain pending.

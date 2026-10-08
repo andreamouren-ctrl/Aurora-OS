@@ -262,3 +262,19 @@ G4 now includes a disconnect-driven xHCI lifecycle. A live QEMU USB mouse is hot
 For Aurora V1, bounded polling is the V1 xHCI event-delivery contract. The controller still uses the normal xHCI Event Ring and ERST; Interrupter 0 IMAN.IE remains intentionally clear and runtime validation rejects an ambiguous state in which polling is selected while hardware interrupt delivery is enabled. After the externally driven USB mouse hot-unplug, the final gate also verifies that the next Event Ring dequeue entry is no longer owned by the current consumer cycle.
 
 This policy closes G4 without pretending MSI-X exists. MSI-X capability is detected, but generic PCI MSI-X table programming and dynamic device interrupt-vector allocation are platform hardening work outside the G4 V1 input transport contract.
+
+
+## Window policy layer
+
+G5 introduces a dedicated `window_policy` layer above graphics surfaces and below Desktop Shell policy. It deliberately keeps window-management authority out of client-owned surface state and out of the compositor's rendering primitives.
+
+The first runtime-verified policy foundation provides:
+
+- serialized TOPLEVEL CONFIGURE/ACK negotiation;
+- exact pending-serial acknowledgement and geometry readiness checks;
+- one-shot activation tokens bound to a target window and recent interaction serial;
+- trusted-Shell activation bypass without granting the same authority to ordinary clients;
+- deterministic centered/cascaded initial placement;
+- Shell-owned monotonic stacking and raise behavior.
+
+The software compositor remains responsible for composition; the window-policy layer decides policy state that the Shell will later translate into compositor node placement/visibility.

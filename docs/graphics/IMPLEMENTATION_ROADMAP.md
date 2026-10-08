@@ -219,14 +219,25 @@ Current G4 gate status: **runtime verified end-to-end for a live USB HID Boot ke
 
 ## Phase G5 — Window protocol and Shell
 
-Implement:
+Status: **In progress**
 
-- toplevel configure/ack;
-- activation tokens;
-- placement/stacking policy;
-- decorations;
-- Desktop Shell process;
-- launcher/panel/task switching baseline.
+Implemented and runtime verified:
+
+- [x] toplevel configure/ack serial protocol;
+- [x] exact-serial ACK validation with stale/future ACK rejection;
+- [x] configure-ready geometry validation before policy-visible transition;
+- [x] one-shot, target-bound activation tokens;
+- [x] bounded interaction-serial freshness for untrusted activation;
+- [x] trusted Shell activation authority;
+- [x] centered initial placement with bounded cascade;
+- [x] Shell-owned monotonic stacking / raise policy.
+
+Remaining:
+
+- [ ] decorations;
+- [ ] Desktop Shell process;
+- [ ] launcher/panel/task switching baseline;
+- [ ] move/resize/close integration with compositor nodes and input routing.
 
 Acceptance gate:
 
