@@ -4,9 +4,11 @@
 static struct aurora_graphics_surface surface;
 static unsigned adds,removes,presents,releases;
 static bool fail_compose;
+static bool deny_surface_read;
 bool graphics_surface_lookup(struct aurora_cap_table *c,aurora_cap_handle h,
  uint64_t rights,struct aurora_graphics_surface **out) {
- if(!c||h!=17||!out||(rights&~(AURORA_RIGHT_READ|AURORA_RIGHT_CONTROL)))return false;
+ if(!c||h!=17||!out||deny_surface_read||
+    (rights&~(AURORA_RIGHT_READ|AURORA_RIGHT_CONTROL)))return false;
  *out=&surface;return true;
 }
 bool graphics_surface_read_committed(struct aurora_cap_table *c,aurora_cap_handle h,
@@ -66,6 +68,13 @@ int main(void) {
  fail_compose=false;
  assert(!g5_compositor_bridge_present(&b,slot,1,config,&serial));
  assert(g5_frame_submission_request(&f,slot,4,&req_config));
+ deny_surface_read=true;
+ assert(!g5_compositor_bridge_present(&b,slot,4,config,&serial));
+ assert(serial==0&&presents==1&&releases==2);
+ deny_surface_read=false;
+ surface.destroy_requested=true;
+ assert(!g5_compositor_bridge_present(&b,slot,4,config,&serial));
+ surface.destroy_requested=false;
  surface.generation=3;
  assert(!g5_compositor_bridge_present(&b,slot,4,config,&serial));
  surface.generation=2;
