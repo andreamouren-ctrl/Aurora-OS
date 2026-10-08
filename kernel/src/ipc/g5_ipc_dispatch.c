@@ -38,6 +38,8 @@ enum g5_ipc_status g5_ipc_dispatch(
 
 void g5_ipc_dispatch_revoke(struct g5_dispatch_context *d) {
     if (d == NULL) return;
+    if (d->active_session_generation > d->last_revoked_generation)
+        d->last_revoked_generation = d->active_session_generation;
     d->active_session_generation = 0;
     d->last_request_id = 0;
 }
@@ -45,7 +47,8 @@ void g5_ipc_dispatch_revoke(struct g5_dispatch_context *d) {
 bool g5_ipc_dispatch_bind_session(struct g5_dispatch_context *d,
                                   uint64_t generation) {
     if (d == NULL || generation == 0 ||
-        d->active_session_generation != 0) return false;
+        d->active_session_generation != 0 ||
+        generation <= d->last_revoked_generation) return false;
     d->last_request_id = 0;
     d->active_session_generation = generation;
     return true;
