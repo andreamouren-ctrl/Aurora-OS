@@ -62,12 +62,19 @@ bool g5_compositor_bridge_present(struct g5_compositor_bridge *b,uint32_t slot,
  }
  return true;
 }
+bool g5_compositor_bridge_detach(struct g5_compositor_bridge *b,uint32_t slot) {
+ if(!b||!b->compositor||slot>=G5_SURFACE_REGISTRY_CAPACITY||
+    !b->node_ids[slot])return false;
+ if(!software_compositor_remove_surface(b->compositor,b->node_ids[slot]))
+    return false;
+ b->node_ids[slot]=0;
+ return true;
+}
 void g5_compositor_bridge_revoke(struct g5_compositor_bridge *b) {
  if(!b)return;
  if(b->compositor)for(unsigned i=0;i<G5_SURFACE_REGISTRY_CAPACITY;i++) {
   if(b->node_ids[i]) {
-   (void)software_compositor_remove_surface(b->compositor,b->node_ids[i]);
-   b->node_ids[i]=0;
+   (void)g5_compositor_bridge_detach(b,i);
   }
  }
  b->delivery=NULL;b->compositor=NULL;b->generation=0;
