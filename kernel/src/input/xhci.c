@@ -45,6 +45,7 @@
 
 #define XHCI_PORTSC_CCS             (1u << 0)
 #define XHCI_PORTSC_PED             (1u << 1)
+#define XHCI_PORTSC_CSC             (1u << 17)
 #define XHCI_PORTSC_PR              (1u << 4)
 #define XHCI_PORTSC_PP              (1u << 9)
 #define XHCI_PORTSC_SPEED_SHIFT     10u
@@ -1049,6 +1050,59 @@ bool xhci_wait_port_status_change(
 
     log_line("[xhci] port-status change timeout");
     return false;
+}
+
+bool xhci_acknowledge_port_disconnect(
+    uint8_t port_id,
+    uint32_t portsc
+) {
+    if (port_id == 0u ||
+        xhci_operational_base == NULL ||
+        (portsc & XHCI_PORTSC_CCS) != 0u ||
+        (portsc & XHCI_PORTSC_CSC) == 0u) {
+        return false;
+    }
+
+    uint32_t offset =
+        XHCI_OP_PORT_BASE +
+        (uint32_t)(port_id - 1u) *
+        XHCI_OP_PORT_STRIDE +
+        XHCI_PORTSC;
+
+    /*
+     * PORTSC change bits are RW1C.  Preserve the currently asserted
+     * non-change state (notably Port Power) while writing back all change
+     * flags observed in the snapshot so they are acknowledged atomically.
+     * On a disconnected port PED/PR are already clear, so this does not
+     * disable an active endpoint or restart reset.
+     */
+    uint32_t acknowledge =
+        (portsc & ~XHCI_PORTSC_RW1C_MASK) |
+        (portsc & XHCI_PORTSC_RW1C_MASK);
+
+    xhci_mmio_write32(
+        xhci_operational_base,
+        offset,
+        acknowledge
+    );
+
+    uint32_t after =
+        xhci_mmio_read32(
+            xhci_operational_base,
+            offset
+        );
+
+    if ((after & XHCI_PORTSC_CCS) != 0u ||
+        (after & XHCI_PORTSC_CSC) != 0u) {
+        log_write("[xhci] disconnect acknowledge failed port ");
+        log_u64(port_id);
+        log_write(" portsc ");
+        log_hex64(after);
+        log_line("");
+        return false;
+    }
+
+    return true;
 }
 
 bool xhci_reset_connected_port_after(
