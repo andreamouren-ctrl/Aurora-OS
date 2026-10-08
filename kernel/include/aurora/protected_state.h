@@ -161,6 +161,8 @@ protected_state_replace_record_durable(
     size_t length
 );
 
+/* Diagnostic stage of latest durable replacement failure (boot tests only). */
+uint32_t protected_state_replace_debug_stage(void);
 bool protected_state_self_test(void);
 
 #endif
