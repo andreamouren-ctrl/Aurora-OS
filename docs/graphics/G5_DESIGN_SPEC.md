@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D17**
+Status: **Design in progress — approved decisions D01–D18**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -27,6 +27,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D15 | Fully adaptive modules | Module interface automatically reorganizes available controls, information density and presentation in response to panel geometry, Hub/Canvas context and semantic zoom; application state remains intact |
 | G5-D16 | Aurora Smart Transfer | Cross-module drag-and-drop offers context-sensitive, compatible actions such as open, embed, copy or link; explicit consent and capability controls protect data |
 | G5-D17 | Aurora Canvas History | Undo/redo, restore points and a navigable timeline for Canvas layout and relation changes; no implicit rollback of application-internal data |
+| G5-D18 | Spatial and semantic selection | Multi-select by rectangle/lasso and semantic graph criteria, plus group transforms, alignment and locks, subject to permissions |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -113,6 +114,18 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 - Accessibility: keyboard undo/redo, readable timeline entries and restore confirmation showing which Canvas objects will change.
 - Acceptance: verify placement → link → group → undo/redo; save restore point → further edits → preview/restore; failed restore rollback; session permission revocation; no document-content modifications.
 
+
+### 3.11 Aurora Spatial & Semantic Selection (G5-D18)
+- Support single selection, additive/toggle selection, rectangular marquee, freeform lasso and keyboard-accessible selection. Gestures must not steal interactions from an active application: selection mode and Shell chrome handle boundaries are explicit.
+- Selected Canvas objects may be moved, aligned, grouped, locked and resized together where supported. Composite edits are atomic Canvas History transactions (G5-D17), previewable and undoable.
+- Semantic selection can select by object type/category, manually defined group, explicit relationships, and a bounded graph neighborhood (e.g. directly connected nodes). Selection scope is visible before applying destructive or bulk actions.
+- Keep **selection** distinct from **modification**: following a graph relation does not automatically relocate, modify or share linked items. Graph-derived selection respects link direction/type, permissions and hidden/private nodes.
+- Manage large selections via viewport-aware highlights, virtualization, bounded graph traversal and cancellation; distant/offscreen matches are summarized and navigable via Aurora Navigator.
+- Spatial transforms preserve relative positions; locked objects cannot be silently moved, and incompatible element types must be skipped with transparent feedback or cause an atomic operation to abort.
+- Multi-user/multi-session and stale object-generation safety: validate ownership, lifetime and capabilities at command execution, not solely at selection time. Never select or reveal inaccessible nodes through relation metadata.
+- Provide accessible selection counts, keyboard alternatives, clear-focus and clear-selection commands, reduced-motion behavior and touch/pen extensibility without requiring those hardware transports for G5.
+- Acceptance: select via lasso/rectangle and via connected-node rule; preview selection count; batch align/move; undo a grouped edit; validate locks, stale objects, protected nodes and large-graph traversal bounds.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -140,7 +153,7 @@ Isolated Ring 3 system and third-party application processes
 - G5.2: compositor spatial scene, focus, mouse interactions, zoom/pan.
 - G5.3: live application panels and semantic representations.
 - G5.4: minimal modular Hub, system-module host, basic launcher/search.
-- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer and bounded live-session Canvas History.
+- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History and spatial/semantic selection.
 - G5.6: QEMU/CI end-to-end, security, performance and recovery tests.
 - Rich Content Fabric, full native browser engine and advanced graph indexing may require later dedicated milestones, not blockers for a coherent first G5 release.
 
@@ -152,6 +165,7 @@ Isolated Ring 3 system and third-party application processes
 - User-approved relation creation and undo; rejected proposals have no effect.
 - Demonstrate typed cross-module Smart Transfer with explicit user-selected open/copy/link operations, authorization checks and cancellation rollback.
 - Verify Canvas History undo/redo and restore-point preview, conflict-safe restore, and isolation from application-internal document state.
+- Verify marquee/lasso and graph-based selection with permission filtering, bounded traversal, atomic batch edits and history undo.
 - No cross-client graphics/control privilege escalation, stale-generation use or cross-session content leak.
 - Closing a process/session cleans all spatial objects and tokens safely.
 - Failure injection: broken module/browser does not terminate system shell; safe graphics recovery remains available.
