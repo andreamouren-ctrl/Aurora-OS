@@ -47,6 +47,7 @@
 #define XHCI_INTR_ERDP               0x18u
 
 #define XHCI_TRB_TYPE_LINK           6u
+#define XHCI_TRB_TYPE_ENABLE_SLOT    9u
 #define XHCI_TRB_CYCLE               (1u << 0)
 #define XHCI_TRB_TOGGLE_CYCLE        (1u << 1)
 #define XHCI_TRB_TYPE_SHIFT          10u
@@ -558,6 +559,10 @@ bool xhci_bootstrap_dma(
     state->command_ring_physical = command_ring;
     state->event_ring_physical = event_ring;
     state->erst_physical = erst;
+    state->command_enqueue = 0u;
+    state->command_cycle = true;
+    state->event_dequeue = 0u;
+    state->event_cycle = true;
     state->dma_ready = true;
     state->running = true;
     return true;
@@ -594,4 +599,83 @@ fail:
     if (command_ring != 0u) pmm_free_page(command_ring);
     if (dcbaa != 0u) pmm_free_page(dcbaa);
     return false;
+}
+
+
+bool xhci_submit_enable_slot(
+    struct aurora_xhci_controller_state *state,
+    uint64_t *out_command_trb_physical
+) {
+    if (out_command_trb_physical != NULL) {
+        *out_command_trb_physical = 0u;
+    }
+
+    if (state == NULL ||
+        out_command_trb_physical == NULL ||
+        !state->dma_ready ||
+        !state->running ||
+        state->command_ring_physical == 0u ||
+        xhci_doorbell_base == NULL ||
+        state->command_enqueue >= XHCI_RING_TRB_COUNT - 1u) {
+        return false;
+    }
+
+    struct xhci_trb *ring =
+        (struct xhci_trb *)pmm_phys_to_virt(
+            state->command_ring_physical
+        );
+
+    uint16_t index = state->command_enqueue;
+    uint32_t cycle = state->command_cycle
+        ? XHCI_TRB_CYCLE
+        : 0u;
+
+    ring[index] = (struct xhci_trb){
+        .parameter = 0u,
+        .status = 0u,
+        .control =
+            (XHCI_TRB_TYPE_ENABLE_SLOT << XHCI_TRB_TYPE_SHIFT) |
+            cycle
+    };
+
+    __asm__ volatile ("" ::: "memory");
+
+    *out_command_trb_physical =
+        state->command_ring_physical +
+        (uint64_t)index * sizeof(struct xhci_trb);
+
+    ++state->command_enqueue;
+
+    if (state->command_enqueue ==
+        XHCI_RING_TRB_COUNT - 1u) {
+        struct xhci_trb *link =
+            &ring[XHCI_RING_TRB_COUNT - 1u];
+
+        uint32_t link_cycle =
+            state->command_cycle
+                ? XHCI_TRB_CYCLE
+                : 0u;
+
+        link->control =
+            (XHCI_TRB_TYPE_LINK << XHCI_TRB_TYPE_SHIFT) |
+            XHCI_TRB_TOGGLE_CYCLE |
+            link_cycle;
+
+        __asm__ volatile ("" ::: "memory");
+
+        state->command_enqueue = 0u;
+        state->command_cycle = !state->command_cycle;
+    }
+
+    /*
+     * Doorbell 0 targets the command ring. A zero write is the xHCI command
+     * doorbell value; the controller consumes the newly published TRB.
+     */
+    xhci_mmio_write32(
+        xhci_doorbell_base,
+        0u,
+        0u
+    );
+
+    return true;
 }
