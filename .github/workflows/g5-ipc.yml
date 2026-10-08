@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP03 compositor receipt failure rollback and snapshot release.
 on:
   push:
     paths:
