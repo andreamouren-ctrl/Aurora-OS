@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <aurora/clock.h>
 #include <aurora/log.h>
 #include <aurora/pci.h>
 #include <aurora/pmm.h>
@@ -74,6 +75,7 @@
 #define XHCI_COMPLETION_SUCCESS      1u
 #define XHCI_EVENT_SPIN_LIMIT        10000000u
 #define XHCI_ASYNC_EVENT_SPIN_LIMIT  2000000000u
+#define XHCI_PORT_CHANGE_TIMEOUT_NS  5000000000ull
 #define XHCI_TRB_CYCLE               (1u << 0)
 #define XHCI_TRB_TOGGLE_CYCLE        (1u << 1)
 #define XHCI_TRB_CHAIN               (1u << 4)
@@ -983,9 +985,23 @@ bool xhci_wait_port_status_change(
     volatile uint8_t *interrupter0 =
         xhci_runtime_base + XHCI_RUNTIME_INTERRUPTER0;
 
-    for (uint32_t spin = 0u;
-         spin < XHCI_ASYNC_EVENT_SPIN_LIMIT;
-         ++spin) {
+    uint64_t start_ns = clock_now_ns();
+    uint64_t deadline_ns =
+        start_ns != 0u
+            ? start_ns + XHCI_PORT_CHANGE_TIMEOUT_NS
+            : 0u;
+
+    uint32_t fallback_spin = 0u;
+
+    for (;;) {
+        if (deadline_ns != 0u) {
+            if (clock_now_ns() >= deadline_ns) {
+                break;
+            }
+        } else if (fallback_spin++ >= XHCI_ASYNC_EVENT_SPIN_LIMIT) {
+            break;
+        }
+
         struct xhci_trb event =
             events[state->event_dequeue];
 
@@ -1069,7 +1085,37 @@ bool xhci_wait_port_status_change(
         return true;
     }
 
-    log_line("[xhci] port-status change timeout");
+    uint32_t port_offset =
+        XHCI_OP_PORT_BASE +
+        (uint32_t)(expected_port_id - 1u) *
+        XHCI_OP_PORT_STRIDE +
+        XHCI_PORTSC;
+    uint32_t current_portsc =
+        xhci_mmio_read32(
+            xhci_operational_base,
+            port_offset
+        );
+    struct xhci_trb pending =
+        events[state->event_dequeue];
+    uint32_t pending_type =
+        (pending.control >> XHCI_TRB_TYPE_SHIFT) & 0x3Fu;
+    bool pending_cycle =
+        (pending.control & XHCI_TRB_CYCLE) != 0u;
+
+    log_write("[xhci] port-status change timeout port ");
+    log_u64(expected_port_id);
+    log_write(" portsc ");
+    log_hex64(current_portsc);
+    log_write(" dequeue ");
+    log_u64(state->event_dequeue);
+    log_write(" expected-cycle ");
+    log_u64(state->event_cycle ? 1u : 0u);
+    log_write(" pending-type ");
+    log_u64(pending_type);
+    log_write(" pending-cycle ");
+    log_u64(pending_cycle ? 1u : 0u);
+    log_line("");
+
     return false;
 }
 
