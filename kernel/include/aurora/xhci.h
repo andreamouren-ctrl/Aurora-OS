@@ -140,6 +140,12 @@ bool xhci_wait_command_completion(
     uint8_t *out_slot_id
 );
 
+bool xhci_wait_port_status_change(
+    struct aurora_xhci_controller_state *state,
+    uint8_t expected_port_id,
+    uint32_t *out_portsc
+);
+
 bool xhci_reset_connected_port_after(
     const struct aurora_xhci_probe_result *probe,
     uint8_t after_port_id,
