@@ -39,6 +39,9 @@ Date: 2026-10-08. Ground truth is the referenced source and GitHub Actions logs.
 
 - **Entropy failure root-cause and bounded retry correction (2026-10-08):** PR #137 Identity QEMU log recorded `RDSEED: available`, `startup_samples=7`, `source_failures=1`, `health_failures=0`, with mandatory Ring 3 entropy gate aborting boot validation. This is a transient startup source-read exhaustion, not a failed health sample. `kernel/src/security/entropy.c` now retries each startup sample up to eight source calls, counts failures, refuses RDRAND fallback, and still latches any failed health test; source exhaustion remains fail-closed. `kernel/tests/entropy_test.c` covers a single eighth-sample miss and permanent exhaustion; new `Aurora Entropy Source Policy` CI job **passed** on PR #139. QEMU multi-workflow outcome must be checked independently before accepting WP-02.
 
+
+- **WP-02 CI acceptance update — PR #139:** Commit `790ce105df3e3d3e60f071ebfc2d679c3a302a7e` completed successfully in all four workflows: `Aurora Entropy Source Policy`, `Aurora Identity Entropy Handoff`, `G5 IPC QEMU Cold Boot Recovery`, `Aurora OS Bootstrap Build`. Kernel startup retries are bounded and mandatory trusted-seed Ring 3 check remains fail-closed. Earlier PR #137 recorded one real RDSEED source failure at the eighth startup sample. This success verifies the implemented bootstrap G5 IPC control path, not a graphical Shell/compositor or exactly-once side-effect execution.
+
 ## Security and scope notes
 
 - Capability receiver table must be owned by the service; an integer in the IPC data payload never grants authority.
