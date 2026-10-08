@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# Verify rights-aware G5 opcode dispatch.
 on:
   push:
     paths:
