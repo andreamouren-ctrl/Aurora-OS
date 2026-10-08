@@ -475,5 +475,40 @@ bool usb_hid_selftest(void) {
         return false;
     }
 
+    input_init();
+
+    static struct aurora_usb_hid_mouse right_mouse;
+    clear_mouse(&right_mouse);
+
+    const uint64_t right_mouse_id =
+        AURORA_INPUT_DEVICE_USB_BASE + UINT64_C(9);
+    const uint8_t right_press[4] = {0x02u, 0u, 0u, 0u};
+    const uint8_t right_release[4] = {0u, 0u, 0u, 0u};
+
+    if (!usb_hid_mouse_attach(&right_mouse, right_mouse_id) ||
+        !usb_hid_mouse_process_boot_report(&right_mouse, right_press) ||
+        !usb_hid_mouse_process_boot_report(&right_mouse, right_release) ||
+        !usb_hid_mouse_detach(&right_mouse)) {
+        return false;
+    }
+
+    if (!input_poll_event(&event) ||
+        event.type != AURORA_INPUT_EVENT_DEVICE_ADDED ||
+        event.device_id != right_mouse_id ||
+        !input_poll_event(&event) ||
+        event.type != AURORA_INPUT_EVENT_POINTER_BUTTON ||
+        event.button != AURORA_POINTER_BUTTON_RIGHT ||
+        !event.pressed ||
+        !input_poll_event(&event) ||
+        event.type != AURORA_INPUT_EVENT_POINTER_BUTTON ||
+        event.button != AURORA_POINTER_BUTTON_RIGHT ||
+        event.pressed ||
+        !input_poll_event(&event) ||
+        event.type != AURORA_INPUT_EVENT_DEVICE_REMOVED ||
+        event.device_id != right_mouse_id ||
+        input_poll_event(&event)) {
+        return false;
+    }
+
     return true;
 }
