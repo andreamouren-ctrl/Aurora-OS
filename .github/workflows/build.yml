@@ -75,6 +75,57 @@ jobs:
               f.write(sector)
           PY
 
+          MONITOR_PORT=4444
+          INJECTOR_STATUS_FILE=build/qemu-hid-injector.status
+          rm -f "$INJECTOR_STATUS_FILE"
+
+          (
+            injected=0
+            for attempt in $(seq 1 250); do
+              if grep -Fq "[xhci] HID interrupt-IN armed" "$SERIAL_LOG" 2>/dev/null; then
+                python3 - "$MONITOR_PORT" <<'PY'
+import socket
+import sys
+import time
+
+port = int(sys.argv[1])
+last_error = None
+
+for _ in range(50):
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=1.0) as sock:
+            sock.settimeout(1.0)
+            try:
+                sock.recv(4096)
+            except Exception:
+                pass
+            sock.sendall(b"sendkey a 1000\n")
+            time.sleep(0.2)
+        sys.exit(0)
+    except OSError as exc:
+        last_error = exc
+        time.sleep(0.1)
+
+print(f"QEMU monitor injection failed: {last_error}", file=sys.stderr)
+sys.exit(1)
+PY
+                status=$?
+                if [ "$status" -eq 0 ]; then
+                  injected=1
+                fi
+                break
+              fi
+              sleep 0.1
+            done
+
+            if [ "$injected" -eq 1 ]; then
+              echo 0 > "$INJECTOR_STATUS_FILE"
+            else
+              echo 1 > "$INJECTOR_STATUS_FILE"
+            fi
+          ) &
+          INJECTOR_PID=$!
+
           set +e
           timeout 25s qemu-system-x86_64 \
             -M q35 \
@@ -88,6 +139,7 @@ jobs:
             -drive file="$STORAGE_IMAGE",format=raw,if=none,id=aurora_disk \
             -device ide-hd,drive=aurora_disk \
             -serial file:"$SERIAL_LOG" \
+            -monitor tcp:127.0.0.1:$MONITOR_PORT,server=on,wait=off \
             -d int,cpu_reset \
             -D "$DEBUG_LOG" \
             -display none \
@@ -95,7 +147,14 @@ jobs:
             -no-shutdown
 
           STATUS=$?
+          wait "$INJECTOR_PID"
+          INJECTOR_STATUS=$(cat "$INJECTOR_STATUS_FILE" 2>/dev/null || echo 1)
           set -e
+
+          if [ "$INJECTOR_STATUS" -ne 0 ]; then
+            echo "QEMU HID key injection did not complete" >&2
+            exit 1
+          fi
 
           if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ]; then
             echo "QEMU exited unexpectedly with status $STATUS" >&2
@@ -147,6 +206,10 @@ jobs:
           grep -F "[xhci] addressed Device Context + EP0 running gate passed" "$SERIAL_LOG"
           grep -F "[xhci] GET_DESCRIPTOR(Device) runtime gate passed" "$SERIAL_LOG"
           grep -F "[xhci] GET_DESCRIPTOR(Configuration)+HID endpoint runtime gate passed" "$SERIAL_LOG"
+          grep -F "[xhci] SET_CONFIGURATION + HID Boot Protocol gate passed" "$SERIAL_LOG"
+          grep -F "[xhci] Configure Endpoint + HID interrupt-IN Running gate passed" "$SERIAL_LOG"
+          grep -F "[xhci] HID interrupt-IN armed" "$SERIAL_LOG"
+          grep -F "[xhci] live HID report decoded into normalized input" "$SERIAL_LOG"
           grep -F "[input] PS/2 mouse IRQ path online" "$SERIAL_LOG"
 
           if ! grep -F \
