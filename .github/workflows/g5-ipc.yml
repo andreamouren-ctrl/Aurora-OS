@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP03 attached surface identity, reuse guard and node cleanup.
 on:
   push:
     paths:
