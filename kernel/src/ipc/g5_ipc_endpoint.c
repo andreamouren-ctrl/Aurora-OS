@@ -3,7 +3,17 @@ bool g5_ipc_endpoint_poll(struct g5_ipc_endpoint_binding *b,
  enum g5_ipc_status *status) {
  if(status) *status=G5_IPC_DENIED;
  if(!b || !status || !b->receiver || !b->receiver_caps ||
-    !b->dispatch || !b->provisioned_exclusively || !b->authority_rights)
+    !b->dispatch || !b->provisioned_exclusively || !b->authority_rights ||
+    b->receiver_endpoint_handle==AURORA_CAP_INVALID)
+  return false;
+ if(b->trusted_consumer_thread!=0 &&
+    scheduler_current_thread_id()!=b->trusted_consumer_thread)
+  return false;
+ struct aurora_capability_view endpoint_view={0};
+ if(!cap_lookup(b->receiver_caps,b->receiver_endpoint_handle,
+                AURORA_CAP_IPC_ENDPOINT,AURORA_RIGHT_READ,
+                &endpoint_view) ||
+    endpoint_view.object != b->receiver)
   return false;
  struct aurora_ipc_received native={0};
  if(!ipc_receive(b->receiver,b->receiver_caps,&native)) return false;
