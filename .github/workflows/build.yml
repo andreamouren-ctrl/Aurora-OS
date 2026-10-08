@@ -99,7 +99,7 @@ jobs:
                           sock.recv(4096)
                       except Exception:
                           pass
-                      sock.sendall(b"sendkey a 1000\\n")
+                      sock.sendall(b"sendkey a 1000\n")
                       time.sleep(0.2)
                   sys.exit(0)
               except OSError as exc:
