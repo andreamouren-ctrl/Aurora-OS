@@ -17,7 +17,7 @@ static bool execute(void *ctx,const struct g5_ipc_header *h,const uint8_t *p) {
 }
 int main(void) {
     struct aurora_cap_table table;
-    struct g5_dispatch_context dispatch={5,0,allow,execute,NULL};
+    struct g5_dispatch_context dispatch={.active_session_generation=5,.authorize=allow,.handler=execute};
     struct aurora_sys_ipc_received msg={0};
     struct g5_ipc_header header={1,0,48,G5_IPC_REQUEST,
                                   G5_OP_WINDOW_CLOSE,0,8,1,5,1};
