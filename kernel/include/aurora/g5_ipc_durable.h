@@ -21,4 +21,7 @@ bool g5_durable_restore(struct g5_ipc_durable_ledger *ledger,
  uint64_t active_session_generation);
 bool g5_durable_reserve(struct g5_ipc_durable_ledger *ledger,
  uint64_t generation,uint64_t request_id);
+/* Suitable for g5_dispatch_context.reserve after authenticated restore. */
+bool g5_durable_reserve_callback(void *context,
+ uint64_t generation,uint64_t request_id);
 #endif
