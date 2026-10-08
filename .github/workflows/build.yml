@@ -120,46 +120,66 @@ jobs:
 
             mouse_injected=0
             if [ "$injected" -eq 1 ]; then
-              for attempt in $(seq 1 250); do
-                if grep -Fq "[xhci] HID mouse interrupt-IN armed" "$SERIAL_LOG" 2>/dev/null; then
-                  python3 - "$MONITOR_PORT" <<'PY'
+              python3 - "$MONITOR_PORT" "$SERIAL_LOG" <<'PY'
           import socket
           import sys
           import time
 
           port = int(sys.argv[1])
-          last_error = None
+          serial_log = sys.argv[2]
 
-          for _ in range(50):
-              try:
-                  with socket.create_connection(("127.0.0.1", port), timeout=1.0) as sock:
-                      sock.settimeout(1.0)
-                      try:
-                          sock.recv(4096)
-                      except Exception:
-                          pass
-                      sock.sendall(b"mouse_move 6 -4\n")
-                      time.sleep(0.15)
-                      sock.sendall(b"mouse_button 1\n")
-                      time.sleep(0.2)
-                  sys.exit(0)
-              except OSError as exc:
-                  last_error = exc
+          stages = [
+              ("[xhci] HID mouse interrupt-IN armed", ["mouse_move 6 -4"]),
+              ("[xhci] HID mouse button interrupt-IN armed", ["mouse_button 1"]),
+              ("[xhci] HID mouse right-button interrupt-IN armed", ["mouse_button 2"]),
+              ("[xhci] HID mouse middle-button interrupt-IN armed", ["mouse_button 4"]),
+              ("[xhci] HID mouse wheel interrupt-IN armed", ["mouse_move 0 0 1"]),
+          ]
+
+          def wait_marker(marker):
+              for _ in range(300):
+                  try:
+                      with open(serial_log, "r", encoding="utf-8", errors="ignore") as f:
+                          if marker in f.read():
+                              return True
+                  except OSError:
+                      pass
                   time.sleep(0.1)
+              return False
 
-          print(f"QEMU mouse injection failed: {last_error}", file=sys.stderr)
-          sys.exit(1)
+          def send_commands(commands):
+              last_error = None
+              for _ in range(50):
+                  try:
+                      with socket.create_connection(("127.0.0.1", port), timeout=1.0) as sock:
+                          sock.settimeout(1.0)
+                          try:
+                              sock.recv(4096)
+                          except Exception:
+                              pass
+                          for command in commands:
+                              sock.sendall((command + "\n").encode("ascii"))
+                              time.sleep(0.1)
+                      return True
+                  except OSError as exc:
+                      last_error = exc
+                      time.sleep(0.1)
+              print(f"QEMU mouse monitor command failed: {last_error}", file=sys.stderr)
+              return False
+
+          for marker, commands in stages:
+              if not wait_marker(marker):
+                  print(f"Timed out waiting for {marker}", file=sys.stderr)
+                  sys.exit(1)
+              if not send_commands(commands):
+                  sys.exit(1)
+
+          sys.exit(0)
           PY
-                  status=$?
-                  if [ "$status" -eq 0 ]; then
-                    mouse_injected=1
-                  fi
-                  break
-                fi
-                sleep 0.1
-              done
+              if [ "$?" -eq 0 ]; then
+                mouse_injected=1
+              fi
             fi
-
             if [ "$injected" -eq 1 ] && [ "$mouse_injected" -eq 1 ]; then
               echo 0 > "$INJECTOR_STATUS_FILE"
             else
@@ -258,6 +278,9 @@ jobs:
           grep -F "[xhci] HID mouse interrupt-IN armed" "$SERIAL_LOG"
           grep -F "[xhci] HID mouse button interrupt-IN armed" "$SERIAL_LOG"
           grep -F "[xhci] live HID mouse motion+button decoded into normalized input" "$SERIAL_LOG"
+          grep -F "[xhci] live HID mouse right-button decoded into normalized input" "$SERIAL_LOG"
+          grep -F "[xhci] live HID mouse middle-button decoded into normalized input" "$SERIAL_LOG"
+          grep -F "[xhci] live HID mouse wheel decoded into normalized input" "$SERIAL_LOG"
           grep -F "[xhci] second HID Boot Mouse teardown gate passed" "$SERIAL_LOG"
           grep -F "[input] PS/2 mouse IRQ path online" "$SERIAL_LOG"
 
