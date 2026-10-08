@@ -671,6 +671,8 @@ void login_input_init(void) {
         log_write(" output_words=");
         log_u64(entropy_diagnostic.output_words);
         log_line("");
+        /* Validation builds must never certify an unexecuted security gate. */
+        kernel_panic("Ring 3 trusted entropy unavailable in boot validation");
     }
 
     protected_state_bootstrap_probe();
