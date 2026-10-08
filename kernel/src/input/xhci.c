@@ -873,8 +873,9 @@ bool xhci_wait_command_completion(
     return false;
 }
 
-bool xhci_reset_first_connected_port(
+bool xhci_reset_connected_port_after(
     const struct aurora_xhci_probe_result *probe,
+    uint8_t after_port_id,
     uint8_t *out_port_id,
     uint8_t *out_speed_id
 ) {
@@ -889,7 +890,14 @@ bool xhci_reset_first_connected_port(
         return false;
     }
 
-    for (uint8_t port = 0u; port < probe->max_ports; ++port) {
+    uint8_t start_port =
+        after_port_id >= probe->max_ports
+            ? probe->max_ports
+            : after_port_id;
+
+    for (uint8_t port = start_port;
+         port < probe->max_ports;
+         ++port) {
         uint32_t offset =
             XHCI_OP_PORT_BASE +
             (uint32_t)port * XHCI_OP_PORT_STRIDE +
@@ -965,6 +973,19 @@ bool xhci_reset_first_connected_port(
     return false;
 }
 
+
+bool xhci_reset_first_connected_port(
+    const struct aurora_xhci_probe_result *probe,
+    uint8_t *out_port_id,
+    uint8_t *out_speed_id
+) {
+    return xhci_reset_connected_port_after(
+        probe,
+        0u,
+        out_port_id,
+        out_speed_id
+    );
+}
 
 bool xhci_prepare_address_device(
     struct aurora_xhci_controller_state *state,
