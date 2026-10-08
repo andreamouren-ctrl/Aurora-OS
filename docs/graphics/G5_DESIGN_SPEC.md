@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D26**
+Status: **Design in progress — approved decisions D01–D27**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -36,6 +36,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D24 | Aurora Spatial Gestures | Pan, pointer-anchored zoom, adjustable inertial navigation, keyboard shortcuts, and progressive multi-touch gesture support; Canvas rotation is not included |
 | G5-D25 | Aurora Canvas Portals | Spatial bookmarks and visible portal nodes jump to saved coordinates, authorized groups or projects without duplicating content; live remote-area previews excluded |
 | G5-D26 | Aurora Spatial Layers | Named Canvas layers support independent visibility, edit locks, stacking order and item membership, with authorized interactions and no advanced per-layer effects in this decision |
+| G5-D27 | Aurora Spatial Notes | Canvas-native rich-text notes, sticky notes, arrows, shapes, highlighters, freehand annotations and links to Canvas content, with AI enhancements optional and not included |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -240,6 +241,21 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 - Accessibility: keyboard layer chooser, clear visible/hidden/locked states, accessible layer labels, and non-color-only distinctions.
 - Acceptance: create/rename/reorder a layer; move an item between layers; hide/show and validate compositor visibility plus hit testing; lock and reject edits; undo/redo; enforce secure overlay priority; test protected cross-layer relations and process lifetime preservation.
 
+
+### 3.20 Aurora Spatial Notes (G5-D27)
+- Provide **Canvas-native notes** as independent typed spatial objects: sticky notes, rich-text note cards, labels, directional arrows, geometric shapes, highlighter marks, and freehand strokes. All can be moved/resized as appropriate and inherit spatial zoom/visibility rules.
+- Rich-text notes support a safe bounded subset: paragraphs, emphasis, headings, lists and links to authorized content. No arbitrary HTML/script execution or implicit remote resource fetch. Document editing inside unrelated applications remains app-owned.
+- Notes and drawing objects have stable IDs, explicit layer membership (D26), session ownership, bounds, transforms, accessible labels, and optional attachments to Spatial Groups (D19) or Relation Graph objects (D09/D10).
+- Distinguish **annotations** (visual marks) from **semantic graph relations** (typed edges). An arrow is not automatically a verified relationship; users may explicitly convert/link it using approved relation workflows.
+- Drawing tools: pen/freehand path, highlighter, basic shape/arrow creation, select/edit/move/resize, and erase. Stylus pressure and advanced pen hardware are progressive input extensions; initial G5 baseline must work with mouse and keyboard where meaningful.
+- Respect semantic zoom (D06): detailed editing only at readable scales, compact/summarized representations when distant. Dimming, grouping, focus and layer visibility must preserve input correctness and not destroy unsaved notes.
+- Integrate Canvas History (D17) with reversible create/edit/move/delete commands, appropriate edit batching (stroke-level and text-edit transactions), named restore points and conflict-safe recovery. Notes are protected user data: autosave and crash recovery must follow a durable storage design; full workspace reconstruction across reboot coordinates with G7.
+- Notes can be transferred or linked through Smart Transfer (D16), searched via Universal Command (D21), selected semantically (D18) and themed through Visual Studio (D23), subject to Aurora Privacy Layers (D22). Never leak protected note text through previews, graph hints, clipboard/export, search or AI context.
+- Rendering and data model limits: bound stroke vertex counts, object sizes and text length; clip offscreen content, simplify distant strokes, and avoid redraw of unchanged regions. Geometry operations and rich-text parsing must reject malformed or excessive input safely.
+- Accessibility: keyboard note creation, text input, shape selection, alternative labels for drawings, sufficient contrast, non-color-only semantics and reduced-motion-compatible interaction.
+- Initial G5 tests: create/edit rich-text note, sticky, arrow, shape, highlight and freehand stroke; link a note to a document without copying it; group/layer/focus/zoom interactions; undo/redo, save/reload (when persistence available), stale-reference denial, protected-note privacy and crash/failure recovery.
+- Automatic AI classification/summarization/suggestions are *not* approved as part of G5-D27; they would require a separate later decision.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -267,7 +283,7 @@ Isolated Ring 3 system and third-party application processes
 - G5.2: compositor spatial scene, focus, mouse interactions, Spatial Gestures with pan/pointer-centered zoom and optional inertia.
 - G5.3: live application panels and semantic representations.
 - G5.4: minimal modular Hub, system-module host, launcher/search, deterministic Universal Command palette (AI interpretation optional), and Aurora Visual Studio theme-editor baseline.
-- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History, spatial/semantic selection, hybrid Spatial Groups, contextual Spatial Focus, basic Canvas Portals and functional Spatial Layers.
+- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History, spatial/semantic selection, hybrid Spatial Groups, contextual Spatial Focus, basic Canvas Portals, functional Spatial Layers and Spatial Notes.
 - G5.6: QEMU/CI end-to-end, privacy/authorization, performance and recovery tests.
 - Rich Content Fabric, full native browser engine and advanced graph indexing may require later dedicated milestones, not blockers for a coherent first G5 release.
 
@@ -288,6 +304,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify D24 pan, pointer-anchored zoom, inertial cancellation, keyboard alternatives, reduced-motion behavior and safe input capture revocation.
 - Verify D25 bookmark/portal creation, typed destination resolution, back navigation, stale-target handling and privacy-safe cross-session denial.
 - Verify D26 layer create/rename/reorder, visibility/hit-test coherence, edit locking, history undo and secure-overlay priority.
+- Verify D27 rich-text note and drawing primitives, edit/undo, zoom/layers/groups integration, bounds limits and privacy-safe persistence/recovery.
 - No cross-client graphics/control privilege escalation, stale-generation use or cross-session content leak.
 - Closing a process/session cleans all spatial objects and tokens safely.
 - Failure injection: broken module/browser does not terminate system shell; safe graphics recovery remains available.
