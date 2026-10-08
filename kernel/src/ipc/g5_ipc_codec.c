@@ -101,3 +101,47 @@ enum g5_ipc_status g5_ipc_decode_received(
     }
     return g5_ipc_decode(msg->data, msg->length, out, payload);
 }
+
+bool g5_ipc_opcode_known(uint32_t operation) {
+    switch (operation) {
+        case G5_OP_SHELL_READY:
+        case G5_OP_SHELL_HEALTH:
+        case G5_OP_WINDOW_CONFIGURE:
+        case G5_OP_WINDOW_CONFIGURE_ACK:
+        case G5_OP_WINDOW_PLACE:
+        case G5_OP_WINDOW_CLOSE:
+        case G5_OP_SCENE_PREPARE:
+        case G5_OP_SCENE_PUBLISH:
+            return true;
+        default: return false;
+    }
+}
+
+enum g5_ipc_status g5_ipc_validate_caps(
+    const struct aurora_sys_ipc_received *received,
+    const struct g5_ipc_cap_requirement *requirements,
+    uint32_t count,
+    g5_ipc_cap_check_fn checker,
+    void *context
+) {
+    if (received == NULL || count > G5_IPC_WIRE_MAX_CAPS ||
+        received->capability_count > G5_IPC_WIRE_MAX_CAPS)
+        return G5_IPC_BAD_ARGUMENT;
+    if (received->capability_count != count)
+        return G5_IPC_BAD_CAPABILITIES;
+    if (count != 0 && (requirements == NULL || checker == NULL))
+        return G5_IPC_DENIED;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (received->capabilities[i] == 0 ||
+            requirements[i].type <= AURORA_CAP_NONE ||
+            requirements[i].type >= AURORA_CAP_TYPE_COUNT)
+            return G5_IPC_BAD_CAPABILITIES;
+        for (uint32_t j = 0; j < i; ++j)
+            if (received->capabilities[i] == received->capabilities[j])
+                return G5_IPC_BAD_CAPABILITIES;
+        if (!checker(context, received->capabilities[i],
+                     requirements[i].type, requirements[i].rights))
+            return G5_IPC_DENIED;
+    }
+    return G5_IPC_OK;
+}
