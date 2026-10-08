@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D36**
+Status: **Design in progress — approved decisions D01–D37**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -46,6 +46,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D34 | Aurora Spatial Rendering hybrid | Spatial visibility indexing, region/damage-driven composition, bounded caches and software-compositor-first rendering; GPU acceleration is optional and later |
 | G5-D35 | Hybrid Spatial Index Engine | Stable versioned spatial-index interface with swappable benchmark-selected dynamic R-tree/loose quadtree backends, and an authoritative correctness reference scan |
 | G5-D36 | Aurora Hybrid Coordinates | Persistent deterministic signed 64-bit fixed-point world coordinates with double-precision camera math, camera-relative origin rebasing and checked screen conversion |
+| G5-D37 | Aurora Hybrid Scene Graph | Hierarchical visual transforms and ownership-independent semantic graph; explicit contracts with Spatial Index, Content Graph and compositor, without live-app duplication |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -775,6 +776,73 @@ These types belong in a shared, versioned user-space Canvas/graphics header to b
 
 **Still to freeze after measurements:** supported world distance/window, fixed-point tick scale (1024 proposed), rounding mode, zoom clamp, transform tolerance, interpolation details and whether a compositor affine-transform protocol extension is required for arbitrary scales.
 
+
+### 3.30 Aurora Hybrid Scene Graph — hierarchy and integration contracts (G5-D37)
+
+**Approved:** visual scene structure is a bounded **parent–child tree** for transforms, clipping and rendering; *semantic* relationships are stored and queried in an independent graph. An object may have one visual parent while having many permitted semantic memberships. Neither relationship implicitly transfers application, filesystem or Identity authority.
+
+#### Canonical scene model and invariants
+- Shell Canvas Engine owns a canonical versioned registry of logical **scene nodes**, each with stable opaque ID, node generation, type, one visual parent (or root), sibling stacking order, local transform, local bounds, visibility/lock flags, layer ID and optional authorized application surface reference. The existing compositor surface graph is a **derived projection** of this registry, not its persistent source of truth.
+- Define node types: ROOT, VISUAL_GROUP, APP_PANEL, CONTENT_REF, NOTE/SHAPE, RELATION_RENDER_PROXY and PORTAL; type-specific extensions use bounded validated payloads. Semantic group memberships and edge metadata live in the Content Graph, **not** in visual parent pointers.
+- Visual parentage forms an **acyclic forest rooted at explicit workspace/layer roots**; one visual parent per node, bounded depth, checked fanout and atomic reparent. Reject self-parent, descendant-parent, duplicate ID, cross-session parent and stale revision.
+- World placement is computed from local-to-parent transforms accumulated to the root using D36 checked hybrid coordinate math. Use camera-relative origin rebasing before final screen conversion. Cache world AABBs by scene generation; invalidate descendants after parent edits with bounded lazy recompute.
+- A collapsed group changes its rendered representation and hit-testing target, not ownership of children or their application state; links to children remain in the semantic graph subject to Privacy Layers D22. Hidden/locked layers D26 and Spatial Focus D20 apply *after* transform resolution.
+- Model a single logical live app instance with one authorized surface placement in the current scene; moving Hub ↔ Canvas (D13/D14) is a transactional rehost rather than cloning processes or buffers.
+
+#### Logical interface contracts (proposed, not yet compiled)
+| Contract | Producer → consumer | Operations/data | Revision and security checks |
+|---|---|---|---|
+| \`G5.SceneGraph.v1\` | Shell tools/History → Canvas Engine | create/destroy, reparent, set local transform, set visibility/layer/order, snapshot children | session-scoped IDs, bounded hierarchy, atomic transaction, revision |
+| \`G5.SceneBounds.v1\` | Scene Graph → Spatial Index | object ID + computed **world AABB** + object revision; upsert/remove batch | update/rollback in same scene generation; no false-negative visibility queries |
+| \`G5.SceneSemantic.v1\` | Scene Graph ↔ Content Graph broker | map visual node ↔ typed content reference; authorized edge/group query, visibility-filtered metadata | links are non-authoritative; no implicit read grants or private count leaks |
+| \`G5.SceneProjection.v1\` | Canvas Engine → Compositor | authorized visible set, stable surface capability, screen transform, clip, opacity, z/order, damage and scene revision | compositor validates handles, ownership, secure surface ordering and accepts atomically |
+| \`G5.SceneHitTest.v1\` | input router ↔ Canvas/Compositor | input point, camera revision, scene generation, candidate node IDs | final target must match committed compositor input region and session authority |
+- Treat operations above as **logical C interface candidates**. Any out-of-process variant uses D32's bounded IPC envelope and capability-scoped data transfer, never raw pointers or implicit string object names.
+
+#### Atomic mutation pipeline
+1. Verify caller capability/session generation and object preconditions. Validate target node type, one-parent rule, layer edit-lock and graph permissions.
+2. Stage a bounded scene transaction (e.g. reparent+transform+layer changes) without changing authoritative visible/hit-test state.
+3. Compute affected subtree transforms/world AABBs and prepare D35 index batch. Either both scene registry and index advance coherently to a new scene revision, or reject/rollback and keep prior committed state. On index failure, rebuild/reference-scan fallback and block unsafe hit testing.
+4. Independently resolve authorized D09/D10 semantic edges; edges do **not** imply visual parenthood, and an edge update does not duplicate/move the source panel.
+5. Recalculate D34 viewport visible set, D06 representation levels, D26 layers and D22 privacy. Stage scene delta for compositor, respecting its current maximum of 64 scene nodes; batch notes/edges where a verified primitive API permits.
+6. Publish compositor transaction and new hit-test revision only after compositor acknowledgement. On timeout/crash, invalidate outstanding revision and retry safe reconstruction; never expose partly applied secure scene changes.
+7. Record user-facing structural mutation in Canvas History D17 after successful commit; do not mutate app-internal documents.
+
+#### Canonical conceptual structures
+\`\`\`c
+/* Design sketch only; final ABI/layout not frozen. */
+typedef uint64_t g5_scene_node_id;
+typedef struct {
+    g5_scene_node_id id, parent_id;
+    uint64_t generation, scene_revision;
+    uint32_t node_type, layer_id;
+    int32_t sibling_order;
+    g5_world_point local_origin; /* D36 fixed-point */
+    g5_world_aabb local_bounds;
+    uint32_t flags;
+    /* secure surface capabilities are session-scoped external references */
+} g5_scene_node_descriptor;
+\`\`\`
+Hierarchy translation-only transforms are the **proposed initial subset**. Scaling/rotation of groups would require explicit fixed-point matrix conventions, AABB broad-phase inflation and renderer support and must not be silently assumed present.
+
+#### Safety, performance and recovery
+- Bound max hierarchy depth and per-frame dirty-subtree work; lazy transform invalidation should propagate parent revision without forcing a full Canvas scan. Detect and reject cycles before committing any modification.
+- Scene Graph and Spatial Index are separate derived data domains with independent cache layouts but one committed scene revision contract. Content Graph relations may be eventually indexed; user-facing privacy changes and revocations must be synchronously enforced at projection/query time.
+- Reparenting a node across privileged session/workspace scopes is forbidden without an explicit higher-level authorized transfer; names, portals or clipboard manifests are never authority.
+- On Shell restart, recreate the scene registry from authorized state where available, then rebuild indexes and compositor projection with fresh generation-bound surface handles. On compositor restart, discard stale projection IDs; never resurrect a dead app surface by copying its old numeric ID.
+
+#### Acceptance test matrix
+1. Create deep/wide bounded hierarchies, reparent and move groups; compare world bounds to a full recursive/reference transform walk.
+2. Reject self/ancestor cycles, cross-session parentage, invalid child types, stale revisions and depth/fanout overflow **atomically**.
+3. Verify one visual parent versus multiple semantic group/edge memberships; deleting a visual group does not delete unrelated content.
+4. Differential index query after reparent/move/collapse/layer changes, with no false-negative viewport objects and bounded dirty work.
+5. Validate secure/hide/focus/group-collapse projection and no private relation labels/previews, ghost inputs or bypass of compositor secure overlay ordering.
+6. Verify one live app state and surface after Hub ↔ Canvas rehost; no duplication or unintended lifecycle reset.
+7. Inject compositor/index/graph-broker failures before and after commit; maintain rollback or safe reconstruction, correct History ordering and stale-token rejection.
+8. Record p50/p95 subtree update, viewport projection, hit-test and scene-commit latency for 1k/10k/100k logical nodes in software QEMU/CI, respecting the current 64-node compositor ceiling.
+
+**Implementation blockers:** actual source layout for the Shell Canvas registry; graph broker authority; compositor atomic scene-delta API; validated surface rehost semantics; fixed numeric transform conventions; performance and depth limits. Design approval does not claim these APIs exist today.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -833,6 +901,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify G5-D34 spatial query equivalence, distant-camera precision, scene node virtualization, damage correctness, privacy-aware hit testing and benchmarked scalability.
 - Verify G5-D35 backend-neutral index mutations, full-scan differential equivalence, generation-safe queries, bounded memory and reproducible R-tree/quadtree benchmarking.
 - Verify G5-D36 world coordinate overflow handling, camera-rebase precision, anchored-zoom stability, round-trip transform/hit-testing and negative/extreme world coordinates.
+- Verify G5-D37 scene reparent/cycle prevention, semantic/visual separation, coherent index/projection generations, single-instance rehost, privacy-safe hit testing and crash recovery.
 - Explicit runtime QEMU tests and CI evidence are required before marking any item implemented.
 
 ## 7. Pending design decisions
@@ -849,6 +918,7 @@ Isolated Ring 3 system and third-party application processes
 - G5-D33 adaptive buffer pool admission/eviction thresholds, Ring 3 buffer-release notifications, frame pacing targets and multi-client performance baselines.
 - G5-D34/D35 spatial-index benchmark backend selection, viewport virtualization, dirty-tile budgets and the compositor 64-node capacity constraint.
 - G5-D36 fixed-point world-tick scale, camera-anchor arithmetic, checked screen conversion, zoom thresholds and numerical precision/drift acceptance.
+- G5-D37 scene hierarchy depth and transform scope, atomic registry/index update, semantic graph linkage, compositor projection/ack and hit-test generation coherence.
 - Definition of the G5 minimal shippable acceptance gate.
 
 ## 8. Change control
