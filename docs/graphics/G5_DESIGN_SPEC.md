@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D19**
+Status: **Design in progress — approved decisions D01–D20**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -29,6 +29,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D17 | Aurora Canvas History | Undo/redo, restore points and a navigable timeline for Canvas layout and relation changes; no implicit rollback of application-internal data |
 | G5-D18 | Spatial and semantic selection | Multi-select by rectangle/lasso and semantic graph criteria, plus group transforms, alignment and locks, subject to permissions |
 | G5-D19 | Hybrid Aurora Spatial Groups | Visual spatial regions and semantic memberships coexist; groups may be moved, collapsed to one node or expanded without duplicating content |
+| G5-D20 | Aurora Spatial Focus: contextual | Center the selected item/group, emphasize relevant items and links and dim unrelated Canvas regions; easily reversible with no layout mutation |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -141,6 +142,18 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 - Very large groups use bounded graph walks, virtualized previews, incremental search and cancellation; inaccessible members are filtered before rendering or summarizing.
 - Acceptance: create a visual group, add local and distant semantic references, collapse/expand under zoom, move with preview, edit graph link, undo actions, enforce permissions, and demonstrate that no source content was duplicated/deleted.
 
+
+### 3.13 Aurora Spatial Focus — contextual mode (G5-D20)
+- An explicit user action focuses an individual Canvas element, project or Spatial Group. The Shell smoothly centers/frames the relevant spatial region and chooses a readable camera scale while respecting accessibility reduced-motion settings.
+- Highlight relevant Canvas nodes and authorized Relation Graph edges. Dim unrelated content without deleting, changing positions, suspending application logic or silently modifying group membership.
+- Preserve a reversible **camera/focus context** (previous pan, zoom and active selection) so the user can exit immediately and return to the earlier overview. Focus state is presentation/navigation state, not a new security boundary.
+- Focus must not disclose protected, off-session or otherwise inaccessible related objects through highlights, edge counts, tooltips or spatial search.
+- Support clear exit/escape behavior, keyboard navigation, focus-within-context and visible indication of the active focus target. Explicit user navigation or Hub invocation must not trap the user inside focused mode.
+- Unrelated interactive apps remain isolated. Input routing uses authoritative surface focus/capture rules; visually dimmed elements cannot accidentally intercept a click intended for the focused view.
+- Semantic relevance can use explicit group membership and approved relation types; suggestions/inferred links are not silently treated as confirmed graph edges.
+- Rendering must be bounded by visible spatial objects and edge budgets; provide graceful degradation for large graphs or when compositor effects are limited.
+- Initial G5 acceptance: focus a group with near/distant semantic members; verify camera framing, relation highlighting, dimming, exit-to-previous-view, accessibility controls and security filtering. Verify no Canvas layout/history mutation from focus navigation alone.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -168,7 +181,7 @@ Isolated Ring 3 system and third-party application processes
 - G5.2: compositor spatial scene, focus, mouse interactions, zoom/pan.
 - G5.3: live application panels and semantic representations.
 - G5.4: minimal modular Hub, system-module host, basic launcher/search.
-- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History, spatial/semantic selection and hybrid Spatial Groups.
+- G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History, spatial/semantic selection, hybrid Spatial Groups and contextual Spatial Focus.
 - G5.6: QEMU/CI end-to-end, security, performance and recovery tests.
 - Rich Content Fabric, full native browser engine and advanced graph indexing may require later dedicated milestones, not blockers for a coherent first G5 release.
 
@@ -182,6 +195,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify Canvas History undo/redo and restore-point preview, conflict-safe restore, and isolation from application-internal document state.
 - Verify marquee/lasso and graph-based selection with permission filtering, bounded traversal, atomic batch edits and history undo.
 - Verify visual and semantic group membership, collapse/expand, nested-group cycle rejection, permission-scoped aggregations, and non-destructive group removal.
+- Verify Spatial Focus camera framing, relevant-edge highlighting, exit/restore navigation, safe dimmed input routing and no layout mutation.
 - No cross-client graphics/control privilege escalation, stale-generation use or cross-session content leak.
 - Closing a process/session cleans all spatial objects and tokens safely.
 - Failure injection: broken module/browser does not terminate system shell; safe graphics recovery remains available.
