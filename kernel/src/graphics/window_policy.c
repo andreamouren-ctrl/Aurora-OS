@@ -341,6 +341,53 @@ bool window_policy_place_initial(
     return true;
 }
 
+bool window_policy_move(
+    struct aurora_window_policy *policy,
+    uint64_t window_id,
+    int32_t x,
+    int32_t y,
+    uint32_t width,
+    uint32_t height
+) {
+    struct aurora_window_toplevel *window =
+        find_toplevel(policy, window_id);
+    if (window == NULL ||
+        window->surface == NULL ||
+        window->surface->generation != window->surface_generation ||
+        window->surface->destroy_requested ||
+        window->surface->state == AURORA_GRAPHICS_SURFACE_FREE ||
+        !window_policy_configure_ready(policy, window_id, width, height) ||
+        x < 0 || y < 0 ||
+        (uint64_t)(uint32_t)x + width > policy->output_width ||
+        (uint64_t)(uint32_t)y + height > policy->output_height) {
+        return false;
+    }
+    window->placement.x = x;
+    window->placement.y = y;
+    return true;
+}
+
+bool window_policy_destroy_toplevel(
+    struct aurora_window_policy *policy,
+    uint64_t window_id
+) {
+    struct aurora_window_toplevel *window =
+        find_toplevel(policy, window_id);
+    if (window == NULL) return false;
+
+    for (uint32_t i = 0u;
+         i < AURORA_WINDOW_POLICY_MAX_ACTIVATION_TOKENS;
+         ++i) {
+        if (policy->activation_tokens[i].used &&
+            policy->activation_tokens[i].target_window_id == window_id) {
+            clear_bytes(&policy->activation_tokens[i],
+                        sizeof(policy->activation_tokens[i]));
+        }
+    }
+    clear_bytes(window, sizeof(*window));
+    return true;
+}
+
 bool window_policy_raise(
     struct aurora_window_policy *policy,
     uint64_t window_id
