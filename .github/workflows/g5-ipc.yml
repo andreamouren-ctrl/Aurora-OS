@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP03 real native IPC channel probe compile and QEMU kernel build.
 on:
   push:
     paths:
