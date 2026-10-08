@@ -1544,3 +1544,144 @@ bool xhci_get_device_descriptor(
 
     return true;
 }
+
+
+#define AURORA_USB_CONFIGURATION_MAX 4096u
+
+bool xhci_find_boot_hid_endpoint(
+    struct aurora_xhci_controller_state *state,
+    struct aurora_usb_hid_endpoint_descriptor *out_endpoint
+) {
+    if (state == NULL || out_endpoint == NULL) {
+        return false;
+    }
+
+    uint8_t header[9] = {0};
+
+    if (!xhci_control_in(
+            state,
+            0x80u,
+            0x06u,
+            0x0200u,
+            0u,
+            header,
+            sizeof(header))) {
+        log_line("[xhci] GET_DESCRIPTOR(Configuration header) failed");
+        return false;
+    }
+
+    if (header[0] < 9u || header[1] != 0x02u) {
+        log_line("[xhci] invalid Configuration Descriptor header");
+        return false;
+    }
+
+    uint16_t total_length = usb_read_le16(&header[2]);
+
+    if (total_length < 9u ||
+        total_length > AURORA_USB_CONFIGURATION_MAX) {
+        log_write("[xhci] invalid configuration total length ");
+        log_u64(total_length);
+        log_line("");
+        return false;
+    }
+
+    static uint8_t raw[AURORA_USB_CONFIGURATION_MAX];
+
+    if (!xhci_control_in(
+            state,
+            0x80u,
+            0x06u,
+            0x0200u,
+            0u,
+            raw,
+            total_length)) {
+        log_line("[xhci] GET_DESCRIPTOR(Configuration) failed");
+        return false;
+    }
+
+    if (raw[0] < 9u ||
+        raw[1] != 0x02u ||
+        usb_read_le16(&raw[2]) != total_length ||
+        raw[5] == 0u) {
+        log_line("[xhci] malformed Configuration Descriptor root");
+        return false;
+    }
+
+    uint8_t configuration_value = raw[5];
+    bool in_boot_hid_interface = false;
+    uint8_t interface_number = 0u;
+    uint8_t interface_subclass = 0u;
+    uint8_t interface_protocol = 0u;
+
+    uint16_t offset = 0u;
+
+    while (offset < total_length) {
+        if ((uint16_t)(total_length - offset) < 2u) {
+            return false;
+        }
+
+        uint8_t length = raw[offset];
+        uint8_t type = raw[offset + 1u];
+
+        if (length < 2u ||
+            (uint16_t)(offset + length) > total_length) {
+            log_line("[xhci] malformed USB descriptor chain");
+            return false;
+        }
+
+        if (type == 0x04u) {
+            if (length < 9u) return false;
+
+            interface_number = raw[offset + 2u];
+            uint8_t alternate_setting = raw[offset + 3u];
+            uint8_t interface_class = raw[offset + 5u];
+            interface_subclass = raw[offset + 6u];
+            interface_protocol = raw[offset + 7u];
+
+            in_boot_hid_interface =
+                alternate_setting == 0u &&
+                interface_class == 0x03u &&
+                interface_subclass == 0x01u &&
+                (interface_protocol == 0x01u ||
+                 interface_protocol == 0x02u);
+        } else if (type == 0x05u &&
+                   in_boot_hid_interface) {
+            if (length < 7u) return false;
+
+            uint8_t endpoint_address = raw[offset + 2u];
+            uint8_t attributes = raw[offset + 3u];
+            uint16_t max_packet =
+                (uint16_t)(usb_read_le16(&raw[offset + 4u]) & 0x07FFu);
+            uint8_t interval = raw[offset + 6u];
+
+            bool direction_in =
+                (endpoint_address & 0x80u) != 0u;
+            bool interrupt_transfer =
+                (attributes & 0x03u) == 0x03u;
+
+            if (direction_in &&
+                interrupt_transfer &&
+                max_packet != 0u &&
+                interval != 0u) {
+                *out_endpoint =
+                    (struct aurora_usb_hid_endpoint_descriptor){
+                        .configuration_value = configuration_value,
+                        .interface_number = interface_number,
+                        .interface_subclass = interface_subclass,
+                        .interface_protocol = interface_protocol,
+                        .endpoint_address = endpoint_address,
+                        .max_packet_size = max_packet,
+                        .interval = interval,
+                        .total_configuration_length = total_length
+                    };
+
+                return true;
+            }
+        }
+
+        offset = (uint16_t)(offset + length);
+    }
+
+    log_line("[xhci] no HID Boot interrupt-IN endpoint found");
+    return false;
+}
