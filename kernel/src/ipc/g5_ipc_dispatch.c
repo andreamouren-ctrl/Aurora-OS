@@ -17,6 +17,8 @@ enum g5_ipc_status g5_ipc_dispatch(
  if(result!=G5_IPC_OK)goto out;
  result=g5_ipc_validate_schema(&h,message->capability_count);
  if(result!=G5_IPC_OK)goto out;
+ result=g5_ipc_validate_semantics(&h,payload);
+ if(result!=G5_IPC_OK)goto out;
  if(h.session_generation!=session ||
     h.request_id<=__atomic_load_n(&d->last_request_id,__ATOMIC_ACQUIRE)) {
   result=G5_IPC_DENIED;goto out;
