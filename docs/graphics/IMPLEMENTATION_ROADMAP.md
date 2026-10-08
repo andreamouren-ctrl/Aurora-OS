@@ -365,3 +365,21 @@ Runtime verification:
 - [x] using that live descriptor layout, a conforming button-5 report decodes to AURORA_POINTER_BUTTON_FORWARD.
 
 QEMU limitation: HMP mouse_button only exposes left/right/middle, and QEMU's current host/QMP pointer injection path does not deliver side/extra events to the emulated usb-mouse data path. Therefore Back/Forward are **descriptor-derived runtime verified**, not claimed as externally injected live USB side-button events. Real-hardware/pass-through validation remains desirable for a future hardware matrix.
+
+
+### G4 USB hot-unplug lifecycle — runtime verified
+
+Implemented and runtime verified on the live qemu-xhci mouse path:
+
+- [x] targeted Port Status Change Event consumer for a specific root-hub port;
+- [x] disconnect validation requiring PORTSC.CCS=0 and PORTSC.CSC=1;
+- [x] PORTSC RW1C change-status acknowledgement;
+- [x] safe draining of transfer events that may precede the disconnect Port Status Change;
+- [x] QMP device_del of the live qemu USB mouse with DEVICE_DELETED confirmation;
+- [x] disconnect-driven HID transport unbind;
+- [x] normalized DEVICE_REMOVED verification;
+- [x] disconnect-driven Disable Slot and DCBAA/context/ring release.
+
+The final runtime gate proves a real external hot-unplug sequence from QEMU through xHCI event delivery into Aurora's input/device lifecycle.
+
+Back/Forward support is also implemented in the descriptor-driven Report Mouse decoder and transport using the live mouse Report Descriptor (which advertises five buttons). The current Back/Forward validation is descriptor-derived inside Aurora; it is not claimed as a live xHCI side-button injection gate.

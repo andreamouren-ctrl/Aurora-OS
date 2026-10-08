@@ -247,3 +247,8 @@ The xHCI HID path now reads and parses the HID Report Descriptor instead of rely
 Aurora's USB HID mouse path now supports a descriptor-driven five-button Report Mouse in addition to fixed Boot Mouse decoding. The generic HID layer owns the report layout and arbitrary-bit decoder; xHCI is responsible only for acquiring the descriptor and delivering bytes. Buttons 4 and 5 map to normalized Back/Forward events, while X/Y/wheel are decoded from the actual Report Descriptor offsets and sizes.
 
 The QEMU mouse advertises exactly five buttons in a 32-bit report and accepts SET_PROTOCOL(Report). QEMU's monitor/input routing cannot currently inject side/extra buttons through usb-mouse, so the Back/Forward runtime gate uses the live descriptor-derived layout to construct conforming reports inside Aurora and verifies the complete HID transport/decoder/normalized-input path. This distinction is intentionally documented to avoid overstating emulated-hardware coverage.
+
+
+G4 now includes disconnect-driven HID teardown. A QMP hot-unplug of the live qemu USB mouse produces an xHCI Port Status Change Event; Aurora validates the disconnected PORTSC state, acknowledges the change bits, unbinds the HID device so DEVICE_REMOVED is emitted, then disables the xHCI slot and releases the DCBAA/device-context/input-context/EP0/HID-ring resources. The event consumer tolerates transfer events that may be generated as the removed endpoint is retired before the port-change event becomes visible.
+
+Descriptor-driven Report Mouse decoding supports five button bits and maps buttons 4/5 to Back/Forward. That decoder path is verified against the live Report Descriptor layout, while live external side-button injection remains distinct from the hot-unplug gate.

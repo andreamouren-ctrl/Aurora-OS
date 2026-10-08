@@ -116,3 +116,6 @@ Aurora now reads the live mouse HID Report Descriptor and switches the interface
 
 
 Back/Forward are now supported by the descriptor-driven Report Mouse decoder. Aurora reads the real mouse Report Descriptor, which on QEMU advertises five buttons, then maps button 4 to Back and button 5 to Forward through the normal HID transport and normalized input queue. Because QEMU does not route side/extra host input into usb-mouse, the current Back/Forward gate is descriptor-derived runtime verification rather than external live side-button injection.
+
+
+USB hot-unplug is now runtime verified: the workflow removes the qemu USB mouse through QMP and requires DEVICE_DELETED confirmation; Aurora then consumes the xHCI Port Status Change, emits normalized DEVICE_REMOVED, completes Disable Slot and releases the per-device DMA/context state. Report Mouse Back/Forward decoding is supported from the five-button descriptor layout, but is documented separately from the externally injected live-xHCI input gates.
