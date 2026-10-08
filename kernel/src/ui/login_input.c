@@ -13,6 +13,7 @@
 #include <aurora/input.h>
 #include <aurora/ipc_wait_probe.h>
 #include <aurora/g5_ipc_endpoint.h>
+#include <aurora/g5_ipc_durable.h>
 #include <aurora/log.h>
 #include <aurora/login_input.h>
 #include <aurora/login_ui.h>
@@ -660,6 +661,15 @@ void login_input_init(void) {
     }
 
     protected_state_bootstrap_probe();
+    bool replay_recovered = false;
+    if (!g5_ipc_durable_boot_probe(&replay_recovered)) {
+        kernel_panic("G5 durable IPC replay cold-boot probe failed");
+    }
+    if (replay_recovered) {
+        log_line("[g5-ipc] durable ledger recovered from previous boot");
+    } else {
+        log_line("[g5-ipc] durable ledger initialized and persisted");
+    }
 #endif
 
     credential_length = 0u;
