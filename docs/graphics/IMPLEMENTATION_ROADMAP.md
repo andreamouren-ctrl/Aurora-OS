@@ -180,12 +180,23 @@ Implemented and runtime-verified xHCI host-controller foundation:
 - [x] controller-populated Device Context validation with nonzero USB address;
 - [x] EP0 Running-state validation after Address Device.
 
+Implemented and runtime-verified USB enumeration foundation:
+
+- [x] bounded EP0 Setup/Data/Status control-IN transfer engine;
+- [x] Transfer Event validation for default-control endpoint 0;
+- [x] GET_DESCRIPTOR(Device) with structural validation and VID/PID/USB-version parsing;
+- [x] two-stage Configuration Descriptor read (header then bounded full descriptor set);
+- [x] bounded Interface/Endpoint descriptor-chain parser;
+- [x] HID Boot interface classification;
+- [x] interrupt-IN endpoint discovery with address/max-packet/interval extraction;
+- [x] live qemu-xhci keyboard identification (HID Boot protocol 1, endpoint 0x81, 8-byte reports).
+
 Remaining transport/extended-device work:
 
-- [ ] EP0 control-transfer TRB engine;
-- [ ] USB Device Descriptor read;
-- [ ] Configuration/Interface/Endpoint descriptor enumeration;
-- [ ] HID interface/boot-protocol classification;
+- [ ] SET_CONFIGURATION control transfer;
+- [ ] xHCI endpoint context + Configure Endpoint command for HID interrupt-IN;
+- [ ] interrupt-IN transfer ring and report completion path;
+- [ ] bind live reports into the existing USB HID keyboard/mouse decoder;
 - [ ] live interrupt-IN report delivery into the existing HID binding layer;
 - [ ] MSI-X interrupt delivery after the polling command/event path is established;
 - [ ] touch/pen/gamepad and accessibility/input-method layers later.
@@ -194,7 +205,7 @@ Acceptance gate:
 
 Mouse and keyboard interact with multiple surfaces without cross-client event leakage.
 
-Current G4 gate status: **runtime verified in four-CPU QEMU through Address Device and a running default-control endpoint**. In addition to controller discovery/reset, DMA-ring bootstrap, connected-port reset and Enable Slot completion, Aurora now builds xHCI Input/Device contexts, provisions an EP0 transfer ring, submits Address Device, validates the successful completion and reads back a controller-assigned USB address plus EP0 Running state from the Device Context. G4 remains **In progress** because EP0 control transfers, USB descriptor enumeration, non-default endpoint configuration and live interrupt-IN HID report delivery are not yet implemented.
+Current G4 gate status: **runtime verified in four-CPU QEMU through live USB descriptor enumeration and HID Boot endpoint discovery**. Aurora now performs bounded EP0 Setup/Data/Status control transfers, validates Transfer Events, reads and parses the Device Descriptor and Configuration descriptor chain, classifies the connected qemu USB keyboard as HID Boot protocol 1 and discovers interrupt-IN endpoint 0x81 with 8-byte max packet. G4 remains **In progress** because the device is not yet configured for non-default endpoints and live interrupt-IN reports are not yet delivered into the normalized HID decoder.
 
 ## Phase G5 — Window protocol and Shell
 

@@ -178,9 +178,13 @@ G4 currently includes:
 - PMM-backed EP0 transfer-ring provisioning;
 - Address Device command completion with controller-populated USB address validation;
 - EP0 Running-state validation from the resulting Device Context;
+- bounded EP0 Setup/Data/Status control-IN transfers with Transfer Event validation;
+- Device Descriptor parsing with USB version and VID/PID extraction;
+- bounded Configuration/Interface/Endpoint descriptor parsing;
+- HID Boot interface classification and interrupt-IN endpoint discovery;
 - separation between pointer events and Aurora Identity credential input.
 
-The current G4 foundation is runtime verified in four-CPU QEMU through xHCI Address Device. The transport-independent HID decoder/binding layer and hardware-facing xHCI command/event/default-control-endpoint path are executable. Live USB input is not yet claimed: Aurora still needs EP0 control transfers, USB descriptor parsing, endpoint configuration and interrupt-IN report delivery before the emulated keyboard/mouse can feed normalized input. Touch, pen, gamepad, accessibility and input-method layers remain later work.
+The current G4 foundation is runtime verified in four-CPU QEMU through live USB descriptor enumeration. The connected qemu USB keyboard is identified as HID Boot protocol 1 with endpoint 0x81, max packet 8 and polling interval 7. Live USB input is not yet claimed: Aurora still needs SET_CONFIGURATION, endpoint-context configuration and interrupt-IN transfer completion wired into the existing HID binding/decoder layer. Touch, pen, gamepad, accessibility and input-method layers remain later work.
 
 ## 9. Performance direction
 
