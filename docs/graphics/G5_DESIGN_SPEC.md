@@ -1,5 +1,5 @@
 # Aurora OS — G5 Desktop Shell & Infinite Living Canvas
-Status: **Design in progress — approved decisions D01–D21**
+Status: **Design in progress — approved decisions D01–D22**
 Version: **0.1**
 Updated: **2026-10-08**
 Authority: **Project design decisions**; not an implementation-completion report.
@@ -31,6 +31,7 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 | G5-D19 | Hybrid Aurora Spatial Groups | Visual spatial regions and semantic memberships coexist; groups may be moved, collapsed to one node or expanded without duplicating content |
 | G5-D20 | Aurora Spatial Focus: contextual | Center the selected item/group, emphasize relevant items and links and dim unrelated Canvas regions; easily reversible with no layout mutation |
 | G5-D21 | Aurora Universal Command: hybrid | Deterministic command palette and universal search, with optional natural-language AI interpretation, explicit previews and confirmations for consequential operations |
+| G5-D22 | Aurora Privacy Layers | Granular privacy for Canvas items, groups and relationships, private areas, presentation mode and Identity-mediated authorization |
 
 ## 3. User experience
 ### 3.1 Aurora Hub
@@ -168,6 +169,20 @@ G5 develops Aurora Hybrid Desktop, a shell-first spatial desktop experience: the
 - Natural-language confidence failures offer clarification or deterministic alternatives, not speculative execution.
 - Acceptance: offline deterministic search/launch; optional structured-language parsing; preview and confirm an authorized multi-step Canvas edit; reject unauthorized targets, fail-safe on a stale surface, undo supported changes, and verify no execution occurs on cancelled proposals.
 
+
+### 3.15 Aurora Privacy Layers (G5-D22)
+- Privacy is an **enforced authorization boundary**, not merely hiding pixels. Assign policy to individual content objects, spatial panels, Spatial Groups and Relation Graph edges; deny access by default where authority is missing.
+- Integrate with Aurora Identity session ownership and fresh reauthentication for protected areas where required. Authentication and privilege elevation remain in the trusted Identity path, not in widget/client code; reject stale proof and revoked session tokens.
+- Privacy-aware modes: normal working view, protected areas (requiring appropriate authorization), and **presentation mode** for screen sharing or demonstrations. Presentation mode must conceal private metadata, thumbnails, labels, graph edges, search suggestions, content previews, notifications and sensitive contextual command outputs; it is not a substitute for an access control check.
+- Relation Graph must not disclose even the existence, title, count or shape of inaccessible nodes/edges through endpoints, highlights, aggregate clusters or zoomed-out previews. Apply authorization **before** relationship discovery, graph traversal, ranking, selection, rendering and summary.
+- Hub, Navigator, Content Fabric, Canvas History, Smart Transfer, Universal Command and semantic selection all consume one coherent scoped privacy policy. Transfer and clipboard/export require independent destination-specific authorization; an authorized screen view does not automatically grant copying/sharing permissions.
+- Revocation, screen lock, logout or session switch invalidates sensitive render/input resources, cached previews and scoped capabilities. Safe output must not expose old frames after privilege revocation.
+- Define policy hierarchy and explicit inheritance rules for groups; moving an item into a group must **not** silently grant wider privileges or downgrade stronger per-item restrictions. Conflicts resolve to stricter effective access until the user explicitly approves a valid change.
+- Ensure accessibility surfaces, error messages, diagnostics, crash reports, logs, AI contexts and offscreen caches cannot leak protected names/content. Cloud AI integration is off by default and separately consent-gated.
+- Protected storage and cryptographic enforcement are delegated to their appropriate AuroraFS/Identity/security services; G5 owns privacy-aware presentation and capability integration, not a parallel ad-hoc credential store.
+- Acceptance: protected item and relation absent from unauthorized searches, minimap, group counts, focus highlights, history previews and smart proposals; authorized reauthentication permits access; presentation mode obscures private UI; lock/revoke/logout remove pixels and input authority; no protected content exposed by stale-frame or cross-session tests.
+- Scope note: UI contract is approved for G5, while full Identity and secure pre-session compositor migration remains coordinated with G6.
+
 ## 4. Architecture direction
 ```text
 Aurora Desktop Shell (trusted policy)
@@ -196,7 +211,7 @@ Isolated Ring 3 system and third-party application processes
 - G5.3: live application panels and semantic representations.
 - G5.4: minimal modular Hub, system-module host, launcher/search and deterministic Universal Command palette (AI interpretation optional).
 - G5.5: Navigator, manual relation pins/links, basic suggested layouts, capability-mediated Smart Transfer, bounded live-session Canvas History, spatial/semantic selection, hybrid Spatial Groups and contextual Spatial Focus.
-- G5.6: QEMU/CI end-to-end, security, performance and recovery tests.
+- G5.6: QEMU/CI end-to-end, privacy/authorization, performance and recovery tests.
 - Rich Content Fabric, full native browser engine and advanced graph indexing may require later dedicated milestones, not blockers for a coherent first G5 release.
 
 ## 6. Quality and acceptance requirements
@@ -211,6 +226,7 @@ Isolated Ring 3 system and third-party application processes
 - Verify visual and semantic group membership, collapse/expand, nested-group cycle rejection, permission-scoped aggregations, and non-destructive group removal.
 - Verify Spatial Focus camera framing, relevant-edge highlighting, exit/restore navigation, safe dimmed input routing and no layout mutation.
 - Verify Universal Command offline registry/search, safe action previews and confirmation, cancellation, authorization checks and optional AI-to-typed-command mediation.
+- Verify G5-D22 privacy enforcement across Canvas, Hub, graph, search, Navigator, history, presentation mode, lock/revocation and cached rendering.
 - No cross-client graphics/control privilege escalation, stale-generation use or cross-session content leak.
 - Closing a process/session cleans all spatial objects and tokens safely.
 - Failure injection: broken module/browser does not terminate system shell; safe graphics recovery remains available.
