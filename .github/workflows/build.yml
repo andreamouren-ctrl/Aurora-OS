@@ -76,6 +76,7 @@ jobs:
           PY
 
           MONITOR_PORT=4444
+          QMP_PORT=4445
           INJECTOR_STATUS_FILE=build/qemu-hid-injector.status
           rm -f "$INJECTOR_STATUS_FILE"
 
@@ -120,13 +121,15 @@ jobs:
 
             mouse_injected=0
             if [ "$injected" -eq 1 ]; then
-              python3 - "$MONITOR_PORT" "$SERIAL_LOG" <<'PY'
+              python3 - "$MONITOR_PORT" "$QMP_PORT" "$SERIAL_LOG" <<'PY'
+          import json
           import socket
           import sys
           import time
 
           port = int(sys.argv[1])
-          serial_log = sys.argv[2]
+          qmp_port = int(sys.argv[2])
+          serial_log = sys.argv[3]
 
           stages = [
               ("[xhci] HID mouse interrupt-IN armed", ["mouse_move 6 -4"]),
@@ -179,8 +182,56 @@ jobs:
               print(f"Timed out waiting for {disconnect_marker}", file=sys.stderr)
               sys.exit(1)
 
-          if not send_commands(["device_del usbmouse"]):
-              print("QEMU usbmouse device_del failed", file=sys.stderr)
+          def qmp_device_del(device_id):
+              last_error = None
+              for _ in range(50):
+                  try:
+                      with socket.create_connection(
+                          ("127.0.0.1", qmp_port),
+                          timeout=1.0
+                      ) as sock:
+                          sock.settimeout(1.0)
+                          stream = sock.makefile("rwb", buffering=0)
+
+                          greeting = stream.readline()
+                          if not greeting:
+                              raise OSError("missing QMP greeting")
+
+                          stream.write(
+                              json.dumps({
+                                  "execute": "qmp_capabilities"
+                              }).encode("utf-8") + b"\n"
+                          )
+                          response = stream.readline()
+                          if b'"return"' not in response:
+                              raise OSError(
+                                  f"QMP capabilities failed: {response!r}"
+                              )
+
+                          stream.write(
+                              json.dumps({
+                                  "execute": "device_del",
+                                  "arguments": {"id": device_id}
+                              }).encode("utf-8") + b"\n"
+                          )
+                          response = stream.readline()
+                          if b'"return"' not in response:
+                              raise OSError(
+                                  f"QMP device_del failed: {response!r}"
+                              )
+
+                          return True
+                  except OSError as exc:
+                      last_error = exc
+                      time.sleep(0.1)
+
+              print(
+                  f"QMP usbmouse device_del failed: {last_error}",
+                  file=sys.stderr
+              )
+              return False
+
+          if not qmp_device_del("usbmouse"):
               sys.exit(1)
 
           sys.exit(0)
@@ -211,6 +262,7 @@ jobs:
             -device ide-hd,drive=aurora_disk \
             -serial file:"$SERIAL_LOG" \
             -monitor tcp:127.0.0.1:$MONITOR_PORT,server=on,wait=off \
+            -qmp tcp:127.0.0.1:$QMP_PORT,server=on,wait=off \
             -d int,cpu_reset \
             -D "$DEBUG_LOG" \
             -display none \
