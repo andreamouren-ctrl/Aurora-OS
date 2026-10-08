@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP03 batch4 admission, frame completion and teardown.
 on:
   push:
     paths:
