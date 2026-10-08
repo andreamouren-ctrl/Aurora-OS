@@ -479,13 +479,16 @@ bool aurora_fs_v2_rename_child_txn(
         copy_bytes(txn.namespace_slots[0].before, &source, sizeof(source));
         copy_bytes(txn.namespace_slots[0].after, &after, sizeof(after));
 
+        g5_rename_debug_stage=21;
         if (!aurora_fs_v2_txn_prepare(
                 allocator->device, geometry->base_bytes, &txn)) return false;
+        g5_rename_debug_stage=22;
         if (!aurora_fs_v2_rename_child(
                 allocator, geometry, parent_inode_index, old_name, new_name)) {
             (void)recover_after_failure(allocator, geometry);
             return false;
         }
+        g5_rename_debug_stage=23;
         return finish_transaction(allocator, geometry, txn.sequence);
     }
 
