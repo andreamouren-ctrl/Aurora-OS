@@ -384,3 +384,7 @@ Every milestone is evaluated against performance, memory efficiency, latency, pr
 
 
 - [x] G4 live USB hot-unplug Port Status Change → DEVICE_REMOVED → Disable Slot/context teardown runtime gate
+
+
+- [x] G4 live xHCI disconnect-driven HID teardown runtime gate
+- [ ] G4 final event-delivery policy (polling baseline vs MSI-X) + completion audit

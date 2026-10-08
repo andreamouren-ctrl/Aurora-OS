@@ -383,3 +383,24 @@ Implemented and runtime verified on the live qemu-xhci mouse path:
 The final runtime gate proves a real external hot-unplug sequence from QEMU through xHCI event delivery into Aurora's input/device lifecycle.
 
 Back/Forward support is also implemented in the descriptor-driven Report Mouse decoder and transport using the live mouse Report Descriptor (which advertises five buttons). The current Back/Forward validation is descriptor-derived inside Aurora; it is not claimed as a live xHCI side-button injection gate.
+
+
+### G4 disconnect-driven HID teardown — runtime verified
+
+Implemented and runtime verified on qemu-xhci:
+
+- [x] targeted Port Status Change Event consumer for a known root port;
+- [x] disconnect validation from live PORTSC (CCS=0, CSC=1);
+- [x] RW1C acknowledge of observed port-change status;
+- [x] QMP hot-unplug of the live usbmouse device with explicit DEVICE_DELETED confirmation;
+- [x] live port-6 disconnect observation (PORTSC 0x000202a0);
+- [x] HID transport unbind after the hardware disconnect event;
+- [x] normalized DEVICE_REMOVED verification;
+- [x] disconnect-driven Disable Slot + DCBAA/context/ring teardown.
+
+The hot-unplug gate is no longer an explicit synthetic teardown path: removal begins outside Aurora through QEMU device deletion and must propagate through the xHCI Port Status Change mechanism before software and DMA ownership are revoked.
+
+Remaining G4 completion work:
+
+- [ ] decide/finalize the xHCI event-delivery baseline: retain polling as the defined V1 baseline or configure MSI-X;
+- [ ] final G4 audit and runtime completion gate.
