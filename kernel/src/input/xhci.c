@@ -58,15 +58,25 @@
 #define XHCI_INTR_ERSTBA             0x10u
 #define XHCI_INTR_ERDP               0x18u
 
+#define XHCI_TRB_TYPE_NORMAL         1u
+#define XHCI_TRB_TYPE_SETUP_STAGE    2u
+#define XHCI_TRB_TYPE_DATA_STAGE     3u
+#define XHCI_TRB_TYPE_STATUS_STAGE   4u
 #define XHCI_TRB_TYPE_LINK           6u
 #define XHCI_TRB_TYPE_ENABLE_SLOT    9u
 #define XHCI_TRB_TYPE_ADDRESS_DEVICE 11u
+#define XHCI_TRB_TYPE_TRANSFER_EVENT 32u
 #define XHCI_TRB_TYPE_COMMAND_COMPLETION 33u
 #define XHCI_TRB_TYPE_PORT_STATUS_CHANGE 34u
 #define XHCI_COMPLETION_SUCCESS      1u
 #define XHCI_EVENT_SPIN_LIMIT        10000000u
 #define XHCI_TRB_CYCLE               (1u << 0)
 #define XHCI_TRB_TOGGLE_CYCLE        (1u << 1)
+#define XHCI_TRB_CHAIN               (1u << 4)
+#define XHCI_TRB_IOC                 (1u << 5)
+#define XHCI_TRB_IDT                 (1u << 6)
+#define XHCI_TRB_DIR_IN              (1u << 16)
+#define XHCI_SETUP_TRT_IN            (3u << 16)
 #define XHCI_TRB_TYPE_SHIFT          10u
 #define XHCI_RING_TRB_COUNT          256u
 #define XHCI_BOOTSTRAP_SCRATCHPAD_MAX 64u
@@ -1058,6 +1068,8 @@ bool xhci_prepare_address_device(
     state->input_context_physical = input_context;
     state->ep0_ring_physical = ep0_ring;
     state->addressed_slot_id = slot_id;
+    state->ep0_enqueue = 0u;
+    state->ep0_cycle = true;
     return true;
 }
 
@@ -1204,5 +1216,259 @@ bool xhci_validate_addressed_device(
 
     state->usb_device_address = usb_address;
     state->ep0_state = ep0_state;
+    return true;
+}
+
+
+static bool xhci_ep0_push_trb(
+    struct aurora_xhci_controller_state *state,
+    const struct xhci_trb *template_trb,
+    uint64_t *out_physical
+) {
+    if (out_physical != NULL) *out_physical = 0u;
+
+    if (state == NULL ||
+        template_trb == NULL ||
+        out_physical == NULL ||
+        state->ep0_ring_physical == 0u ||
+        state->ep0_enqueue >= XHCI_RING_TRB_COUNT - 1u) {
+        return false;
+    }
+
+    struct xhci_trb *ring =
+        (struct xhci_trb *)pmm_phys_to_virt(
+            state->ep0_ring_physical
+        );
+
+    uint16_t index = state->ep0_enqueue;
+    uint32_t cycle =
+        state->ep0_cycle ? XHCI_TRB_CYCLE : 0u;
+
+    ring[index] = *template_trb;
+    ring[index].control =
+        (ring[index].control & ~XHCI_TRB_CYCLE) | cycle;
+
+    __asm__ volatile ("" ::: "memory");
+
+    *out_physical =
+        state->ep0_ring_physical +
+        (uint64_t)index * sizeof(struct xhci_trb);
+
+    ++state->ep0_enqueue;
+
+    if (state->ep0_enqueue ==
+        XHCI_RING_TRB_COUNT - 1u) {
+        struct xhci_trb *link =
+            &ring[XHCI_RING_TRB_COUNT - 1u];
+
+        uint32_t link_cycle =
+            state->ep0_cycle ? XHCI_TRB_CYCLE : 0u;
+
+        link->control =
+            (XHCI_TRB_TYPE_LINK << XHCI_TRB_TYPE_SHIFT) |
+            XHCI_TRB_TOGGLE_CYCLE |
+            link_cycle;
+
+        __asm__ volatile ("" ::: "memory");
+
+        state->ep0_enqueue = 0u;
+        state->ep0_cycle = !state->ep0_cycle;
+    }
+
+    return true;
+}
+
+static bool xhci_wait_transfer_completion(
+    struct aurora_xhci_controller_state *state,
+    uint8_t slot_id,
+    uint64_t completion_trb_physical
+) {
+    if (state == NULL ||
+        slot_id == 0u ||
+        completion_trb_physical == 0u ||
+        state->event_ring_physical == 0u ||
+        xhci_runtime_base == NULL) {
+        return false;
+    }
+
+    struct xhci_trb *events =
+        (struct xhci_trb *)pmm_phys_to_virt(
+            state->event_ring_physical
+        );
+
+    volatile uint8_t *interrupter0 =
+        xhci_runtime_base + XHCI_RUNTIME_INTERRUPTER0;
+
+    for (uint32_t spin = 0u;
+         spin < XHCI_EVENT_SPIN_LIMIT;
+         ++spin) {
+        struct xhci_trb event =
+            events[state->event_dequeue];
+
+        bool cycle =
+            (event.control & XHCI_TRB_CYCLE) != 0u;
+
+        if (cycle != state->event_cycle) {
+            __asm__ volatile ("pause");
+            continue;
+        }
+
+        uint32_t type =
+            (event.control >> XHCI_TRB_TYPE_SHIFT) & 0x3Fu;
+
+        if (type != XHCI_TRB_TYPE_TRANSFER_EVENT &&
+            type != XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
+            log_write("[xhci] unexpected event while waiting transfer type=");
+            log_u64(type);
+            log_line("");
+            return false;
+        }
+
+        ++state->event_dequeue;
+        if (state->event_dequeue == XHCI_RING_TRB_COUNT) {
+            state->event_dequeue = 0u;
+            state->event_cycle = !state->event_cycle;
+        }
+
+        uint64_t dequeue_physical =
+            state->event_ring_physical +
+            (uint64_t)state->event_dequeue *
+            sizeof(struct xhci_trb);
+
+        xhci_mmio_write64(
+            interrupter0,
+            XHCI_INTR_ERDP,
+            dequeue_physical | (1ull << 3)
+        );
+
+        if (type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
+            continue;
+        }
+
+        uint8_t completion_code =
+            (uint8_t)(event.status >> 24u);
+        uint8_t event_slot =
+            (uint8_t)(event.control >> 24u);
+        uint8_t endpoint_id =
+            (uint8_t)((event.control >> 16u) & 0x1Fu);
+
+        if (completion_code != XHCI_COMPLETION_SUCCESS ||
+            event_slot != slot_id ||
+            endpoint_id != 1u ||
+            event.parameter != completion_trb_physical) {
+            log_write("[xhci] bad transfer completion code=");
+            log_u64(completion_code);
+            log_write(" slot=");
+            log_u64(event_slot);
+            log_write(" ep=");
+            log_u64(endpoint_id);
+            log_write(" ptr=");
+            log_hex64(event.parameter);
+            log_line("");
+            return false;
+        }
+
+        return true;
+    }
+
+    log_line("[xhci] transfer completion timeout");
+    return false;
+}
+
+bool xhci_control_in(
+    struct aurora_xhci_controller_state *state,
+    uint8_t request_type,
+    uint8_t request,
+    uint16_t value,
+    uint16_t index,
+    void *buffer,
+    uint16_t length
+) {
+    if (state == NULL ||
+        buffer == NULL ||
+        length == 0u ||
+        length > XHCI_PAGE_SIZE ||
+        state->addressed_slot_id == 0u ||
+        state->ep0_state != 1u ||
+        state->ep0_ring_physical == 0u ||
+        xhci_doorbell_base == NULL) {
+        return false;
+    }
+
+    uint64_t data_page = pmm_alloc_page();
+    if (data_page == 0u) return false;
+
+    uint64_t setup_packet =
+        (uint64_t)request_type |
+        ((uint64_t)request << 8u) |
+        ((uint64_t)value << 16u) |
+        ((uint64_t)index << 32u) |
+        ((uint64_t)length << 48u);
+
+    struct xhci_trb setup = {
+        .parameter = setup_packet,
+        .status = 8u,
+        .control =
+            (XHCI_TRB_TYPE_SETUP_STAGE << XHCI_TRB_TYPE_SHIFT) |
+            XHCI_TRB_IDT |
+            XHCI_TRB_CHAIN |
+            XHCI_SETUP_TRT_IN
+    };
+
+    struct xhci_trb data = {
+        .parameter = data_page,
+        .status = (uint32_t)length,
+        .control =
+            (XHCI_TRB_TYPE_DATA_STAGE << XHCI_TRB_TYPE_SHIFT) |
+            XHCI_TRB_CHAIN |
+            XHCI_TRB_DIR_IN
+    };
+
+    struct xhci_trb status = {
+        .parameter = 0u,
+        .status = 0u,
+        .control =
+            (XHCI_TRB_TYPE_STATUS_STAGE << XHCI_TRB_TYPE_SHIFT) |
+            XHCI_TRB_IOC
+    };
+
+    uint64_t ignored = 0u;
+    uint64_t completion_trb = 0u;
+
+    if (!xhci_ep0_push_trb(state, &setup, &ignored) ||
+        !xhci_ep0_push_trb(state, &data, &ignored) ||
+        !xhci_ep0_push_trb(
+            state,
+            &status,
+            &completion_trb)) {
+        pmm_free_page(data_page);
+        return false;
+    }
+
+    __asm__ volatile ("" ::: "memory");
+
+    xhci_mmio_write32(
+        xhci_doorbell_base,
+        (uint32_t)state->addressed_slot_id * 4u,
+        1u
+    );
+
+    if (!xhci_wait_transfer_completion(
+            state,
+            state->addressed_slot_id,
+            completion_trb)) {
+        pmm_free_page(data_page);
+        return false;
+    }
+
+    const uint8_t *source =
+        (const uint8_t *)pmm_phys_to_virt(data_page);
+    uint8_t *destination = (uint8_t *)buffer;
+
+    for (uint16_t i = 0u; i < length; ++i) {
+        destination[i] = source[i];
+    }
+
+    pmm_free_page(data_page);
     return true;
 }
