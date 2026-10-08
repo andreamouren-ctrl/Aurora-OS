@@ -13,6 +13,9 @@ typedef bool (*g5_dispatch_handler_fn)(
     void *context, const struct g5_ipc_header *header,
     const uint8_t *payload
 );
+/* Durable admission hook writes the replay ledger before effects. */
+typedef bool (*g5_dispatch_reserve_fn)(void *context,
+ uint64_t session_generation,uint64_t request_id);
 struct g5_dispatch_context {
     uint64_t active_session_generation;
     uint64_t last_request_id; /* ordered endpoint; reset on session rotation */
@@ -21,6 +24,9 @@ struct g5_dispatch_context {
     void *context;
     uint64_t last_revoked_generation; /* no rebind to prior session */
     bool dispatch_in_progress; /* reject nested callbacks; NOT a thread lock */
+    bool require_durable_reservation;
+    g5_dispatch_reserve_fn reserve;
+    void *reserve_context;
 };
 /* Explicitly disable an endpoint on lock/logout: old traffic must fail closed. */
 void g5_ipc_dispatch_revoke(struct g5_dispatch_context *dispatch);
