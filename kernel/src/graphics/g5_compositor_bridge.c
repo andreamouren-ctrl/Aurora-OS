@@ -26,7 +26,10 @@ bool g5_compositor_bridge_attach(struct g5_compositor_bridge *b,uint32_t slot,
       &b->delivery->submission->registry.session))return false;
  uint64_t id=0;
  if(!software_compositor_add_surface(b->compositor,surface,x,y,z,255,&id)||!id)return false;
- b->node_ids[slot]=id;*node_id=id;return true;
+ b->node_ids[slot]=id;
+ b->attached_object_ids[slot]=s->object_id;
+ b->attached_object_generations[slot]=s->object_generation;
+ *node_id=id;return true;
 }
 bool g5_compositor_bridge_present(struct g5_compositor_bridge *b,uint32_t slot,
  uint64_t req,uint64_t config,uint64_t *display_serial) {
@@ -37,6 +40,8 @@ bool g5_compositor_bridge_present(struct g5_compositor_bridge *b,uint32_t slot,
  struct g5_surface_registry_entry *entry=&b->delivery->submission->registry.entries[slot];
  if(!entry->occupied)return false;
  struct g5_surface_bridge *bound=&entry->bridge;
+ if(bound->object_id!=b->attached_object_ids[slot]||
+    bound->object_generation!=b->attached_object_generations[slot])return false;
  struct aurora_graphics_surface *surface=NULL;
  if(!bound->owner_caps||
     !graphics_surface_lookup(bound->owner_caps,bound->surface_handle,AURORA_RIGHT_READ,&surface)||
@@ -68,6 +73,8 @@ bool g5_compositor_bridge_detach(struct g5_compositor_bridge *b,uint32_t slot) {
  if(!software_compositor_remove_surface(b->compositor,b->node_ids[slot]))
     return false;
  b->node_ids[slot]=0;
+ b->attached_object_ids[slot]=0;
+ b->attached_object_generations[slot]=0;
  return true;
 }
 void g5_compositor_bridge_revoke(struct g5_compositor_bridge *b) {
