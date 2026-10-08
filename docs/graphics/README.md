@@ -107,3 +107,6 @@ G4 now adds the runtime-verified PS/2 + normalized routing foundation: secure hi
 8. The framebuffer login/recovery renderer remains independent of the normal desktop path.
 9. GPU acceleration must not require changing the client authority model.
 10. Designed, implemented, runtime-verified and real-hardware-certified states remain distinct.
+
+
+The live USB mouse gate also verifies right-click, middle-click and vertical wheel scrolling in addition to motion and left-click. These are injected externally by QEMU and must emerge as normalized Aurora pointer/scroll events. Side/extra buttons are intentionally deferred to HID Report Descriptor support.

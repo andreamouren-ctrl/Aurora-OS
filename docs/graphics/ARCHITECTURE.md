@@ -236,3 +236,6 @@ The following are not yet production-complete:
 - explicit cross-session sharing policy if ever enabled.
 
 These may be added without weakening the base ownership model.
+
+
+G4 Boot Mouse live coverage now includes relative motion, left/right/middle-button transitions and vertical wheel scroll. The runtime gate injects these through the QEMU monitor and validates that they traverse qemu-xhci, the interrupt-IN transfer ring, the USB HID transport and the normalized Aurora input queue. Additional side/extra mouse buttons remain a Report-Protocol concern rather than part of the fixed Boot Mouse contract.

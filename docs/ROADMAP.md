@@ -372,3 +372,6 @@ Detailed Identity sequencing remains in `docs/identity/IMPLEMENTATION_ROADMAP.md
 ## Cross-cutting requirement
 
 Every milestone is evaluated against performance, memory efficiency, latency, privacy, security, recoverability, and measurable resource cost. Documentation must distinguish designed, implemented, and runtime-verified states and must be updated together with material architecture or behavior changes.
+
+
+- [x] G4 Boot Mouse right/middle/wheel live xHCI runtime gate

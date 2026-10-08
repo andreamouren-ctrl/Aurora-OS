@@ -312,3 +312,17 @@ Hardware/runtime integration still pending:
 - [x] mastering-grade software color conversion for matrix-shaper monitor profiles, including direct ST.2084, BT.2100 HLG, ICC TRCs, VCGT/3D calibration and perceptual HDR-to-SDR tone mapping;
 - [ ] ICC LUT-based A2B/B2A profile import;
 - [ ] vendor GPU hardware color-pipeline/LUT programming.
+
+
+### G4 extended Boot Mouse controls — runtime verified
+
+Implemented and runtime verified on the live qemu-xhci Boot Mouse path:
+
+- [x] explicit right-button press/release decoder self-test;
+- [x] explicit middle-button press/release decoder self-test;
+- [x] explicit vertical wheel positive/negative decoder self-test;
+- [x] live QEMU right-button injection -> xHCI interrupt-IN -> normalized pointer-button event;
+- [x] live QEMU middle-button injection -> xHCI interrupt-IN -> normalized pointer-button event;
+- [x] live QEMU wheel-axis injection -> xHCI interrupt-IN -> normalized scroll event.
+
+The current Boot Mouse path therefore covers relative motion, left/right/middle buttons and vertical wheel scrolling. Back/Forward and vendor-specific extra buttons are not claimed by this gate because they generally require HID Report Protocol / Report Descriptor parsing rather than the fixed Boot Mouse report.
