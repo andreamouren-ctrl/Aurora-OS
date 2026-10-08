@@ -33,6 +33,19 @@ bool g5_compositor_bridge_present(struct g5_compositor_bridge *b,uint32_t slot,
  if(display_serial)*display_serial=0;
  if(!display_serial||!live(b)||slot>=G5_SURFACE_REGISTRY_CAPACITY||
     !b->node_ids[slot])return false;
+ /* Revalidate node binding, current capability and object generation at use. */
+ struct g5_surface_registry_entry *entry=&b->delivery->submission->registry.entries[slot];
+ if(!entry->occupied)return false;
+ struct g5_surface_bridge *bound=&entry->bridge;
+ struct aurora_graphics_surface *surface=NULL;
+ if(!bound->owner_caps||
+    !graphics_surface_lookup(bound->owner_caps,bound->surface_handle,AURORA_RIGHT_READ,&surface)||
+    surface->object_id!=bound->object_id||
+    surface->generation!=bound->object_generation||
+    surface->destroy_requested||
+    surface->state==AURORA_GRAPHICS_SURFACE_FREE||
+    !g5_surface_configure_ready(&bound->configure,&b->delivery->submission->registry.session))
+    return false;
  struct aurora_graphics_surface_snapshot snapshot={0};
  uint64_t receipt=0;
  if(!g5_frame_delivery_publish(b->delivery,slot,req,config,&snapshot,&receipt))return false;
@@ -43,7 +56,11 @@ bool g5_compositor_bridge_present(struct g5_compositor_bridge *b,uint32_t slot,
   *display_serial=0;
   return false;
  }
- return g5_frame_delivery_ack(b->delivery,b->generation,receipt);
+ if(!g5_frame_delivery_ack(b->delivery,b->generation,receipt)) {
+  *display_serial=0;
+  return false;
+ }
+ return true;
 }
 void g5_compositor_bridge_revoke(struct g5_compositor_bridge *b) {
  if(!b)return;
