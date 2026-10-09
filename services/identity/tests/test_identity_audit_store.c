@@ -186,12 +186,63 @@ static void test_wrap_survives_reopen(void) {
     CHECK(record.sequence == 4u, "wrap oldest sequence");
 }
 
+static void test_user_scoped_newest_cursor(void) {
+    struct fake_io io;
+    struct aurora_identity_audit_store store;
+    struct aurora_identity_audit_record record;
+    struct aurora_identity_user_id user_a, user_b;
+    memset(&io, 0, sizeof(io));
+    fill_user(&user_a, 0x30u);
+    fill_user(&user_b, 0x70u);
+    struct aurora_identity_audit_io_ops io_ops = ops(&io);
+
+    CHECK(aurora_identity_audit_store_open(&store, &io_ops) ==
+        AURORA_IDENTITY_AUDIT_OPEN_EMPTY, "cursor empty open");
+
+    CHECK(aurora_identity_audit_store_append(
+        &store, AURORA_IDENTITY_AUDIT_EVENT_SESSION_STARTED,
+        AURORA_IDENTITY_AUDIT_OUTCOME_SUCCESS, 0u, 10u, 1u, &user_a),
+        "cursor user a first");
+    CHECK(aurora_identity_audit_store_append(
+        &store, AURORA_IDENTITY_AUDIT_EVENT_AUTH_FAILURE,
+        AURORA_IDENTITY_AUDIT_OUTCOME_FAILURE, 1u, 20u, 0u, NULL),
+        "cursor unscoped");
+    CHECK(aurora_identity_audit_store_append(
+        &store, AURORA_IDENTITY_AUDIT_EVENT_SESSION_STARTED,
+        AURORA_IDENTITY_AUDIT_OUTCOME_SUCCESS, 0u, 30u, 2u, &user_b),
+        "cursor user b");
+    CHECK(aurora_identity_audit_store_append(
+        &store, AURORA_IDENTITY_AUDIT_EVENT_SESSION_LOCKED,
+        AURORA_IDENTITY_AUDIT_OUTCOME_SUCCESS, 0u, 40u, 1u, &user_a),
+        "cursor user a newest");
+
+    CHECK(aurora_identity_audit_store_get_newest_before_for_user(
+        &store, &user_a, 0u, &record), "cursor newest user a");
+    CHECK(record.event_type == AURORA_IDENTITY_AUDIT_EVENT_SESSION_LOCKED,
+        "cursor newest event");
+    CHECK(record.sequence == 4u, "cursor newest sequence");
+
+    CHECK(aurora_identity_audit_store_get_newest_before_for_user(
+        &store, &user_a, record.sequence, &record), "cursor previous user a");
+    CHECK(record.event_type == AURORA_IDENTITY_AUDIT_EVENT_SESSION_STARTED,
+        "cursor previous event");
+    CHECK(record.sequence == 1u, "cursor previous sequence");
+
+    CHECK(!aurora_identity_audit_store_get_newest_before_for_user(
+        &store, &user_a, record.sequence, &record), "cursor end user a");
+
+    CHECK(aurora_identity_audit_store_get_newest_before_for_user(
+        &store, &user_b, 0u, &record), "cursor user b isolated");
+    CHECK(record.sequence == 3u, "cursor user b sequence");
+}
+
 int main(void) {
     test_empty_append_reopen();
     test_write_failure_preserves_live_state();
     test_corrupt_newest_recovers_previous();
     test_all_corrupt_fails_closed();
     test_wrap_survives_reopen();
+    test_user_scoped_newest_cursor();
     puts("Aurora Identity durable audit store tests: PASS");
     return 0;
 }
