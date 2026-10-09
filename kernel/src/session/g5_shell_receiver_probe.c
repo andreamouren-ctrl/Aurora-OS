@@ -68,6 +68,15 @@ bool g5_shell_receiver_native_self_test(void) {
  if(g5_ipc_encode(&h,args,bytes,sizeof(bytes),&n)!=G5_IPC_OK||
     !ipc_send(sender,NULL,bytes,(uint32_t)n,NULL,0)||
     g5_shell_receiver_poll(&receiver,&status)||effects!=1)return false;
+ /* An already queued request cannot execute after receiver authority revocation. */
+ h.request_id=5;
+ if(g5_ipc_encode(&h,args,bytes,sizeof(bytes),&n)!=G5_IPC_OK||
+    !ipc_send(sender,NULL,bytes,(uint32_t)n,NULL,0)||
+    !cap_revoke(&caps,authority)||
+    g5_shell_receiver_poll(&receiver,&status)||effects!=1)return false;
+ /* Revoking the receiver endpoint must also fail closed. */
+ if(!cap_revoke(&caps,receive)||
+    g5_shell_receiver_poll(&receiver,&status)||effects!=1)return false;
  g5_shell_receiver_revoke(&receiver);
- return cap_revoke(&caps,receive)&&cap_revoke(&caps,authority);
+ return !g5_shell_receiver_poll(&receiver,&status)&&effects==1;
 }
