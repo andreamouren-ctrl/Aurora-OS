@@ -385,6 +385,7 @@ jobs:
           grep -F "[g5-shell] native IPC receiver/replay/revoke probe passed" "$SERIAL_LOG"
           grep -F "[g5-graphics] Ring3 committed surfaces composed and presented to display" "$SERIAL_LOG"
           grep -F "[g5-shell] authenticated Ring3 SCENE_PUBLISH reached compositor display" "$SERIAL_LOG"
+          grep -F "[g5-wp03] Ring3 Shell crash and reauthentication lifecycle gate passed" "$SERIAL_LOG"
           grep -F "[g5-wp03] Ring3 Shell clean stop, fresh reauth, forced crash and capability revocation passed" "$SERIAL_LOG"
 
           if ! grep -F \
