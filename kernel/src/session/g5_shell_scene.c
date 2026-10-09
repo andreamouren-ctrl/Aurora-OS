@@ -3,6 +3,11 @@
 #include <aurora/capability_abi.h>
 #include <stddef.h>
 
+static uint32_t read_u32_le(const uint8_t *p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1]<<8u) |
+           ((uint32_t)p[2]<<16u) | ((uint32_t)p[3]<<24u);
+}
+
 static uint64_t read_u64_le(const uint8_t *p) {
     uint64_t value=0u;
     for (unsigned i=0u;i<8u;++i)
@@ -87,6 +92,8 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
     if (!g5_compositor_bridge_attach(
             &scene->bridge,scene->slot,48,48,0,&node) || node==0u)
         goto failure;
+    scene->x=48;
+    scene->y=48;
     scene->active=true;
     return true;
 failure:
@@ -120,6 +127,43 @@ bool g5_shell_scene_publish(struct g5_shell_scene *scene,
             &scene->bridge,scene->slot,header->request_id,config,&serial) ||
         serial==0u || serial<=scene->last_display_serial)
         return false;
+    scene->last_display_serial=serial;
+    return true;
+}
+
+bool g5_shell_scene_place(struct g5_shell_scene *scene,
+                          const struct g5_ipc_header *header,
+                          const uint8_t *payload) {
+    if (!scene || !scene->active || !scene->surface ||
+        !header || !payload || !scene->last_display_serial ||
+        header->operation!=G5_OP_WINDOW_PLACE ||
+        header->payload_bytes!=24u ||
+        header->session_generation!=scene->generation ||
+        header->object_generation!=scene->surface->generation ||
+        read_u64_le(payload+16u)!=scene->surface->object_id ||
+        read_u32_le(payload+8u)!=G5_SHELL_SCENE_WIDTH ||
+        read_u32_le(payload+12u)!=G5_SHELL_SCENE_HEIGHT)
+        return false;
+    int32_t x=(int32_t)read_u32_le(payload);
+    int32_t y=(int32_t)read_u32_le(payload+4u);
+    uint64_t node=scene->bridge.node_ids[scene->slot];
+    if (!node || !g5_session_context_authorized(
+            &scene->frame.registry.session,scene->generation))
+        return false;
+    int32_t old_x=scene->x,old_y=scene->y;
+    if (!software_compositor_set_node(
+            &scene->compositor,node,x,y,0,255u,true))
+        return false;
+    uint64_t serial=0u;
+    if (!software_compositor_compose_present(
+            &scene->compositor,&serial) ||
+        serial<=scene->last_display_serial) {
+        (void)software_compositor_set_node(
+            &scene->compositor,node,old_x,old_y,0,255u,true);
+        return false;
+    }
+    scene->x=x;
+    scene->y=y;
     scene->last_display_serial=serial;
     return true;
 }
