@@ -26,9 +26,11 @@ bool security_activity_app_open(
     /* Opening an already visible view must not discard its in-flight read. */
     if (app->active) return true;
 
-    /* Progress an abandoned response before attempting a new read.
-     * A still-running request retains its slot and fails closed. */
-    identity_client_pump();
+    /* Only progress an abandoned activity response here.
+     * Avoid extra supervisor work or consuming unrelated auth responses. */
+    if (identity_client_has_abandoned_security_activity_read()) {
+        identity_client_pump();
+    }
     security_activity_controller_init(&app->controller);
     app->render.filter = AURORA_SECURITY_ACTIVITY_FILTER_ALL;
     app->render.focused_load_more = false;
