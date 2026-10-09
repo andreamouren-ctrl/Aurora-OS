@@ -355,6 +355,7 @@ struct aurora_identity_auth_result aurora_identity_authenticate_key(
 
     result.result = AURORA_IDENTITY_OK;
     result.user_id = record.user_id;
+    result.credential_id = record.credential_id;
     result.retry_after_ms = 0u;
 
 cleanup:

@@ -190,6 +190,9 @@ static void prepare_record(
     store->record.status = AURORA_IDENTITY_RECORD_ACTIVE;
     store->record.kdf.algorithm = AURORA_IDENTITY_KDF_ARGON2ID;
     fill_user_id(&store->record.user_id);
+    for (size_t i = 0u; i < AURORA_IDENTITY_CREDENTIAL_ID_SIZE; ++i) {
+        store->record.credential_id.bytes[i] = (uint8_t)(0xC0u + (uint8_t)i);
+    }
 
     if (crypto->force_lookup_collision) {
         memset(store->record.lookup_tag, 0xA5, AURORA_IDENTITY_LOOKUP_TAG_SIZE);
@@ -245,6 +248,8 @@ static void test_success(void) {
 
     CHECK(result.result == AURORA_IDENTITY_OK, "valid key must authenticate");
     CHECK(!aurora_identity_user_id_is_zero(&result.user_id), "success must return user id");
+    CHECK(!aurora_identity_credential_id_is_zero(&result.credential_id),
+        "success must return credential id");
     CHECK(crypto.verify_calls == 1u, "verifier must run once");
     CHECK(store.clear_writes == 1u, "success must clear prior failure state");
 }

@@ -15,6 +15,7 @@ A proof is:
 
 - opaque outside the trusted Identity/authorization boundary;
 - bound to exactly one stable `user_id`;
+- bound to exactly one authenticated credential identifier produced by the fresh-auth path;
 - bound to exactly one authenticated session generation;
 - bound to exactly one purpose;
 - short-lived;

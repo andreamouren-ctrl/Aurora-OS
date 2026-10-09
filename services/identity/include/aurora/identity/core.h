@@ -131,6 +131,7 @@ struct aurora_identity_creation_policy {
 struct aurora_identity_auth_result {
     enum aurora_identity_result result;
     struct aurora_identity_user_id user_id;
+    struct aurora_identity_credential_id credential_id;
     uint64_t retry_after_ms;
 };
 
