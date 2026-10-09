@@ -5,6 +5,12 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+## G5 WP-03 — Frozen verified baseline (2026-10-09)
+
+**Status: FROZEN / ACCEPTED within the WP-03 Shell bootstrap and lifecycle scope.** GitHub Actions commit `096464c83aa76b3b4c91ddd4fddf5c1676f61c6f` completed four of four workflows successfully: Aurora OS Bootstrap Build, G5 IPC QEMU Cold Boot Recovery, Aurora Identity Entropy Handoff, and Aurora Entropy Source Policy. Bootstrap/Identity enforce the dedicated Ring3 Shell crash-and-reauthentication lifecycle marker, in addition to the real Ring3 G5 IPC-to-compositor/display marker. No test gate was weakened to declare acceptance.
+
+**Freeze policy:** preserve this commit as the last verified WP-03 baseline. Any further edits on the PR are outside the frozen baseline until independently revalidated; security-critical fixes can reopen WP-03 with explicit regression evidence. Work on Identity takes priority. **WP-04 has not started:** dynamic multi-client window policy, focus/hit-testing, window resize/close and the interactive Living Canvas remain future milestones. This freeze does not mean all of G5 or Identity is complete.
+
 ## G5 WP-03 — Formal closeout candidate (2026-10-09)
 
 **Scope:** WP-03 as formally defined by `G5_DESIGN_SPEC.md` is the Ring 3 Shell bootstrap and session lifecycle, including clean stop/lock, fresh instance creation, crash, revocation, and reauthentication. Dynamic multi-client window management, resize/close/focus/input, and the complete Canvas UI begin at **WP-04 and beyond**.
