@@ -735,10 +735,61 @@ bool user_session_host_self_test(void) {
             status==G5_IPC_DENIED &&
             g5_session_health_events==1u;
     }
+    /* Even a permitted opcode cannot move a different object ID. */
+    bool foreign_object_denied=false;
+    if (running && wrong_generation_denied) {
+        uint8_t wire[G5_IPC_WIRE_HEADER_BYTES+24u]={0};
+        uint8_t args[24]={0};
+        size_t wire_len=0u;
+        args[0]=80u;args[4]=72u;args[8]=160u;args[12]=96u;
+        uint64_t foreign=host.scene.surface->object_id+1u;
+        for (unsigned i=0u;i<8u;++i)
+            args[16u+i]=(uint8_t)(foreign>>(8u*i));
+        struct g5_ipc_header header={
+            .major=G5_IPC_WIRE_MAJOR,.minor=G5_IPC_WIRE_MINOR,
+            .header_bytes=G5_IPC_WIRE_HEADER_BYTES,.kind=G5_IPC_REQUEST,
+            .operation=G5_OP_WINDOW_PLACE,.payload_bytes=24u,
+            .request_id=5u,.session_generation=1u,
+            .object_generation=host.scene.surface->generation
+        };
+        enum g5_ipc_status status=G5_IPC_OK;
+        struct aurora_ipc_endpoint *sender=
+            ipc_channel_endpoint(&host.g5_channel,0u);
+        uint64_t display_before=host.scene.last_display_serial;
+        foreign_object_denied=sender!=NULL &&
+            g5_ipc_encode(&header,args,wire,sizeof(wire),&wire_len)==G5_IPC_OK &&
+            ipc_send(sender,NULL,wire,(uint32_t)wire_len,NULL,0u) &&
+            g5_ipc_endpoint_poll(&host.g5_binding,&status) &&
+            status==G5_IPC_DENIED && host.scene.x==80 &&
+            host.scene.y==72 && host.scene.last_display_serial==display_before &&
+            g5_session_place_events==1u;
+    }
+    bool close_opcode_denied=false;
+    if (foreign_object_denied) {
+        uint8_t wire[G5_IPC_WIRE_HEADER_BYTES+8u]={0},args[8]={0};
+        size_t wire_len=0u;
+        struct g5_ipc_header header={
+            .major=G5_IPC_WIRE_MAJOR,.minor=G5_IPC_WIRE_MINOR,
+            .header_bytes=G5_IPC_WIRE_HEADER_BYTES,.kind=G5_IPC_REQUEST,
+            .operation=G5_OP_WINDOW_CLOSE,.payload_bytes=8u,
+            .request_id=6u,.session_generation=1u,
+            .object_generation=host.scene.surface->generation
+        };
+        enum g5_ipc_status status=G5_IPC_OK;
+        struct aurora_ipc_endpoint *sender=
+            ipc_channel_endpoint(&host.g5_channel,0u);
+        close_opcode_denied=sender!=NULL &&
+            g5_ipc_encode(&header,args,wire,sizeof(wire),&wire_len)==G5_IPC_OK &&
+            ipc_send(sender,NULL,wire,(uint32_t)wire_len,NULL,0u) &&
+            g5_ipc_endpoint_poll(&host.g5_binding,&status) &&
+            status==G5_IPC_DENIED && host.scene.active &&
+            g5_session_place_events==1u && g5_session_present_events==1u;
+    }
     /* Exercise the post-bootstrap Ring3 control loop and its kernel G5
      * dispatch, rather than just proving startup SHELL_READY/HEALTH. */
     bool live_health=running && replay_denied &&
-        wrong_generation_denied && user_session_host_health_check() &&
+        wrong_generation_denied && foreign_object_denied &&
+        close_opcode_denied && user_session_host_health_check() &&
         g5_session_health_events==2u &&
         user_session_host_health_check() &&
         g5_session_health_events==3u;
