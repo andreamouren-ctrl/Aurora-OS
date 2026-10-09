@@ -7,6 +7,7 @@ This roadmap orders M4 work by hard dependencies. A checkbox in the global roadm
 
 ## G5 WP-03 — Persistent Ring 3 control-loop health (2026-10-09)
 
+- [ ] **Repeated live control-loop and post-stop denial (CI pending):** host self-test requires two separate authenticated Ring3 `HEALTH_POLL`/`SHELL_HEALTH`/`HEALTH_ACK` cycles with monotonically increasing request IDs, checks exactly three health effects including bootstrap, then proves that the same API denies requests after stop with no further effects. This remains control-plane acceptance, not graphical end-to-end.
 - [ ] **Live control-loop round-trip (CI pending):** User Session Host Ring3 handles `HEALTH_POLL` after its original startup handshake, sends a strictly increasing session-generation-bound `SHELL_HEALTH` over the exclusive G5 IPC sender, and acknowledges the control request. Kernel `user_session_host_health_check()` verifies both responses. QEMU integration self-test requires a second HEALTH effect after rejection of duplicate and wrong-generation traffic; stop must revoke capabilities. This is an ongoing control loop, **not** the full desktop Shell or graphics frame-to-display path.
 - [ ] **Production Shell/displays still missing:** compositor surface allocation and rendering triggered by Ring3 IPC, real display confirmation, independently supervised Shell principal and crash/restart end-to-end gate. WP-03 cannot be marked accepted yet.
 
