@@ -1,7 +1,7 @@
 # Aurora Identity System App UX
 
 Status: **Canonical design**
-Version: **0.4**
+Version: **0.5**
 
 ## 1. Product role
 
@@ -221,6 +221,18 @@ The V1 backend/presentation boundary is now explicit. Security Activity consumes
 The ordinary user view is scoped to the stable identity of the active session. It does not expose another user's records, anonymous machine-wide records, credential identifiers, Aurora Keys, grants, re-authentication proofs or authenticator secret material.
 
 The future compositor-backed renderer owns only visual presentation and interaction. It must not reinterpret raw reason codes as authority, bypass the Identity client cursor, or acquire audit-storage access directly.
+
+The application lifecycle boundary is also explicit. The Security Activity System App adapter owns only:
+
+- open/close lifecycle;
+- controller pumping;
+- semantic filter selection;
+- refresh/load-older actions;
+- a presentation revision counter;
+- rendering into a surface supplied by its host.
+
+It does **not** allocate a private display target, create a toplevel window, consume global input, acquire compositor/display authority, or read audit storage directly. G5 WP-04+ remains responsible for compositor-backed toplevel creation, focus, hit-testing, pointer/keyboard routing, resize/close/decorations and task/window lifecycle.
+
 
 ## 7. Administrator Users & Access Mode
 

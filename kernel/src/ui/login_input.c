@@ -29,6 +29,7 @@
 #include <aurora/session_manager_client.h>
 #include <aurora/session_manager_probe.h>
 #include <aurora/security_activity_model_probe.h>
+#include <aurora/security_activity_app_probe.h>
 #include <aurora/security_activity_renderer_probe.h>
 #if AURORA_BOOT_VALIDATION
 #include <aurora/security_activity_graphics_probe.h>
@@ -687,6 +688,11 @@ void login_input_init(void) {
         kernel_panic("Security Activity presentation model self-test failed");
     }
     log_line("[identity-activity] headless presentation model acceptance gate passed");
+
+    if (!security_activity_app_self_test()) {
+        kernel_panic("Security Activity system-app adapter self-test failed");
+    }
+    log_line("[identity-activity] system-app lifecycle/action adapter acceptance gate passed");
 
     if (!security_activity_renderer_self_test()) {
         kernel_panic("Security Activity renderer self-test failed");
