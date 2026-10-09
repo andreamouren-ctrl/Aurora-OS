@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include <aurora/boot.h>
+#include <aurora/security_activity_model.h>
 
 enum aurora_security_activity_graphic {
     AURORA_SECURITY_ACTIVITY_GRAPHIC_PANEL = 0,
@@ -42,5 +43,15 @@ bool security_activity_graphics_dimensions(
     enum aurora_security_activity_graphic graphic,
     uint32_t *out_width,
     uint32_t *out_height);
+
+enum aurora_security_activity_graphic
+security_activity_graphic_for_category(uint32_t category);
+
+enum aurora_security_activity_graphic
+security_activity_graphic_for_severity(uint32_t severity);
+
+enum aurora_security_activity_graphic
+security_activity_graphic_for_view_state(
+    enum aurora_security_activity_view_state state);
 
 #endif
