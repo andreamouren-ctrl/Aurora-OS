@@ -5,6 +5,14 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+## G5 WP-03 — Formal closeout candidate (2026-10-09)
+
+**Scope:** WP-03 as formally defined by `G5_DESIGN_SPEC.md` is the Ring 3 Shell bootstrap and session lifecycle, including clean stop/lock, fresh instance creation, crash, revocation, and reauthentication. Dynamic multi-client window management, resize/close/focus/input, and the complete Canvas UI begin at **WP-04 and beyond**.
+
+**Verified previous baseline:** GitHub Actions commit `a21b5b4f505dc2b9d4b5470e6efb3a20c353b69a` completed all four workflows successfully. Bootstrap and Identity QEMU logs show the real Ring3 User Session Host, G5 scene IPC/frame presentation, and completed lifecycle probe without diagnostic failures. These are CI-run test results, not evidence of a completed desktop UI.
+
+**Final explicit-gate revision:** the self-test emits `[g5-wp03] Ring3 Shell crash and reauthentication lifecycle gate passed` only after checking initial authorized session, repeated health traffic, anti-replay, generation and object checks, clean stop/revocations, fresh generation bootstrap, malformed-control induced Ring3 crash, and stale capability/compositor teardown. BIOS Bootstrap and Identity CI now require that exact marker. Treat WP-03 as **accepted only if the new head has all required workflows green**. Avoid weakening those markers or conflating WP-03 with WP-04.
+
 ## G5 WP-03 — Shell lifecycle: clean stop, lock/unlock, crash and reauthentication (2026-10-09)
 
 - [ ] **Formal WP-03 scope:** `G5_DESIGN_SPEC.md` assigns Shell bootstrap, Ring 3 lifecycle, session start/lock/restart and crash + reauthentication QEMU gate to WP-03. The multi-client compositor/window management, focus and runtime resize/close contract is assigned to **WP-04**, and must not be falsely made a prerequisite for WP-03 closure.
