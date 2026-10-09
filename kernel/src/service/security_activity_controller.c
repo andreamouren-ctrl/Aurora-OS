@@ -95,8 +95,9 @@ void security_activity_controller_pump(
         return;
     }
 
+    /* The client is shared with login and re-authentication. Never consume
+     * an unexpected non-activity result: it may carry another caller's grant. */
     controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
-    identity_client_reset_result();
 }
 
 bool security_activity_controller_next_page(
