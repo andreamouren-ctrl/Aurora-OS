@@ -607,8 +607,12 @@ bool user_session_host_self_test(void) {
      * dispatch, rather than just proving startup SHELL_READY/HEALTH. */
     bool live_health=running && replay_denied &&
         wrong_generation_denied && user_session_host_health_check() &&
-        g5_session_health_events==2u;
+        g5_session_health_events==2u &&
+        user_session_host_health_check() &&
+        g5_session_health_events==3u;
     bool stopped = live_health && user_session_host_stop();
+    bool post_stop_denied=stopped && !user_session_host_health_check() &&
+        g5_session_health_events==3u;
     bool receiver_revoked = stopped &&
         host.g5_receiver_handle == AURORA_CAP_INVALID &&
         host.g5_authority_handle == AURORA_CAP_INVALID &&
@@ -627,6 +631,7 @@ bool user_session_host_self_test(void) {
         running &&
         stopped &&
         live_health &&
+        post_stop_denied &&
         receiver_revoked &&
         source_revoked &&
         root_revoked &&
