@@ -569,10 +569,12 @@ bool user_session_host_active(void) {
 
 static uint32_t g5_session_ready_events;
 static uint32_t g5_session_health_events;
+static uint32_t g5_session_present_events;
 static bool g5_session_test_authorize(void *ctx,uint32_t operation,uint64_t generation) {
     (void)ctx;
     return (operation==G5_OP_SHELL_READY ||
-            operation==G5_OP_SHELL_HEALTH) && generation==1u;
+            operation==G5_OP_SHELL_HEALTH ||
+            operation==G5_OP_SCENE_PUBLISH) && generation==1u;
 }
 static bool g5_session_test_handle(void *ctx,const struct g5_ipc_header *header,
                                    const uint8_t *payload) {
@@ -584,6 +586,11 @@ static bool g5_session_test_handle(void *ctx,const struct g5_ipc_header *header,
     }
     if (header->operation==G5_OP_SHELL_HEALTH) {
         ++g5_session_health_events;
+        return true;
+    }
+    if (header->operation==G5_OP_SCENE_PUBLISH &&
+        g5_shell_scene_publish(&host.scene,header,payload)) {
+        ++g5_session_present_events;
         return true;
     }
     return false;
@@ -638,6 +645,7 @@ bool user_session_host_self_test(void) {
     g5_test_dispatcher.handler=g5_session_test_handle;
     g5_session_ready_events=0u;
     g5_session_health_events=0u;
+    g5_session_present_events=0u;
     if (!user_session_host_register_g5_dispatcher(&g5_test_dispatcher)) {
         session_profile_lease_end();
         (void)cap_revoke(&bridge.capabilities,profile);
@@ -647,7 +655,9 @@ bool user_session_host_self_test(void) {
     bool started = start_with_context(user_id, UINT64_C(1));
     bool running = started && user_session_host_active() &&
         host.g5_ready && g5_session_ready_events==1u &&
-        g5_session_health_events==1u;
+        g5_session_health_events==1u &&
+        g5_session_present_events==1u &&
+        host.scene.last_display_serial!=0u;
     /* A live session may not accept a duplicate or out-of-order G5 request. */
     bool replay_denied=false;
     if (running) {
