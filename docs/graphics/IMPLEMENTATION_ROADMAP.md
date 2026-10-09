@@ -5,6 +5,11 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+## G5 WP-03 — Live session Ring 3 negative IPC integration (2026-10-09)
+
+- [ ] **Authenticated live-session receiver regression (new CI pending):** after the real Ring 3 User Session Host sends G5 READY/HEALTH, the host kernel integration test submits an already-used HEALTH request ID and a fresh HEALTH request with the wrong session generation over the same live native IPC channel. Both must be denied without incrementing the effect counter, then session stop must revoke both endpoint rights. This checks a running authenticated session, but is not a production graphical Shell or compositor/display end-to-end.
+- [ ] **Outstanding WP-03 exit gate:** persistent independently supervised Shell service with ongoing Ring 3 requests, surface lifecycle and actual display presentation QEMU evidence, including restart/crash recovery. Keep unchecked.
+
 ## G5 WP-03 — Ring 3 Shell IPC startup progression (2026-10-09)
 
 - [ ] **READY rejection and dispatcher registration isolation (CI pending):** rejecting the first authenticated Ring3 `SHELL_READY` now immediately revokes both G5 capability ends in addition to the dispatcher; registration rejects an unreaped host even when `host.active` is false. Current QEMU validation pending. These are failure-path guards, not compositor integration.
