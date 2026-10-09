@@ -839,6 +839,10 @@ void identity_client_pump(void) {
             result.public_error == AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE) {
             clear_bytes(&result, sizeof(result));
             client_state = AURORA_IDENTITY_CLIENT_ACTIVITY_END;
+            if (abandoned_activity_read) {
+                abandoned_activity_read = false;
+                (void)identity_client_discard_completed_security_activity();
+            }
             return;
         }
 
@@ -855,6 +859,10 @@ void identity_client_pump(void) {
             pending_activity_record.session_generation = result.session_generation;
             clear_bytes(&result, sizeof(result));
             client_state = AURORA_IDENTITY_CLIENT_ACTIVITY_RECORD;
+            if (abandoned_activity_read) {
+                abandoned_activity_read = false;
+                (void)identity_client_discard_completed_security_activity();
+            }
             return;
         }
 
@@ -864,6 +872,12 @@ void identity_client_pump(void) {
             public_error == AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE
                 ? AURORA_IDENTITY_CLIENT_UNAVAILABLE
                 : AURORA_IDENTITY_CLIENT_ERROR;
+        if (abandoned_activity_read) {
+            abandoned_activity_read = false;
+            if (client_state == AURORA_IDENTITY_CLIENT_ERROR) {
+                identity_client_reset_result();
+            }
+        }
         return;
     }
 
