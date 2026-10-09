@@ -604,6 +604,7 @@ static void protected_state_bootstrap_probe(void) {
 
     log_line("[user-session] Ring 3 profile capability bootstrap + teardown revocation passed");
     log_line("[g5-shell] authenticated Ring3 SCENE_PUBLISH reached compositor display");
+    log_line("[g5-wp03] Ring3 Shell clean stop, fresh reauth, forced crash and capability revocation passed");
 
     if (!service_supervisor_self_test()) {
         kernel_panic("Trusted Ring 3 service supervisor restart self-test failed");
