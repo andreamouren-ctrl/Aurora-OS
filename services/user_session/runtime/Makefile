@@ -63,7 +63,8 @@ $(BUILD_DIR):
 $(MAIN_OBJECT): main.c $(KERNEL_INCLUDE)/aurora/capability_abi.h $(KERNEL_INCLUDE)/aurora/syscall_abi.h $(KERNEL_INCLUDE)/aurora/user_session_host_abi.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c main.c -o $@
 
-$(ENTRY_OBJECT): entry.S | $(BUILD_DIR)
+$(ENTRY_OBJECT): entry.S $(KERNEL_INCLUDE)/aurora/user_session_host_abi.h $(ROOT)/scripts/check-user-session-entry-abi.py | $(BUILD_DIR)
+	python3 $(ROOT)/scripts/check-user-session-entry-abi.py
 	$(CC) $(ASMFLAGS) -c entry.S -o $@
 
 $(ELF): $(ENTRY_OBJECT) $(MAIN_OBJECT) linker.ld
