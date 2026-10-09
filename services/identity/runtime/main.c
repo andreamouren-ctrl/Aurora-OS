@@ -1870,6 +1870,15 @@ static bool handle_begin_rotate_key(
         } else if (consumed.result == AURORA_IDENTITY_REAUTH_CRYPTO_ERROR) {
             public_error = AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INTERNAL_FAILURE;
         }
+        if (!append_audit_event(
+                context,
+                AURORA_IDENTITY_AUDIT_EVENT_REAUTH_FAILURE,
+                AURORA_IDENTITY_AUDIT_OUTCOME_DENIED,
+                public_error,
+                request.session_generation,
+                &expected_user_id)) {
+            public_error = AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE;
+        }
         secure_zero(&consumed, sizeof(consumed));
         secure_zero(&request, sizeof(request));
         secure_zero(&expected_user_id, sizeof(expected_user_id));
@@ -1924,6 +1933,20 @@ static bool execute_rotate_key_job(
     secure_zero(&rotation, sizeof(rotation));
 
     if (rotated.result == AURORA_IDENTITY_OK) {
+        if (!append_audit_event(
+                context,
+                AURORA_IDENTITY_AUDIT_EVENT_CREDENTIAL_ROTATED,
+                AURORA_IDENTITY_AUDIT_OUTCOME_SUCCESS,
+                AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE,
+                0u,
+                &job->user_id)) {
+            secure_zero(&rotated, sizeof(rotated));
+            return send_rotate_key_result(
+                endpoint, job->request_id,
+                AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_SERVICE_ERROR,
+                AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE,
+                NULL);
+        }
         bool sent = send_rotate_key_result(
             endpoint, job->request_id,
             AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_SUCCESS,
@@ -1934,6 +1957,20 @@ static bool execute_rotate_key_job(
     }
 
     if (rotated.result == AURORA_IDENTITY_ALREADY_EXISTS) {
+        if (!append_audit_event(
+                context,
+                AURORA_IDENTITY_AUDIT_EVENT_CREDENTIAL_ROTATED,
+                AURORA_IDENTITY_AUDIT_OUTCOME_DENIED,
+                AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_POLICY_DENIED,
+                0u,
+                &job->user_id)) {
+            secure_zero(&rotated, sizeof(rotated));
+            return send_rotate_key_result(
+                endpoint, job->request_id,
+                AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_SERVICE_ERROR,
+                AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE,
+                NULL);
+        }
         secure_zero(&rotated, sizeof(rotated));
         return send_rotate_key_result(
             endpoint, job->request_id,
@@ -1954,6 +1991,15 @@ static bool execute_rotate_key_job(
         public_error = AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_AUTH_FAILED;
     }
 
+    if (!append_audit_event(
+            context,
+            AURORA_IDENTITY_AUDIT_EVENT_CREDENTIAL_ROTATED,
+            AURORA_IDENTITY_AUDIT_OUTCOME_ERROR,
+            public_error,
+            0u,
+            &job->user_id)) {
+        public_error = AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE;
+    }
     secure_zero(&rotated, sizeof(rotated));
     return send_rotate_key_result(
         endpoint, job->request_id,
