@@ -820,14 +820,23 @@ bool user_session_host_self_test(void) {
     bool root_revoked =
         cap_revoke(&bridge.capabilities, root);
 
-    return started &&
-        running &&
-        stopped &&
-        live_health &&
-        post_stop_denied &&
-        receiver_revoked &&
-        source_revoked &&
-        root_revoked &&
+    bool accepted=started &&
+        running && stopped && live_health &&
+        post_stop_denied && receiver_revoked &&
+        source_revoked && root_revoked &&
         !user_session_host_active() &&
         !session_profile_lease_active();
+    if (!accepted) {
+        log_write("[g5-shell-diagnostic] self-test stages started/running/replay/gen/object/close/live/stop/revoke: ");
+        log_u64(started);log_write("/");
+        log_u64(running);log_write("/");
+        log_u64(replay_denied);log_write("/");
+        log_u64(wrong_generation_denied);log_write("/");
+        log_u64(foreign_object_denied);log_write("/");
+        log_u64(close_opcode_denied);log_write("/");
+        log_u64(live_health);log_write("/");
+        log_u64(stopped);log_write("/");
+        log_u64(receiver_revoked);log_line("");
+    }
+    return accepted;
 }
