@@ -21,6 +21,29 @@ IDENTITY_MARK := assets/identity/aurora_mark.png
 IDENTITY_ASSET_TOOL := $(ROOT)/scripts/prepare-identity-assets.py
 IDENTITY_ASSET_OBJ := $(BUILD_DIR)/src/ui/identity_asset.o
 
+SECURITY_ACTIVITY_SOURCE_DIR := assets/identity/security_activity
+SECURITY_ACTIVITY_RUNTIME_DIR := $(SECURITY_ACTIVITY_SOURCE_DIR)/runtime
+SECURITY_ACTIVITY_ASSET_TOOL := $(ROOT)/scripts/prepare-security-activity-runtime-assets.py
+SECURITY_ACTIVITY_SOURCE_FILES := \
+	$(SECURITY_ACTIVITY_SOURCE_DIR)/aurora_security_activity_panel.png \
+	$(SECURITY_ACTIVITY_SOURCE_DIR)/aurora_security_activity_event_card.png \
+	$(SECURITY_ACTIVITY_SOURCE_DIR)/aurora_security_activity_status_info.png \
+	$(SECURITY_ACTIVITY_SOURCE_DIR)/aurora_security_activity_status_warning.png \
+	$(SECURITY_ACTIVITY_SOURCE_DIR)/aurora_security_activity_status_critical.png \
+	$(SECURITY_ACTIVITY_SOURCE_DIR)/aurora_security_activity_category_auth.png \
+	$(SECURITY_ACTIVITY_SOURCE_DIR)/aurora_security_activity_category_session.png \
+	$(SECURITY_ACTIVITY_SOURCE_DIR)/aurora_security_activity_category_credential.png \
+	$(SECURITY_ACTIVITY_SOURCE_DIR)/aurora_security_activity_header.png \
+	$(SECURITY_ACTIVITY_SOURCE_DIR)/aurora_security_activity_empty.png \
+	$(SECURITY_ACTIVITY_SOURCE_DIR)/aurora_security_activity_error.png \
+	$(SECURITY_ACTIVITY_SOURCE_DIR)/aurora_security_activity_loading.png \
+	$(SECURITY_ACTIVITY_SOURCE_DIR)/aurora_security_activity_load_more.png \
+	$(SECURITY_ACTIVITY_SOURCE_DIR)/aurora_security_activity_filter_button.png \
+	$(SECURITY_ACTIVITY_SOURCE_DIR)/aurora_security_activity_filter_active.png \
+	$(SECURITY_ACTIVITY_SOURCE_DIR)/aurora_security_activity_end.png
+SECURITY_ACTIVITY_RUNTIME_FILES := $(patsubst $(SECURITY_ACTIVITY_SOURCE_DIR)/%,$(SECURITY_ACTIVITY_RUNTIME_DIR)/%,$(SECURITY_ACTIVITY_SOURCE_FILES))
+SECURITY_ACTIVITY_ASSET_OBJ := $(BUILD_DIR)/src/ui/security_activity_asset.o
+
 COLOR_LUT_TOOL := $(ROOT)/scripts/generate-color-luts.py
 COLOR_LUT_HEADER := include/aurora/color_luts_generated.h
 
@@ -117,6 +140,15 @@ $(IDENTITY_MARK): $(IDENTITY_BACKGROUND)
 
 $(IDENTITY_ASSET_OBJ): $(IDENTITY_BACKGROUND) $(IDENTITY_MARK)
 
+$(SECURITY_ACTIVITY_RUNTIME_DIR)/aurora_security_activity_panel.png: $(SECURITY_ACTIVITY_SOURCE_FILES) $(SECURITY_ACTIVITY_ASSET_TOOL)
+	$(PYTHON) "$(SECURITY_ACTIVITY_ASSET_TOOL)" \
+		--source-dir "$(SECURITY_ACTIVITY_SOURCE_DIR)" \
+		--output-dir "$(SECURITY_ACTIVITY_RUNTIME_DIR)"
+
+$(filter-out $(SECURITY_ACTIVITY_RUNTIME_DIR)/aurora_security_activity_panel.png,$(SECURITY_ACTIVITY_RUNTIME_FILES)): $(SECURITY_ACTIVITY_RUNTIME_DIR)/aurora_security_activity_panel.png
+
+$(SECURITY_ACTIVITY_ASSET_OBJ): $(SECURITY_ACTIVITY_RUNTIME_FILES)
+
 $(IDENTITY_RUNTIME_BIN):
 	$(MAKE) -C "$(IDENTITY_RUNTIME_DIR)" ARCH=$(ARCH)
 
@@ -160,4 +192,5 @@ clean:
 	$(MAKE) -C "$(SESSION_RUNTIME_DIR)" ARCH=$(ARCH) clean
 	$(MAKE) -C "$(USER_SESSION_RUNTIME_DIR)" ARCH=$(ARCH) clean
 	rm -rf "$(ROOT)/build/$(ARCH)/kernel" "$(OUTPUT)" "$(BOOT_ASSET)" \
-		"$(IDENTITY_BACKGROUND)" "$(IDENTITY_MARK)" "$(COLOR_LUT_HEADER)"
+		"$(IDENTITY_BACKGROUND)" "$(IDENTITY_MARK)" "$(COLOR_LUT_HEADER)" \
+		"$(SECURITY_ACTIVITY_RUNTIME_DIR)"

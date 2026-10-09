@@ -17,6 +17,9 @@ kernel/assets/boot/aurora_boot.idx8
 kernel/assets/identity/aurora_identity_background.png
 kernel/assets/identity/aurora_mark.png
 
+# Generated Security Activity runtime assets
+kernel/assets/identity/security_activity/runtime/
+
 # Downloaded dependencies
 third_party/
 

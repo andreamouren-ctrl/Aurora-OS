@@ -5,11 +5,12 @@
 #include <aurora/png.h>
 #include <aurora/security_activity_graphics.h>
 
+#define AURORA_SECURITY_ACTIVITY_CACHE_SLOTS 4u
+
 /*
- * Native artwork is optional at link time.  Unresolved weak symbols become
- * null, so a missing/corrupt catalog can never make Identity or boot depend
- * on presentation assets.  security_activity_graphics_init() simply returns
- * false and callers use the procedural renderer.
+ * The artwork object is optional. The weak zero-length definitions from
+ * security_activity_asset_stub.S keep the kernel linkable without artwork;
+ * strong symbols from security_activity_asset.S override them when present.
  */
 #define DECLARE_ASSET(name) \
     extern const uint8_t aurora_security_activity_##name##_png_start[] \
@@ -39,11 +40,18 @@ struct activity_asset_bytes {
     const uint8_t *end;
 };
 
-static struct aurora_png_image activity_images[
-    AURORA_SECURITY_ACTIVITY_GRAPHIC_COUNT
+struct activity_cache_slot {
+    bool loaded;
+    enum aurora_security_activity_graphic graphic;
+    uint64_t last_use;
+    struct aurora_png_image image;
+};
+
+static struct activity_cache_slot activity_cache[
+    AURORA_SECURITY_ACTIVITY_CACHE_SLOTS
 ];
-static bool activity_loaded[AURORA_SECURITY_ACTIVITY_GRAPHIC_COUNT];
 static bool activity_ready;
+static uint64_t activity_clock;
 
 static const struct activity_asset_bytes activity_assets[
     AURORA_SECURITY_ACTIVITY_GRAPHIC_COUNT
@@ -169,38 +177,92 @@ static bool valid_graphic(enum aurora_security_activity_graphic graphic) {
         graphic < AURORA_SECURITY_ACTIVITY_GRAPHIC_COUNT;
 }
 
-void security_activity_graphics_release(void) {
-    for (size_t i = 0u; i < AURORA_SECURITY_ACTIVITY_GRAPHIC_COUNT; ++i) {
-        if (activity_loaded[i]) {
-            aurora_png_release(&activity_images[i]);
-            activity_loaded[i] = false;
+static bool valid_asset_range(enum aurora_security_activity_graphic graphic) {
+    if (!valid_graphic(graphic)) return false;
+    uintptr_t start = (uintptr_t)activity_assets[graphic].start;
+    uintptr_t end = (uintptr_t)activity_assets[graphic].end;
+    return start != 0u && end != 0u && end > start;
+}
+
+static void release_slot(struct activity_cache_slot *slot) {
+    if (slot == NULL || !slot->loaded) return;
+    aurora_png_release(&slot->image);
+    slot->loaded = false;
+    slot->graphic = AURORA_SECURITY_ACTIVITY_GRAPHIC_COUNT;
+    slot->last_use = 0u;
+}
+
+static struct aurora_png_image *cached_image(
+    enum aurora_security_activity_graphic graphic
+) {
+    if (!activity_ready || !valid_asset_range(graphic)) return NULL;
+
+    ++activity_clock;
+    if (activity_clock == 0u) activity_clock = 1u;
+
+    for (size_t i = 0u; i < AURORA_SECURITY_ACTIVITY_CACHE_SLOTS; ++i) {
+        if (activity_cache[i].loaded &&
+            activity_cache[i].graphic == graphic) {
+            activity_cache[i].last_use = activity_clock;
+            return &activity_cache[i].image;
         }
     }
+
+    size_t selected = 0u;
+    bool found_free = false;
+    uint64_t oldest = UINT64_MAX;
+    for (size_t i = 0u; i < AURORA_SECURITY_ACTIVITY_CACHE_SLOTS; ++i) {
+        if (!activity_cache[i].loaded) {
+            selected = i;
+            found_free = true;
+            break;
+        }
+        if (activity_cache[i].last_use < oldest) {
+            oldest = activity_cache[i].last_use;
+            selected = i;
+        }
+    }
+
+    if (!found_free) release_slot(&activity_cache[selected]);
+
+    const uint8_t *start = activity_assets[graphic].start;
+    const uint8_t *end = activity_assets[graphic].end;
+    if (!aurora_png_decode(
+            start,
+            (size_t)(end - start),
+            &activity_cache[selected].image) ||
+        activity_cache[selected].image.width == 0u ||
+        activity_cache[selected].image.height == 0u ||
+        (activity_cache[selected].image.channels != 3u &&
+         activity_cache[selected].image.channels != 4u)) {
+        release_slot(&activity_cache[selected]);
+        return NULL;
+    }
+
+    activity_cache[selected].loaded = true;
+    activity_cache[selected].graphic = graphic;
+    activity_cache[selected].last_use = activity_clock;
+    return &activity_cache[selected].image;
+}
+
+void security_activity_graphics_release(void) {
+    for (size_t i = 0u; i < AURORA_SECURITY_ACTIVITY_CACHE_SLOTS; ++i) {
+        release_slot(&activity_cache[i]);
+    }
+    activity_clock = 0u;
     activity_ready = false;
 }
 
 bool security_activity_graphics_init(void) {
     security_activity_graphics_release();
 
-    for (size_t i = 0u; i < AURORA_SECURITY_ACTIVITY_GRAPHIC_COUNT; ++i) {
-        const uint8_t *start = activity_assets[i].start;
-        const uint8_t *end = activity_assets[i].end;
-        uintptr_t start_address = (uintptr_t)start;
-        uintptr_t end_address = (uintptr_t)end;
-        if (start_address == 0u || end_address == 0u ||
-            end_address <= start_address ||
-            !aurora_png_decode(
-                start,
-                (size_t)(end - start),
-                &activity_images[i]) ||
-            activity_images[i].width == 0u ||
-            activity_images[i].height == 0u ||
-            (activity_images[i].channels != 3u &&
-             activity_images[i].channels != 4u)) {
-            security_activity_graphics_release();
+    for (uint32_t i = 0u;
+         i < (uint32_t)AURORA_SECURITY_ACTIVITY_GRAPHIC_COUNT;
+         ++i) {
+        if (!valid_asset_range(
+                (enum aurora_security_activity_graphic)i)) {
             return false;
         }
-        activity_loaded[i] = true;
     }
 
     activity_ready = true;
@@ -216,13 +278,11 @@ bool security_activity_graphics_dimensions(
     uint32_t *out_width,
     uint32_t *out_height
 ) {
-    if (!activity_ready || !valid_graphic(graphic) ||
-        out_width == NULL || out_height == NULL ||
-        !activity_loaded[graphic]) {
-        return false;
-    }
-    *out_width = activity_images[graphic].width;
-    *out_height = activity_images[graphic].height;
+    if (out_width == NULL || out_height == NULL) return false;
+    struct aurora_png_image *image = cached_image(graphic);
+    if (image == NULL) return false;
+    *out_width = image->width;
+    *out_height = image->height;
     return true;
 }
 
@@ -234,18 +294,18 @@ bool security_activity_graphics_draw(
     uint64_t width,
     uint64_t height
 ) {
-    if (!activity_ready || !valid_graphic(graphic) ||
-        !activity_loaded[graphic] || framebuffer == NULL ||
-        framebuffer->address == NULL || framebuffer->bpp != 32u ||
-        framebuffer->width == 0u || framebuffer->height == 0u ||
-        width == 0u || height == 0u ||
+    if (framebuffer == NULL || framebuffer->address == NULL ||
+        framebuffer->bpp != 32u || framebuffer->width == 0u ||
+        framebuffer->height == 0u || width == 0u || height == 0u ||
         x >= framebuffer->width || y >= framebuffer->height ||
         width > framebuffer->width - x ||
         height > framebuffer->height - y) {
         return false;
     }
 
-    const struct aurora_png_image *image = &activity_images[graphic];
+    struct aurora_png_image *image = cached_image(graphic);
+    if (image == NULL) return false;
+
     uint64_t step_x_fp = width > 1u
         ? (((uint64_t)image->width - 1u) << 16) / (width - 1u)
         : 0u;
