@@ -1,0 +1,41 @@
+#ifndef AURORA_G5_SHELL_SCENE_H
+#define AURORA_G5_SHELL_SCENE_H
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <aurora/g5_compositor_bridge.h>
+#include <aurora/g5_ipc_abi.h>
+#include <aurora/graphics_buffer.h>
+#include <aurora/process.h>
+
+#define G5_SHELL_SCENE_WIDTH 160u
+#define G5_SHELL_SCENE_HEIGHT 96u
+
+/* Per-authenticated-session scene, owned by the trusted receiver.
+ * Ring3 owns only non-transferable buffer and surface capabilities. */
+struct g5_shell_scene {
+    struct aurora_process *owner;
+    struct aurora_graphics_buffer *buffer;
+    struct aurora_graphics_surface *surface;
+    struct aurora_cap_table kernel_caps;
+    aurora_cap_handle kernel_surface;
+    aurora_cap_handle user_buffer;
+    aurora_cap_handle user_surface;
+    struct g5_frame_submission frame;
+    struct g5_frame_delivery delivery;
+    struct g5_compositor_bridge bridge;
+    struct aurora_software_compositor compositor;
+    uint64_t generation;
+    uint64_t configure_serial;
+    uint64_t last_display_serial;
+    uint32_t slot;
+    bool active;
+};
+
+bool g5_shell_scene_begin(struct g5_shell_scene *scene,
+                          struct aurora_process *owner,uint64_t generation);
+bool g5_shell_scene_publish(struct g5_shell_scene *scene,
+                            const struct g5_ipc_header *header,
+                            const uint8_t *payload);
+void g5_shell_scene_end(struct g5_shell_scene *scene);
+#endif
