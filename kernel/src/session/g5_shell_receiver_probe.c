@@ -42,8 +42,28 @@ bool g5_shell_receiver_native_self_test(void) {
  if(!ipc_send(sender,NULL,bytes,(uint32_t)n,NULL,0)||
     !g5_shell_receiver_poll(&receiver,&status)||
     status!=G5_IPC_DENIED||effects!=1)return false;
- g5_shell_session_end(&session);
+ /* A validly framed message for another session must have no effect. */
  h.request_id=2;
+ h.session_generation=72;
+ if(g5_ipc_encode(&h,args,bytes,sizeof(bytes),&n)!=G5_IPC_OK||
+    !ipc_send(sender,NULL,bytes,(uint32_t)n,NULL,0)||
+    !g5_shell_receiver_poll(&receiver,&status)||
+    status!=G5_IPC_DENIED||effects!=1)return false;
+ /* An unsupported receiver operation must also be rejected. */
+ h.request_id=3;
+ h.session_generation=71;
+ h.operation=G5_OP_WINDOW_PLACE;
+ h.payload_bytes=16;
+ uint8_t place_args[16]={0};
+ if(g5_ipc_encode(&h,place_args,bytes,sizeof(bytes),&n)!=G5_IPC_OK||
+    !ipc_send(sender,NULL,bytes,(uint32_t)n,NULL,0)||
+    !g5_shell_receiver_poll(&receiver,&status)||
+    status!=G5_IPC_DENIED||effects!=1)return false;
+ g5_shell_session_end(&session);
+ h.operation=G5_OP_WINDOW_CLOSE;
+ h.payload_bytes=8;
+ h.session_generation=71;
+ h.request_id=4;
  if(g5_ipc_encode(&h,args,bytes,sizeof(bytes),&n)!=G5_IPC_OK||
     !ipc_send(sender,NULL,bytes,(uint32_t)n,NULL,0)||
     g5_shell_receiver_poll(&receiver,&status)||effects!=1)return false;
