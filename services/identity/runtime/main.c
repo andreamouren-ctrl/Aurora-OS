@@ -15,6 +15,7 @@
 #include <aurora/identity/persistent_store_protected_state.h>
 #include <aurora/identity/reauth_proof.h>
 #include <aurora/identity/reauth_proof_memory.h>
+#include <aurora/identity/rotation.h>
 #include <aurora/identity/session_grant.h>
 #include <aurora/identity/session_grant_memory.h>
 #include <aurora/identity_service_protocol.h>
@@ -96,6 +97,15 @@ struct identity_runtime_reauth_job {
     uint32_t purpose;
 };
 
+struct identity_runtime_rotate_job {
+    bool occupied;
+    uint64_t request_id;
+    char new_key[AURORA_IDENTITY_SERVICE_KEY_MAX_LEN];
+    size_t new_key_length;
+    struct aurora_identity_user_id user_id;
+    struct aurora_identity_credential_id current_credential_id;
+};
+
 struct identity_runtime_persistent_context {
     struct identity_runtime_protected_state_context transport_context;
     struct aurora_identity_persistent_protected_state_store protected_state_store;
@@ -113,6 +123,7 @@ struct identity_runtime_persistent_context {
     struct identity_runtime_auth_job auth_job;
     struct identity_runtime_create_job create_job;
     struct identity_runtime_reauth_job reauth_job;
+    struct identity_runtime_rotate_job rotate_job;
     bool machine_secret_ready;
     bool drbg_ready;
     bool hmac_provider_ready;
@@ -376,6 +387,31 @@ static bool send_reauth_result(
     result.purpose = purpose;
     if (proof != NULL) {
         copy_bytes(result.proof, proof, sizeof(result.proof));
+    }
+    bool sent = send_payload(endpoint, &result, sizeof(result));
+    secure_zero(&result, sizeof(result));
+    return sent;
+}
+
+static bool send_rotate_key_result(
+    uint64_t endpoint,
+    uint64_t request_id,
+    uint32_t state,
+    uint32_t public_error,
+    const struct aurora_identity_credential_id *new_credential_id
+) {
+    struct aurora_identity_service_rotate_key_result result;
+    secure_zero(&result, sizeof(result));
+    result.header.version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION;
+    result.header.type = AURORA_IDENTITY_SERVICE_ROTATE_KEY_RESULT;
+    result.header.request_id = request_id;
+    result.state = state;
+    result.public_error = public_error;
+    if (new_credential_id != NULL) {
+        copy_bytes(
+            result.new_credential_id,
+            new_credential_id->bytes,
+            sizeof(result.new_credential_id));
     }
     bool sent = send_payload(endpoint, &result, sizeof(result));
     secure_zero(&result, sizeof(result));
@@ -791,6 +827,10 @@ static void clear_reauth_job(struct identity_runtime_reauth_job *job) {
     if (job != NULL) secure_zero(job, sizeof(*job));
 }
 
+static void clear_rotate_job(struct identity_runtime_rotate_job *job) {
+    if (job != NULL) secure_zero(job, sizeof(*job));
+}
+
 static void release_persistent_context(
     struct identity_runtime_persistent_context *context
 ) {
@@ -798,6 +838,7 @@ static void release_persistent_context(
     clear_auth_job(&context->auth_job);
     clear_create_job(&context->create_job);
     clear_reauth_job(&context->reauth_job);
+    clear_rotate_job(&context->rotate_job);
     aurora_identity_session_grant_memory_clear(&context->session_grant_store);
     secure_zero(&context->session_grant_core, sizeof(context->session_grant_core));
     aurora_identity_reauth_memory_clear(&context->reauth_proof_store);
@@ -893,6 +934,18 @@ static bool reauth_authority_is_valid(uint64_t handle) {
         !capability_has(handle, AURORA_CAP_IDENTITY_REAUTH, AURORA_RIGHT_TRANSFER);
 }
 
+static bool manage_self_authority_is_valid(uint64_t handle) {
+    return handle != 0u &&
+        capability_has(
+            handle,
+            AURORA_CAP_IDENTITY_MANAGE_SELF,
+            AURORA_RIGHT_CONTROL) &&
+        !capability_has(
+            handle,
+            AURORA_CAP_IDENTITY_MANAGE_SELF,
+            AURORA_RIGHT_TRANSFER);
+}
+
 static bool user_ids_equal(
     const struct aurora_identity_user_id *left,
     const struct aurora_identity_user_id *right
@@ -911,7 +964,8 @@ static bool sensitive_job_busy(
     return context != NULL &&
         (context->auth_job.occupied ||
          context->create_job.occupied ||
-         context->reauth_job.occupied);
+         context->reauth_job.occupied ||
+         context->rotate_job.occupied);
 }
 
 static bool handle_consume_session_grant(
