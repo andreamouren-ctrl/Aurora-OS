@@ -13,6 +13,7 @@
 #include <aurora/process.h>
 #include <aurora/scheduler.h>
 #include <aurora/software_compositor.h>
+#include <aurora/g5_compositor_bridge.h>
 #include <aurora/syscall_abi.h>
 #include <aurora/usercopy.h>
 
@@ -276,22 +277,58 @@ bool graphics_ring3_two_client_self_test(void) {
         return false;
     }
 
-    /* Actual Ring3-written committed buffers -> software compositor ->
-     * display backend. No mock display or stubbed compositor in this gate. */
+    /* Real Ring3-written buffers -> capability-backed G5 surface registry ->
+     * Configure/ACK -> frame delivery -> compositor -> display. */
     static struct aurora_software_compositor compositor;
+    static struct g5_frame_submission frame;
+    static struct g5_frame_delivery delivery;
+    static struct g5_compositor_bridge bridge;
+    static struct aurora_cap_table compositor_caps;
+    cap_table_init(&compositor_caps);
+    aurora_cap_handle cap_a=graphics_surface_grant(
+        &compositor_caps,surface_a,AURORA_RIGHT_READ|AURORA_RIGHT_CONTROL);
+    aurora_cap_handle cap_b=graphics_surface_grant(
+        &compositor_caps,surface_b,AURORA_RIGHT_READ|AURORA_RIGHT_CONTROL);
+    uint32_t slot_a=UINT32_MAX,slot_b=UINT32_MAX;
+    uint64_t config_a=0u,config_b=0u,request_config=0u;
     uint64_t node_a=0u,node_b=0u,display_serial=0u;
-    if (!software_compositor_init(&compositor,0u) ||
-        !software_compositor_add_surface(&compositor,surface_a,
-                                         24,24,0,255u,&node_a) ||
-        !software_compositor_add_surface(&compositor,surface_b,
-                                         88,24,1,255u,&node_b) ||
-        !software_compositor_compose_present(&compositor,&display_serial) ||
+    if (cap_a==AURORA_CAP_INVALID || cap_b==AURORA_CAP_INVALID ||
+        !g5_frame_submission_begin(&frame,77u) ||
+        !g5_surface_registry_attach(&frame.registry,&compositor_caps,
+                                    cap_a,&slot_a) ||
+        !g5_surface_registry_attach(&frame.registry,&compositor_caps,
+                                    cap_b,&slot_b) ||
+        !g5_surface_bridge_configure(
+            &frame.registry.entries[slot_a].bridge,
+            &frame.registry.session,48u,48u,&config_a) ||
+        !g5_surface_bridge_ack(&frame.registry.entries[slot_a].bridge,
+                              &frame.registry.session,config_a) ||
+        !g5_surface_bridge_configure(
+            &frame.registry.entries[slot_b].bridge,
+            &frame.registry.session,48u,48u,&config_b) ||
+        !g5_surface_bridge_ack(&frame.registry.entries[slot_b].bridge,
+                              &frame.registry.session,config_b) ||
+        !g5_frame_delivery_bind(&delivery,&frame) ||
+        !software_compositor_init(&compositor,0u) ||
+        !g5_compositor_bridge_bind(&bridge,&delivery,&compositor) ||
+        !g5_compositor_bridge_attach(&bridge,slot_a,24,24,0,&node_a) ||
+        !g5_compositor_bridge_attach(&bridge,slot_b,88,24,1,&node_b) ||
+        !g5_frame_submission_request(&frame,slot_a,1u,&request_config) ||
+        request_config!=config_a ||
+        !g5_compositor_bridge_present(&bridge,slot_a,1u,config_a,
+                                      &display_serial) ||
         display_serial==0u ||
-        !software_compositor_remove_surface(&compositor,node_b) ||
-        !software_compositor_remove_surface(&compositor,node_a) ||
-        !software_compositor_destroy(&compositor)) {
+        !g5_compositor_bridge_detach(&bridge,slot_b) ||
+        !g5_compositor_bridge_detach(&bridge,slot_a)) {
         return false;
     }
+    g5_compositor_bridge_revoke(&bridge);
+    g5_frame_delivery_revoke(&delivery);
+    g5_frame_submission_end(&frame);
+    if (!cap_revoke(&compositor_caps,cap_a) ||
+        !cap_revoke(&compositor_caps,cap_b) ||
+        !software_compositor_destroy(&compositor))
+        return false;
 
     if (!graphics_surface_detach_buffers(
             &client_a->capabilities,
