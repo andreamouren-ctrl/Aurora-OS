@@ -10,6 +10,7 @@
 #include <aurora/identity_client.h>
 #include <aurora/identity_create_probe.h>
 #include <aurora/identity_session_grant_probe.h>
+#include <aurora/identity_reauth_probe.h>
 #include <aurora/input.h>
 #include <aurora/ipc_wait_probe.h>
 #include <aurora/g5_ipc_endpoint.h>
@@ -591,6 +592,12 @@ static void protected_state_bootstrap_probe(void) {
     }
 
     log_line("[identity-session] capability-authorized grant-consume gate + replay-safe rejection path passed");
+
+    if (!identity_reauth_ring3_self_test()) {
+        kernel_panic("Ring 3 Identity re-authentication self-test failed");
+    }
+
+    log_line("[identity-reauth] capability-gated fresh-auth flow + degraded fail-closed path passed");
 
     if (!session_manager_ring3_self_test()) {
         kernel_panic("Ring 3 Session Manager service-to-service self-test failed");
