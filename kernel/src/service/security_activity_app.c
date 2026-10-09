@@ -1,6 +1,7 @@
 #include <stddef.h>
 
 #include <aurora/security_activity_app.h>
+#include <aurora/identity_client.h>
 
 static void bump_revision(struct aurora_security_activity_app *app) {
     if (app == NULL) return;
@@ -43,6 +44,8 @@ void security_activity_app_close(
 ) {
     if (app == NULL) return;
 
+    /* Only discard completed activity replies; leave authentication untouched. */
+    (void)identity_client_discard_completed_security_activity();
     app->active = false;
     security_activity_controller_init(&app->controller);
     app->render.filter = AURORA_SECURITY_ACTIVITY_FILTER_ALL;
