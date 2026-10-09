@@ -28,7 +28,7 @@ bool g5_shell_receiver_native_self_test(void) {
     !g5_shell_receiver_bind(&receiver,&session,G5_SHELL_PERMIT_CLOSE,apply,NULL)||
     !g5_shell_receiver_connect(&receiver,endpoint,&caps,receive,authority,
       AURORA_CAP_SYSTEM,AURORA_RIGHT_CONTROL,consumer))return false;
- uint8_t bytes[64]={0},args[8]={0};size_t n=0;
+ uint8_t bytes[80]={0},args[8]={0};size_t n=0;
  struct g5_ipc_header h={
   .major=1,.minor=0,.header_bytes=48,.kind=G5_IPC_REQUEST,
   .operation=G5_OP_WINDOW_CLOSE,.payload_bytes=8,.request_id=1,
@@ -53,8 +53,9 @@ bool g5_shell_receiver_native_self_test(void) {
  h.request_id=3;
  h.session_generation=71;
  h.operation=G5_OP_WINDOW_PLACE;
- h.payload_bytes=16;
- uint8_t place_args[16]={0};
+ h.payload_bytes=24;
+ uint8_t place_args[24]={0};
+ place_args[8]=1;place_args[12]=1;place_args[16]=1;
  if(g5_ipc_encode(&h,place_args,bytes,sizeof(bytes),&n)!=G5_IPC_OK||
     !ipc_send(sender,NULL,bytes,(uint32_t)n,NULL,0)||
     !g5_shell_receiver_poll(&receiver,&status)||
