@@ -1565,6 +1565,244 @@ static bool handle_cancel_reauth(
         request_id);
 }
 
+
+static bool handle_begin_rotate_key(
+    uint64_t endpoint,
+    const struct aurora_sys_ipc_received *received,
+    struct identity_runtime_persistent_context *context
+) {
+    struct aurora_identity_service_begin_rotate_key request;
+    struct aurora_identity_reauth_token token;
+    struct aurora_identity_user_id expected_user_id;
+    secure_zero(&request, sizeof(request));
+    secure_zero(&token, sizeof(token));
+    secure_zero(&expected_user_id, sizeof(expected_user_id));
+
+    if (received == NULL || context == NULL ||
+        received->length != sizeof(request) ||
+        received->capability_count != 1u) {
+        revoke_received_capabilities(received);
+        return send_rotate_key_result(
+            endpoint, 0u,
+            AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST,
+            NULL);
+    }
+
+    copy_bytes(&request, received->data, sizeof(request));
+    uint64_t authority = received->capabilities[0];
+    bool authorized = manage_self_authority_is_valid(authority);
+    bool revoked = revoke_capability(authority);
+    uint64_t request_id = request.header.request_id;
+
+    if (!authorized || !revoked) {
+        secure_zero(&request, sizeof(request));
+        return send_rotate_key_result(
+            endpoint, request_id,
+            AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_UNAUTHORIZED,
+            NULL);
+    }
+
+    copy_bytes(
+        expected_user_id.bytes,
+        request.expected_user_id,
+        sizeof(expected_user_id.bytes));
+
+    if (request.header.version != AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION ||
+        request.header.type != AURORA_IDENTITY_SERVICE_BEGIN_ROTATE_KEY ||
+        request_id == 0u ||
+        request.reserved != 0u ||
+        request.new_key_length == 0u ||
+        request.new_key_length > AURORA_IDENTITY_SERVICE_KEY_MAX_LEN ||
+        request.session_generation == 0u ||
+        aurora_identity_user_id_is_zero(&expected_user_id)) {
+        secure_zero(&request, sizeof(request));
+        secure_zero(&expected_user_id, sizeof(expected_user_id));
+        return send_rotate_key_result(
+            endpoint, request_id,
+            AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST,
+            NULL);
+    }
+
+    if (!context->identity_core_ready || !context->drbg_ready ||
+        !context->reauth_proof_ready) {
+        secure_zero(&request, sizeof(request));
+        secure_zero(&expected_user_id, sizeof(expected_user_id));
+        return send_rotate_key_result(
+            endpoint, request_id,
+            AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE,
+            NULL);
+    }
+
+    if (sensitive_job_busy(context)) {
+        secure_zero(&request, sizeof(request));
+        secure_zero(&expected_user_id, sizeof(expected_user_id));
+        return send_rotate_key_result(
+            endpoint, request_id,
+            AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_BUSY,
+            NULL);
+    }
+
+    copy_bytes(token.bytes, request.proof, sizeof(token.bytes));
+    struct aurora_identity_reauth_consume_result consumed =
+        aurora_identity_reauth_consume(
+            &context->reauth_proof_core,
+            &token,
+            &expected_user_id,
+            request.session_generation,
+            AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY);
+    secure_zero(&token, sizeof(token));
+
+    if (consumed.result != AURORA_IDENTITY_REAUTH_OK) {
+        uint32_t public_error = AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_AUTH_FAILED;
+        if (consumed.result == AURORA_IDENTITY_REAUTH_BACKEND_ERROR) {
+            public_error = AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE;
+        } else if (consumed.result == AURORA_IDENTITY_REAUTH_CRYPTO_ERROR) {
+            public_error = AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INTERNAL_FAILURE;
+        }
+        secure_zero(&consumed, sizeof(consumed));
+        secure_zero(&request, sizeof(request));
+        secure_zero(&expected_user_id, sizeof(expected_user_id));
+        return send_rotate_key_result(
+            endpoint, request_id,
+            AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_SERVICE_ERROR,
+            public_error,
+            NULL);
+    }
+
+    clear_rotate_job(&context->rotate_job);
+    context->rotate_job.occupied = true;
+    context->rotate_job.request_id = request_id;
+    context->rotate_job.new_key_length = request.new_key_length;
+    context->rotate_job.user_id = consumed.user_id;
+    context->rotate_job.current_credential_id = consumed.credential_id;
+    copy_bytes(
+        context->rotate_job.new_key,
+        request.new_key,
+        context->rotate_job.new_key_length);
+
+    secure_zero(&consumed, sizeof(consumed));
+    secure_zero(&request, sizeof(request));
+    secure_zero(&expected_user_id, sizeof(expected_user_id));
+    return send_message(
+        endpoint,
+        AURORA_IDENTITY_SERVICE_ROTATE_KEY_PENDING,
+        request_id);
+}
+
+static bool execute_rotate_key_job(
+    uint64_t endpoint,
+    struct identity_runtime_persistent_context *context
+) {
+    struct identity_runtime_rotate_job *job = &context->rotate_job;
+    struct aurora_identity_rotation_context rotation;
+    secure_zero(&rotation, sizeof(rotation));
+    rotation.core = &context->identity_core;
+    rotation.store =
+        aurora_identity_persistent_store_rotation_ops(&context->persistent_store);
+
+    struct aurora_identity_rotation_result rotated =
+        aurora_identity_rotate_key(
+            &rotation,
+            &job->user_id,
+            &job->current_credential_id,
+            job->new_key,
+            job->new_key_length);
+
+    secure_zero(job->new_key, sizeof(job->new_key));
+    job->new_key_length = 0u;
+    secure_zero(&rotation, sizeof(rotation));
+
+    if (rotated.result == AURORA_IDENTITY_OK) {
+        bool sent = send_rotate_key_result(
+            endpoint, job->request_id,
+            AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_SUCCESS,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE,
+            &rotated.new_credential_id);
+        secure_zero(&rotated, sizeof(rotated));
+        return sent;
+    }
+
+    if (rotated.result == AURORA_IDENTITY_ALREADY_EXISTS) {
+        secure_zero(&rotated, sizeof(rotated));
+        return send_rotate_key_result(
+            endpoint, job->request_id,
+            AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_ALREADY_EXISTS,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_POLICY_DENIED,
+            NULL);
+    }
+
+    uint32_t public_error = AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INTERNAL_FAILURE;
+    if (rotated.result == AURORA_IDENTITY_BACKEND_ERROR) {
+        public_error = AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE;
+    } else if (rotated.result == AURORA_IDENTITY_RANDOM_ERROR) {
+        public_error = AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE;
+    } else if (rotated.result == AURORA_IDENTITY_INVALID_ARGUMENT ||
+               rotated.result == AURORA_IDENTITY_INVALID_KEY_FORMAT) {
+        public_error = AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST;
+    } else if (rotated.result == AURORA_IDENTITY_NOT_FOUND) {
+        public_error = AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_AUTH_FAILED;
+    }
+
+    secure_zero(&rotated, sizeof(rotated));
+    return send_rotate_key_result(
+        endpoint, job->request_id,
+        AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_SERVICE_ERROR,
+        public_error,
+        NULL);
+}
+
+static bool handle_query_rotate_key(
+    uint64_t endpoint,
+    const struct aurora_identity_service_message *request,
+    struct identity_runtime_persistent_context *context
+) {
+    if (request == NULL || context == NULL ||
+        request->request_id == 0u ||
+        !context->rotate_job.occupied ||
+        context->rotate_job.request_id != request->request_id) {
+        return send_rotate_key_result(
+            endpoint,
+            request == NULL ? 0u : request->request_id,
+            AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST,
+            NULL);
+    }
+
+    bool sent = execute_rotate_key_job(endpoint, context);
+    clear_rotate_job(&context->rotate_job);
+    return sent;
+}
+
+static bool handle_cancel_rotate_key(
+    uint64_t endpoint,
+    const struct aurora_identity_service_message *request,
+    struct identity_runtime_persistent_context *context
+) {
+    if (request == NULL || context == NULL ||
+        request->request_id == 0u ||
+        !context->rotate_job.occupied ||
+        context->rotate_job.request_id != request->request_id) {
+        return send_rotate_key_result(
+            endpoint,
+            request == NULL ? 0u : request->request_id,
+            AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST,
+            NULL);
+    }
+
+    uint64_t request_id = context->rotate_job.request_id;
+    clear_rotate_job(&context->rotate_job);
+    return send_message(
+        endpoint,
+        AURORA_IDENTITY_SERVICE_ROTATE_KEY_CANCELLED,
+        request_id);
+}
+
 static bool handle_begin_create(
     uint64_t endpoint,
     const struct aurora_sys_ipc_received *received,
@@ -1882,6 +2120,17 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
             continue;
         }
 
+        if (request.type == AURORA_IDENTITY_SERVICE_BEGIN_ROTATE_KEY) {
+            if (!handle_begin_rotate_key(
+                    startup->ipc_endpoint,
+                    &received,
+                    persistent_context)) {
+                release_persistent_context(persistent_context);
+                return 1;
+            }
+            continue;
+        }
+
         if (request.type == AURORA_IDENTITY_SERVICE_CONSUME_SESSION_GRANT) {
             if (!handle_consume_session_grant(
                     startup->ipc_endpoint,
@@ -1940,6 +2189,28 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
 
         if (request.type == AURORA_IDENTITY_SERVICE_CANCEL_REAUTH) {
             if (!handle_cancel_reauth(
+                    startup->ipc_endpoint,
+                    &request,
+                    persistent_context)) {
+                release_persistent_context(persistent_context);
+                return 1;
+            }
+            continue;
+        }
+
+        if (request.type == AURORA_IDENTITY_SERVICE_QUERY_ROTATE_KEY) {
+            if (!handle_query_rotate_key(
+                    startup->ipc_endpoint,
+                    &request,
+                    persistent_context)) {
+                release_persistent_context(persistent_context);
+                return 1;
+            }
+            continue;
+        }
+
+        if (request.type == AURORA_IDENTITY_SERVICE_CANCEL_ROTATE_KEY) {
+            if (!handle_cancel_rotate_key(
                     startup->ipc_endpoint,
                     &request,
                     persistent_context)) {
