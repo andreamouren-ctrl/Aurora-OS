@@ -343,6 +343,10 @@ static bool start_with_context(
         process_bootstrap_signal(host.process) !=
             AURORA_USER_SESSION_HOST_READY_MAGIC) {
         log_line("[g5-shell-diagnostic] Ring3 control READY or bootstrap proof missing");
+        log_write("[g5-shell-diagnostic] host finished/exit-code/bootstrap-proof: ");
+        log_u64(scheduler_thread_finished(host.thread));log_write("/");
+        log_u64(host.process->exit_code);log_write("/");
+        log_u64(process_bootstrap_signal(host.process));log_line("");
         /* A failed handshake must immediately invalidate both G5 ends,
          * not leave a privileged endpoint while a failed process winds down. */
         g5_shell_session_end(&shell_session);
