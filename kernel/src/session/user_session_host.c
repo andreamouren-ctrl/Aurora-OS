@@ -557,7 +557,31 @@ bool user_session_host_self_test(void) {
             replay_status==G5_IPC_DENIED &&
             g5_session_health_events==1u;
     }
-    bool stopped = running && replay_denied && user_session_host_stop();
+    bool wrong_generation_denied=false;
+    if (running && replay_denied) {
+        uint8_t wire[G5_IPC_WIRE_HEADER_BYTES]={0};
+        size_t wire_len=0u;
+        struct g5_ipc_header wrong={
+            .major=G5_IPC_WIRE_MAJOR,
+            .minor=G5_IPC_WIRE_MINOR,
+            .header_bytes=G5_IPC_WIRE_HEADER_BYTES,
+            .kind=G5_IPC_REQUEST,
+            .operation=G5_OP_SHELL_HEALTH,
+            .request_id=3u,
+            .session_generation=2u
+        };
+        enum g5_ipc_status status=G5_IPC_OK;
+        struct aurora_ipc_endpoint *sender=
+            ipc_channel_endpoint(&host.g5_channel,0u);
+        wrong_generation_denied=sender!=NULL &&
+            g5_ipc_encode(&wrong,NULL,wire,sizeof(wire),&wire_len)==G5_IPC_OK &&
+            ipc_send(sender,NULL,wire,(uint32_t)wire_len,NULL,0u) &&
+            g5_ipc_endpoint_poll(&host.g5_binding,&status) &&
+            status==G5_IPC_DENIED &&
+            g5_session_health_events==1u;
+    }
+    bool stopped = running && replay_denied &&
+        wrong_generation_denied && user_session_host_stop();
     bool receiver_revoked = stopped &&
         host.g5_receiver_handle == AURORA_CAP_INVALID &&
         host.g5_authority_handle == AURORA_CAP_INVALID &&
