@@ -15,6 +15,7 @@
 #include <aurora/user_session_host_image.h>
 #include <aurora/g5_ipc_endpoint.h>
 #include <aurora/g5_shell_session.h>
+#include <aurora/g5_shell_scene.h>
 #include <aurora/usercopy.h>
 
 #define USER_SESSION_HOST_TIMEOUT_NS UINT64_C(2000000000)
@@ -32,6 +33,7 @@ struct user_session_host_runtime {
     struct aurora_ipc_channel g5_channel;
     struct g5_ipc_endpoint_binding g5_binding;
     struct g5_pending_queue g5_pending;
+    struct g5_shell_scene scene;
     aurora_cap_handle g5_receiver_handle;
     aurora_cap_handle g5_authority_handle;
     aurora_cap_handle g5_sender_handle;
@@ -119,6 +121,7 @@ static void revoke_g5_sender(void) {
 }
 
 static void revoke_g5_receiver(void) {
+    g5_shell_scene_end(&host.scene);
     /* Remove receiver authority before releasing a session's kernel endpoint. */
     host.g5_binding.provisioned_exclusively=false;
     if (host.g5_authority_handle != AURORA_CAP_INVALID) {
@@ -263,7 +266,8 @@ static bool start_with_context(
             AURORA_CAP_IPC_ENDPOINT, AURORA_RIGHT_READ);
         host.g5_authority_handle = cap_grant(
             &host.kernel_caps, &host.g5_channel,
-            AURORA_CAP_SYSTEM, AURORA_RIGHT_READ);
+            AURORA_CAP_SYSTEM,
+            AURORA_RIGHT_READ|AURORA_RIGHT_CONTROL|AURORA_RIGHT_WRITE);
         if (host.g5_sender_handle == AURORA_CAP_INVALID ||
             host.g5_receiver_handle == AURORA_CAP_INVALID ||
             host.g5_authority_handle == AURORA_CAP_INVALID ||
@@ -283,6 +287,10 @@ static bool start_with_context(
             .provisioned_exclusively=true,
             .pending_requests=&host.g5_pending
         };
+        if (!g5_shell_scene_begin(&host.scene,host.process,generation)) {
+            cleanup_unstarted_host();
+            return false;
+        }
     }
 
     struct aurora_user_session_host_startup startup;
@@ -293,6 +301,14 @@ static bool start_with_context(
     startup.g5_endpoint = host.g5_sender_handle == AURORA_CAP_INVALID ?
         0u : host.g5_sender_handle;
     startup.session_generation = generation;
+    startup.graphics_buffer=host.scene.user_buffer;
+    startup.graphics_surface=host.scene.user_surface;
+    startup.graphics_object_id=host.scene.surface ?
+        host.scene.surface->object_id : 0u;
+    startup.graphics_object_generation=host.scene.surface ?
+        host.scene.surface->generation : 0u;
+    startup.graphics_width=host.scene.active ? G5_SHELL_SCENE_WIDTH : 0u;
+    startup.graphics_height=host.scene.active ? G5_SHELL_SCENE_HEIGHT : 0u;
     for (size_t i = 0u; i < sizeof(startup.user_id); ++i) {
         startup.user_id[i] = user_id[i];
     }
