@@ -33,6 +33,7 @@
 #include <aurora/ioapic.h>
 #include <aurora/ipc.h>
 #include <aurora/g5_ipc_endpoint.h>
+#include <aurora/g5_shell_receiver.h>
 #include <aurora/log.h>
 #include <aurora/login_input.h>
 #include <aurora/memory_object.h>
@@ -87,6 +88,12 @@ static const char *lapic_mode_name(void) {
 }
 
 #if AURORA_BOOT_VALIDATION
+static volatile uint32_t g5_native_probe_result;
+static void g5_native_probe_thread(void *unused) {
+    (void)unused;
+    g5_native_probe_result =
+        g5_shell_receiver_native_self_test() ? 1u : 2u;
+}
 static void scheduler_probe_thread(
     void *argument
 ) {
@@ -2536,6 +2543,21 @@ void kmain(void) {
     log_line("");
 
     log_line("[sched] preemptive kernel thread probe passed");
+
+    /* Real Aurora IPC send/receive, replay denial and revoke test,
+     * executing on an explicitly owned nonzero scheduler thread. */
+    g5_native_probe_result = 0u;
+    aurora_thread_id g5_thread = scheduler_create_kernel_thread(
+        "g5-shell-ipc-probe", g5_native_probe_thread, NULL);
+    if (g5_thread == 0u)
+        kernel_panic("Could not start G5 Shell native IPC probe");
+    uint64_t g5_deadline = clock_now_ns() + 500000000ull;
+    while (!scheduler_thread_finished(g5_thread) &&
+           clock_now_ns() < g5_deadline) arch_idle();
+    if (!scheduler_thread_finished(g5_thread) ||
+        g5_native_probe_result != 1u)
+        kernel_panic("G5 Shell real IPC channel probe failed");
+    log_line("[g5-shell] native IPC receiver/replay/revoke probe passed");
 #endif
 
     boot_ui_stage(
