@@ -15,6 +15,7 @@ A proof is:
 
 - opaque outside the trusted Identity/authorization boundary;
 - bound to exactly one stable `user_id`;
+- bound to exactly one authenticated session generation;
 - bound to exactly one purpose;
 - short-lived;
 - single-use;
@@ -50,6 +51,7 @@ Therefore:
 - replay -> not found;
 - wrong purpose -> mismatch and the proof is burned;
 - wrong user -> mismatch and the proof is burned;
+- wrong session generation -> mismatch and the proof is burned;
 - expired proof -> rejected and invalidated.
 
 This prevents a stolen or misrouted bearer token from being probed repeatedly against different operations or identities.
@@ -64,7 +66,7 @@ Proofs are not identity database records and must not survive:
 - Identity Service restart/generation change;
 - explicit transient-store clearing.
 
-The store enforces unique token tags and reclaims expired slots.
+The store enforces unique token tags and reclaims expired slots. A proof from a previous session generation cannot be consumed after logout/new-session bootstrap even when the stable `user_id` is unchanged.
 
 ## Separation from login grants
 
@@ -83,7 +85,7 @@ Code:
 - `services/identity/include/aurora/identity/reauth_proof_memory.h`
 - `services/identity/src/reauth_proof_memory.c`
 
-Host tests verify issuance, expiry, replay rejection, wrong-user/wrong-purpose destructive consumption, invalid policy and store clearing.
+Host tests verify issuance, expiry, replay rejection, wrong-user/wrong-purpose/wrong-session destructive consumption, invalid policy, zero-generation rejection and store clearing.
 
 ## Next integration gate
 
