@@ -43,7 +43,8 @@ static struct g5_shell_session shell_session;
 static struct g5_dispatch_context *session_g5_dispatcher;
 
 bool user_session_host_register_g5_dispatcher(struct g5_dispatch_context *d) {
-    if (d == NULL || host.active || session_g5_dispatcher != NULL ||
+    if (d == NULL || host.active || host.process != NULL ||
+        host.thread != 0u || session_g5_dispatcher != NULL ||
         d->active_session_generation != 0) return false;
     session_g5_dispatcher = d;
     return true;
@@ -347,6 +348,8 @@ static bool start_with_context(
         if (!g5_ipc_endpoint_poll(&host.g5_binding,&ready) ||
             ready!=G5_IPC_OK) {
             g5_ipc_dispatch_revoke(session_g5_dispatcher);
+            revoke_g5_sender();
+            revoke_g5_receiver();
             (void)session_profile_lease_revoke_process(host.process);
             host.profile_handle=AURORA_CAP_INVALID;
             return false;
