@@ -5,6 +5,11 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+## G5 WP-03 — Real Ring3 Surface-to-Display Integration Gate (2026-10-09)
+
+- [ ] **Real boot-validation display stage (CI pending):** extend the existing native two-client Ring3 graphics syscall probe to take two genuinely committed process-owned surfaces, add them to a real software compositor, invoke hardware-backed `software_compositor_compose_present()`, require a nonzero display presentation serial, remove both nodes and destroy the compositor. Emit a unique `[g5-graphics]` marker only after success, now mandatory for Bootstrap BIOS acceptance. This proves the G2 Ring3 surface→compositor→display chain in QEMU, **not yet the missing G5 Shell IPC→surface chain**. No stubs or host mocks in this gate.
+- [ ] **WP-03 still blocked:** an authenticated Shell G5 opcode must create/control/present an owned surface in production; the live session graphics coordinator, Ring3-created window semantics and crash/restart display acceptance remain open.
+
 ## G5 WP-03 — BIOS runtime completion and CI timing (2026-10-09)
 
 - [ ] **Bootstrap stability investigation (new CI pending):** HEAD `8ccb3ffa` built the kernel/ISO and emitted the actual native G5 receiver runtime marker, but four-vCPU QEMU BIOS smoke did not emit the final M1 user-space bootstrap marker within its 25-second run. No demonstrated kernel panic in its serial tail; do not attribute to Shell IPC without proof.
