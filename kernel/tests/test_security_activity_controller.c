@@ -100,10 +100,42 @@ static void test_bad_cursor_rejected(void) {
     assert(ctl.state == AURORA_SECURITY_ACTIVITY_VIEW_ERROR);
     assert(ctl.page.count == 1);
 }
+static void test_end_of_activity_releases_result(void) {
+    struct aurora_security_activity_controller ctl;
+    setup();
+    security_activity_controller_init(&ctl);
+    assert(security_activity_controller_begin(&ctl));
+    fake_state = AURORA_IDENTITY_CLIENT_ACTIVITY_END;
+    security_activity_controller_pump(&ctl);
+    assert(ctl.state == AURORA_SECURITY_ACTIVITY_VIEW_EMPTY);
+    assert(ctl.reached_end && discards == 1 && resets == 0);
+    assert(fake_state == AURORA_IDENTITY_CLIENT_READY);
+}
+static void test_failed_page_read_preserves_previous_page(void) {
+    struct aurora_security_activity_controller ctl;
+    setup();
+    security_activity_controller_init(&ctl);
+    assert(security_activity_controller_begin(&ctl));
+    fake_state = AURORA_IDENTITY_CLIENT_ACTIVITY_RECORD;
+    security_activity_controller_pump(&ctl);
+    fake_state = AURORA_IDENTITY_CLIENT_ACTIVITY_END;
+    security_activity_controller_pump(&ctl);
+    assert(ctl.state == AURORA_SECURITY_ACTIVITY_VIEW_READY);
+    assert(ctl.page.count == 1 && ctl.page.next_before_sequence == 10);
+    assert(ctl.reached_end);
+    fake_state = AURORA_IDENTITY_CLIENT_REAUTH_VERIFIED;
+    begin_succeeds = false;
+    begin_failure_state = AURORA_IDENTITY_CLIENT_REAUTH_VERIFIED;
+    assert(!security_activity_controller_begin(&ctl));
+    assert(ctl.page.count == 1 && ctl.page.items[0].sequence == 10);
+    assert(fake_state == AURORA_IDENTITY_CLIENT_REAUTH_VERIFIED && resets == 0);
+}
 int main(void) {
     test_initial_send_failure_recovery();
     test_busy_client_not_reset();
     test_continuation_send_failure_recovery();
     test_bad_cursor_rejected();
+    test_end_of_activity_releases_result();
+    test_failed_page_read_preserves_previous_page();
     return 0;
 }
