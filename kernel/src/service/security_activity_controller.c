@@ -62,7 +62,7 @@ void security_activity_controller_pump(
                     ? AURORA_SECURITY_ACTIVITY_VIEW_EMPTY
                     : AURORA_SECURITY_ACTIVITY_VIEW_END)
                 : AURORA_SECURITY_ACTIVITY_VIEW_READY;
-        identity_client_reset_result();
+        (void)identity_client_discard_completed_security_activity();
         return;
     }
 
@@ -72,7 +72,7 @@ void security_activity_controller_pump(
             (controller->cursor != 0u && record.sequence >= controller->cursor) ||
             !security_activity_page_append(&controller->page, &record)) {
             controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
-            identity_client_reset_result();
+            (void)identity_client_discard_completed_security_activity();
             return;
         }
 
@@ -85,7 +85,6 @@ void security_activity_controller_pump(
 
         if (!identity_client_begin_security_activity_read(controller->cursor)) {
             controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
-            identity_client_reset_result();
         }
         return;
     }
