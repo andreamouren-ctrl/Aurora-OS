@@ -77,4 +77,10 @@ bool aurora_identity_audit_store_get_oldest(
     size_t offset,
     struct aurora_identity_audit_record *out_record);
 
+bool aurora_identity_audit_store_get_newest_before_for_user(
+    const struct aurora_identity_audit_store *store,
+    const struct aurora_identity_user_id *user_id,
+    uint64_t before_sequence,
+    struct aurora_identity_audit_record *out_record);
+
 #endif
