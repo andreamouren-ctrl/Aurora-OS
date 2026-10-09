@@ -20,15 +20,16 @@ static bool begin_read(
         return false;
     }
 
-    security_activity_page_init(&controller->page);
-    controller->cursor = before_sequence;
-    controller->reached_end = false;
-
+    /* A rejected request must not destroy a previously displayed page.
+     * The shared Identity client may be occupied by authentication. */
     if (!identity_client_begin_security_activity_read(before_sequence)) {
         controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
         return false;
     }
 
+    security_activity_page_init(&controller->page);
+    controller->cursor = before_sequence;
+    controller->reached_end = false;
     controller->state = AURORA_SECURITY_ACTIVITY_VIEW_LOADING;
     return true;
 }
