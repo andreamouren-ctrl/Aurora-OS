@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# WP03 runtime receiver wrong-epoch, unauthorized opcode and marker gate.
 on:
   push:
     paths:
