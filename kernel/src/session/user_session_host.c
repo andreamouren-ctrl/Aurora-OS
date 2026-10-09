@@ -458,14 +458,65 @@ bool user_session_host_stop(void) {
     return acknowledged && clean_exit;
 }
 
+/* Production G5 receiver policy. The self-test registers its own dispatcher,
+ * but a normal authenticated login must also provision the exclusive channel. */
+static struct g5_dispatch_context production_g5_dispatcher;
+static bool production_g5_registered;
+static uint64_t production_g5_ready_count;
+static uint64_t production_g5_health_count;
+
+static bool production_g5_authorize(void *ctx,uint32_t operation,uint64_t generation) {
+    (void)ctx;
+    return generation!=0u &&
+        generation==session_manager_client_generation() &&
+        session_manager_client_state()==AURORA_SESSION_CLIENT_ACTIVE &&
+        (operation==G5_OP_SHELL_READY || operation==G5_OP_SHELL_HEALTH);
+}
+
+static bool production_g5_handle(void *ctx,const struct g5_ipc_header *header,
+                                 const uint8_t *payload) {
+    (void)ctx;(void)payload;
+    if (header==NULL ||
+        !production_g5_authorize(NULL,header->operation,
+                                 header->session_generation))
+        return false;
+    if (header->operation==G5_OP_SHELL_READY) {
+        ++production_g5_ready_count;
+        return true;
+    }
+    if (header->operation==G5_OP_SHELL_HEALTH) {
+        ++production_g5_health_count;
+        return true;
+    }
+    return false;
+}
+
 bool user_session_host_start(void) {
-    if (session_manager_client_state() != AURORA_SESSION_CLIENT_ACTIVE) {
+    if (session_manager_client_state() != AURORA_SESSION_CLIENT_ACTIVE)
+        return false;
+    if (session_g5_dispatcher == NULL) {
+        production_g5_dispatcher.authorize=production_g5_authorize;
+        production_g5_dispatcher.handler=production_g5_handle;
+        production_g5_dispatcher.context=NULL;
+        if (!user_session_host_register_g5_dispatcher(&production_g5_dispatcher))
+            return false;
+        production_g5_registered=true;
+    } else if (session_g5_dispatcher!=&production_g5_dispatcher) {
+        /* Never replace an existing test or external service dispatcher. */
         return false;
     }
-
-    return start_with_context(
+    production_g5_ready_count=0u;
+    production_g5_health_count=0u;
+    bool started=start_with_context(
         session_manager_client_user_id(),
         session_manager_client_generation());
+    if (!started && production_g5_registered &&
+        host.process==NULL && host.thread==0u) {
+        user_session_host_unregister_g5_dispatcher(&production_g5_dispatcher);
+        production_g5_registered=false;
+    }
+    return started && production_g5_ready_count==1u &&
+           production_g5_health_count==1u;
 }
 
 bool user_session_host_active(void) {
