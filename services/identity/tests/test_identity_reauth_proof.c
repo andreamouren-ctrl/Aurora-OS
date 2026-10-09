@@ -134,6 +134,7 @@ static void test_issue_consume_replay(void) {
         &core,
         &issued.token,
         &user,
+        UINT64_C(41),
         AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY);
     CHECK(consumed.result == AURORA_IDENTITY_REAUTH_NOT_FOUND, "replay rejected");
 }
@@ -171,6 +172,7 @@ static void test_wrong_purpose_burns_proof(void) {
         &core,
         &issued.token,
         &user,
+        UINT64_C(41),
         AURORA_IDENTITY_REAUTH_PURPOSE_ENROLL_AUTHENTICATOR);
     CHECK(consumed.result == AURORA_IDENTITY_REAUTH_NOT_FOUND,
         "wrong-purpose attempt burns proof");
@@ -211,6 +213,7 @@ static void test_wrong_user_burns_proof(void) {
         &core,
         &issued.token,
         &user_a,
+        UINT64_C(51),
         AURORA_IDENTITY_REAUTH_PURPOSE_CHANGE_RECOVERY_POLICY);
     CHECK(consumed.result == AURORA_IDENTITY_REAUTH_NOT_FOUND,
         "wrong-user attempt burns proof");
@@ -246,6 +249,11 @@ static void test_expiry_and_policy(void) {
             UINT64_C(41),
             AURORA_IDENTITY_REAUTH_PURPOSE_EXPORT_RECOVERY_MATERIAL);
     CHECK(consumed.result == AURORA_IDENTITY_REAUTH_EXPIRED, "expired proof rejected");
+
+    issued = aurora_identity_reauth_issue(
+        &core, &user, 0u, AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY);
+    CHECK(issued.result == AURORA_IDENTITY_REAUTH_INVALID_ARGUMENT,
+        "zero session generation rejected");
 
     issued = aurora_identity_reauth_issue(
         &core, &user, UINT64_C(41), AURORA_IDENTITY_REAUTH_PURPOSE_NONE);
