@@ -1,7 +1,7 @@
 # Aurora Identity System App UX
 
 Status: **Canonical design**
-Version: **0.3**
+Version: **0.4**
 
 ## 1. Product role
 
@@ -202,10 +202,25 @@ Shows non-secret security events such as:
 - successful login method class;
 - failed attempts/throttling events;
 - credential changes;
+- session start, lock, unlock, logout and abnormal termination;
 - drive enrollment/revocation;
 - recovery events;
 - account-role changes;
 - Administrator file-access grant/revoke events.
+
+The V1 backend/presentation boundary is now explicit. Security Activity consumes a bounded headless model rather than raw audit records. The model provides:
+
+- newest-first bounded pages of at most 16 items;
+- an exclusive sequence cursor for loading older activity;
+- category: authentication, session or credential;
+- semantic severity: informational, warning or critical;
+- stable localization keys for title/detail text rather than renderer-owned strings;
+- monotonic-time metadata, sequence and historical session generation;
+- loading, ready, empty, end-of-history and error states.
+
+The ordinary user view is scoped to the stable identity of the active session. It does not expose another user's records, anonymous machine-wide records, credential identifiers, Aurora Keys, grants, re-authentication proofs or authenticator secret material.
+
+The future compositor-backed renderer owns only visual presentation and interaction. It must not reinterpret raw reason codes as authority, bypass the Identity client cursor, or acquire audit-storage access directly.
 
 ## 7. Administrator Users & Access Mode
 
