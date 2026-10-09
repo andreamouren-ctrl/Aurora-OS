@@ -29,6 +29,7 @@ static bool tags_equal(const uint8_t *left, const uint8_t *right) {
 static bool record_valid(const struct aurora_identity_reauth_record *record) {
     return record != NULL &&
         !aurora_identity_user_id_is_zero(&record->user_id) &&
+        !aurora_identity_credential_id_is_zero(&record->credential_id) &&
         aurora_identity_reauth_purpose_valid(record->purpose) &&
         record->record_version == AURORA_IDENTITY_REAUTH_PROOF_RECORD_VERSION &&
         !bytes_are_zero(record->token_tag, sizeof(record->token_tag)) &&
