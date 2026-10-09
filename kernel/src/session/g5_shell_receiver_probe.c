@@ -91,6 +91,12 @@ bool g5_shell_receiver_native_self_test(void) {
  if(g5_ipc_encode(&h,args,bytes,sizeof(bytes),&n)!=G5_IPC_OK||
     !ipc_send(sender,NULL,bytes,(uint32_t)n,NULL,0)||
     g5_shell_receiver_poll(&receiver,&status)||effects!=1)return false;
+ if(receiver.endpoint.receiver||receiver.endpoint.receiver_caps||
+    receiver.endpoint.provisioned_exclusively||
+    receiver.endpoint.receiver_endpoint_handle!=AURORA_CAP_INVALID||
+    receiver.endpoint.receiver_authority!=AURORA_CAP_INVALID||
+    receiver.endpoint.authority_rights||receiver.endpoint.trusted_consumer_thread)
+  return false;
  g5_shell_receiver_revoke(&receiver);
  return cap_revoke(&caps,receive)&&cap_revoke(&caps,authority)&&
         !g5_shell_receiver_poll(&receiver,&status)&&effects==1;
