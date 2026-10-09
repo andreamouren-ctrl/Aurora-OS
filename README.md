@@ -83,7 +83,7 @@ M4 graphics is now active implementation, not design-only.
 - **G2 Surface/buffer core — complete/runtime verified**
 - **G3 Software compositor + mastering color pipeline — complete/runtime verified**
 - **G4 Pointer/modern input — complete/runtime verified (V1 bounded polling)**
-- **G5 Window protocol/Desktop Shell — in progress (core window policy only)**
+- **G5 Window protocol/Desktop Shell — WP-03 Shell bootstrap/lifecycle frozen and runtime accepted; WP-04+ pending**
 
 G1-G3 currently include capability-gated Ring 3 display/surface paths, cross-client buffer isolation, software composition, damage/clipping/z-order, transforms/scaling, occlusion, secure-scene rules, RGB10A2/RGB12/RGBA16F paths, direct ST.2084, BT.2100 HLG, ICC matrix-shaper import, monitor calibration and perceptual tone mapping.
 
@@ -91,7 +91,7 @@ Display-link foundations include EDID/CTA/DisplayID parsing, HDMI/DisplayPort ca
 
 G4 includes PS/2 and live qemu-xhci USB HID keyboard/mouse input, descriptor-driven mouse wheel and five-button support, normalized routing and focus/capture policy. QEMU hot-unplug teardown and event-ring quiescence were runtime gated. MSI-X interrupt delivery and further HID device classes remain deferred; G4 V1 uses bounded polling.
 
-G5 has a kernel window-policy foundation with configure/ack, activation controls, placement/stacking, bounded move and explicit toplevel destruction. This is **not** yet an integrated Ring 3 Desktop Shell or general-purpose window protocol; compositor input/scene integration, decorations, resize/close request semantics and Shell launch/task management remain pending.
+G5 now has a frozen WP-03 authenticated Ring 3 Shell bootstrap/lifecycle baseline. The User Session Host provisions session-scoped Shell IPC authority, publishes committed graphics through the compositor/display path, fences stale generations, revokes authority on stop/lock/restart, and has QEMU crash + fresh-reauthentication acceptance gates. This is **not** the complete desktop/window manager: WP-04+ still owns dynamic multi-client window policy, focus/hit-testing integration, resize/close semantics, decorations, launch/task management and the Living Canvas.
 
 ## What Aurora is not yet
 
