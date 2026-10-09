@@ -103,7 +103,7 @@ $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT): src/persistent_store_protected_state
 $(CRYPTO_FOUNDATION_OBJECT): src/crypto_foundation.c include/aurora/identity/crypto_foundation.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/crypto_foundation.c -o $@
 
-$(CRYPTO_PROVIDER_OBJECT): src/crypto_provider.c include/aurora/identity/crypto_provider.h include/aurora/identity/crypto_foundation.h include/aurora/identity/core.h include/aurora/identity/session_grant.h | $(BUILD_DIR)
+$(CRYPTO_PROVIDER_OBJECT): src/crypto_provider.c include/aurora/identity/crypto_provider.h include/aurora/identity/crypto_foundation.h include/aurora/identity/core.h include/aurora/identity/session_grant.h include/aurora/identity/reauth_proof.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/crypto_provider.c -o $@
 
 $(ARGON2ID_PROVIDER_OBJECT): src/argon2id_provider.c include/aurora/identity/argon2id_provider.h include/aurora/identity/crypto_provider.h include/aurora/identity/crypto_foundation.h include/aurora/identity/core.h $(ARGON2_VENDOR_INCLUDE)/argon2.h | $(BUILD_DIR)
