@@ -45,10 +45,14 @@ bool security_activity_app_open(
 void security_activity_app_close(
     struct aurora_security_activity_app *app
 ) {
-    if (app == NULL) return;
+    if (app == NULL || !app->active) return;
 
+    /* An already closed view must not affect a later shared-client owner.
+     * Only this view's pending read may be abandoned. */
+    if (app->controller.state == AURORA_SECURITY_ACTIVITY_VIEW_LOADING) {
+        identity_client_abandon_security_activity_read();
+    }
     /* Only discard completed activity replies; leave authentication untouched. */
-    identity_client_abandon_security_activity_read();
     (void)identity_client_discard_completed_security_activity();
     app->active = false;
     security_activity_controller_init(&app->controller);
