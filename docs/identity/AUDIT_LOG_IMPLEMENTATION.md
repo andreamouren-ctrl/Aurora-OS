@@ -1,6 +1,6 @@
 # Aurora Identity Security Audit Log
 
-Status: **Implementation foundation**
+Status: **Persistent runtime integration in progress**
 Version: **0.1**
 
 ## Purpose
@@ -58,13 +58,23 @@ The maximum encoded snapshot remains below the current 8 KiB Protected State I/O
 
 CRC32 detects accidental corruption only. It is not a cryptographic authenticity mechanism; tamper authentication remains a future protected-storage hardening item.
 
-## Next integration step
+## Runtime integration
 
-The next step is runtime opening/emission through the protected-state adapter, followed by events from:
+The Ring 3 Identity Service opens the dual-slot audit store through its existing scoped Protected State transport. Existing-but-corrupt audit snapshots fail service initialization closed rather than silently resetting history.
 
-- authentication success/failure;
-- re-authentication success/failure;
-- Aurora Key rotation;
-- Session Manager lifecycle transitions.
+The service emits durable records for:
 
-Security Activity read access will be a separate capability and must not expose credential material.
+- authentication success/failure, including throttling and service-side failures;
+- re-authentication success/failure bound to the active session generation;
+- rejected/replayed rotation proofs;
+- Aurora Key rotation success/failure.
+
+A successful authentication or re-authentication is not exposed to the caller unless its audit record has been durably published. Credential rotation is audited immediately after its atomic credential commit; an audit publication failure is surfaced as a storage failure rather than reported as a clean security operation.
+
+Remaining integration:
+
+- Session Manager lifecycle transitions (start/lock/unlock/logout/termination);
+- capability-gated Security Activity read access;
+- trusted wall-clock/boot-epoch metadata when that platform contract exists.
+
+Security Activity read access must never expose credential material or opaque authentication tokens.
