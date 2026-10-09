@@ -181,6 +181,10 @@ static bool start_with_context(
     const uint8_t user_id[AURORA_USER_SESSION_HOST_USER_ID_SIZE],
     uint64_t generation
 ) {
+    /* Reap a previously failed bootstrap only after its thread has exited. */
+    if (!host.active && host.thread != 0u &&
+        scheduler_thread_finished(host.thread))
+        cleanup_finished_host();
     /* Never discard a live or unreaped process by clearing host state. */
     if (host.active || host.process != NULL || host.thread != 0u ||
         user_id == NULL ||
