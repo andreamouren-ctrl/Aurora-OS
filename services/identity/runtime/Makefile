@@ -18,6 +18,9 @@ MEMORY_OBJECT := $(BUILD_DIR)/memory.o
 PROTECTED_STATE_TRANSPORT_OBJECT := $(BUILD_DIR)/protected_state_transport.o
 CORE_OBJECT := $(BUILD_DIR)/identity_core.o
 ROTATION_OBJECT := $(BUILD_DIR)/rotation.o
+AUDIT_LOG_OBJECT := $(BUILD_DIR)/audit_log.o
+AUDIT_STORE_OBJECT := $(BUILD_DIR)/audit_store.o
+AUDIT_STORE_PROTECTED_STATE_OBJECT := $(BUILD_DIR)/audit_store_protected_state.o
 CREATION_ACCESS_POLICY_OBJECT := $(BUILD_DIR)/creation_access_policy.o
 BOOTSTRAP_CREATE_GATE_OBJECT := $(BUILD_DIR)/bootstrap_create_gate.o
 SESSION_GRANT_OBJECT := $(BUILD_DIR)/session_grant.o
@@ -111,7 +114,7 @@ all: $(BIN)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(C_OBJECT): main.c protected_state_transport.h $(KERNEL_INCLUDE)/aurora/capability_abi.h $(KERNEL_INCLUDE)/aurora/identity_service_protocol.h $(KERNEL_INCLUDE)/aurora/service_abi.h $(KERNEL_INCLUDE)/aurora/syscall_abi.h $(IDENTITY_INCLUDE)/aurora/identity/core.h $(IDENTITY_INCLUDE)/aurora/identity/creation_access_policy.h $(IDENTITY_INCLUDE)/aurora/identity/argon2id_provider.h $(IDENTITY_INCLUDE)/aurora/identity/crypto_foundation.h $(IDENTITY_INCLUDE)/aurora/identity/crypto_provider.h $(IDENTITY_INCLUDE)/aurora/identity/machine_secret.h $(IDENTITY_INCLUDE)/aurora/identity/machine_secret_protected_state.h $(IDENTITY_INCLUDE)/aurora/identity/persistent_store.h $(IDENTITY_INCLUDE)/aurora/identity/persistent_store_protected_state.h $(IDENTITY_INCLUDE)/aurora/identity/session_grant.h $(IDENTITY_INCLUDE)/aurora/identity/session_grant_memory.h $(IDENTITY_INCLUDE)/aurora/identity/reauth_proof.h $(IDENTITY_INCLUDE)/aurora/identity/reauth_proof_memory.h | $(BUILD_DIR)
+$(C_OBJECT): main.c protected_state_transport.h $(KERNEL_INCLUDE)/aurora/capability_abi.h $(KERNEL_INCLUDE)/aurora/identity_service_protocol.h $(KERNEL_INCLUDE)/aurora/service_abi.h $(KERNEL_INCLUDE)/aurora/syscall_abi.h $(IDENTITY_INCLUDE)/aurora/identity/core.h $(IDENTITY_INCLUDE)/aurora/identity/creation_access_policy.h $(IDENTITY_INCLUDE)/aurora/identity/argon2id_provider.h $(IDENTITY_INCLUDE)/aurora/identity/crypto_foundation.h $(IDENTITY_INCLUDE)/aurora/identity/crypto_provider.h $(IDENTITY_INCLUDE)/aurora/identity/machine_secret.h $(IDENTITY_INCLUDE)/aurora/identity/machine_secret_protected_state.h $(IDENTITY_INCLUDE)/aurora/identity/persistent_store.h $(IDENTITY_INCLUDE)/aurora/identity/persistent_store_protected_state.h $(IDENTITY_INCLUDE)/aurora/identity/session_grant.h $(IDENTITY_INCLUDE)/aurora/identity/session_grant_memory.h $(IDENTITY_INCLUDE)/aurora/identity/reauth_proof.h $(IDENTITY_INCLUDE)/aurora/identity/reauth_proof_memory.h $(IDENTITY_INCLUDE)/aurora/identity/audit_store.h $(IDENTITY_INCLUDE)/aurora/identity/audit_store_protected_state.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) -I$(ARGON2_VENDOR_INCLUDE) $(CFLAGS) -c main.c -o $@
 
 $(MEMORY_OBJECT): memory.c $(KERNEL_INCLUDE)/aurora/syscall_abi.h $(RUNTIME_INCLUDE)/string.h $(RUNTIME_INCLUDE)/stdlib.h | $(BUILD_DIR)
@@ -125,6 +128,15 @@ $(CORE_OBJECT): $(IDENTITY_SRC)/core.c $(IDENTITY_INCLUDE)/aurora/identity/core.
 
 $(ROTATION_OBJECT): $(IDENTITY_SRC)/rotation.c $(IDENTITY_INCLUDE)/aurora/identity/rotation.h $(IDENTITY_INCLUDE)/aurora/identity/core.h $(RUNTIME_INCLUDE)/string.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $(IDENTITY_SRC)/rotation.c -o $@
+
+$(AUDIT_LOG_OBJECT): $(IDENTITY_SRC)/audit_log.c $(IDENTITY_INCLUDE)/aurora/identity/audit_log.h $(IDENTITY_INCLUDE)/aurora/identity/core.h $(RUNTIME_INCLUDE)/string.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $(IDENTITY_SRC)/audit_log.c -o $@
+
+$(AUDIT_STORE_OBJECT): $(IDENTITY_SRC)/audit_store.c $(IDENTITY_INCLUDE)/aurora/identity/audit_store.h $(IDENTITY_INCLUDE)/aurora/identity/audit_log.h $(RUNTIME_INCLUDE)/string.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $(IDENTITY_SRC)/audit_store.c -o $@
+
+$(AUDIT_STORE_PROTECTED_STATE_OBJECT): $(IDENTITY_SRC)/audit_store_protected_state.c $(IDENTITY_INCLUDE)/aurora/identity/audit_store_protected_state.h $(IDENTITY_INCLUDE)/aurora/identity/audit_store.h $(IDENTITY_INCLUDE)/aurora/identity/protected_state_transport.h $(RUNTIME_INCLUDE)/string.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $(IDENTITY_SRC)/audit_store_protected_state.c -o $@
 
 $(CREATION_ACCESS_POLICY_OBJECT): $(IDENTITY_SRC)/creation_access_policy.c $(IDENTITY_INCLUDE)/aurora/identity/creation_access_policy.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $(IDENTITY_SRC)/creation_access_policy.c -o $@
@@ -183,8 +195,8 @@ $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT): $(IDENTITY_SRC)/persistent_store_pro
 $(ENTRY_OBJECT): entry.S | $(BUILD_DIR)
 	$(CC) $(ASMFLAGS) -c entry.S -o $@
 
-$(ELF): $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) $(PROTECTED_STATE_TRANSPORT_OBJECT) $(CORE_OBJECT) $(ROTATION_OBJECT) $(CREATION_ACCESS_POLICY_OBJECT) $(BOOTSTRAP_CREATE_GATE_OBJECT) $(SESSION_GRANT_OBJECT) $(SESSION_GRANT_MEMORY_OBJECT) $(REAUTH_PROOF_OBJECT) $(REAUTH_PROOF_MEMORY_OBJECT) $(CRYPTO_FOUNDATION_OBJECT) $(CRYPTO_PROVIDER_OBJECT) $(ARGON2ID_PROVIDER_OBJECT) $(ARGON2_REF_OBJECTS) $(MACHINE_SECRET_OBJECT) $(MACHINE_SECRET_CODEC_OBJECT) $(MACHINE_SECRET_PROTECTED_STATE_OBJECT) $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT) linker.ld
-	$(CC) $(LDFLAGS) $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) $(PROTECTED_STATE_TRANSPORT_OBJECT) $(CORE_OBJECT) $(ROTATION_OBJECT) $(CREATION_ACCESS_POLICY_OBJECT) $(BOOTSTRAP_CREATE_GATE_OBJECT) $(SESSION_GRANT_OBJECT) $(SESSION_GRANT_MEMORY_OBJECT) $(REAUTH_PROOF_OBJECT) $(REAUTH_PROOF_MEMORY_OBJECT) $(CRYPTO_FOUNDATION_OBJECT) $(CRYPTO_PROVIDER_OBJECT) $(ARGON2ID_PROVIDER_OBJECT) $(ARGON2_REF_OBJECTS) $(MACHINE_SECRET_OBJECT) $(MACHINE_SECRET_CODEC_OBJECT) $(MACHINE_SECRET_PROTECTED_STATE_OBJECT) $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT) -o $@
+$(ELF): $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) $(PROTECTED_STATE_TRANSPORT_OBJECT) $(CORE_OBJECT) $(ROTATION_OBJECT) $(AUDIT_LOG_OBJECT) $(AUDIT_STORE_OBJECT) $(AUDIT_STORE_PROTECTED_STATE_OBJECT) $(CREATION_ACCESS_POLICY_OBJECT) $(BOOTSTRAP_CREATE_GATE_OBJECT) $(SESSION_GRANT_OBJECT) $(SESSION_GRANT_MEMORY_OBJECT) $(REAUTH_PROOF_OBJECT) $(REAUTH_PROOF_MEMORY_OBJECT) $(CRYPTO_FOUNDATION_OBJECT) $(CRYPTO_PROVIDER_OBJECT) $(ARGON2ID_PROVIDER_OBJECT) $(ARGON2_REF_OBJECTS) $(MACHINE_SECRET_OBJECT) $(MACHINE_SECRET_CODEC_OBJECT) $(MACHINE_SECRET_PROTECTED_STATE_OBJECT) $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT) linker.ld
+	$(CC) $(LDFLAGS) $(ENTRY_OBJECT) $(C_OBJECT) $(MEMORY_OBJECT) $(PROTECTED_STATE_TRANSPORT_OBJECT) $(CORE_OBJECT) $(ROTATION_OBJECT) $(AUDIT_LOG_OBJECT) $(AUDIT_STORE_OBJECT) $(AUDIT_STORE_PROTECTED_STATE_OBJECT) $(CREATION_ACCESS_POLICY_OBJECT) $(BOOTSTRAP_CREATE_GATE_OBJECT) $(SESSION_GRANT_OBJECT) $(SESSION_GRANT_MEMORY_OBJECT) $(REAUTH_PROOF_OBJECT) $(REAUTH_PROOF_MEMORY_OBJECT) $(CRYPTO_FOUNDATION_OBJECT) $(CRYPTO_PROVIDER_OBJECT) $(ARGON2ID_PROVIDER_OBJECT) $(ARGON2_REF_OBJECTS) $(MACHINE_SECRET_OBJECT) $(MACHINE_SECRET_CODEC_OBJECT) $(MACHINE_SECRET_PROTECTED_STATE_OBJECT) $(PERSISTENT_STORE_OBJECT) $(PERSISTENT_STORE_PROTECTED_STATE_OBJECT) -o $@
 
 $(BIN): $(ELF)
 	$(OBJCOPY) -O binary $< $@
