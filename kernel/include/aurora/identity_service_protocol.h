@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION 7u
+#define AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION 8u
 #define AURORA_IDENTITY_SERVICE_MESSAGE_SIZE 16u
 #define AURORA_IDENTITY_SERVICE_KEY_MAX_LEN 32u
 #define AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE 32u
@@ -51,6 +51,8 @@ enum aurora_identity_service_message_type {
 
     AURORA_IDENTITY_SERVICE_AUDIT_SESSION_EVENT = 96,
     AURORA_IDENTITY_SERVICE_AUDIT_SESSION_RESULT = 97,
+    AURORA_IDENTITY_SERVICE_SECURITY_ACTIVITY_READ = 98,
+    AURORA_IDENTITY_SERVICE_SECURITY_ACTIVITY_RESULT = 99,
 
     AURORA_IDENTITY_SERVICE_ERROR = 255
 };
@@ -120,6 +122,12 @@ enum aurora_identity_service_audit_session_event_type {
 enum aurora_identity_service_audit_state {
     AURORA_IDENTITY_SERVICE_AUDIT_STATE_SUCCESS = 1,
     AURORA_IDENTITY_SERVICE_AUDIT_STATE_SERVICE_ERROR
+};
+
+enum aurora_identity_service_security_activity_state {
+    AURORA_IDENTITY_SERVICE_SECURITY_ACTIVITY_RECORD = 1,
+    AURORA_IDENTITY_SERVICE_SECURITY_ACTIVITY_END,
+    AURORA_IDENTITY_SERVICE_SECURITY_ACTIVITY_SERVICE_ERROR
 };
 
 enum aurora_identity_service_public_error {
@@ -233,6 +241,26 @@ struct aurora_identity_service_audit_session_result {
     struct aurora_identity_service_message header;
     uint32_t state;
     uint32_t public_error;
+};
+
+struct aurora_identity_service_security_activity_read {
+    struct aurora_identity_service_message header;
+    uint64_t before_sequence;
+    uint64_t session_generation;
+    uint8_t expected_user_id[AURORA_IDENTITY_SERVICE_USER_ID_SIZE];
+};
+
+struct aurora_identity_service_security_activity_result {
+    struct aurora_identity_service_message header;
+    uint32_t state;
+    uint32_t public_error;
+    uint32_t record_version;
+    uint32_t event_type;
+    uint32_t outcome;
+    uint32_t reason_code;
+    uint64_t sequence;
+    uint64_t monotonic_ms;
+    uint64_t session_generation;
 };
 
 #endif
