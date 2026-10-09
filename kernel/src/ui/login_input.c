@@ -81,7 +81,16 @@ static void synchronize_identity_state(void) {
                 log_line("[user-session] bootstrap/runtime failure; session termination requested");
                 return;
             }
-            log_line("[user-session] Ring 3 user session host ready with delegated profile capability");
+            /* Verify a real post-bootstrap Ring 3 IPC round-trip before
+             * presenting the authenticated session as operational. */
+            if (!user_session_host_health_check()) {
+                (void)user_session_host_stop();
+                (void)session_manager_client_terminate();
+                login_ui_set_state(AURORA_LOGIN_TERMINATING);
+                log_line("[g5-shell] production Ring 3 IPC health failed; session revoked");
+                return;
+            }
+            log_line("[user-session] Ring 3 host and G5 IPC health operational");
         }
 
         clear_credential();
