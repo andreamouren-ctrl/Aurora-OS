@@ -38,6 +38,7 @@ enum aurora_identity_reauth_result {
     AURORA_IDENTITY_REAUTH_NOT_FOUND,
     AURORA_IDENTITY_REAUTH_EXPIRED,
     AURORA_IDENTITY_REAUTH_USER_MISMATCH,
+    AURORA_IDENTITY_REAUTH_SESSION_MISMATCH,
     AURORA_IDENTITY_REAUTH_PURPOSE_MISMATCH
 };
 
@@ -66,6 +67,7 @@ struct aurora_identity_reauth_record {
     struct aurora_identity_user_id user_id;
     uint32_t purpose;
     uint32_t record_version;
+    uint64_t session_generation;
     uint8_t token_tag[AURORA_IDENTITY_REAUTH_PROOF_TAG_SIZE];
     uint64_t issued_at_ms;
     uint64_t expires_at_ms;
@@ -108,6 +110,7 @@ struct aurora_identity_reauth_issue_result {
 struct aurora_identity_reauth_consume_result {
     enum aurora_identity_reauth_result result;
     struct aurora_identity_user_id user_id;
+    uint64_t session_generation;
     uint32_t purpose;
 };
 
@@ -118,12 +121,14 @@ bool aurora_identity_reauth_token_is_zero(
 struct aurora_identity_reauth_issue_result aurora_identity_reauth_issue(
     const struct aurora_identity_reauth_core *core,
     const struct aurora_identity_user_id *authenticated_user_id,
+    uint64_t session_generation,
     uint32_t purpose);
 
 struct aurora_identity_reauth_consume_result aurora_identity_reauth_consume(
     const struct aurora_identity_reauth_core *core,
     const struct aurora_identity_reauth_token *token,
     const struct aurora_identity_user_id *expected_user_id,
+    uint64_t expected_session_generation,
     uint32_t expected_purpose);
 
 #endif
