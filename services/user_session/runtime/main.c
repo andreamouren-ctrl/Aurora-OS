@@ -217,6 +217,34 @@ static bool send_g5_scene_publish(
         (uint64_t)(uintptr_t)wire,sizeof(wire),0u,0u)==0u;
 }
 
+static bool send_g5_window_place(
+    uint64_t endpoint,uint64_t generation,
+    uint64_t object_id,uint64_t object_generation
+) {
+    if (!endpoint || !generation || !object_id || !object_generation)
+        return false;
+    uint8_t wire[G5_IPC_WIRE_HEADER_BYTES+24u]={0};
+    wire[0]='G';wire[1]='5';wire[2]='I';wire[3]='P';
+    wire[4]=G5_IPC_WIRE_MAJOR;
+    wire[8]=G5_IPC_WIRE_HEADER_BYTES;
+    wire[10]=G5_IPC_REQUEST;
+    uint32_t op=G5_OP_WINDOW_PLACE;
+    for (unsigned i=0u;i<4u;++i) wire[12u+i]=(uint8_t)(op>>(8u*i));
+    wire[16]=24u;
+    wire[24]=4u; /* monotonic after READY(1), HEALTH(2), PUBLISH(3) */
+    for (unsigned i=0u;i<8u;++i) {
+        wire[32u+i]=(uint8_t)(generation>>(8u*i));
+        wire[40u+i]=(uint8_t)(object_generation>>(8u*i));
+        wire[64u+i]=(uint8_t)(object_id>>(8u*i));
+    }
+    wire[48]=80u; /* position x */
+    wire[52]=72u; /* position y */
+    wire[56]=160u; /* width */
+    wire[60]=96u; /* height */
+    return syscall5(AURORA_SYS_IPC_SEND,endpoint,
+        (uint64_t)(uintptr_t)wire,sizeof(wire),0u,0u)==0u;
+}
+
 static bool wait_message(uint64_t endpoint) {
     return syscall2(AURORA_SYS_IPC_WAIT, endpoint, 0u) == 0u;
 }
@@ -321,6 +349,11 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
         !send_g5_scene_publish(startup->g5_endpoint,
             startup->session_generation,startup->graphics_object_id,
             startup->graphics_object_generation,shell_commit))
+        return 1;
+    if (startup->g5_endpoint != 0u &&
+        !send_g5_window_place(startup->g5_endpoint,
+            startup->session_generation,startup->graphics_object_id,
+            startup->graphics_object_generation))
         return 1;
     if (!send_message(startup->control_endpoint, AURORA_USER_SESSION_HOST_READY, 0u)) {
         return 1;
