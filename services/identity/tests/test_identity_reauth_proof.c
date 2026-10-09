@@ -107,6 +107,7 @@ static void test_issue_consume_replay(void) {
         aurora_identity_reauth_issue(
             &core,
             &user,
+            UINT64_C(41),
             AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY);
 
     CHECK(issued.result == AURORA_IDENTITY_REAUTH_OK, "proof issue");
@@ -119,8 +120,10 @@ static void test_issue_consume_replay(void) {
             &core,
             &issued.token,
             &user,
+            UINT64_C(41),
             AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY);
     CHECK(consumed.result == AURORA_IDENTITY_REAUTH_OK, "proof consume");
+    CHECK(consumed.session_generation == UINT64_C(41), "session generation returned");
     CHECK(consumed.purpose ==
         AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY, "purpose returned");
     CHECK(memcmp(consumed.user_id.bytes, user.bytes, sizeof(user.bytes)) == 0,
@@ -150,6 +153,7 @@ static void test_wrong_purpose_burns_proof(void) {
         aurora_identity_reauth_issue(
             &core,
             &user,
+            UINT64_C(41),
             AURORA_IDENTITY_REAUTH_PURPOSE_ENROLL_AUTHENTICATOR);
     CHECK(issued.result == AURORA_IDENTITY_REAUTH_OK, "wrong-purpose setup");
 
@@ -158,6 +162,7 @@ static void test_wrong_purpose_burns_proof(void) {
             &core,
             &issued.token,
             &user,
+            UINT64_C(41),
             AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY);
     CHECK(consumed.result == AURORA_IDENTITY_REAUTH_PURPOSE_MISMATCH,
         "wrong purpose rejected");
@@ -188,6 +193,7 @@ static void test_wrong_user_burns_proof(void) {
         aurora_identity_reauth_issue(
             &core,
             &user_a,
+            UINT64_C(51),
             AURORA_IDENTITY_REAUTH_PURPOSE_CHANGE_RECOVERY_POLICY);
     CHECK(issued.result == AURORA_IDENTITY_REAUTH_OK, "wrong-user setup");
 
@@ -196,6 +202,7 @@ static void test_wrong_user_burns_proof(void) {
             &core,
             &issued.token,
             &user_b,
+            UINT64_C(51),
             AURORA_IDENTITY_REAUTH_PURPOSE_CHANGE_RECOVERY_POLICY);
     CHECK(consumed.result == AURORA_IDENTITY_REAUTH_USER_MISMATCH,
         "wrong user rejected");
@@ -226,6 +233,7 @@ static void test_expiry_and_policy(void) {
         aurora_identity_reauth_issue(
             &core,
             &user,
+            UINT64_C(41),
             AURORA_IDENTITY_REAUTH_PURPOSE_EXPORT_RECOVERY_MATERIAL);
     CHECK(issued.result == AURORA_IDENTITY_REAUTH_OK, "expiry setup");
 
@@ -235,19 +243,60 @@ static void test_expiry_and_policy(void) {
             &core,
             &issued.token,
             &user,
+            UINT64_C(41),
             AURORA_IDENTITY_REAUTH_PURPOSE_EXPORT_RECOVERY_MATERIAL);
     CHECK(consumed.result == AURORA_IDENTITY_REAUTH_EXPIRED, "expired proof rejected");
 
     issued = aurora_identity_reauth_issue(
-        &core, &user, AURORA_IDENTITY_REAUTH_PURPOSE_NONE);
+        &core, &user, UINT64_C(41), AURORA_IDENTITY_REAUTH_PURPOSE_NONE);
     CHECK(issued.result == AURORA_IDENTITY_REAUTH_INVALID_PURPOSE,
         "invalid purpose rejected");
 
     core.policy.ttl_ms = AURORA_IDENTITY_REAUTH_PROOF_MAX_TTL_MS + 1u;
     issued = aurora_identity_reauth_issue(
-        &core, &user, AURORA_IDENTITY_REAUTH_PURPOSE_CHANGE_LOCAL_ROLE);
+        &core, &user, UINT64_C(41), AURORA_IDENTITY_REAUTH_PURPOSE_CHANGE_LOCAL_ROLE);
     CHECK(issued.result == AURORA_IDENTITY_REAUTH_POLICY_ERROR,
         "oversized ttl rejected");
+}
+
+
+static void test_wrong_session_burns_proof(void) {
+    struct fake_random random = {29u, false};
+    struct fake_clock clock = {7000u, false};
+    struct fake_crypto crypto = {false};
+    struct aurora_identity_reauth_memory_store store;
+    struct aurora_identity_user_id user;
+    aurora_identity_reauth_memory_init(&store);
+    fill_user(&user, 0x80u);
+
+    struct aurora_identity_reauth_core core =
+        make_core(&random, &clock, &crypto, &store);
+    struct aurora_identity_reauth_issue_result issued =
+        aurora_identity_reauth_issue(
+            &core,
+            &user,
+            UINT64_C(71),
+            AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY);
+    CHECK(issued.result == AURORA_IDENTITY_REAUTH_OK, "wrong-session setup");
+
+    struct aurora_identity_reauth_consume_result consumed =
+        aurora_identity_reauth_consume(
+            &core,
+            &issued.token,
+            &user,
+            UINT64_C(72),
+            AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY);
+    CHECK(consumed.result == AURORA_IDENTITY_REAUTH_SESSION_MISMATCH,
+        "wrong session rejected");
+
+    consumed = aurora_identity_reauth_consume(
+        &core,
+        &issued.token,
+        &user,
+        UINT64_C(71),
+        AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY);
+    CHECK(consumed.result == AURORA_IDENTITY_REAUTH_NOT_FOUND,
+        "wrong-session attempt burns proof");
 }
 
 static void test_store_clear(void) {
@@ -265,6 +314,7 @@ static void test_store_clear(void) {
         aurora_identity_reauth_issue(
             &core,
             &user,
+            UINT64_C(41),
             AURORA_IDENTITY_REAUTH_PURPOSE_GRANT_RESOURCE_ACCESS);
     CHECK(issued.result == AURORA_IDENTITY_REAUTH_OK, "clear setup");
     CHECK(aurora_identity_reauth_memory_count(&store) == 1u, "clear count setup");
@@ -277,6 +327,7 @@ static void test_store_clear(void) {
             &core,
             &issued.token,
             &user,
+            UINT64_C(41),
             AURORA_IDENTITY_REAUTH_PURPOSE_GRANT_RESOURCE_ACCESS);
     CHECK(consumed.result == AURORA_IDENTITY_REAUTH_NOT_FOUND,
         "cleared proof unavailable");
@@ -286,6 +337,7 @@ int main(void) {
     test_issue_consume_replay();
     test_wrong_purpose_burns_proof();
     test_wrong_user_burns_proof();
+    test_wrong_session_burns_proof();
     test_expiry_and_policy();
     test_store_clear();
 
