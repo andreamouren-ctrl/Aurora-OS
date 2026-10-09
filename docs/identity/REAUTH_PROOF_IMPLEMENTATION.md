@@ -1,6 +1,6 @@
 # Aurora Identity Purpose-Bound Re-authentication Proof
 
-Status: **isolated implementation foundation**
+Status: **Ring 3 issuance path implemented; sensitive-operation consumption pending**
 Version: **0.1**
 
 ## Purpose
@@ -66,7 +66,7 @@ Proofs are not identity database records and must not survive:
 - Identity Service restart/generation change;
 - explicit transient-store clearing.
 
-The store enforces unique token tags and reclaims expired slots. A proof from a previous session generation cannot be consumed after logout/new-session bootstrap even when the stable `user_id` is unchanged.
+The store enforces unique token tags and reclaims expired slots.
 
 ## Separation from login grants
 
@@ -85,16 +85,37 @@ Code:
 - `services/identity/include/aurora/identity/reauth_proof_memory.h`
 - `services/identity/src/reauth_proof_memory.c`
 
-Host tests verify issuance, expiry, replay rejection, wrong-user/wrong-purpose/wrong-session destructive consumption, invalid policy, zero-generation rejection and store clearing.
+Host tests verify issuance, expiry, replay rejection, wrong-user/wrong-purpose destructive consumption, invalid policy and store clearing.
 
-## Next integration gate
+## Ring 3 issuance integration
 
-The isolated core does not yet make production re-authentication available.
+Identity protocol v5 adds a dedicated asynchronous re-authentication flow:
 
-The next milestone must add a dedicated Ring 3 Identity Service protocol/capability path that:
+```text
+BEGIN_REAUTH
+ -> REAUTH_PENDING
+ -> QUERY_REAUTH
+ -> REAUTH_RESULT
+```
 
-1. derives the trusted target `user_id` from active session context rather than an arbitrary UI assertion;
-2. performs fresh authentication;
-3. issues a proof for one requested purpose;
-4. exposes proof consumption only to the corresponding capability-authorized sensitive operation;
-5. keeps public failures coarse and secret-free.
+Cancellation is available before the expensive verification step.
+
+The kernel Identity bridge does not accept an arbitrary `user_id` or session generation from its UI caller. It derives both from the active Session Manager binding, mints a request-scoped `AURORA_CAP_IDENTITY_REAUTH`, delegates only `CONTROL`, and revokes its sender handle immediately after IPC send.
+
+The Ring 3 Identity Service:
+
+1. validates and revokes the received re-auth capability;
+2. validates the purpose and expected stable identity;
+3. executes fresh Aurora Key authentication;
+4. compares the authenticated `user_id` against the session-bound expected identity;
+5. collapses a valid credential for a different identity to ordinary `AUTH_FAILED`;
+6. issues a short-lived proof only for a successful same-user match and binds it to the active session generation;
+7. never emits a normal login session grant from the re-auth path.
+
+Production runtime policy currently uses a 60-second proof TTL.
+
+The proof HMAC key is derived separately from Machine Secret under `AURORA.IDENTITY.REAUTH-PROOF-KEY.V1`; token tagging also uses the separate `AURORA.IDENTITY.REAUTH-PROOF.V1` domain.
+
+## Remaining integration gate
+
+Issuance is production-wired, but a proof intentionally has no generic privileged effect. The next milestone is to make a concrete sensitive operation—starting with Aurora Key rotation—consume the proof internally while also requiring its own management capability. A generic UI-accessible “consume proof” endpoint must not be introduced.

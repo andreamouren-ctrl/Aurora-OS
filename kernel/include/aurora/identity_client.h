@@ -19,6 +19,10 @@ enum aurora_identity_client_state {
     AURORA_IDENTITY_CLIENT_CREATED,
     AURORA_IDENTITY_CLIENT_CREATE_EXISTS,
     AURORA_IDENTITY_CLIENT_CREATE_DENIED,
+    AURORA_IDENTITY_CLIENT_REAUTHENTICATING,
+    AURORA_IDENTITY_CLIENT_REAUTH_VERIFIED,
+    AURORA_IDENTITY_CLIENT_REAUTH_FAILED,
+    AURORA_IDENTITY_CLIENT_REAUTH_THROTTLED,
     AURORA_IDENTITY_CLIENT_UNAVAILABLE,
     AURORA_IDENTITY_CLIENT_ERROR
 };
@@ -35,6 +39,12 @@ bool identity_client_begin_create(
     size_t key_length
 );
 
+bool identity_client_begin_reauth(
+    const char *key,
+    size_t key_length,
+    uint32_t purpose
+);
+
 void identity_client_pump(void);
 
 void identity_client_reset_result(void);
@@ -45,6 +55,12 @@ uint64_t identity_client_retry_after_ms(void);
 
 bool identity_client_take_session_grant(
     uint8_t out_grant[AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE]
+);
+
+bool identity_client_take_reauth_proof(
+    uint8_t out_proof[AURORA_IDENTITY_SERVICE_REAUTH_PROOF_SIZE],
+    uint32_t *out_purpose,
+    uint64_t *out_expires_at_ms
 );
 
 struct aurora_ipc_endpoint *identity_client_session_peer_endpoint(void);
