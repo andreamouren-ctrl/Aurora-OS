@@ -73,6 +73,16 @@ static void fill_user(
     }
 }
 
+static void fill_credential(
+    struct aurora_identity_credential_id *credential_id,
+    uint8_t base
+) {
+    memset(credential_id, 0, sizeof(*credential_id));
+    for (size_t i = 0u; i < sizeof(credential_id->bytes); ++i) {
+        credential_id->bytes[i] = (uint8_t)(base + (uint8_t)i + 1u);
+    }
+}
+
 static struct aurora_identity_reauth_core make_core(
     struct fake_random *random,
     struct fake_clock *clock,
@@ -98,8 +108,10 @@ static void test_issue_consume_replay(void) {
     struct fake_crypto crypto = {false};
     struct aurora_identity_reauth_memory_store store;
     struct aurora_identity_user_id user;
+    struct aurora_identity_credential_id credential;
     aurora_identity_reauth_memory_init(&store);
     fill_user(&user, 0x10u);
+    fill_credential(&credential, 0x90u);
 
     struct aurora_identity_reauth_core core =
         make_core(&random, &clock, &crypto, &store);
@@ -107,6 +119,7 @@ static void test_issue_consume_replay(void) {
         aurora_identity_reauth_issue(
             &core,
             &user,
+            &credential,
             UINT64_C(41),
             AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY);
 
@@ -123,6 +136,8 @@ static void test_issue_consume_replay(void) {
             UINT64_C(41),
             AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY);
     CHECK(consumed.result == AURORA_IDENTITY_REAUTH_OK, "proof consume");
+    CHECK(memcmp(consumed.credential_id.bytes, credential.bytes,
+        sizeof(credential.bytes)) == 0, "credential binding returned");
     CHECK(consumed.session_generation == UINT64_C(41), "session generation returned");
     CHECK(consumed.purpose ==
         AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY, "purpose returned");
@@ -145,8 +160,10 @@ static void test_wrong_purpose_burns_proof(void) {
     struct fake_crypto crypto = {false};
     struct aurora_identity_reauth_memory_store store;
     struct aurora_identity_user_id user;
+    struct aurora_identity_credential_id credential;
     aurora_identity_reauth_memory_init(&store);
     fill_user(&user, 0x20u);
+    fill_credential(&credential, 0x91u);
 
     struct aurora_identity_reauth_core core =
         make_core(&random, &clock, &crypto, &store);
@@ -154,6 +171,7 @@ static void test_wrong_purpose_burns_proof(void) {
         aurora_identity_reauth_issue(
             &core,
             &user,
+            &credential,
             UINT64_C(41),
             AURORA_IDENTITY_REAUTH_PURPOSE_ENROLL_AUTHENTICATOR);
     CHECK(issued.result == AURORA_IDENTITY_REAUTH_OK, "wrong-purpose setup");
@@ -185,9 +203,11 @@ static void test_wrong_user_burns_proof(void) {
     struct aurora_identity_reauth_memory_store store;
     struct aurora_identity_user_id user_a;
     struct aurora_identity_user_id user_b;
+    struct aurora_identity_credential_id credential;
     aurora_identity_reauth_memory_init(&store);
     fill_user(&user_a, 0x30u);
     fill_user(&user_b, 0x50u);
+    fill_credential(&credential, 0x92u);
 
     struct aurora_identity_reauth_core core =
         make_core(&random, &clock, &crypto, &store);
@@ -195,6 +215,7 @@ static void test_wrong_user_burns_proof(void) {
         aurora_identity_reauth_issue(
             &core,
             &user_a,
+            &credential,
             UINT64_C(51),
             AURORA_IDENTITY_REAUTH_PURPOSE_CHANGE_RECOVERY_POLICY);
     CHECK(issued.result == AURORA_IDENTITY_REAUTH_OK, "wrong-user setup");
@@ -225,8 +246,10 @@ static void test_expiry_and_policy(void) {
     struct fake_crypto crypto = {false};
     struct aurora_identity_reauth_memory_store store;
     struct aurora_identity_user_id user;
+    struct aurora_identity_credential_id credential;
     aurora_identity_reauth_memory_init(&store);
     fill_user(&user, 0x60u);
+    fill_credential(&credential, 0x93u);
 
     struct aurora_identity_reauth_core core =
         make_core(&random, &clock, &crypto, &store);
@@ -236,6 +259,7 @@ static void test_expiry_and_policy(void) {
         aurora_identity_reauth_issue(
             &core,
             &user,
+            &credential,
             UINT64_C(41),
             AURORA_IDENTITY_REAUTH_PURPOSE_EXPORT_RECOVERY_MATERIAL);
     CHECK(issued.result == AURORA_IDENTITY_REAUTH_OK, "expiry setup");
@@ -250,19 +274,28 @@ static void test_expiry_and_policy(void) {
             AURORA_IDENTITY_REAUTH_PURPOSE_EXPORT_RECOVERY_MATERIAL);
     CHECK(consumed.result == AURORA_IDENTITY_REAUTH_EXPIRED, "expired proof rejected");
 
+    struct aurora_identity_credential_id zero_credential;
+    memset(&zero_credential, 0, sizeof(zero_credential));
     issued = aurora_identity_reauth_issue(
-        &core, &user, 0u, AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY);
+        &core, &user, &zero_credential, UINT64_C(41),
+        AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY);
+    CHECK(issued.result == AURORA_IDENTITY_REAUTH_INVALID_ARGUMENT,
+        "zero credential rejected");
+
+    issued = aurora_identity_reauth_issue(
+        &core, &user, &credential, 0u,
+        AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY);
     CHECK(issued.result == AURORA_IDENTITY_REAUTH_INVALID_ARGUMENT,
         "zero session generation rejected");
 
     issued = aurora_identity_reauth_issue(
-        &core, &user, UINT64_C(41), AURORA_IDENTITY_REAUTH_PURPOSE_NONE);
+        &core, &user, &credential, UINT64_C(41), AURORA_IDENTITY_REAUTH_PURPOSE_NONE);
     CHECK(issued.result == AURORA_IDENTITY_REAUTH_INVALID_PURPOSE,
         "invalid purpose rejected");
 
     core.policy.ttl_ms = AURORA_IDENTITY_REAUTH_PROOF_MAX_TTL_MS + 1u;
     issued = aurora_identity_reauth_issue(
-        &core, &user, UINT64_C(41), AURORA_IDENTITY_REAUTH_PURPOSE_CHANGE_LOCAL_ROLE);
+        &core, &user, &credential, UINT64_C(41), AURORA_IDENTITY_REAUTH_PURPOSE_CHANGE_LOCAL_ROLE);
     CHECK(issued.result == AURORA_IDENTITY_REAUTH_POLICY_ERROR,
         "oversized ttl rejected");
 }
@@ -274,8 +307,10 @@ static void test_wrong_session_burns_proof(void) {
     struct fake_crypto crypto = {false};
     struct aurora_identity_reauth_memory_store store;
     struct aurora_identity_user_id user;
+    struct aurora_identity_credential_id credential;
     aurora_identity_reauth_memory_init(&store);
     fill_user(&user, 0x80u);
+    fill_credential(&credential, 0x94u);
 
     struct aurora_identity_reauth_core core =
         make_core(&random, &clock, &crypto, &store);
@@ -283,6 +318,7 @@ static void test_wrong_session_burns_proof(void) {
         aurora_identity_reauth_issue(
             &core,
             &user,
+            &credential,
             UINT64_C(71),
             AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY);
     CHECK(issued.result == AURORA_IDENTITY_REAUTH_OK, "wrong-session setup");
@@ -313,8 +349,10 @@ static void test_store_clear(void) {
     struct fake_crypto crypto = {false};
     struct aurora_identity_reauth_memory_store store;
     struct aurora_identity_user_id user;
+    struct aurora_identity_credential_id credential;
     aurora_identity_reauth_memory_init(&store);
     fill_user(&user, 0x70u);
+    fill_credential(&credential, 0x95u);
 
     struct aurora_identity_reauth_core core =
         make_core(&random, &clock, &crypto, &store);
@@ -322,6 +360,7 @@ static void test_store_clear(void) {
         aurora_identity_reauth_issue(
             &core,
             &user,
+            &credential,
             UINT64_C(41),
             AURORA_IDENTITY_REAUTH_PURPOSE_GRANT_RESOURCE_ACCESS);
     CHECK(issued.result == AURORA_IDENTITY_REAUTH_OK, "clear setup");
