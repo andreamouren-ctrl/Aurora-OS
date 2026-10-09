@@ -394,6 +394,17 @@ static bool start_with_context(
             host.profile_handle=AURORA_CAP_INVALID;
             return false;
         }
+        enum g5_ipc_status placed=G5_IPC_DENIED;
+        if (!g5_ipc_endpoint_poll(&host.g5_binding,&placed) ||
+            placed!=G5_IPC_OK || host.scene.x!=80 || host.scene.y!=72 ||
+            host.scene.last_display_serial<2u) {
+            g5_ipc_dispatch_revoke(session_g5_dispatcher);
+            revoke_g5_sender();
+            revoke_g5_receiver();
+            (void)session_profile_lease_revoke_process(host.process);
+            host.profile_handle=AURORA_CAP_INVALID;
+            return false;
+        }
         host.g5_ready=true;
     }
     if (!g5_shell_session_ready(&shell_session,generation)) {
@@ -493,6 +504,7 @@ static bool production_g5_registered;
 static uint64_t production_g5_ready_count;
 static uint64_t production_g5_health_count;
 static uint64_t production_g5_present_count;
+static uint64_t production_g5_place_count;
 
 static bool production_g5_authorize(void *ctx,uint32_t operation,uint64_t generation) {
     (void)ctx;
@@ -500,7 +512,8 @@ static bool production_g5_authorize(void *ctx,uint32_t operation,uint64_t genera
         generation==session_manager_client_generation() &&
         session_manager_client_state()==AURORA_SESSION_CLIENT_ACTIVE &&
         (operation==G5_OP_SHELL_READY || operation==G5_OP_SHELL_HEALTH ||
-         (operation==G5_OP_SCENE_PUBLISH && host.scene.active));
+         ((operation==G5_OP_SCENE_PUBLISH ||
+           operation==G5_OP_WINDOW_PLACE) && host.scene.active));
 }
 
 static bool production_g5_handle(void *ctx,const struct g5_ipc_header *header,
@@ -523,6 +536,11 @@ static bool production_g5_handle(void *ctx,const struct g5_ipc_header *header,
         ++production_g5_present_count;
         return true;
     }
+    if (header->operation==G5_OP_WINDOW_PLACE &&
+        g5_shell_scene_place(&host.scene,header,payload)) {
+        ++production_g5_place_count;
+        return true;
+    }
     return false;
 }
 
@@ -543,6 +561,7 @@ bool user_session_host_start(void) {
     production_g5_ready_count=0u;
     production_g5_health_count=0u;
     production_g5_present_count=0u;
+    production_g5_place_count=0u;
     bool started=start_with_context(
         session_manager_client_user_id(),
         session_manager_client_generation());
@@ -553,7 +572,8 @@ bool user_session_host_start(void) {
     }
     if (started && (production_g5_ready_count!=1u ||
                     production_g5_health_count!=1u ||
-                    production_g5_present_count!=1u)) {
+                    production_g5_present_count!=1u ||
+                    production_g5_place_count!=1u)) {
         (void)user_session_host_stop();
         return false;
     }
@@ -570,11 +590,13 @@ bool user_session_host_active(void) {
 static uint32_t g5_session_ready_events;
 static uint32_t g5_session_health_events;
 static uint32_t g5_session_present_events;
+static uint32_t g5_session_place_events;
 static bool g5_session_test_authorize(void *ctx,uint32_t operation,uint64_t generation) {
     (void)ctx;
     return (operation==G5_OP_SHELL_READY ||
             operation==G5_OP_SHELL_HEALTH ||
-            operation==G5_OP_SCENE_PUBLISH) && generation==1u;
+            operation==G5_OP_SCENE_PUBLISH ||
+            operation==G5_OP_WINDOW_PLACE) && generation==1u;
 }
 static bool g5_session_test_handle(void *ctx,const struct g5_ipc_header *header,
                                    const uint8_t *payload) {
@@ -591,6 +613,11 @@ static bool g5_session_test_handle(void *ctx,const struct g5_ipc_header *header,
     if (header->operation==G5_OP_SCENE_PUBLISH &&
         g5_shell_scene_publish(&host.scene,header,payload)) {
         ++g5_session_present_events;
+        return true;
+    }
+    if (header->operation==G5_OP_WINDOW_PLACE &&
+        g5_shell_scene_place(&host.scene,header,payload)) {
+        ++g5_session_place_events;
         return true;
     }
     return false;
@@ -646,6 +673,7 @@ bool user_session_host_self_test(void) {
     g5_session_ready_events=0u;
     g5_session_health_events=0u;
     g5_session_present_events=0u;
+    g5_session_place_events=0u;
     if (!user_session_host_register_g5_dispatcher(&g5_test_dispatcher)) {
         session_profile_lease_end();
         (void)cap_revoke(&bridge.capabilities,profile);
@@ -657,7 +685,9 @@ bool user_session_host_self_test(void) {
         host.g5_ready && g5_session_ready_events==1u &&
         g5_session_health_events==1u &&
         g5_session_present_events==1u &&
-        host.scene.last_display_serial!=0u;
+        g5_session_place_events==1u &&
+        host.scene.x==80 && host.scene.y==72 &&
+        host.scene.last_display_serial>=2u;
     /* A live session may not accept a duplicate or out-of-order G5 request. */
     bool replay_denied=false;
     if (running) {
@@ -716,6 +746,7 @@ bool user_session_host_self_test(void) {
     bool post_stop_denied=stopped && !user_session_host_health_check() &&
         g5_session_health_events==3u &&
         g5_session_present_events==1u &&
+        g5_session_place_events==1u &&
         !host.scene.active && host.scene.last_display_serial==0u;
     bool receiver_revoked = stopped &&
         host.g5_receiver_handle == AURORA_CAP_INVALID &&
