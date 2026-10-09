@@ -143,7 +143,8 @@ static bool send_g5_ready(uint64_t endpoint,uint64_t generation) {
     return syscall5(AURORA_SYS_IPC_SEND,endpoint,
         (uint64_t)(uintptr_t)wire,sizeof(wire),0u,0u)==0u;
 }
-static bool send_g5_health(uint64_t endpoint,uint64_t generation) {
+static bool send_g5_health(uint64_t endpoint,uint64_t generation,
+                           uint64_t request_id) {
     /* A second authenticated Ring 3 IPC request, checked by kernel dispatch. */
     uint8_t wire[G5_IPC_WIRE_HEADER_BYTES]={0};
     wire[0]='G';wire[1]='5';wire[2]='I';wire[3]='P';
@@ -152,7 +153,8 @@ static bool send_g5_health(uint64_t endpoint,uint64_t generation) {
     wire[10]=G5_IPC_REQUEST;
     const uint32_t op=G5_OP_SHELL_HEALTH;
     for(unsigned i=0;i<4u;++i)wire[12u+i]=(uint8_t)(op>>(8u*i));
-    wire[24]=2u; /* strictly increasing request_id */
+    for(unsigned i=0;i<8u;++i)
+        wire[24u+i]=(uint8_t)(request_id>>(8u*i));
     for(unsigned i=0;i<8u;++i)
         wire[32u+i]=(uint8_t)(generation>>(8u*i));
     return syscall5(AURORA_SYS_IPC_SEND,endpoint,
@@ -231,7 +233,7 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
     /* Queue both G5 messages before publishing control READY, so
      * kernel admission is deterministic rather than a scheduler race. */
     if (startup->g5_endpoint != 0u &&
-        !send_g5_health(startup->g5_endpoint,startup->session_generation))
+        !send_g5_health(startup->g5_endpoint,startup->session_generation,2u))
         return 1;
     if (!send_message(startup->control_endpoint, AURORA_USER_SESSION_HOST_READY, 0u)) {
         return 1;
@@ -254,15 +256,27 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
         clear_bytes(&received, sizeof(received));
 
         if (message.version != AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
-            message.type != AURORA_USER_SESSION_HOST_SHUTDOWN ||
+            (message.type != AURORA_USER_SESSION_HOST_SHUTDOWN &&
+             message.type != AURORA_USER_SESSION_HOST_HEALTH_POLL) ||
             message.request_id == 0u) {
             clear_bytes(&message, sizeof(message));
             return 1;
         }
 
         uint64_t request_id = message.request_id;
+        uint32_t type = message.type;
         clear_bytes(&message, sizeof(message));
-
+        if (type == AURORA_USER_SESSION_HOST_HEALTH_POLL) {
+            if (startup->g5_endpoint == 0u ||
+                request_id == UINT64_MAX ||
+                !send_g5_health(startup->g5_endpoint,
+                                startup->session_generation,request_id))
+                return 1;
+            if (!send_message(startup->control_endpoint,
+                              AURORA_USER_SESSION_HOST_HEALTH_ACK,request_id))
+                return 1;
+            continue;
+        }
         return send_message(
             startup->control_endpoint,
             AURORA_USER_SESSION_HOST_SHUTDOWN_ACK,
