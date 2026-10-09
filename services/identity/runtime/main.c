@@ -2390,6 +2390,7 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
         startup->flags != 0u ||
         startup->extra_capability_count != 0u ||
         startup->reserved != 0u ||
+        startup->reserved2 != 0u ||
         !validate_authority(startup)) {
         return 1;
     }
