@@ -54,6 +54,14 @@ bool security_activity_app_self_test(void) {
         return false;
     }
 
+    uint64_t closed_revision = app.revision;
+    /* Repeated close must not alter the lifecycle or touch shared state. */
+    security_activity_app_close(&app);
+    if (app.revision != closed_revision || app.active ||
+        app.controller.state != AURORA_SECURITY_ACTIVITY_VIEW_IDLE) {
+        return false;
+    }
+
     return !security_activity_app_apply_action(
         &app, AURORA_SECURITY_ACTIVITY_APP_ACTION_FILTER_ALL);
 }
