@@ -517,6 +517,11 @@ bool user_session_host_stop(void) {
  * but a normal authenticated login must also provision the exclusive channel. */
 static struct g5_dispatch_context production_g5_dispatcher;
 static bool production_g5_registered;
+/* The authenticated Session Manager identity may outlive a locked Shell.
+ * Every Shell instance instead gets a fresh, monotonically increasing
+ * receiver generation: never rebind a revoked G5 generation. */
+static uint64_t production_manager_generation;
+static uint64_t production_shell_generation;
 static uint64_t production_g5_ready_count;
 static uint64_t production_g5_health_count;
 static uint64_t production_g5_present_count;
@@ -525,7 +530,9 @@ static uint64_t production_g5_place_count;
 static bool production_g5_authorize(void *ctx,uint32_t operation,uint64_t generation) {
     (void)ctx;
     return generation!=0u &&
-        generation==session_manager_client_generation() &&
+        generation==production_shell_generation &&
+        production_manager_generation!=0u &&
+        production_manager_generation==session_manager_client_generation() &&
         session_manager_client_state()==AURORA_SESSION_CLIENT_ACTIVE &&
         (operation==G5_OP_SHELL_READY || operation==G5_OP_SHELL_HEALTH ||
          ((operation==G5_OP_SCENE_PUBLISH ||
@@ -574,13 +581,22 @@ bool user_session_host_start(void) {
         /* Never replace an existing test or external service dispatcher. */
         return false;
     }
+    uint64_t manager_generation=session_manager_client_generation();
+    uint64_t latest=shell_session.last_ready_generation;
+    if (production_g5_dispatcher.last_revoked_generation>latest)
+        latest=production_g5_dispatcher.last_revoked_generation;
+    if (production_shell_generation>latest)
+        latest=production_shell_generation;
+    if (manager_generation==0u || latest==UINT64_MAX)return false;
+    production_manager_generation=manager_generation;
+    production_shell_generation=latest+1u;
     production_g5_ready_count=0u;
     production_g5_health_count=0u;
     production_g5_present_count=0u;
     production_g5_place_count=0u;
     bool started=start_with_context(
         session_manager_client_user_id(),
-        session_manager_client_generation());
+        production_shell_generation);
     if (!started && production_g5_registered &&
         host.process==NULL && host.thread==0u) {
         user_session_host_unregister_g5_dispatcher(&production_g5_dispatcher);
