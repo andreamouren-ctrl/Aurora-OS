@@ -1,5 +1,6 @@
 #include <aurora/g5_shell_scene.h>
 #include <aurora/display.h>
+#include <aurora/log.h>
 #include <aurora/capability_abi.h>
 #include <stddef.h>
 
@@ -111,22 +112,40 @@ bool g5_shell_scene_publish(struct g5_shell_scene *scene,
         header->object_generation!=scene->surface->generation ||
         header->payload_bytes!=16u ||
         !g5_session_context_authorized(&scene->frame.registry.session,
-                                       scene->generation))
+                                       scene->generation)) {
+        log_line("[g5-shell-diagnostic] scene publish failed identity/session guard");
         return false;
+    }
     uint64_t object_id=read_u64_le(payload);
     uint64_t commit_serial=read_u64_le(payload+8u);
     if (object_id!=scene->surface->object_id ||
         commit_serial==0u ||
-        scene->surface->committed.commit_serial!=commit_serial)
+        scene->surface->committed.commit_serial!=commit_serial) {
+        log_write("[g5-shell-diagnostic] scene commit mismatch ID/commit/actual: ");
+        log_u64(object_id);log_write("/");
+        log_u64(commit_serial);log_write("/");
+        log_u64(scene->surface->committed.commit_serial);log_line("");
         return false;
+    }
     uint64_t config=0u,serial=0u;
     if (!g5_frame_submission_request(
-            &scene->frame,scene->slot,header->request_id,&config) ||
-        config!=scene->configure_serial ||
-        !g5_compositor_bridge_present(
-            &scene->bridge,scene->slot,header->request_id,config,&serial) ||
-        serial==0u || serial<=scene->last_display_serial)
+            &scene->frame,scene->slot,header->request_id,&config)) {
+        log_line("[g5-shell-diagnostic] scene frame submission rejected");
         return false;
+    }
+    if (config!=scene->configure_serial) {
+        log_line("[g5-shell-diagnostic] scene configure serial mismatch");
+        return false;
+    }
+    if (!g5_compositor_bridge_present(
+            &scene->bridge,scene->slot,header->request_id,config,&serial)) {
+        log_line("[g5-shell-diagnostic] scene compositor bridge present failed");
+        return false;
+    }
+    if (serial==0u || serial<=scene->last_display_serial) {
+        log_line("[g5-shell-diagnostic] scene display serial missing/stale");
+        return false;
+    }
     scene->last_display_serial=serial;
     return true;
 }
