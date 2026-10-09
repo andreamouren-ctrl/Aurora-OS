@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION 5u
+#define AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION 6u
 #define AURORA_IDENTITY_SERVICE_MESSAGE_SIZE 16u
 #define AURORA_IDENTITY_SERVICE_KEY_MAX_LEN 32u
 #define AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE 32u
@@ -41,6 +41,13 @@ enum aurora_identity_service_message_type {
     AURORA_IDENTITY_SERVICE_REAUTH_RESULT = 67,
     AURORA_IDENTITY_SERVICE_CANCEL_REAUTH = 68,
     AURORA_IDENTITY_SERVICE_REAUTH_CANCELLED = 69,
+
+    AURORA_IDENTITY_SERVICE_BEGIN_ROTATE_KEY = 80,
+    AURORA_IDENTITY_SERVICE_ROTATE_KEY_PENDING = 81,
+    AURORA_IDENTITY_SERVICE_QUERY_ROTATE_KEY = 82,
+    AURORA_IDENTITY_SERVICE_ROTATE_KEY_RESULT = 83,
+    AURORA_IDENTITY_SERVICE_CANCEL_ROTATE_KEY = 84,
+    AURORA_IDENTITY_SERVICE_ROTATE_KEY_CANCELLED = 85,
 
     AURORA_IDENTITY_SERVICE_ERROR = 255
 };
@@ -89,6 +96,14 @@ enum aurora_identity_service_reauth_state {
     AURORA_IDENTITY_SERVICE_REAUTH_STATE_THROTTLED,
     AURORA_IDENTITY_SERVICE_REAUTH_STATE_SERVICE_ERROR,
     AURORA_IDENTITY_SERVICE_REAUTH_STATE_CANCELLED
+};
+
+enum aurora_identity_service_rotate_key_state {
+    AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_PENDING = 1,
+    AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_SUCCESS,
+    AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_ALREADY_EXISTS,
+    AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_SERVICE_ERROR,
+    AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_CANCELLED
 };
 
 enum aurora_identity_service_public_error {
@@ -171,6 +186,23 @@ struct aurora_identity_service_reauth_result {
     uint32_t purpose;
     uint32_t reserved;
     uint8_t proof[AURORA_IDENTITY_SERVICE_REAUTH_PROOF_SIZE];
+};
+
+struct aurora_identity_service_begin_rotate_key {
+    struct aurora_identity_service_message header;
+    uint32_t new_key_length;
+    uint32_t reserved;
+    uint64_t session_generation;
+    uint8_t expected_user_id[AURORA_IDENTITY_SERVICE_USER_ID_SIZE];
+    uint8_t proof[AURORA_IDENTITY_SERVICE_REAUTH_PROOF_SIZE];
+    char new_key[AURORA_IDENTITY_SERVICE_KEY_MAX_LEN];
+};
+
+struct aurora_identity_service_rotate_key_result {
+    struct aurora_identity_service_message header;
+    uint32_t state;
+    uint32_t public_error;
+    uint8_t new_credential_id[AURORA_IDENTITY_SERVICE_CREDENTIAL_ID_SIZE];
 };
 
 #endif
