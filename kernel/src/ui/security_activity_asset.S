@@ -5,7 +5,7 @@
 .global aurora_security_activity_\name\()_png_start
 .global aurora_security_activity_\name\()_png_end
 aurora_security_activity_\name\()_png_start:
-.incbin "assets/identity/security_activity/\file"
+.incbin "assets/identity/security_activity/runtime/\file"
 aurora_security_activity_\name\()_png_end:
 .balign 16
 .endm
