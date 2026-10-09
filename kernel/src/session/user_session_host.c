@@ -181,7 +181,8 @@ static bool start_with_context(
     const uint8_t user_id[AURORA_USER_SESSION_HOST_USER_ID_SIZE],
     uint64_t generation
 ) {
-    if (host.active ||
+    /* Never discard a live or unreaped process by clearing host state. */
+    if (host.active || host.process != NULL || host.thread != 0u ||
         user_id == NULL ||
         generation == 0u ||
         !session_profile_lease_active()) {
@@ -318,6 +319,13 @@ static bool start_with_context(
     if (!receive_expected(AURORA_USER_SESSION_HOST_READY, 0u) ||
         process_bootstrap_signal(host.process) !=
             AURORA_USER_SESSION_HOST_READY_MAGIC) {
+        /* A failed handshake must immediately invalidate both G5 ends,
+         * not leave a privileged endpoint while a failed process winds down. */
+        g5_shell_session_end(&shell_session);
+        if (session_g5_dispatcher != NULL)
+            g5_ipc_dispatch_revoke(session_g5_dispatcher);
+        revoke_g5_sender();
+        revoke_g5_receiver();
         if (scheduler_thread_finished(host.thread)) {
             cleanup_finished_host();
         } else {
