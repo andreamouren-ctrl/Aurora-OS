@@ -76,6 +76,9 @@ void identity_client_pump(void);
 
 void identity_client_reset_result(void);
 
+/* Discards only a completed Security Activity reply. Never clears auth grants. */
+bool identity_client_discard_completed_security_activity(void);
+
 enum aurora_identity_client_state identity_client_state(void);
 
 uint64_t identity_client_retry_after_ms(void);
