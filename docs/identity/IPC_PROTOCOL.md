@@ -193,7 +193,7 @@ EXPORT_RECOVERY_MATERIAL
 
 ### Production re-authentication issuance
 
-Protocol v5 implements the fresh-auth issuance subset as:
+protocol v6 implements the fresh-auth issuance subset as:
 
 ```text
 BEGIN_REAUTH
@@ -296,3 +296,10 @@ The IPC contract is ready for implementation when:
 - protocol version negotiation is implemented;
 - malformed-message tests and fuzzing exist;
 - no test credential appears in logs or crash output.
+
+### Aurora Key rotation
+
+Aurora Key rotation is the first production consumer of a purpose-bound re-authentication proof. The trusted kernel bridge sends only the fresh proof, the replacement Aurora Key, and the active Session Manager binding (`user_id` + session generation). It mints a request-scoped `AURORA_CAP_IDENTITY_MANAGE_SELF` carrying only `CONTROL`.
+
+The Identity Service consumes the proof before accepting the rotation job. Consumption must match the active user, session generation, and `ROTATE_PRIMARY_KEY` purpose. The proof yields the credential identifier that actually completed fresh authentication; callers cannot supply or override the current credential id. The proof is single-use even if the later rotation job is cancelled or fails. Rotation then uses the existing atomic credential replacement primitive, so failure leaves the old Aurora Key valid and success retires it atomically.
+
