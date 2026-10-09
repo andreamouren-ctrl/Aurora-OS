@@ -1244,9 +1244,26 @@ static bool execute_auth_job(
             aurora_identity_session_grant_issue(
                 &context->session_grant_core,
                 &auth.user_id);
-        secure_zero(&auth, sizeof(auth));
 
         if (grant.result == AURORA_IDENTITY_SESSION_GRANT_OK) {
+            if (!append_audit_event(
+                    context,
+                    AURORA_IDENTITY_AUDIT_EVENT_AUTH_SUCCESS,
+                    AURORA_IDENTITY_AUDIT_OUTCOME_SUCCESS,
+                    AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE,
+                    0u,
+                    &auth.user_id)) {
+                secure_zero(&grant, sizeof(grant));
+                secure_zero(&auth, sizeof(auth));
+                return send_auth_result(
+                    endpoint,
+                    job->request_id,
+                    AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
+                    AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE,
+                    0u,
+                    NULL);
+            }
+
             bool sent = send_auth_result(
                 endpoint,
                 job->request_id,
@@ -1255,8 +1272,11 @@ static bool execute_auth_job(
                 0u,
                 grant.token.bytes);
             secure_zero(&grant, sizeof(grant));
+            secure_zero(&auth, sizeof(auth));
             return sent;
         }
+
+        secure_zero(&auth, sizeof(auth));
 
         uint32_t public_error =
             grant.result == AURORA_IDENTITY_SESSION_GRANT_BACKEND_ERROR
@@ -1277,6 +1297,22 @@ static bool execute_auth_job(
 
     if (auth.result == AURORA_IDENTITY_THROTTLED) {
         uint64_t retry_after_ms = auth.retry_after_ms;
+        if (!append_audit_event(
+                context,
+                AURORA_IDENTITY_AUDIT_EVENT_AUTH_FAILURE,
+                AURORA_IDENTITY_AUDIT_OUTCOME_DENIED,
+                AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_THROTTLED,
+                0u,
+                NULL)) {
+            secure_zero(&auth, sizeof(auth));
+            return send_auth_result(
+                endpoint,
+                job->request_id,
+                AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
+                AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE,
+                0u,
+                NULL);
+        }
         secure_zero(&auth, sizeof(auth));
         return send_auth_result(
             endpoint,
@@ -1288,6 +1324,22 @@ static bool execute_auth_job(
     }
 
     if (auth.result == AURORA_IDENTITY_BACKEND_ERROR) {
+        if (!append_audit_event(
+                context,
+                AURORA_IDENTITY_AUDIT_EVENT_AUTH_FAILURE,
+                AURORA_IDENTITY_AUDIT_OUTCOME_ERROR,
+                AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE,
+                0u,
+                NULL)) {
+            secure_zero(&auth, sizeof(auth));
+            return send_auth_result(
+                endpoint,
+                job->request_id,
+                AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
+                AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE,
+                0u,
+                NULL);
+        }
         secure_zero(&auth, sizeof(auth));
         return send_auth_result(
             endpoint,
@@ -1301,6 +1353,22 @@ static bool execute_auth_job(
     if (auth.result == AURORA_IDENTITY_CRYPTO_ERROR ||
         auth.result == AURORA_IDENTITY_POLICY_ERROR ||
         auth.result == AURORA_IDENTITY_RANDOM_ERROR) {
+        if (!append_audit_event(
+                context,
+                AURORA_IDENTITY_AUDIT_EVENT_AUTH_FAILURE,
+                AURORA_IDENTITY_AUDIT_OUTCOME_ERROR,
+                AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INTERNAL_FAILURE,
+                0u,
+                NULL)) {
+            secure_zero(&auth, sizeof(auth));
+            return send_auth_result(
+                endpoint,
+                job->request_id,
+                AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
+                AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE,
+                0u,
+                NULL);
+        }
         secure_zero(&auth, sizeof(auth));
         return send_auth_result(
             endpoint,
@@ -1311,6 +1379,22 @@ static bool execute_auth_job(
             NULL);
     }
 
+    if (!append_audit_event(
+            context,
+            AURORA_IDENTITY_AUDIT_EVENT_AUTH_FAILURE,
+            AURORA_IDENTITY_AUDIT_OUTCOME_FAILURE,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_AUTH_FAILED,
+            0u,
+            NULL)) {
+        secure_zero(&auth, sizeof(auth));
+        return send_auth_result(
+            endpoint,
+            job->request_id,
+            AURORA_IDENTITY_SERVICE_AUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE,
+            0u,
+            NULL);
+    }
     secure_zero(&auth, sizeof(auth));
     return send_auth_result(
         endpoint,
