@@ -282,6 +282,7 @@ static bool validate_startup(
         startup->abi_version != AURORA_SERVICE_STARTUP_ABI_VERSION ||
         startup->flags != 0u ||
         startup->reserved != 0u ||
+        startup->reserved2 != 0u ||
         startup->ipc_endpoint == 0u ||
         startup->protected_state == 0u ||
         startup->entropy_seed != 0u ||
