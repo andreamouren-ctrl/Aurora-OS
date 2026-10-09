@@ -7,6 +7,10 @@ This roadmap orders M4 work by hard dependencies. A checkbox in the global roadm
 
 ## G5 WP-03 — Ring 3 Shell IPC startup progression (2026-10-09)
 
+- [ ] **READY rejection and dispatcher registration isolation (CI pending):** rejecting the first authenticated Ring3 `SHELL_READY` now immediately revokes both G5 capability ends in addition to the dispatcher; registration rejects an unreaped host even when `host.active` is false. Current QEMU validation pending. These are failure-path guards, not compositor integration.
+
+
+
 - [ ] **Ring 3 two-message bootstrap (CI pending):** the actual User Session Host sends G5 `SHELL_READY` (event ID 1) and `SHELL_HEALTH` (request ID 2), both bound to its trusted session generation and exclusive sender capability, before notifying the kernel control READY. The kernel G5 endpoint dispatches and validates both; the host self-test requires one callback for each. This exercises a genuine Ring3→syscall→kernel receiver flow; not yet a long-lived Desktop Shell Coordinator or compositor presentation.
 - [ ] **WP-03 exit criteria still open:** persistent Shell receive/dispatch loop, real window/surface operations, display output proof, and crash/restart QEMU validation. Keep WP-03 open regardless of this startup smoke passing.
 
