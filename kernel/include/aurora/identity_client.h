@@ -78,6 +78,8 @@ void identity_client_reset_result(void);
 
 /* Discards only a completed Security Activity reply. Never clears auth grants. */
 bool identity_client_discard_completed_security_activity(void);
+/* Marks only an in-flight activity read for deferred reply disposal. */
+void identity_client_abandon_security_activity_read(void);
 
 enum aurora_identity_client_state identity_client_state(void);
 
