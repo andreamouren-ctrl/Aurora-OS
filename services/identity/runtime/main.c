@@ -423,6 +423,24 @@ static bool send_rotate_key_result(
     return sent;
 }
 
+static bool send_audit_session_result(
+    uint64_t endpoint,
+    uint64_t request_id,
+    uint32_t state,
+    uint32_t public_error
+) {
+    struct aurora_identity_service_audit_session_result result;
+    secure_zero(&result, sizeof(result));
+    result.header.version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION;
+    result.header.type = AURORA_IDENTITY_SERVICE_AUDIT_SESSION_RESULT;
+    result.header.request_id = request_id;
+    result.state = state;
+    result.public_error = public_error;
+    bool sent = send_payload(endpoint, &result, sizeof(result));
+    secure_zero(&result, sizeof(result));
+    return sent;
+}
+
 static bool receive_message(
     uint64_t endpoint,
     struct aurora_sys_ipc_received *received
@@ -986,6 +1004,18 @@ static bool reauth_authority_is_valid(uint64_t handle) {
         !capability_has(handle, AURORA_CAP_IDENTITY_REAUTH, AURORA_RIGHT_TRANSFER);
 }
 
+static bool audit_emit_authority_is_valid(uint64_t handle) {
+    return handle != 0u &&
+        capability_has(
+            handle,
+            AURORA_CAP_IDENTITY_AUDIT_EMIT,
+            AURORA_RIGHT_CONTROL) &&
+        !capability_has(
+            handle,
+            AURORA_CAP_IDENTITY_AUDIT_EMIT,
+            AURORA_RIGHT_TRANSFER);
+}
+
 static bool manage_self_authority_is_valid(uint64_t handle) {
     return handle != 0u &&
         capability_has(
@@ -1123,6 +1153,95 @@ static bool handle_consume_session_grant(
         AURORA_IDENTITY_SERVICE_SESSION_GRANT_STATE_SERVICE_ERROR,
         public_error,
         NULL);
+}
+
+static uint32_t audit_session_event_to_record(uint32_t event) {
+    switch (event) {
+        case AURORA_IDENTITY_SERVICE_AUDIT_SESSION_STARTED:
+            return AURORA_IDENTITY_AUDIT_EVENT_SESSION_STARTED;
+        case AURORA_IDENTITY_SERVICE_AUDIT_SESSION_LOCKED:
+            return AURORA_IDENTITY_AUDIT_EVENT_SESSION_LOCKED;
+        case AURORA_IDENTITY_SERVICE_AUDIT_SESSION_UNLOCKED:
+            return AURORA_IDENTITY_AUDIT_EVENT_SESSION_UNLOCKED;
+        case AURORA_IDENTITY_SERVICE_AUDIT_SESSION_LOGOUT:
+            return AURORA_IDENTITY_AUDIT_EVENT_SESSION_LOGOUT;
+        case AURORA_IDENTITY_SERVICE_AUDIT_SESSION_TERMINATED:
+            return AURORA_IDENTITY_AUDIT_EVENT_SESSION_TERMINATED;
+        default:
+            return AURORA_IDENTITY_AUDIT_EVENT_NONE;
+    }
+}
+
+static bool handle_audit_session_event(
+    uint64_t endpoint,
+    const struct aurora_sys_ipc_received *received,
+    struct identity_runtime_persistent_context *context
+) {
+    struct aurora_identity_service_audit_session_event request;
+    struct aurora_identity_user_id user_id;
+    secure_zero(&request, sizeof(request));
+    secure_zero(&user_id, sizeof(user_id));
+
+    if (received == NULL || context == NULL ||
+        received->length != sizeof(request) ||
+        received->capability_count != 1u) {
+        revoke_received_capabilities(received);
+        return send_audit_session_result(
+            endpoint, 0u,
+            AURORA_IDENTITY_SERVICE_AUDIT_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST);
+    }
+
+    copy_bytes(&request, received->data, sizeof(request));
+    uint64_t request_id = request.header.request_id;
+    uint64_t authority = received->capabilities[0];
+    bool authorized = audit_emit_authority_is_valid(authority);
+    bool revoked = revoke_capability(authority);
+
+    if (!authorized || !revoked) {
+        secure_zero(&request, sizeof(request));
+        return send_audit_session_result(
+            endpoint, request_id,
+            AURORA_IDENTITY_SERVICE_AUDIT_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_UNAUTHORIZED);
+    }
+
+    copy_bytes(user_id.bytes, request.user_id, sizeof(user_id.bytes));
+    uint32_t record_event = audit_session_event_to_record(request.event);
+    if (request.header.version != AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION ||
+        request.header.type != AURORA_IDENTITY_SERVICE_AUDIT_SESSION_EVENT ||
+        request_id == 0u ||
+        request.reserved != 0u ||
+        request.session_generation == 0u ||
+        record_event == AURORA_IDENTITY_AUDIT_EVENT_NONE ||
+        aurora_identity_user_id_is_zero(&user_id)) {
+        secure_zero(&request, sizeof(request));
+        secure_zero(&user_id, sizeof(user_id));
+        return send_audit_session_result(
+            endpoint, request_id,
+            AURORA_IDENTITY_SERVICE_AUDIT_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST);
+    }
+
+    bool appended = append_audit_event(
+        context,
+        record_event,
+        AURORA_IDENTITY_AUDIT_OUTCOME_SUCCESS,
+        AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE,
+        request.session_generation,
+        &user_id);
+
+    secure_zero(&request, sizeof(request));
+    secure_zero(&user_id, sizeof(user_id));
+    return send_audit_session_result(
+        endpoint,
+        request_id,
+        appended
+            ? AURORA_IDENTITY_SERVICE_AUDIT_STATE_SUCCESS
+            : AURORA_IDENTITY_SERVICE_AUDIT_STATE_SERVICE_ERROR,
+        appended
+            ? AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE
+            : AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE);
 }
 
 static bool handle_begin_key_auth(
@@ -2387,6 +2506,17 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
 
         if (request.type == AURORA_IDENTITY_SERVICE_CONSUME_SESSION_GRANT) {
             if (!handle_consume_session_grant(
+                    startup->ipc_endpoint,
+                    &received,
+                    persistent_context)) {
+                release_persistent_context(persistent_context);
+                return 1;
+            }
+            continue;
+        }
+
+        if (request.type == AURORA_IDENTITY_SERVICE_AUDIT_SESSION_EVENT) {
+            if (!handle_audit_session_event(
                     startup->ipc_endpoint,
                     &received,
                     persistent_context)) {
