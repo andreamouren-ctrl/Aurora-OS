@@ -387,6 +387,9 @@ jobs:
           if ! grep -F \
             "[kernel] M1 user-space bootstrap reached successfully" \
             "$SERIAL_LOG"; then
+            echo "Bootstrap did not reach M1 user-space marker; native G5 Shell IPC probe may have passed independently." >&2
+            echo "===== Last 60 serial lines =====" >&2
+            tail -n 60 "$SERIAL_LOG" >&2 || true
             echo "===== QEMU interrupt/reset trace (tail) =====" >&2
             tail -n 200 "$DEBUG_LOG" >&2 || true
             exit 1
