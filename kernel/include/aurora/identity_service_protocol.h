@@ -109,7 +109,7 @@ enum aurora_identity_service_rotate_key_state {
     AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_CANCELLED
 };
 
-enum aurora_identity_service_audit_session_event {
+enum aurora_identity_service_audit_session_event_type {
     AURORA_IDENTITY_SERVICE_AUDIT_SESSION_STARTED = 1,
     AURORA_IDENTITY_SERVICE_AUDIT_SESSION_LOCKED,
     AURORA_IDENTITY_SERVICE_AUDIT_SESSION_UNLOCKED,
