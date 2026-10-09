@@ -906,6 +906,9 @@ bool user_session_host_self_test(void) {
         source_revoked && root_revoked &&
         !user_session_host_active() &&
         !session_profile_lease_active();
+    if (accepted) {
+        log_line("[g5-wp03] Ring3 Shell crash and reauthentication lifecycle gate passed");
+    }
     if (!accepted) {
         log_write("[g5-shell-diagnostic] self-test stages started/running/replay/gen/object/close/live/stop/revoke: ");
         log_u64(started);log_write("/");
