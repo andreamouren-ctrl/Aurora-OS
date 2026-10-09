@@ -5,6 +5,10 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+## G5 WP-03 — Native graphics IPC authority binding (2026-10-09)
+
+- [ ] **G5 `SCENE_PUBLISH` policy mask fix (CI pending):** QEMU diagnostics confirmed the ABI v3 startup fix reaches G5 READY/HEALTH, then rejects the scene before any handler was called. Code review of `g5_ipc_endpoint_poll` proved the receiver binding explicitly checks `(authority_rights & opcode_required_rights)==opcode_required_rights`; the User Session Host had granted kernel SYSTEM READ|CONTROL|WRITE but mistakenly advertised only READ in the binding. Correct the binding to all three rights while retaining the Ring3 sender's exclusive WRITE-only and no-transfer capability. Operation dispatch policy and per-session generation still gate every command.
+
 ## G5 WP-03 — Ring3 ABI v3 entrypoint diagnosis and fix (2026-10-09)
 
 - [ ] **Verified failure root and corrective code (CI pending):** the initial Ring3 graphics ABI v3 integration consistently failed the User Session Host native QEMU self-test before CONTROL READY. Inspection found `services/user_session/runtime/entry.S` still copying the old 64-byte startup while C required 112 bytes; the entrypoint now copies all 14 8-byte fields into protected call-stack storage with corrected initial-RSP math. This defect is distinct from earlier QEMU M1 timeout failures.
