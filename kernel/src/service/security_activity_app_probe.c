@@ -26,6 +26,12 @@ bool security_activity_app_self_test(void) {
     app.controller.page.has_more = false;
 
     uint64_t revision = app.revision;
+    /* Reopening an active view must preserve its page and revision. */
+    if (!security_activity_app_open(&app) || app.revision != revision ||
+        app.controller.state != AURORA_SECURITY_ACTIVITY_VIEW_READY ||
+        app.controller.page.count != 1u) {
+        return false;
+    }
     if (!security_activity_app_apply_action(
             &app, AURORA_SECURITY_ACTIVITY_APP_ACTION_FILTER_AUTH) ||
         app.render.filter != AURORA_SECURITY_ACTIVITY_FILTER_AUTH ||
