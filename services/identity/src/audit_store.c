@@ -341,3 +341,62 @@ bool aurora_identity_audit_store_get_oldest(
     return store != NULL && store->opened &&
         aurora_identity_audit_get_oldest(&store->log, offset, out_record);
 }
+
+static bool audit_user_id_equal(
+    const struct aurora_identity_user_id *left,
+    const struct aurora_identity_user_id *right
+) {
+    uint8_t difference = 0u;
+    if (left == NULL || right == NULL) return false;
+    for (size_t i = 0u; i < sizeof(left->bytes); ++i) {
+        difference |= (uint8_t)(left->bytes[i] ^ right->bytes[i]);
+    }
+    return difference == 0u;
+}
+
+bool aurora_identity_audit_store_get_newest_before_for_user(
+    const struct aurora_identity_audit_store *store,
+    const struct aurora_identity_user_id *user_id,
+    uint64_t before_sequence,
+    struct aurora_identity_audit_record *out_record
+) {
+    struct aurora_identity_audit_record candidate;
+    bool found = false;
+
+    if (store == NULL || user_id == NULL || out_record == NULL ||
+        !store->opened || aurora_identity_user_id_is_zero(user_id)) {
+        return false;
+    }
+
+    memset(&candidate, 0, sizeof(candidate));
+    for (size_t offset = 0u; offset < store->log.count; ++offset) {
+        struct aurora_identity_audit_record record;
+        memset(&record, 0, sizeof(record));
+        if (!aurora_identity_audit_get_oldest(&store->log, offset, &record)) {
+            memset(&candidate, 0, sizeof(candidate));
+            return false;
+        }
+
+        if (!record.has_user_id ||
+            !audit_user_id_equal(&record.user_id, user_id) ||
+            (before_sequence != 0u && record.sequence >= before_sequence)) {
+            memset(&record, 0, sizeof(record));
+            continue;
+        }
+
+        if (!found || record.sequence > candidate.sequence) {
+            candidate = record;
+            found = true;
+        }
+        memset(&record, 0, sizeof(record));
+    }
+
+    if (!found) {
+        memset(&candidate, 0, sizeof(candidate));
+        return false;
+    }
+
+    *out_record = candidate;
+    memset(&candidate, 0, sizeof(candidate));
+    return true;
+}

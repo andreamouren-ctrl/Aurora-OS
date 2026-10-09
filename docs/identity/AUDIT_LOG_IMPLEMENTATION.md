@@ -1,6 +1,6 @@
 # Aurora Identity Security Audit Log
 
-Status: **Persistent runtime integration in progress**
+Status: **Persistent backend + lifecycle + scoped read integration**
 Version: **0.1**
 
 ## Purpose
@@ -71,10 +71,18 @@ The service emits durable records for:
 
 A successful authentication or re-authentication is not exposed to the caller unless its audit record has been durably published. Credential rotation is audited immediately after its atomic credential commit; an audit publication failure is surfaced as a storage failure rather than reported as a clean security operation.
 
+Session Manager lifecycle integration persists start, lock, unlock and normal logout before exposing the corresponding state transition. Forced termination is distinct from normal logout and remains fail-safe: session/profile authority is revoked even if the termination audit append itself cannot be completed.
+
+## Security Activity read access
+
+The Identity Service exposes a bounded, capability-gated read path for the currently authenticated user. The kernel-side Identity client derives the stable user id and current session generation from Session Manager state; callers do not supply an arbitrary account identity.
+
+`AURORA_CAP_IDENTITY_AUDIT_READ` is separate from the Session Manager's audit-emission authority. Each request receives only `READ`, never `WRITE`, `CONTROL` or `TRANSFER`, and the sender-side handle is revoked immediately after transfer.
+
+Records are returned newest-first with an exclusive sequence cursor. Only records carrying the current stable `user_id` are eligible. Machine-wide or anonymous records are not exposed through the ordinary user's Security Activity path. The wire result contains only event class, outcome, non-secret reason code, sequence, monotonic observation and historical session generation. It does not contain credential ids, Aurora Keys, lookup tags, grants, proofs or authenticator material.
+
 Remaining integration:
 
-- Session Manager lifecycle transitions (start/lock/unlock/logout/termination);
-- capability-gated Security Activity read access;
-- trusted wall-clock/boot-epoch metadata when that platform contract exists.
-
-Security Activity read access must never expose credential material or opaque authentication tokens.
+- trusted wall-clock/boot-epoch metadata when that platform contract exists;
+- System App presentation once the interactive compositor/window-management layer is available;
+- a separately authorized Administrator/security-operator view if later policy requires machine-wide events.
