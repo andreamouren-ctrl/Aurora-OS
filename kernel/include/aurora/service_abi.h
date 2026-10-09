@@ -3,9 +3,9 @@
 
 #include <stdint.h>
 
-#define AURORA_SERVICE_STARTUP_ABI_VERSION 3u
-#define AURORA_SERVICE_STARTUP_STACK_OFFSET 64u
-#define AURORA_SERVICE_STARTUP_MAX_EXTRA_CAPABILITIES 3u
+#define AURORA_SERVICE_STARTUP_ABI_VERSION 4u
+#define AURORA_SERVICE_STARTUP_STACK_OFFSET 80u
+#define AURORA_SERVICE_STARTUP_MAX_EXTRA_CAPABILITIES 4u
 
 struct aurora_service_startup_block {
     uint32_t abi_version;
@@ -18,12 +18,13 @@ struct aurora_service_startup_block {
     uint64_t extra_capabilities[
         AURORA_SERVICE_STARTUP_MAX_EXTRA_CAPABILITIES
     ];
+    uint64_t reserved2;
 };
 
 _Static_assert(
     sizeof(struct aurora_service_startup_block) ==
         AURORA_SERVICE_STARTUP_STACK_OFFSET,
-    "Service startup ABI must remain exactly one 64-byte startup slot"
+    "Service startup ABI must match the fixed startup stack slot"
 );
 
 #endif

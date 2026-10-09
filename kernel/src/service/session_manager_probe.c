@@ -18,6 +18,7 @@
 #define SESSION_MANAGER_PROBE_TIMEOUT_NS 2000000000ull
 
 static uint64_t session_manager_probe_authority;
+static uint64_t session_manager_probe_audit_authority;
 
 static void clear_bytes(void *buffer, size_t size) {
     uint8_t *bytes = (uint8_t *)buffer;
@@ -182,9 +183,87 @@ static bool wait_fake_identity_request(
     return false;
 }
 
+static bool respond_fake_audit_event(
+    struct aurora_ipc_endpoint *identity_probe_endpoint,
+    struct aurora_cap_table *identity_caps,
+    uint64_t request_id,
+    uint32_t expected_event,
+    const uint8_t expected_user_id[AURORA_SESSION_MANAGER_USER_ID_SIZE],
+    uint64_t *out_generation
+) {
+    struct aurora_ipc_received received;
+    clear_bytes(&received, sizeof(received));
+    if (!wait_fake_identity_request(
+            identity_probe_endpoint,
+            identity_caps,
+            &received) ||
+        received.length !=
+            sizeof(struct aurora_identity_service_audit_session_event) ||
+        received.capability_count != 1u) {
+        return false;
+    }
+
+    struct aurora_identity_service_audit_session_event event;
+    clear_bytes(&event, sizeof(event));
+    for (size_t i = 0u; i < sizeof(event); ++i) {
+        ((uint8_t *)&event)[i] = received.data[i];
+    }
+
+    struct aurora_capability_view view;
+    aurora_cap_handle authority = received.capabilities[0];
+    bool valid =
+        event.header.version == AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION &&
+        event.header.type == AURORA_IDENTITY_SERVICE_AUDIT_SESSION_EVENT &&
+        event.header.request_id == request_id &&
+        event.event == expected_event &&
+        event.reserved == 0u &&
+        event.session_generation != 0u &&
+        bytes_equal(
+            event.user_id,
+            expected_user_id,
+            AURORA_SESSION_MANAGER_USER_ID_SIZE) &&
+        cap_lookup(
+            identity_caps,
+            authority,
+            AURORA_CAP_IDENTITY_AUDIT_EMIT,
+            AURORA_RIGHT_CONTROL,
+            &view) &&
+        !cap_lookup(
+            identity_caps,
+            authority,
+            AURORA_CAP_IDENTITY_AUDIT_EMIT,
+            AURORA_RIGHT_TRANSFER,
+            &view) &&
+        cap_revoke(identity_caps, authority);
+
+    uint64_t generation = event.session_generation;
+    clear_bytes(&event, sizeof(event));
+    clear_bytes(&received, sizeof(received));
+    if (!valid) return false;
+
+    struct aurora_identity_service_audit_session_result result;
+    clear_bytes(&result, sizeof(result));
+    result.header.version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION;
+    result.header.type = AURORA_IDENTITY_SERVICE_AUDIT_SESSION_RESULT;
+    result.header.request_id = request_id;
+    result.state = AURORA_IDENTITY_SERVICE_AUDIT_STATE_SUCCESS;
+    result.public_error = AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE;
+
+    bool sent = ipc_send(
+        identity_probe_endpoint,
+        identity_caps,
+        &result,
+        (uint32_t)sizeof(result),
+        NULL,
+        0u);
+    clear_bytes(&result, sizeof(result));
+    if (sent && out_generation != NULL) *out_generation = generation;
+    return sent;
+}
+
 static bool session_manager_profile_binding_self_test(void) {
     static struct aurora_trusted_service session;
-    static struct aurora_service_bootstrap_capability dependencies[3];
+    static struct aurora_service_bootstrap_capability dependencies[4];
     static struct aurora_ipc_channel identity_channel;
     static struct aurora_cap_table identity_caps;
 
@@ -216,6 +295,13 @@ static bool session_manager_profile_binding_self_test(void) {
     dependencies[2].type = AURORA_CAP_PROFILE_ROOT;
     dependencies[2].rights = AURORA_RIGHT_CONTROL;
 
+    session_manager_probe_audit_authority ^=
+        UINT64_C(0x4155444954505242);
+    dependencies[3].object = &session_manager_probe_audit_authority;
+    dependencies[3].type = AURORA_CAP_IDENTITY_AUDIT_EMIT;
+    dependencies[3].rights =
+        AURORA_RIGHT_CONTROL | AURORA_RIGHT_TRANSFER;
+
     const struct aurora_trusted_service_manifest manifest = {
         .name = "session-manager-profile-probe",
         .image = session_manager_service_image(),
@@ -224,7 +310,7 @@ static bool session_manager_profile_binding_self_test(void) {
         .protected_state_rights = AURORA_RIGHT_READ | AURORA_RIGHT_WRITE,
         .grant_entropy_seed = false,
         .extra_capabilities = dependencies,
-        .extra_capability_count = 3u
+        .extra_capability_count = 4u
     };
 
     if (!service_bootstrap_start_trusted(&manifest, &session) ||
@@ -322,6 +408,17 @@ static bool session_manager_profile_binding_self_test(void) {
     }
     clear_bytes(&identity_result, sizeof(identity_result));
 
+    uint64_t audited_generation = 0u;
+    if (!respond_fake_audit_event(
+            identity_probe_endpoint,
+            &identity_caps,
+            request_id,
+            AURORA_IDENTITY_SERVICE_AUDIT_SESSION_STARTED,
+            expected_user_id,
+            &audited_generation)) {
+        return false;
+    }
+
     struct aurora_ipc_received session_received;
     clear_bytes(&session_received, sizeof(session_received));
     if (!wait_receive(&session, &session_received) ||
@@ -342,7 +439,7 @@ static bool session_manager_profile_binding_self_test(void) {
         session_result.header.request_id != request_id ||
         session_result.state != AURORA_SESSION_MANAGER_STATE_ACTIVE ||
         session_result.public_error != AURORA_SESSION_MANAGER_ERROR_NONE ||
-        session_result.session_generation == 0u ||
+        session_result.session_generation != audited_generation ||
         !bytes_equal(
             session_result.user_id,
             expected_user_id,
@@ -433,6 +530,19 @@ static bool session_manager_profile_binding_self_test(void) {
             &session,
             AURORA_SESSION_MANAGER_LOCK,
             lock_id)) {
+        session_profile_lease_end();
+        return false;
+    }
+
+    uint64_t lock_generation = 0u;
+    if (!respond_fake_audit_event(
+            identity_probe_endpoint,
+            &identity_caps,
+            lock_id,
+            AURORA_IDENTITY_SERVICE_AUDIT_SESSION_LOCKED,
+            expected_user_id,
+            &lock_generation) ||
+        lock_generation != audited_generation) {
         session_profile_lease_end();
         return false;
     }
@@ -608,6 +718,18 @@ static bool session_manager_profile_binding_self_test(void) {
         return false;
     }
 
+    uint64_t unlock_generation = 0u;
+    if (!respond_fake_audit_event(
+            identity_probe_endpoint,
+            &identity_caps,
+            unlock_id,
+            AURORA_IDENTITY_SERVICE_AUDIT_SESSION_UNLOCKED,
+            expected_user_id,
+            &unlock_generation) ||
+        unlock_generation != audited_generation) {
+        return false;
+    }
+
     clear_bytes(&session_received, sizeof(session_received));
     clear_bytes(&session_result, sizeof(session_result));
     if (!wait_receive(&session, &session_received) ||
@@ -672,6 +794,18 @@ static bool session_manager_profile_binding_self_test(void) {
         return false;
     }
 
+    uint64_t logout_generation = 0u;
+    if (!respond_fake_audit_event(
+            identity_probe_endpoint,
+            &identity_caps,
+            logout_id,
+            AURORA_IDENTITY_SERVICE_AUDIT_SESSION_LOGOUT,
+            expected_user_id,
+            &logout_generation) ||
+        logout_generation != audited_generation) {
+        return false;
+    }
+
     clear_bytes(&session_received, sizeof(session_received));
     if (!wait_receive(&session, &session_received) ||
         session_received.length != sizeof(struct aurora_session_manager_result) ||
@@ -731,7 +865,7 @@ static bool session_manager_profile_binding_self_test(void) {
 bool session_manager_ring3_self_test(void) {
     static struct aurora_trusted_service identity;
     static struct aurora_trusted_service session;
-    static struct aurora_service_bootstrap_capability dependencies[3];
+    static struct aurora_service_bootstrap_capability dependencies[4];
 
     clear_bytes(&identity, sizeof(identity));
     clear_bytes(&session, sizeof(session));
@@ -769,6 +903,13 @@ bool session_manager_ring3_self_test(void) {
     dependencies[2].type = AURORA_CAP_PROFILE_ROOT;
     dependencies[2].rights = AURORA_RIGHT_CONTROL;
 
+    session_manager_probe_audit_authority ^=
+        UINT64_C(0x4155444954505242);
+    dependencies[3].object = &session_manager_probe_audit_authority;
+    dependencies[3].type = AURORA_CAP_IDENTITY_AUDIT_EMIT;
+    dependencies[3].rights =
+        AURORA_RIGHT_CONTROL | AURORA_RIGHT_TRANSFER;
+
     const struct aurora_trusted_service_manifest session_manifest = {
         .name = "session-manager-probe",
         .image = session_manager_service_image(),
@@ -777,7 +918,7 @@ bool session_manager_ring3_self_test(void) {
         .protected_state_rights = AURORA_RIGHT_READ | AURORA_RIGHT_WRITE,
         .grant_entropy_seed = false,
         .extra_capabilities = dependencies,
-        .extra_capability_count = 3u
+        .extra_capability_count = 4u
     };
 
     if (!service_bootstrap_start_trusted(&session_manifest, &session) ||
