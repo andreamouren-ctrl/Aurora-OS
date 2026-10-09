@@ -5,6 +5,11 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+## G5 WP-03 — Ring3 ABI v3 entrypoint diagnosis and fix (2026-10-09)
+
+- [ ] **Verified failure root and corrective code (CI pending):** the initial Ring3 graphics ABI v3 integration consistently failed the User Session Host native QEMU self-test before CONTROL READY. Inspection found `services/user_session/runtime/entry.S` still copying the old 64-byte startup while C required 112 bytes; the entrypoint now copies all 14 8-byte fields into protected call-stack storage with corrected initial-RSP math. This defect is distinct from earlier QEMU M1 timeout failures.
+- [ ] **Prevent recurrence (CI pending):** new `scripts/check-user-session-entry-abi.py` validates ABI size versus assembler source/destination offsets and call stack frame; it is a prerequisite to compiling `entry.S`. Native Ring3 QEMU acceptance is mandatory before marking the fix complete.
+
 ## G5 WP-03 — Authenticated Shell Ring3-to-Display Slice (2026-10-09)
 
 - [ ] **Production and QEMU Shell frame flow (new CI pending):** User Session Host ABI v3 passes non-transferable Ring3 GRAPHICS_BUFFER and SURFACE handles plus trusted object identity; its real Ring3 process maps and paints 160×96 pixels, attaches/damages/commits the surface through graphics syscalls, and sends an authorized G5 `SCENE_PUBLISH` request after READY/HEALTH. Kernel checks session, capability rights, object identity/generation and committed serial and routes the frame through Surface Registry, Configure/ACK, Frame Submission, Frame Delivery, Compositor Bridge and actual display. It then sends ABI-valid `WINDOW_PLACE` to reposition that same authorized surface, requiring a second increasing display serial and verifying ownership again. Session revoke removes scene nodes and graphics capabilities. Both production login and boot-validation host probe require successful G5 Shell scene presentation before declaring readiness; Bootstrap CI now requires a dedicated real-QEMU marker. No CI success claim before the new revision passes.
