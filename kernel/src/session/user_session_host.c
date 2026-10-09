@@ -382,6 +382,18 @@ static bool start_with_context(
             host.profile_handle=AURORA_CAP_INVALID;
             return false;
         }
+        /* The third message is a Ring3-written surface commit that must
+         * traverse authenticated G5 dispatch and the actual display backend. */
+        enum g5_ipc_status present=G5_IPC_DENIED;
+        if (!g5_ipc_endpoint_poll(&host.g5_binding,&present) ||
+            present!=G5_IPC_OK || host.scene.last_display_serial==0u) {
+            g5_ipc_dispatch_revoke(session_g5_dispatcher);
+            revoke_g5_sender();
+            revoke_g5_receiver();
+            (void)session_profile_lease_revoke_process(host.process);
+            host.profile_handle=AURORA_CAP_INVALID;
+            return false;
+        }
         host.g5_ready=true;
     }
     if (!g5_shell_session_ready(&shell_session,generation)) {
@@ -480,13 +492,15 @@ static struct g5_dispatch_context production_g5_dispatcher;
 static bool production_g5_registered;
 static uint64_t production_g5_ready_count;
 static uint64_t production_g5_health_count;
+static uint64_t production_g5_present_count;
 
 static bool production_g5_authorize(void *ctx,uint32_t operation,uint64_t generation) {
     (void)ctx;
     return generation!=0u &&
         generation==session_manager_client_generation() &&
         session_manager_client_state()==AURORA_SESSION_CLIENT_ACTIVE &&
-        (operation==G5_OP_SHELL_READY || operation==G5_OP_SHELL_HEALTH);
+        (operation==G5_OP_SHELL_READY || operation==G5_OP_SHELL_HEALTH ||
+         (operation==G5_OP_SCENE_PUBLISH && host.scene.active));
 }
 
 static bool production_g5_handle(void *ctx,const struct g5_ipc_header *header,
@@ -502,6 +516,11 @@ static bool production_g5_handle(void *ctx,const struct g5_ipc_header *header,
     }
     if (header->operation==G5_OP_SHELL_HEALTH) {
         ++production_g5_health_count;
+        return true;
+    }
+    if (header->operation==G5_OP_SCENE_PUBLISH &&
+        g5_shell_scene_publish(&host.scene,header,payload)) {
+        ++production_g5_present_count;
         return true;
     }
     return false;
@@ -523,6 +542,7 @@ bool user_session_host_start(void) {
     }
     production_g5_ready_count=0u;
     production_g5_health_count=0u;
+    production_g5_present_count=0u;
     bool started=start_with_context(
         session_manager_client_user_id(),
         session_manager_client_generation());
@@ -532,7 +552,8 @@ bool user_session_host_start(void) {
         production_g5_registered=false;
     }
     if (started && (production_g5_ready_count!=1u ||
-                    production_g5_health_count!=1u)) {
+                    production_g5_health_count!=1u ||
+                    production_g5_present_count!=1u)) {
         (void)user_session_host_stop();
         return false;
     }
