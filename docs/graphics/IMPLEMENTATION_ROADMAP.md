@@ -5,6 +5,12 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+## G5 WP-03 — Shell lifecycle: clean stop, lock/unlock, crash and reauthentication (2026-10-09)
+
+- [ ] **Formal WP-03 scope:** `G5_DESIGN_SPEC.md` assigns Shell bootstrap, Ring 3 lifecycle, session start/lock/restart and crash + reauthentication QEMU gate to WP-03. The multi-client compositor/window management, focus and runtime resize/close contract is assigned to **WP-04**, and must not be falsely made a prerequisite for WP-03 closure.
+- [ ] **Separate trusted Shell incarnation (CI pending):** Session Manager's authenticated generation may remain unchanged over a lock/unlock. Each new Shell process now gets a strictly increasing receiver-local G5 generation, authenticated against the live Session Manager generation; revoked Shell generations are never reused. Its endpoint rights remain exclusive and non-transferable.
+- [ ] **Forced crash + fresh authentication test (CI pending):** native QEMU User Session Host probe performs clean generation-1 stop/revocation, then generation-2 bootstrap with new endpoints and scene, health round-trip, malformed-control induced nonzero Ring 3 exit, and verified fail-closed process/endpoint/compositor cleanup. No accepted status until fresh QEMU gate passes.
+
 ## G5 WP-03 — Native graphics IPC authority binding (2026-10-09)
 
 - [ ] **G5 `SCENE_PUBLISH` policy mask fix (CI pending):** QEMU diagnostics confirmed the ABI v3 startup fix reaches G5 READY/HEALTH, then rejects the scene before any handler was called. Code review of `g5_ipc_endpoint_poll` proved the receiver binding explicitly checks `(authority_rights & opcode_required_rights)==opcode_required_rights`; the User Session Host had granted kernel SYSTEM READ|CONTROL|WRITE but mistakenly advertised only READ in the binding. Correct the binding to all three rights while retaining the Ring3 sender's exclusive WRITE-only and no-transfer capability. Operation dispatch policy and per-session generation still gate every command.
