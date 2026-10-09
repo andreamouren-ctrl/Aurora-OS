@@ -222,7 +222,7 @@ static bool send_g5_scene_publish(
     uint32_t op=G5_OP_SCENE_PUBLISH;
     for (unsigned i=0u;i<4u;++i)
         wire[12u+i]=(uint8_t)(op>>(8u*i));
-    wire[16]=16u;
+    wire[20]=16u; /* payload_bytes at v1 byte offset 20; flags remain zero */
     wire[24]=3u;
     for (unsigned i=0u;i<8u;++i) {
         wire[32u+i]=(uint8_t)(generation>>(8u*i));
@@ -247,7 +247,7 @@ static bool send_g5_window_place(
     wire[10]=G5_IPC_REQUEST;
     uint32_t op=G5_OP_WINDOW_PLACE;
     for (unsigned i=0u;i<4u;++i) wire[12u+i]=(uint8_t)(op>>(8u*i));
-    wire[16]=24u;
+    wire[20]=24u; /* payload_bytes at v1 byte offset 20; flags remain zero */
     wire[24]=4u; /* monotonic after READY(1), HEALTH(2), PUBLISH(3) */
     for (unsigned i=0u;i<8u;++i) {
         wire[32u+i]=(uint8_t)(generation>>(8u*i));
