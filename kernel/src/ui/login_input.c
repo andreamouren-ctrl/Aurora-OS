@@ -30,6 +30,9 @@
 #include <aurora/session_manager_probe.h>
 #include <aurora/security_activity_model_probe.h>
 #include <aurora/security_activity_renderer_probe.h>
+#if AURORA_BOOT_VALIDATION
+#include <aurora/security_activity_graphics_probe.h>
+#endif
 #include <aurora/user_session_host.h>
 #include <aurora/vfs.h>
 
@@ -686,9 +689,16 @@ void login_input_init(void) {
     log_line("[identity-activity] headless presentation model acceptance gate passed");
 
     if (!security_activity_renderer_self_test()) {
-        kernel_panic("Security Activity fallback renderer self-test failed");
+        kernel_panic("Security Activity renderer self-test failed");
     }
-    log_line("[identity-activity] fail-safe fallback renderer acceptance gate passed");
+    log_line("[identity-activity] renderer acceptance gate passed");
+
+#if AURORA_BOOT_VALIDATION
+    if (!security_activity_graphics_self_test()) {
+        kernel_panic("Security Activity native artwork self-test failed");
+    }
+    log_line("[identity-activity] native artwork catalog acceptance gate passed");
+#endif
 
     if (entropy_ready()) {
         if (!entropy_ring3_self_test()) {
