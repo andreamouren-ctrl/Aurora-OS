@@ -515,8 +515,12 @@ bool user_session_host_start(void) {
         user_session_host_unregister_g5_dispatcher(&production_g5_dispatcher);
         production_g5_registered=false;
     }
-    return started && production_g5_ready_count==1u &&
-           production_g5_health_count==1u;
+    if (started && (production_g5_ready_count!=1u ||
+                    production_g5_health_count!=1u)) {
+        (void)user_session_host_stop();
+        return false;
+    }
+    return started;
 }
 
 bool user_session_host_active(void) {
