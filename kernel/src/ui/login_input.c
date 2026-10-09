@@ -28,6 +28,7 @@
 #include <aurora/service_supervisor.h>
 #include <aurora/session_manager_client.h>
 #include <aurora/session_manager_probe.h>
+#include <aurora/security_activity_model_probe.h>
 #include <aurora/user_session_host.h>
 #include <aurora/vfs.h>
 
@@ -677,6 +678,11 @@ void login_input_init(void) {
         kernel_panic("G5 Ring 3 IPC frame roundtrip test failed");
     }
     log_line("[g5-ipc] isolated Ring 3 frame roundtrip passed");
+
+    if (!security_activity_model_self_test()) {
+        kernel_panic("Security Activity presentation model self-test failed");
+    }
+    log_line("[identity-activity] headless presentation model acceptance gate passed");
 
     if (entropy_ready()) {
         if (!entropy_ring3_self_test()) {
