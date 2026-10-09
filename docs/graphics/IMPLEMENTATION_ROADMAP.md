@@ -5,6 +5,11 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+## G5 WP-03 — Authenticated Shell Ring3-to-Display Slice (2026-10-09)
+
+- [ ] **Production and QEMU Shell frame flow (new CI pending):** User Session Host ABI v3 passes non-transferable Ring3 GRAPHICS_BUFFER and SURFACE handles plus trusted object identity; its real Ring3 process maps and paints 160×96 pixels, attaches/damages/commits the surface through graphics syscalls, and sends an authorized G5 `SCENE_PUBLISH` request after READY/HEALTH. Kernel checks session, capability rights, object identity/generation and committed serial and routes the frame through Surface Registry, Configure/ACK, Frame Submission, Frame Delivery, Compositor Bridge and actual display. Session revoke removes scene nodes and graphics capabilities. Both production login and boot-validation host probe require successful G5 Shell scene presentation before declaring readiness; Bootstrap CI now requires a dedicated real-QEMU marker. No CI success claim before the new revision passes.
+- [ ] **Remaining independent-Shell/desktop functional breadth:** this proves a minimal Shell frame through real Ring3 IPC, not yet full window manager: dynamic multiwindow creation/configure/close, focus/input, Shell crash supervision/restart with new capabilities, and final QEMU screen-content assertion must be completed before final WP-03 acceptance. No G6 work until then.
+
 ## G5 WP-03 — Real Ring3 Surface-to-Display Integration Gate (2026-10-09)
 
 - [ ] **Real boot-validation display stage (CI pending):** extend the existing native two-client Ring3 graphics syscall probe to take two genuinely committed process-owned surfaces through a capability-backed G5 Surface Registry, Configure/ACK, Frame Submission, Frame Delivery, G5 Compositor Bridge and `software_compositor_compose_present()`; it requires nonzero display serial, detaches nodes and revokes every binding. Emit a unique `[g5-graphics]` marker only after success, now mandatory for Bootstrap BIOS acceptance. This proves the G2 Ring3 surface→compositor→display chain in QEMU, **not yet the missing G5 Shell IPC→surface chain**. No stubs or host mocks in this gate.
