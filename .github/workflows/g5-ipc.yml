@@ -1,4 +1,5 @@
 name: G5 IPC Wire Contract
+# Validate runtime QEMU native Shell receiver IPC replay and revoke probe.
 on:
   push:
     paths:
