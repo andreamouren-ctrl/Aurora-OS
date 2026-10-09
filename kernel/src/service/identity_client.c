@@ -719,6 +719,10 @@ void identity_client_pump(void) {
     if (received.capability_count != 0u) {
         client_state = AURORA_IDENTITY_CLIENT_ERROR;
         clear_bytes(&received, sizeof(received));
+        if (abandoned_activity_read) {
+            abandoned_activity_read = false;
+            identity_client_reset_result();
+        }
         return;
     }
 
@@ -830,6 +834,10 @@ void identity_client_pump(void) {
             clear_bytes(&result, sizeof(result));
             current_request_id = 0u;
             client_state = AURORA_IDENTITY_CLIENT_ERROR;
+            if (abandoned_activity_read) {
+                abandoned_activity_read = false;
+                identity_client_reset_result();
+            }
             return;
         }
 
@@ -883,6 +891,10 @@ void identity_client_pump(void) {
 
     clear_bytes(&received, sizeof(received));
     client_state = AURORA_IDENTITY_CLIENT_ERROR;
+    if (abandoned_activity_read) {
+        abandoned_activity_read = false;
+        identity_client_reset_result();
+    }
 }
 
 bool identity_client_has_abandoned_security_activity_read(void) {
