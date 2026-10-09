@@ -69,6 +69,7 @@ void security_activity_controller_pump(
     if (state == AURORA_IDENTITY_CLIENT_ACTIVITY_RECORD) {
         struct aurora_security_activity_record record;
         if (!identity_client_take_security_activity_record(&record) ||
+            (controller->cursor != 0u && record.sequence >= controller->cursor) ||
             !security_activity_page_append(&controller->page, &record)) {
             controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
             identity_client_reset_result();
