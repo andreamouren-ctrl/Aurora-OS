@@ -4,6 +4,19 @@ Status: **Canonical status audit**
 Audit date: **2026-10-07**
 Repository baseline: `main` at `f174b3e2476298c09d24ce6b5eaff306b660e6b3`
 
+## 2026-10-09 status synchronization
+
+This file remains the canonical 2026-10-07 full-system audit, but the following later results supersede the corresponding implementation-status statements below:
+
+- G4 pointer/modern input is complete/runtime verified for the current bounded-polling V1 baseline, including live qemu-xhci keyboard/mouse, descriptor-driven wheel/five-button handling, hot-unplug teardown and Event Ring quiescence;
+- G5 WP-03 Ring 3 Shell bootstrap/session lifecycle is frozen and accepted on `main`; the accepted path includes authenticated session-generation fencing, native Shell IPC, real committed scene publication through compositor/display, clean stop/revocation, forced crash and fresh-reauthentication QEMU gates;
+- the follow-up stale-session receiver hardening disconnects and clears receiver authority immediately when session validity is lost;
+- WP-04+ remains pending and owns the complete dynamic multi-client window manager, focus/hit-testing integration, resize/close/decorations, launch/task management and Living Canvas;
+- Aurora Identity backend/security development is not blocked by graphics foundations. The final compositor-backed Identity System App still waits on the later Shell/window-management layer;
+- historical stacked PRs and divergent pre-freeze branches are not canonical integration targets. New work must branch from current `main` and port only reviewed changes needed from old experiments.
+
+The detailed 2026-10-07 comparison sections below are preserved as an audit snapshot rather than silently rewritten as if those later milestones had existed on the original audit date.
+
 This document records the implemented and runtime-verified state of Aurora OS and compares the current architecture with a contemporary Ubuntu/Linux and Windows baseline.
 
 It is a **status document**, not a product-readiness claim. A clean architectural contract is not equivalent to the decades of field validation, hardware coverage, compatibility, performance tuning and security hardening present in Linux or Windows.
