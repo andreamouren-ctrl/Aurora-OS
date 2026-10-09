@@ -5,6 +5,13 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+## G5 WP-03 — Revocation and Bootstrap diagnosis (2026-10-09)
+
+- [ ] **New development PR (pending CI):** kernel QEMU native Shell receiver probe extended to queue a request and assert denial after receiver-side authority capability revocation, then endpoint capability revocation. Effects counter remains exactly one. These controls are kernel-thread integration tests, **not a Ring 3 Shell service**; full CI/QEMU verdict pending.
+- [ ] **Bootstrap diagnostic improvement (pending CI):** when the M1 user-space completion marker is absent, print the last 60 serial-log lines before the interrupt trace. This does not bypass or relax the required markers.
+- [ ] **Historical failure diagnosis:** PR #160 run `37869625627` compiled kernel/ISO and printed `[g5-shell] native IPC receiver/replay/revoke probe passed`, but BIOS smoke boot returned exit code 1 because the final M1 user-space bootstrap marker was not found. This is a later boot-completion failure, **not evidence that the Shell IPC probe failed**.
+- [ ] **Next production milestone:** provision a genuine Ring 3 Shell principal and endpoint under the authenticated User Session Host; run a bounded receive/dispatch loop, connect authorized surface operations to compositor presentation, and validate display output plus crash/restart revocation in QEMU. No end-to-end acceptance yet.
+
 ## G5 WP-01 — Source audit baseline (2026-10-08)
 
 - [x] Targeted current-source inspection and P0/P1 risk register: [G5_WP01_REPOSITORY_AUDIT.md](G5_WP01_REPOSITORY_AUDIT.md).
