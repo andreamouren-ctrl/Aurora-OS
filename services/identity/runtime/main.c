@@ -784,9 +784,11 @@ static bool initialize_identity_core(
     if (context == NULL) return false;
     context->identity_core_ready = false;
     secure_zero(&context->identity_core, sizeof(context->identity_core));
-    secure_zero(&context->audit_store, sizeof(context->audit_store));
-    secure_zero(&context->audit_protected_state_store,
-        sizeof(context->audit_protected_state_store));
+    /*
+     * Audit storage is opened before the Identity core because both share the
+     * scoped Protected State transport. Do not clear audit_store here:
+     * audit_ready must always describe the live opened store.
+     */
     if (!context->argon2id_provider_ready) return true;
 
     context->identity_core.crypto =
