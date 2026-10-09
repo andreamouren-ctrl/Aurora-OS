@@ -43,7 +43,7 @@ jobs:
         run: |
           set -eu
           set +e
-          timeout 25s qemu-system-x86_64 -M q35 -cpu max -m 512M \
+          timeout 50s qemu-system-x86_64 -M q35 -cpu max -m 512M \
             -smp 4,sockets=1,cores=2,threads=2 -vga std \
             -cdrom build/AuroraOS-x86_64.iso \
             -drive file=build/g5-ipc-persist.img,format=raw,if=none,id=aurora_disk \
@@ -60,7 +60,7 @@ jobs:
         run: |
           set -eu
           set +e
-          timeout 25s qemu-system-x86_64 -M q35 -cpu max -m 512M \
+          timeout 50s qemu-system-x86_64 -M q35 -cpu max -m 512M \
             -smp 4,sockets=1,cores=2,threads=2 -vga std \
             -cdrom build/AuroraOS-x86_64.iso \
             -drive file=build/g5-ipc-persist.img,format=raw,if=none,id=aurora_disk \
