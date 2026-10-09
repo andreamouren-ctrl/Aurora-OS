@@ -714,7 +714,9 @@ bool user_session_host_self_test(void) {
         g5_session_health_events==3u;
     bool stopped = live_health && user_session_host_stop();
     bool post_stop_denied=stopped && !user_session_host_health_check() &&
-        g5_session_health_events==3u;
+        g5_session_health_events==3u &&
+        g5_session_present_events==1u &&
+        !host.scene.active && host.scene.last_display_serial==0u;
     bool receiver_revoked = stopped &&
         host.g5_receiver_handle == AURORA_CAP_INVALID &&
         host.g5_authority_handle == AURORA_CAP_INVALID &&
