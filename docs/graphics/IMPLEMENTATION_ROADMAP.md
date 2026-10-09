@@ -5,6 +5,11 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+## G5 WP-03 — Ring 3 Shell IPC startup progression (2026-10-09)
+
+- [ ] **Ring 3 two-message bootstrap (CI pending):** the actual User Session Host sends G5 `SHELL_READY` (event ID 1) and `SHELL_HEALTH` (request ID 2), both bound to its trusted session generation and exclusive sender capability, before notifying the kernel control READY. The kernel G5 endpoint dispatches and validates both; the host self-test requires one callback for each. This exercises a genuine Ring3→syscall→kernel receiver flow; not yet a long-lived Desktop Shell Coordinator or compositor presentation.
+- [ ] **WP-03 exit criteria still open:** persistent Shell receive/dispatch loop, real window/surface operations, display output proof, and crash/restart QEMU validation. Keep WP-03 open regardless of this startup smoke passing.
+
 ## G5 WP-03 — Revocation and Bootstrap diagnosis (2026-10-09)
 
 - [ ] **New development PR (pending CI):** kernel QEMU native Shell receiver probe extended to queue a request and assert denial after receiver-side authority capability revocation, then endpoint capability revocation. Effects counter remains exactly one. These controls are kernel-thread integration tests, **not a Ring 3 Shell service**; full CI/QEMU verdict pending.
