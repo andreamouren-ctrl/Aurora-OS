@@ -13,6 +13,8 @@
 #include <aurora/identity/machine_secret_protected_state.h>
 #include <aurora/identity/persistent_store.h>
 #include <aurora/identity/persistent_store_protected_state.h>
+#include <aurora/identity/reauth_proof.h>
+#include <aurora/identity/reauth_proof_memory.h>
 #include <aurora/identity/session_grant.h>
 #include <aurora/identity/session_grant_memory.h>
 #include <aurora/identity_service_protocol.h>
@@ -25,14 +27,50 @@
 #define IDENTITY_RUNTIME_REAP_PROBE_SIZE (256u * 1024u)
 #define IDENTITY_RUNTIME_PAGE_SIZE 4096u
 #define IDENTITY_RUNTIME_SESSION_GRANT_TTL_MS UINT64_C(30000)
+#define IDENTITY_RUNTIME_REAUTH_PROOF_TTL_MS UINT64_C(60000)
 
 void *malloc(size_t size);
 void free(void *pointer);
+
+_Static_assert(
+    (uint32_t)AURORA_IDENTITY_SERVICE_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY ==
+        (uint32_t)AURORA_IDENTITY_REAUTH_PURPOSE_ROTATE_PRIMARY_KEY,
+    "reauth purpose ABI mismatch");
+_Static_assert(
+    (uint32_t)AURORA_IDENTITY_SERVICE_REAUTH_PURPOSE_ENROLL_AUTHENTICATOR ==
+        (uint32_t)AURORA_IDENTITY_REAUTH_PURPOSE_ENROLL_AUTHENTICATOR,
+    "reauth purpose ABI mismatch");
+_Static_assert(
+    (uint32_t)AURORA_IDENTITY_SERVICE_REAUTH_PURPOSE_REVOKE_AUTHENTICATOR ==
+        (uint32_t)AURORA_IDENTITY_REAUTH_PURPOSE_REVOKE_AUTHENTICATOR,
+    "reauth purpose ABI mismatch");
+_Static_assert(
+    (uint32_t)AURORA_IDENTITY_SERVICE_REAUTH_PURPOSE_CHANGE_RECOVERY_POLICY ==
+        (uint32_t)AURORA_IDENTITY_REAUTH_PURPOSE_CHANGE_RECOVERY_POLICY,
+    "reauth purpose ABI mismatch");
+_Static_assert(
+    (uint32_t)AURORA_IDENTITY_SERVICE_REAUTH_PURPOSE_EXPORT_RECOVERY_MATERIAL ==
+        (uint32_t)AURORA_IDENTITY_REAUTH_PURPOSE_EXPORT_RECOVERY_MATERIAL,
+    "reauth purpose ABI mismatch");
+_Static_assert(
+    (uint32_t)AURORA_IDENTITY_SERVICE_REAUTH_PURPOSE_APPROVE_USER_CREATION ==
+        (uint32_t)AURORA_IDENTITY_REAUTH_PURPOSE_APPROVE_USER_CREATION,
+    "reauth purpose ABI mismatch");
+_Static_assert(
+    (uint32_t)AURORA_IDENTITY_SERVICE_REAUTH_PURPOSE_CHANGE_LOCAL_ROLE ==
+        (uint32_t)AURORA_IDENTITY_REAUTH_PURPOSE_CHANGE_LOCAL_ROLE,
+    "reauth purpose ABI mismatch");
+_Static_assert(
+    (uint32_t)AURORA_IDENTITY_SERVICE_REAUTH_PURPOSE_GRANT_RESOURCE_ACCESS ==
+        (uint32_t)AURORA_IDENTITY_REAUTH_PURPOSE_GRANT_RESOURCE_ACCESS,
+    "reauth purpose ABI mismatch");
 
 static const uint8_t identity_runtime_drbg_personalization[] =
     "AURORA.IDENTITY.RUNTIME.HMAC-DRBG.V1";
 static const uint8_t identity_runtime_session_grant_key_domain[] =
     "AURORA.IDENTITY.SESSION-GRANT-KEY.V1";
+static const uint8_t identity_runtime_reauth_proof_key_domain[] =
+    "AURORA.IDENTITY.REAUTH-PROOF-KEY.V1";
 
 struct identity_runtime_auth_job {
     bool occupied;
@@ -48,6 +86,16 @@ struct identity_runtime_create_job {
     size_t key_length;
 };
 
+struct identity_runtime_reauth_job {
+    bool occupied;
+    uint64_t request_id;
+    char key[AURORA_IDENTITY_SERVICE_KEY_MAX_LEN];
+    size_t key_length;
+    struct aurora_identity_user_id expected_user_id;
+    uint64_t session_generation;
+    uint32_t purpose;
+};
+
 struct identity_runtime_persistent_context {
     struct identity_runtime_protected_state_context transport_context;
     struct aurora_identity_persistent_protected_state_store protected_state_store;
@@ -60,14 +108,18 @@ struct identity_runtime_persistent_context {
     struct aurora_identity_core identity_core;
     struct aurora_identity_session_grant_memory_store session_grant_store;
     struct aurora_identity_session_grant_core session_grant_core;
+    struct aurora_identity_reauth_memory_store reauth_proof_store;
+    struct aurora_identity_reauth_core reauth_proof_core;
     struct identity_runtime_auth_job auth_job;
     struct identity_runtime_create_job create_job;
+    struct identity_runtime_reauth_job reauth_job;
     bool machine_secret_ready;
     bool drbg_ready;
     bool hmac_provider_ready;
     bool argon2id_provider_ready;
     bool identity_core_ready;
     bool session_grant_ready;
+    bool reauth_proof_ready;
 };
 
 static void secure_zero(void *buffer, size_t size) {
@@ -302,6 +354,34 @@ static bool send_session_grant_result(
     return sent;
 }
 
+static bool send_reauth_result(
+    uint64_t endpoint,
+    uint64_t request_id,
+    uint32_t state,
+    uint32_t public_error,
+    uint64_t retry_after_ms,
+    uint64_t expires_at_ms,
+    uint32_t purpose,
+    const uint8_t *proof
+) {
+    struct aurora_identity_service_reauth_result result;
+    secure_zero(&result, sizeof(result));
+    result.header.version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION;
+    result.header.type = AURORA_IDENTITY_SERVICE_REAUTH_RESULT;
+    result.header.request_id = request_id;
+    result.state = state;
+    result.public_error = public_error;
+    result.retry_after_ms = retry_after_ms;
+    result.expires_at_ms = expires_at_ms;
+    result.purpose = purpose;
+    if (proof != NULL) {
+        copy_bytes(result.proof, proof, sizeof(result.proof));
+    }
+    bool sent = send_payload(endpoint, &result, sizeof(result));
+    secure_zero(&result, sizeof(result));
+    return sent;
+}
+
 static bool receive_message(
     uint64_t endpoint,
     struct aurora_sys_ipc_received *received
@@ -528,6 +608,7 @@ static bool initialize_hmac_provider(
 ) {
     uint8_t lookup_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE];
     uint8_t session_grant_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE];
+    uint8_t reauth_proof_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE];
     struct aurora_identity_hmac_drbg *drbg;
     bool initialized;
 
@@ -536,6 +617,7 @@ static bool initialize_hmac_provider(
     aurora_identity_hmac_provider_clear(&context->hmac_provider);
     secure_zero(lookup_key, sizeof(lookup_key));
     secure_zero(session_grant_key, sizeof(session_grant_key));
+    secure_zero(reauth_proof_key, sizeof(reauth_proof_key));
 
     if (!context->machine_secret_ready) return true;
 
@@ -547,9 +629,16 @@ static bool initialize_hmac_provider(
             sizeof(context->machine_secret.bytes),
             identity_runtime_session_grant_key_domain,
             sizeof(identity_runtime_session_grant_key_domain) - 1u,
-            session_grant_key)) {
+            session_grant_key) ||
+        !aurora_identity_hmac_sha256(
+            context->machine_secret.bytes,
+            sizeof(context->machine_secret.bytes),
+            identity_runtime_reauth_proof_key_domain,
+            sizeof(identity_runtime_reauth_proof_key_domain) - 1u,
+            reauth_proof_key)) {
         secure_zero(lookup_key, sizeof(lookup_key));
         secure_zero(session_grant_key, sizeof(session_grant_key));
+        secure_zero(reauth_proof_key, sizeof(reauth_proof_key));
         return false;
     }
 
@@ -558,10 +647,12 @@ static bool initialize_hmac_provider(
         &context->hmac_provider,
         lookup_key,
         session_grant_key,
+        reauth_proof_key,
         drbg);
 
     secure_zero(lookup_key, sizeof(lookup_key));
     secure_zero(session_grant_key, sizeof(session_grant_key));
+    secure_zero(reauth_proof_key, sizeof(reauth_proof_key));
     if (!initialized) {
         aurora_identity_hmac_provider_clear(&context->hmac_provider);
         return false;
@@ -663,11 +754,40 @@ static bool initialize_session_grants(
     return true;
 }
 
+static bool initialize_reauth_proofs(
+    struct identity_runtime_persistent_context *context
+) {
+    if (context == NULL) return false;
+    context->reauth_proof_ready = false;
+    secure_zero(&context->reauth_proof_core, sizeof(context->reauth_proof_core));
+    aurora_identity_reauth_memory_init(&context->reauth_proof_store);
+
+    if (!context->hmac_provider_ready || !context->drbg_ready) return true;
+
+    context->reauth_proof_core.random =
+        aurora_identity_hmac_provider_random_ops(&context->hmac_provider);
+    context->reauth_proof_core.clock.context = NULL;
+    context->reauth_proof_core.clock.monotonic_ms = runtime_monotonic_ms;
+    context->reauth_proof_core.crypto =
+        aurora_identity_hmac_provider_reauth_crypto_ops(
+            &context->hmac_provider);
+    context->reauth_proof_core.store =
+        aurora_identity_reauth_memory_ops(&context->reauth_proof_store);
+    context->reauth_proof_core.policy.ttl_ms =
+        IDENTITY_RUNTIME_REAUTH_PROOF_TTL_MS;
+    context->reauth_proof_ready = true;
+    return true;
+}
+
 static void clear_auth_job(struct identity_runtime_auth_job *job) {
     if (job != NULL) secure_zero(job, sizeof(*job));
 }
 
 static void clear_create_job(struct identity_runtime_create_job *job) {
+    if (job != NULL) secure_zero(job, sizeof(*job));
+}
+
+static void clear_reauth_job(struct identity_runtime_reauth_job *job) {
     if (job != NULL) secure_zero(job, sizeof(*job));
 }
 
@@ -677,8 +797,11 @@ static void release_persistent_context(
     if (context == NULL) return;
     clear_auth_job(&context->auth_job);
     clear_create_job(&context->create_job);
+    clear_reauth_job(&context->reauth_job);
     aurora_identity_session_grant_memory_clear(&context->session_grant_store);
     secure_zero(&context->session_grant_core, sizeof(context->session_grant_core));
+    aurora_identity_reauth_memory_clear(&context->reauth_proof_store);
+    secure_zero(&context->reauth_proof_core, sizeof(context->reauth_proof_core));
     secure_zero(&context->identity_core, sizeof(context->identity_core));
     aurora_identity_argon2id_provider_clear(&context->argon2id_provider);
     aurora_identity_hmac_provider_clear(&context->hmac_provider);
@@ -764,11 +887,31 @@ static bool session_authority_is_valid(uint64_t handle) {
         !capability_has(handle, AURORA_CAP_IDENTITY_SESSION, AURORA_RIGHT_TRANSFER);
 }
 
+static bool reauth_authority_is_valid(uint64_t handle) {
+    return handle != 0u &&
+        capability_has(handle, AURORA_CAP_IDENTITY_REAUTH, AURORA_RIGHT_CONTROL) &&
+        !capability_has(handle, AURORA_CAP_IDENTITY_REAUTH, AURORA_RIGHT_TRANSFER);
+}
+
+static bool user_ids_equal(
+    const struct aurora_identity_user_id *left,
+    const struct aurora_identity_user_id *right
+) {
+    uint8_t difference = 0u;
+    if (left == NULL || right == NULL) return false;
+    for (size_t i = 0u; i < sizeof(left->bytes); ++i) {
+        difference |= (uint8_t)(left->bytes[i] ^ right->bytes[i]);
+    }
+    return difference == 0u;
+}
+
 static bool sensitive_job_busy(
     const struct identity_runtime_persistent_context *context
 ) {
     return context != NULL &&
-        (context->auth_job.occupied || context->create_job.occupied);
+        (context->auth_job.occupied ||
+         context->create_job.occupied ||
+         context->reauth_job.occupied);
 }
 
 static bool handle_consume_session_grant(
@@ -1123,6 +1266,250 @@ static bool handle_cancel_auth(
         request_id);
 }
 
+static bool handle_begin_reauth(
+    uint64_t endpoint,
+    const struct aurora_sys_ipc_received *received,
+    struct identity_runtime_persistent_context *context
+) {
+    struct aurora_identity_service_begin_reauth request;
+    secure_zero(&request, sizeof(request));
+
+    if (received == NULL || context == NULL ||
+        received->length != sizeof(request) ||
+        received->capability_count != 1u) {
+        revoke_received_capabilities(received);
+        return send_reauth_result(
+            endpoint, 0u,
+            AURORA_IDENTITY_SERVICE_REAUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST,
+            0u, 0u, 0u, NULL);
+    }
+
+    copy_bytes(&request, received->data, sizeof(request));
+    uint64_t authority = received->capabilities[0];
+    bool authorized = reauth_authority_is_valid(authority);
+    bool revoked = revoke_capability(authority);
+    uint64_t request_id = request.header.request_id;
+
+    struct aurora_identity_user_id expected_user_id;
+    secure_zero(&expected_user_id, sizeof(expected_user_id));
+    copy_bytes(
+        expected_user_id.bytes,
+        request.expected_user_id,
+        sizeof(expected_user_id.bytes));
+
+    if (!authorized || !revoked) {
+        secure_zero(&request, sizeof(request));
+        secure_zero(&expected_user_id, sizeof(expected_user_id));
+        return send_reauth_result(
+            endpoint, request_id,
+            AURORA_IDENTITY_SERVICE_REAUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_UNAUTHORIZED,
+            0u, 0u, 0u, NULL);
+    }
+
+    if (request.header.version != AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION ||
+        request.header.type != AURORA_IDENTITY_SERVICE_BEGIN_REAUTH ||
+        request_id == 0u ||
+        request.key_length == 0u ||
+        request.key_length > AURORA_IDENTITY_SERVICE_KEY_MAX_LEN ||
+        aurora_identity_user_id_is_zero(&expected_user_id) ||
+        request.session_generation == 0u ||
+        !aurora_identity_reauth_purpose_valid(request.purpose)) {
+        secure_zero(&request, sizeof(request));
+        secure_zero(&expected_user_id, sizeof(expected_user_id));
+        return send_reauth_result(
+            endpoint, request_id,
+            AURORA_IDENTITY_SERVICE_REAUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST,
+            0u, 0u, 0u, NULL);
+    }
+
+    if (!context->identity_core_ready || !context->reauth_proof_ready) {
+        uint32_t purpose = request.purpose;
+        secure_zero(&request, sizeof(request));
+        secure_zero(&expected_user_id, sizeof(expected_user_id));
+        return send_reauth_result(
+            endpoint, request_id,
+            AURORA_IDENTITY_SERVICE_REAUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE,
+            0u, 0u, purpose, NULL);
+    }
+
+    if (sensitive_job_busy(context)) {
+        uint32_t purpose = request.purpose;
+        secure_zero(&request, sizeof(request));
+        secure_zero(&expected_user_id, sizeof(expected_user_id));
+        return send_reauth_result(
+            endpoint, request_id,
+            AURORA_IDENTITY_SERVICE_REAUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_BUSY,
+            0u, 0u, purpose, NULL);
+    }
+
+    clear_reauth_job(&context->reauth_job);
+    context->reauth_job.occupied = true;
+    context->reauth_job.request_id = request_id;
+    context->reauth_job.key_length = request.key_length;
+    context->reauth_job.expected_user_id = expected_user_id;
+    context->reauth_job.session_generation = request.session_generation;
+    context->reauth_job.purpose = request.purpose;
+    copy_bytes(
+        context->reauth_job.key,
+        request.key,
+        context->reauth_job.key_length);
+    secure_zero(&request, sizeof(request));
+    secure_zero(&expected_user_id, sizeof(expected_user_id));
+    return send_message(
+        endpoint,
+        AURORA_IDENTITY_SERVICE_REAUTH_PENDING,
+        request_id);
+}
+
+static bool execute_reauth_job(
+    uint64_t endpoint,
+    struct identity_runtime_persistent_context *context
+) {
+    struct identity_runtime_reauth_job *job = &context->reauth_job;
+    struct aurora_identity_auth_result auth = aurora_identity_authenticate_key(
+        &context->identity_core,
+        job->key,
+        job->key_length);
+
+    secure_zero(job->key, sizeof(job->key));
+    job->key_length = 0u;
+
+    if (auth.result == AURORA_IDENTITY_OK) {
+        if (!user_ids_equal(&auth.user_id, &job->expected_user_id)) {
+            secure_zero(&auth, sizeof(auth));
+            return send_reauth_result(
+                endpoint, job->request_id,
+                AURORA_IDENTITY_SERVICE_REAUTH_STATE_FAILED,
+                AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_AUTH_FAILED,
+                0u, 0u, job->purpose, NULL);
+        }
+
+        struct aurora_identity_reauth_issue_result proof =
+            aurora_identity_reauth_issue(
+                &context->reauth_proof_core,
+                &auth.user_id,
+                job->session_generation,
+                job->purpose);
+        secure_zero(&auth, sizeof(auth));
+
+        if (proof.result == AURORA_IDENTITY_REAUTH_OK) {
+            bool sent = send_reauth_result(
+                endpoint, job->request_id,
+                AURORA_IDENTITY_SERVICE_REAUTH_STATE_SUCCESS,
+                AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE,
+                0u,
+                proof.expires_at_ms,
+                job->purpose,
+                proof.token.bytes);
+            secure_zero(&proof, sizeof(proof));
+            return sent;
+        }
+
+        uint32_t public_error =
+            proof.result == AURORA_IDENTITY_REAUTH_BACKEND_ERROR
+                ? AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE
+                : AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INTERNAL_FAILURE;
+        if (proof.result == AURORA_IDENTITY_REAUTH_RANDOM_ERROR) {
+            public_error = AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE;
+        }
+        secure_zero(&proof, sizeof(proof));
+        return send_reauth_result(
+            endpoint, job->request_id,
+            AURORA_IDENTITY_SERVICE_REAUTH_STATE_SERVICE_ERROR,
+            public_error,
+            0u, 0u, job->purpose, NULL);
+    }
+
+    if (auth.result == AURORA_IDENTITY_THROTTLED) {
+        uint64_t retry_after_ms = auth.retry_after_ms;
+        secure_zero(&auth, sizeof(auth));
+        return send_reauth_result(
+            endpoint, job->request_id,
+            AURORA_IDENTITY_SERVICE_REAUTH_STATE_THROTTLED,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_THROTTLED,
+            retry_after_ms, 0u, job->purpose, NULL);
+    }
+
+    if (auth.result == AURORA_IDENTITY_BACKEND_ERROR) {
+        secure_zero(&auth, sizeof(auth));
+        return send_reauth_result(
+            endpoint, job->request_id,
+            AURORA_IDENTITY_SERVICE_REAUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_STORAGE_FAILURE,
+            0u, 0u, job->purpose, NULL);
+    }
+
+    if (auth.result == AURORA_IDENTITY_CRYPTO_ERROR ||
+        auth.result == AURORA_IDENTITY_POLICY_ERROR ||
+        auth.result == AURORA_IDENTITY_RANDOM_ERROR) {
+        secure_zero(&auth, sizeof(auth));
+        return send_reauth_result(
+            endpoint, job->request_id,
+            AURORA_IDENTITY_SERVICE_REAUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INTERNAL_FAILURE,
+            0u, 0u, job->purpose, NULL);
+    }
+
+    secure_zero(&auth, sizeof(auth));
+    return send_reauth_result(
+        endpoint, job->request_id,
+        AURORA_IDENTITY_SERVICE_REAUTH_STATE_FAILED,
+        AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_AUTH_FAILED,
+        0u, 0u, job->purpose, NULL);
+}
+
+static bool handle_query_reauth(
+    uint64_t endpoint,
+    const struct aurora_identity_service_message *request,
+    struct identity_runtime_persistent_context *context
+) {
+    if (request == NULL || context == NULL ||
+        request->request_id == 0u ||
+        !context->reauth_job.occupied ||
+        context->reauth_job.request_id != request->request_id) {
+        return send_reauth_result(
+            endpoint,
+            request == NULL ? 0u : request->request_id,
+            AURORA_IDENTITY_SERVICE_REAUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST,
+            0u, 0u, 0u, NULL);
+    }
+
+    bool sent = execute_reauth_job(endpoint, context);
+    clear_reauth_job(&context->reauth_job);
+    return sent;
+}
+
+static bool handle_cancel_reauth(
+    uint64_t endpoint,
+    const struct aurora_identity_service_message *request,
+    struct identity_runtime_persistent_context *context
+) {
+    if (request == NULL || context == NULL ||
+        request->request_id == 0u ||
+        !context->reauth_job.occupied ||
+        context->reauth_job.request_id != request->request_id) {
+        return send_reauth_result(
+            endpoint,
+            request == NULL ? 0u : request->request_id,
+            AURORA_IDENTITY_SERVICE_REAUTH_STATE_SERVICE_ERROR,
+            AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_INVALID_REQUEST,
+            0u, 0u, 0u, NULL);
+    }
+
+    uint64_t request_id = context->reauth_job.request_id;
+    clear_reauth_job(&context->reauth_job);
+    return send_message(
+        endpoint,
+        AURORA_IDENTITY_SERVICE_REAUTH_CANCELLED,
+        request_id);
+}
+
 static bool handle_begin_create(
     uint64_t endpoint,
     const struct aurora_sys_ipc_received *received,
@@ -1359,7 +1746,8 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
         !initialize_hmac_provider(persistent_context) ||
         !initialize_argon2id_provider(persistent_context) ||
         !initialize_identity_core(persistent_context) ||
-        !initialize_session_grants(persistent_context)) {
+        !initialize_session_grants(persistent_context) ||
+        !initialize_reauth_proofs(persistent_context)) {
         release_persistent_context(persistent_context);
         return 1;
     }
@@ -1428,6 +1816,17 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
             continue;
         }
 
+        if (request.type == AURORA_IDENTITY_SERVICE_BEGIN_REAUTH) {
+            if (!handle_begin_reauth(
+                    startup->ipc_endpoint,
+                    &received,
+                    persistent_context)) {
+                release_persistent_context(persistent_context);
+                return 1;
+            }
+            continue;
+        }
+
         if (request.type == AURORA_IDENTITY_SERVICE_CONSUME_SESSION_GRANT) {
             if (!handle_consume_session_grant(
                     startup->ipc_endpoint,
@@ -1464,6 +1863,28 @@ int64_t identity_runtime_main(uint64_t initial_rsp) {
 
         if (request.type == AURORA_IDENTITY_SERVICE_CANCEL_AUTH) {
             if (!handle_cancel_auth(
+                    startup->ipc_endpoint,
+                    &request,
+                    persistent_context)) {
+                release_persistent_context(persistent_context);
+                return 1;
+            }
+            continue;
+        }
+
+        if (request.type == AURORA_IDENTITY_SERVICE_QUERY_REAUTH) {
+            if (!handle_query_reauth(
+                    startup->ipc_endpoint,
+                    &request,
+                    persistent_context)) {
+                release_persistent_context(persistent_context);
+                return 1;
+            }
+            continue;
+        }
+
+        if (request.type == AURORA_IDENTITY_SERVICE_CANCEL_REAUTH) {
+            if (!handle_cancel_reauth(
                     startup->ipc_endpoint,
                     &request,
                     persistent_context)) {
