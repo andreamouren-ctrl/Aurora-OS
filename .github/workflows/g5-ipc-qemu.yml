@@ -56,6 +56,7 @@ jobs:
           grep -F "[g5-ipc] isolated Ring 3 frame roundtrip passed" build/g5-ipc-first.log
           grep -F "[g5-ipc] durable ledger initialized and persisted" build/g5-ipc-first.log
           grep -F "[kernel] M1 user-space bootstrap reached successfully" build/g5-ipc-first.log
+          grep -F "[g5-wp03] Ring3 Shell clean stop, fresh reauth, forced crash and capability revocation passed" build/g5-ipc-first.log
       - name: Cold reboot reusing SAME physical disk image
         run: |
           set -eu
@@ -74,6 +75,7 @@ jobs:
           grep -F "[g5-ipc] durable ledger recovered from previous boot" build/g5-ipc-second.log
           grep -F "[g5-ipc] isolated Ring 3 frame roundtrip passed" build/g5-ipc-second.log
           grep -F "[kernel] M1 user-space bootstrap reached successfully" build/g5-ipc-second.log
+          grep -F "[g5-wp03] Ring3 Shell clean stop, fresh reauth, forced crash and capability revocation passed" build/g5-ipc-second.log
       - name: Preserve G5 cold-boot artifacts
         if: always()
         uses: actions/upload-artifact@v4
