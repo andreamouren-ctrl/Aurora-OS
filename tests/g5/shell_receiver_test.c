@@ -40,6 +40,13 @@ int main(void) {
  assert(effects==1);
  g5_shell_session_end(&session);
  assert(!g5_shell_receiver_poll(&receiver,&result)&&native_polls==1);
+ assert(!receiver.endpoint.receiver);
+ assert(!receiver.endpoint.receiver_caps);
+ assert(receiver.endpoint.receiver_endpoint_handle==AURORA_CAP_INVALID);
+ assert(receiver.endpoint.receiver_authority==AURORA_CAP_INVALID);
+ assert(receiver.endpoint.authority_rights==0);
+ assert(receiver.endpoint.trusted_consumer_thread==0);
+ assert(!receiver.endpoint.provisioned_exclusively);
  assert(!receiver.dispatcher.authorize(receiver.dispatcher.context,G5_OP_WINDOW_CLOSE,6));
  assert(!receiver.dispatcher.handler(receiver.dispatcher.context,&header,0));
  g5_shell_receiver_revoke(&receiver);
