@@ -26,6 +26,9 @@ enum aurora_identity_client_state {
     AURORA_IDENTITY_CLIENT_ROTATING_KEY,
     AURORA_IDENTITY_CLIENT_KEY_ROTATED,
     AURORA_IDENTITY_CLIENT_ROTATE_KEY_EXISTS,
+    AURORA_IDENTITY_CLIENT_READING_ACTIVITY,
+    AURORA_IDENTITY_CLIENT_ACTIVITY_RECORD,
+    AURORA_IDENTITY_CLIENT_ACTIVITY_END,
     AURORA_IDENTITY_CLIENT_UNAVAILABLE,
     AURORA_IDENTITY_CLIENT_ERROR
 };
@@ -53,6 +56,21 @@ bool identity_client_begin_rotate_key(
     const char *new_key,
     size_t new_key_length
 );
+
+struct aurora_security_activity_record {
+    uint32_t record_version;
+    uint32_t event_type;
+    uint32_t outcome;
+    uint32_t reason_code;
+    uint64_t sequence;
+    uint64_t monotonic_ms;
+    uint64_t session_generation;
+};
+
+bool identity_client_begin_security_activity_read(uint64_t before_sequence);
+
+bool identity_client_take_security_activity_record(
+    struct aurora_security_activity_record *out_record);
 
 void identity_client_pump(void);
 
