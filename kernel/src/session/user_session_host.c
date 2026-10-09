@@ -397,6 +397,9 @@ static bool start_with_context(
         if (!g5_ipc_endpoint_poll(&host.g5_binding,&present) ||
             present!=G5_IPC_OK || host.scene.last_display_serial==0u) {
             log_line("[g5-shell-diagnostic] SCENE_PUBLISH rejected or no display serial");
+            log_write("[g5-shell-diagnostic] publish IPC status/display serial: ");
+            log_u64(present);log_write("/");
+            log_u64(host.scene.last_display_serial);log_line("");
             g5_ipc_dispatch_revoke(session_g5_dispatcher);
             revoke_g5_sender();
             revoke_g5_receiver();
