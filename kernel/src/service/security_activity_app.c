@@ -23,6 +23,8 @@ bool security_activity_app_open(
     struct aurora_security_activity_app *app
 ) {
     if (app == NULL) return false;
+    /* Opening an already visible view must not discard its in-flight read. */
+    if (app->active) return true;
 
     /* Progress an abandoned response before attempting a new read.
      * A still-running request retains its slot and fails closed. */
