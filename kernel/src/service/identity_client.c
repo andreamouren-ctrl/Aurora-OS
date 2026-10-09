@@ -871,6 +871,10 @@ void identity_client_pump(void) {
     client_state = AURORA_IDENTITY_CLIENT_ERROR;
 }
 
+bool identity_client_has_abandoned_security_activity_read(void) {
+    return abandoned_activity_read;
+}
+
 void identity_client_abandon_security_activity_read(void) {
     if (client_state == AURORA_IDENTITY_CLIENT_READING_ACTIVITY) {
         abandoned_activity_read = true;
