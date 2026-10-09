@@ -24,6 +24,9 @@ bool security_activity_app_open(
 ) {
     if (app == NULL) return false;
 
+    /* Progress an abandoned response before attempting a new read.
+     * A still-running request retains its slot and fails closed. */
+    identity_client_pump();
     security_activity_controller_init(&app->controller);
     app->render.filter = AURORA_SECURITY_ACTIVITY_FILTER_ALL;
     app->render.focused_load_more = false;
