@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include <aurora/framebuffer.h>
+#include <aurora/security_activity_graphics.h>
 #include <aurora/security_activity_renderer.h>
 
 static uint64_t min_u64(uint64_t a, uint64_t b) {
@@ -129,6 +130,185 @@ static bool item_matches_filter(
         return item->category == AURORA_SECURITY_ACTIVITY_CATEGORY_SESSION;
     }
     return item->category == AURORA_SECURITY_ACTIVITY_CATEGORY_CREDENTIAL;
+}
+
+
+static bool native_attempted;
+static bool native_available;
+
+void security_activity_renderer_reset_native(void) {
+    security_activity_graphics_release();
+    native_attempted = false;
+    native_available = false;
+}
+
+static bool ensure_native_graphics(void) {
+    if (native_attempted) return native_available;
+    native_attempted = true;
+    native_available = security_activity_graphics_init();
+    return native_available;
+}
+
+static bool draw_native(
+    const struct aurora_framebuffer *fb,
+    const struct aurora_security_activity_controller *controller,
+    const struct aurora_security_activity_render_state *render_state
+) {
+    if (!security_activity_renderer_validate_framebuffer(fb) ||
+        controller == NULL || render_state == NULL ||
+        !ensure_native_graphics()) {
+        return false;
+    }
+
+    const uint64_t margin_x = percent(fb->width, 5u);
+    const uint64_t margin_y = percent(fb->height, 6u);
+    const uint64_t panel_w = fb->width - margin_x * 2u;
+    const uint64_t panel_h = fb->height - margin_y * 2u;
+    const uint64_t header_h = min_u64(percent(panel_h, 11u), 72u);
+
+    framebuffer_clear(fb, framebuffer_rgb(fb, 3u, 8u, 18u));
+    if (!security_activity_graphics_draw(
+            fb, AURORA_SECURITY_ACTIVITY_GRAPHIC_PANEL,
+            margin_x, margin_y, panel_w, panel_h) ||
+        !security_activity_graphics_draw(
+            fb, AURORA_SECURITY_ACTIVITY_GRAPHIC_HEADER,
+            margin_x + percent(panel_w, 4u),
+            margin_y + percent(header_h, 15u),
+            panel_w - percent(panel_w, 8u),
+            header_h * 2u / 3u)) {
+        return false;
+    }
+
+    uint64_t filter_w = panel_w / 9u;
+    if (filter_w < 28u) filter_w = 28u;
+    uint64_t filter_h = header_h / 3u;
+    if (filter_h < 8u) filter_h = 8u;
+    uint64_t filter_y = margin_y + header_h / 3u;
+    for (uint32_t i = 0u; i < 4u; ++i) {
+        uint64_t x = margin_x + panel_w - (4u - i) * (filter_w + 6u);
+        if (!security_activity_graphics_draw(
+                fb, AURORA_SECURITY_ACTIVITY_GRAPHIC_FILTER_BUTTON,
+                x, filter_y, filter_w, filter_h)) {
+            return false;
+        }
+        if (render_state->filter ==
+                (enum aurora_security_activity_filter)i) {
+            uint64_t indicator = min_u64(filter_h, 20u);
+            if (indicator < 4u) indicator = 4u;
+            if (!security_activity_graphics_draw(
+                    fb, AURORA_SECURITY_ACTIVITY_GRAPHIC_FILTER_ACTIVE,
+                    x + (filter_w - indicator) / 2u,
+                    filter_y + filter_h - indicator,
+                    indicator, indicator)) {
+                return false;
+            }
+        }
+    }
+
+    if (controller->state == AURORA_SECURITY_ACTIVITY_VIEW_LOADING ||
+        controller->state == AURORA_SECURITY_ACTIVITY_VIEW_EMPTY ||
+        controller->state == AURORA_SECURITY_ACTIVITY_VIEW_END ||
+        controller->state == AURORA_SECURITY_ACTIVITY_VIEW_ERROR) {
+        enum aurora_security_activity_graphic graphic =
+            security_activity_graphic_for_view_state(controller->state);
+        if (graphic == AURORA_SECURITY_ACTIVITY_GRAPHIC_COUNT) return false;
+        uint64_t size = min_u64(fb->width, fb->height) / 5u;
+        if (size < 40u) size = 40u;
+        if (size > panel_w) size = panel_w;
+        if (size > panel_h) size = panel_h;
+        return security_activity_graphics_draw(
+            fb, graphic,
+            margin_x + (panel_w - size) / 2u,
+            margin_y + (panel_h - size) / 2u,
+            size, size);
+    }
+
+    if (controller->state != AURORA_SECURITY_ACTIVITY_VIEW_READY) {
+        return true;
+    }
+
+    uint64_t list_x = margin_x + percent(panel_w, 4u);
+    uint64_t list_w = panel_w - percent(panel_w, 8u);
+    uint64_t list_y = margin_y + header_h + percent(panel_h, 4u);
+    uint64_t available_h =
+        margin_y + panel_h - list_y - percent(panel_h, 8u);
+    uint64_t row_h = available_h / 6u;
+    if (row_h < 12u) row_h = 12u;
+    uint64_t gap = min_u64(row_h / 8u, 8u);
+
+    size_t visible = 0u;
+    for (size_t i = 0u;
+         i < controller->page.count && visible < 6u;
+         ++i) {
+        const struct aurora_security_activity_item *item =
+            &controller->page.items[i];
+        if (!item_matches_filter(item, render_state->filter)) continue;
+
+        uint64_t y = list_y + visible * (row_h + gap);
+        if (y + row_h > margin_y + panel_h) break;
+
+        if (!security_activity_graphics_draw(
+                fb, AURORA_SECURITY_ACTIVITY_GRAPHIC_EVENT_CARD,
+                list_x, y, list_w, row_h)) {
+            return false;
+        }
+
+        uint64_t icon_size = min_u64(row_h * 2u / 3u, 40u);
+        if (icon_size < 4u) icon_size = 4u;
+        enum aurora_security_activity_graphic category =
+            security_activity_graphic_for_category(item->category);
+        enum aurora_security_activity_graphic severity =
+            security_activity_graphic_for_severity(item->severity);
+        if (category == AURORA_SECURITY_ACTIVITY_GRAPHIC_COUNT ||
+            severity == AURORA_SECURITY_ACTIVITY_GRAPHIC_COUNT ||
+            !security_activity_graphics_draw(
+                fb, category,
+                list_x + icon_size / 2u,
+                y + (row_h - icon_size) / 2u,
+                icon_size, icon_size) ||
+            !security_activity_graphics_draw(
+                fb, severity,
+                list_x + list_w - icon_size * 3u / 2u,
+                y + (row_h - icon_size) / 2u,
+                icon_size, icon_size)) {
+            return false;
+        }
+
+        ++visible;
+    }
+
+    if (controller->page.has_more) {
+        uint64_t button_w = panel_w / 4u;
+        uint64_t button_h = min_u64(percent(panel_h, 6u), 42u);
+        uint64_t x = margin_x + (panel_w - button_w) / 2u;
+        uint64_t y =
+            margin_y + panel_h - button_h - percent(panel_h, 2u);
+        if (!security_activity_graphics_draw(
+                fb, AURORA_SECURITY_ACTIVITY_GRAPHIC_LOAD_MORE,
+                x, y, button_w, button_h)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void security_activity_renderer_draw(
+    const struct aurora_framebuffer *fb,
+    const struct aurora_security_activity_controller *controller,
+    const struct aurora_security_activity_render_state *render_state
+) {
+    if (draw_native(fb, controller, render_state)) return;
+
+    /*
+     * Native artwork is presentation-only. Any missing/corrupt asset, decode
+     * failure, memory pressure or draw failure falls back to the procedural
+     * path and never affects Identity/session authority.
+     */
+    native_available = false;
+    security_activity_graphics_release();
+    security_activity_renderer_draw_fallback(
+        fb, controller, render_state);
 }
 
 void security_activity_renderer_draw_fallback(
