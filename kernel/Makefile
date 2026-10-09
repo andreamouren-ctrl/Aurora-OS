@@ -65,7 +65,6 @@ ASM_SRC := $(shell find src -type f -name '*.S' | LC_ALL=C sort)
 OBJ := $(patsubst %.c,$(BUILD_DIR)/%.o,$(C_SRC)) \
        $(patsubst %.S,$(BUILD_DIR)/%.o,$(ASM_SRC)) \
        $(IDENTITY_RUNTIME_OBJ) \
-       $(SECURITY_ACTIVITY_ASSET_OBJ) \
        $(SESSION_RUNTIME_OBJ) \
        $(USER_SESSION_RUNTIME_OBJ)
 
