@@ -60,6 +60,7 @@ bool aurora_identity_reauth_token_is_zero(
 struct aurora_identity_reauth_issue_result aurora_identity_reauth_issue(
     const struct aurora_identity_reauth_core *core,
     const struct aurora_identity_user_id *authenticated_user_id,
+    const struct aurora_identity_credential_id *authenticated_credential_id,
     uint64_t session_generation,
     uint32_t purpose
 ) {
@@ -73,6 +74,7 @@ struct aurora_identity_reauth_issue_result aurora_identity_reauth_issue(
     memset(&candidate, 0, sizeof(candidate));
 
     if (core == NULL || authenticated_user_id == NULL ||
+        authenticated_credential_id == NULL ||
         core->random.fill_random == NULL ||
         core->clock.monotonic_ms == NULL ||
         core->crypto.derive_token_tag == NULL ||
@@ -82,6 +84,10 @@ struct aurora_identity_reauth_issue_result aurora_identity_reauth_issue(
 
     if (aurora_identity_user_id_is_zero(authenticated_user_id)) {
         result.result = AURORA_IDENTITY_REAUTH_INVALID_USER;
+        goto cleanup;
+    }
+    if (aurora_identity_credential_id_is_zero(authenticated_credential_id)) {
+        result.result = AURORA_IDENTITY_REAUTH_INVALID_ARGUMENT;
         goto cleanup;
     }
     if (session_generation == 0u) {
@@ -103,6 +109,7 @@ struct aurora_identity_reauth_issue_result aurora_identity_reauth_issue(
     }
 
     record.user_id = *authenticated_user_id;
+    record.credential_id = *authenticated_credential_id;
     record.session_generation = session_generation;
     record.purpose = purpose;
     record.record_version = AURORA_IDENTITY_REAUTH_PROOF_RECORD_VERSION;
@@ -236,6 +243,7 @@ struct aurora_identity_reauth_consume_result aurora_identity_reauth_consume(
 
     if (record.record_version != AURORA_IDENTITY_REAUTH_PROOF_RECORD_VERSION ||
         aurora_identity_user_id_is_zero(&record.user_id) ||
+        aurora_identity_credential_id_is_zero(&record.credential_id) ||
         record.session_generation == 0u ||
         !aurora_identity_reauth_purpose_valid(record.purpose) ||
         record.expires_at_ms <= record.issued_at_ms ||
@@ -259,6 +267,7 @@ struct aurora_identity_reauth_consume_result aurora_identity_reauth_consume(
 
     result.result = AURORA_IDENTITY_REAUTH_OK;
     result.user_id = record.user_id;
+    result.credential_id = record.credential_id;
     result.session_generation = record.session_generation;
     result.purpose = record.purpose;
 
