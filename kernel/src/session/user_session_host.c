@@ -117,8 +117,26 @@ static void revoke_g5_sender(void) {
     }
 }
 
+static void revoke_g5_receiver(void) {
+    /* Remove receiver authority before releasing a session's kernel endpoint. */
+    host.g5_binding.provisioned_exclusively=false;
+    if (host.g5_authority_handle != AURORA_CAP_INVALID) {
+        (void)cap_revoke(&host.kernel_caps,host.g5_authority_handle);
+        host.g5_authority_handle=AURORA_CAP_INVALID;
+    }
+    if (host.g5_receiver_handle != AURORA_CAP_INVALID) {
+        (void)cap_revoke(&host.kernel_caps,host.g5_receiver_handle);
+        host.g5_receiver_handle=AURORA_CAP_INVALID;
+    }
+    host.g5_binding.receiver=NULL;
+    host.g5_binding.receiver_caps=NULL;
+    host.g5_binding.dispatch=NULL;
+    host.g5_ready=false;
+}
+
 static void cleanup_finished_host(void) {
     g5_shell_session_end(&shell_session);
+    revoke_g5_receiver();
     if (session_g5_dispatcher != NULL)
         g5_ipc_dispatch_revoke(session_g5_dispatcher);
     revoke_g5_sender();
@@ -337,6 +355,7 @@ bool user_session_host_stop(void) {
     if (session_g5_dispatcher != NULL)
         g5_ipc_dispatch_revoke(session_g5_dispatcher);
     revoke_g5_sender();
+    revoke_g5_receiver();
     if (!host.active ||
         host.process == NULL ||
         host.thread == 0u ||
