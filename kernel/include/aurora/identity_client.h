@@ -80,6 +80,8 @@ void identity_client_reset_result(void);
 bool identity_client_discard_completed_security_activity(void);
 /* Marks only an in-flight activity read for deferred reply disposal. */
 void identity_client_abandon_security_activity_read(void);
+/* True only while this client owns an abandoned activity read/result. */
+bool identity_client_has_abandoned_security_activity_read(void);
 
 enum aurora_identity_client_state identity_client_state(void);
 
