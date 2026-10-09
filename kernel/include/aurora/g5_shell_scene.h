@@ -29,6 +29,8 @@ struct g5_shell_scene {
     uint64_t configure_serial;
     uint64_t last_display_serial;
     uint32_t slot;
+    int32_t x;
+    int32_t y;
     bool active;
 };
 
@@ -37,5 +39,8 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
 bool g5_shell_scene_publish(struct g5_shell_scene *scene,
                             const struct g5_ipc_header *header,
                             const uint8_t *payload);
+bool g5_shell_scene_place(struct g5_shell_scene *scene,
+                          const struct g5_ipc_header *header,
+                          const uint8_t *payload);
 void g5_shell_scene_end(struct g5_shell_scene *scene);
 #endif
