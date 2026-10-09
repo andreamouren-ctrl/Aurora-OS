@@ -4,6 +4,7 @@
 #include "aurora/identity/core.h"
 #include "aurora/identity/crypto_foundation.h"
 #include "aurora/identity/session_grant.h"
+#include "aurora/identity/reauth_proof.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -14,6 +15,7 @@
 struct aurora_identity_hmac_provider {
     uint8_t lookup_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE];
     uint8_t session_grant_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE];
+    uint8_t reauth_proof_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE];
     struct aurora_identity_hmac_drbg *drbg;
     bool initialized;
 };
@@ -32,6 +34,7 @@ bool aurora_identity_hmac_provider_init(
     struct aurora_identity_hmac_provider *provider,
     const uint8_t lookup_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE],
     const uint8_t session_grant_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE],
+    const uint8_t reauth_proof_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE],
     struct aurora_identity_hmac_drbg *drbg);
 
 void aurora_identity_hmac_provider_clear(
@@ -48,6 +51,11 @@ bool aurora_identity_hmac_provider_derive_session_grant_tag(
     const uint8_t token[AURORA_IDENTITY_SESSION_GRANT_TOKEN_SIZE],
     uint8_t out_tag[AURORA_IDENTITY_SESSION_GRANT_TAG_SIZE]);
 
+bool aurora_identity_hmac_provider_derive_reauth_proof_tag(
+    void *context,
+    const uint8_t token[AURORA_IDENTITY_REAUTH_PROOF_TOKEN_SIZE],
+    uint8_t out_tag[AURORA_IDENTITY_REAUTH_PROOF_TAG_SIZE]);
+
 bool aurora_identity_hmac_provider_fill_random(
     void *context,
     uint8_t *buffer,
@@ -58,6 +66,10 @@ struct aurora_identity_random_ops aurora_identity_hmac_provider_random_ops(
 
 struct aurora_identity_session_grant_crypto_ops
     aurora_identity_hmac_provider_session_grant_crypto_ops(
+        struct aurora_identity_hmac_provider *provider);
+
+struct aurora_identity_reauth_crypto_ops
+    aurora_identity_hmac_provider_reauth_crypto_ops(
         struct aurora_identity_hmac_provider *provider);
 
 #endif
