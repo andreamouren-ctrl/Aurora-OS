@@ -60,6 +60,7 @@ bool aurora_identity_reauth_token_is_zero(
 struct aurora_identity_reauth_issue_result aurora_identity_reauth_issue(
     const struct aurora_identity_reauth_core *core,
     const struct aurora_identity_user_id *authenticated_user_id,
+    uint64_t session_generation,
     uint32_t purpose
 ) {
     struct aurora_identity_reauth_issue_result result =
@@ -83,6 +84,10 @@ struct aurora_identity_reauth_issue_result aurora_identity_reauth_issue(
         result.result = AURORA_IDENTITY_REAUTH_INVALID_USER;
         goto cleanup;
     }
+    if (session_generation == 0u) {
+        result.result = AURORA_IDENTITY_REAUTH_INVALID_ARGUMENT;
+        goto cleanup;
+    }
     if (!aurora_identity_reauth_purpose_valid(purpose)) {
         result.result = AURORA_IDENTITY_REAUTH_INVALID_PURPOSE;
         goto cleanup;
@@ -98,6 +103,7 @@ struct aurora_identity_reauth_issue_result aurora_identity_reauth_issue(
     }
 
     record.user_id = *authenticated_user_id;
+    record.session_generation = session_generation;
     record.purpose = purpose;
     record.record_version = AURORA_IDENTITY_REAUTH_PROOF_RECORD_VERSION;
     record.issued_at_ms = now_ms;
@@ -162,6 +168,7 @@ struct aurora_identity_reauth_consume_result aurora_identity_reauth_consume(
     const struct aurora_identity_reauth_core *core,
     const struct aurora_identity_reauth_token *token,
     const struct aurora_identity_user_id *expected_user_id,
+    uint64_t expected_session_generation,
     uint32_t expected_purpose
 ) {
     struct aurora_identity_reauth_consume_result result =
@@ -181,6 +188,10 @@ struct aurora_identity_reauth_consume_result aurora_identity_reauth_consume(
     }
     if (aurora_identity_user_id_is_zero(expected_user_id)) {
         result.result = AURORA_IDENTITY_REAUTH_INVALID_USER;
+        goto cleanup;
+    }
+    if (expected_session_generation == 0u) {
+        result.result = AURORA_IDENTITY_REAUTH_INVALID_ARGUMENT;
         goto cleanup;
     }
     if (!aurora_identity_reauth_purpose_valid(expected_purpose)) {
@@ -225,6 +236,7 @@ struct aurora_identity_reauth_consume_result aurora_identity_reauth_consume(
 
     if (record.record_version != AURORA_IDENTITY_REAUTH_PROOF_RECORD_VERSION ||
         aurora_identity_user_id_is_zero(&record.user_id) ||
+        record.session_generation == 0u ||
         !aurora_identity_reauth_purpose_valid(record.purpose) ||
         record.expires_at_ms <= record.issued_at_ms ||
         record.expires_at_ms <= now_ms) {
@@ -236,6 +248,10 @@ struct aurora_identity_reauth_consume_result aurora_identity_reauth_consume(
         result.result = AURORA_IDENTITY_REAUTH_USER_MISMATCH;
         goto cleanup;
     }
+    if (record.session_generation != expected_session_generation) {
+        result.result = AURORA_IDENTITY_REAUTH_SESSION_MISMATCH;
+        goto cleanup;
+    }
     if (record.purpose != expected_purpose) {
         result.result = AURORA_IDENTITY_REAUTH_PURPOSE_MISMATCH;
         goto cleanup;
@@ -243,6 +259,7 @@ struct aurora_identity_reauth_consume_result aurora_identity_reauth_consume(
 
     result.result = AURORA_IDENTITY_REAUTH_OK;
     result.user_id = record.user_id;
+    result.session_generation = record.session_generation;
     result.purpose = record.purpose;
 
 cleanup:
