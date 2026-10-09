@@ -603,6 +603,7 @@ bool user_session_host_active(void) {
         process_state(host.process) == AURORA_PROCESS_RUNNING;
 }
 
+static uint64_t g5_session_test_generation=1u;
 static uint32_t g5_session_ready_events;
 static uint32_t g5_session_health_events;
 static uint32_t g5_session_present_events;
@@ -612,12 +613,13 @@ static bool g5_session_test_authorize(void *ctx,uint32_t operation,uint64_t gene
     return (operation==G5_OP_SHELL_READY ||
             operation==G5_OP_SHELL_HEALTH ||
             operation==G5_OP_SCENE_PUBLISH ||
-            operation==G5_OP_WINDOW_PLACE) && generation==1u;
+            operation==G5_OP_WINDOW_PLACE) &&
+           generation==g5_session_test_generation;
 }
 static bool g5_session_test_handle(void *ctx,const struct g5_ipc_header *header,
                                    const uint8_t *payload) {
     (void)ctx;(void)payload;
-    if (header->session_generation!=1u) return false;
+    if (header->session_generation!=g5_session_test_generation) return false;
     if (header->operation==G5_OP_SHELL_READY) {
         ++g5_session_ready_events;
         return true;
@@ -686,6 +688,7 @@ bool user_session_host_self_test(void) {
     clear_bytes(&g5_test_dispatcher,sizeof(g5_test_dispatcher));
     g5_test_dispatcher.authorize=g5_session_test_authorize;
     g5_test_dispatcher.handler=g5_session_test_handle;
+    g5_session_test_generation=1u;
     g5_session_ready_events=0u;
     g5_session_health_events=0u;
     g5_session_present_events=0u;
