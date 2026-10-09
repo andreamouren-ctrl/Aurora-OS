@@ -40,9 +40,12 @@ bool g5_shell_receiver_connect(struct g5_shell_receiver *r,
 }
 bool g5_shell_receiver_poll(struct g5_shell_receiver *r,enum g5_ipc_status *status) {
  if(status)*status=G5_IPC_DENIED;
- if(!r||!status||!r->endpoint.receiver||!r->policy.session||
-    !g5_shell_session_check(r->policy.session,r->dispatcher.active_session_generation))
+ if(!r||!status||!r->endpoint.receiver)return false;
+ if(!r->policy.session||
+    !g5_shell_session_check(r->policy.session,r->dispatcher.active_session_generation)) {
+  g5_shell_receiver_disconnect(r);
   return false;
+ }
  return g5_ipc_endpoint_poll(&r->endpoint,status);
 }
 void g5_shell_receiver_disconnect(struct g5_shell_receiver *r) {
@@ -51,6 +54,10 @@ void g5_shell_receiver_disconnect(struct g5_shell_receiver *r) {
  r->endpoint.receiver=NULL;
  r->endpoint.receiver_caps=NULL;
  r->endpoint.dispatch=NULL;
+ r->endpoint.receiver_endpoint_handle=AURORA_CAP_INVALID;
+ r->endpoint.receiver_authority=AURORA_CAP_INVALID;
+ r->endpoint.authority_rights=0;
+ r->endpoint.trusted_consumer_thread=0;
 }
 void g5_shell_receiver_revoke(struct g5_shell_receiver *r) {
  if(!r)return;
