@@ -85,6 +85,11 @@ void security_activity_controller_pump(
 
         if (!identity_client_begin_security_activity_read(controller->cursor)) {
             controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
+            /* A transport/send failure may leave the client in ERROR.
+             * Do not reset READY or any unrelated auth/reauth result. */
+            if (identity_client_state() == AURORA_IDENTITY_CLIENT_ERROR) {
+                identity_client_reset_result();
+            }
         }
         return;
     }
