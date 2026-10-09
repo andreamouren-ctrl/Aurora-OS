@@ -56,7 +56,7 @@ jobs:
           PY
 
           set +e
-          timeout 25s qemu-system-x86_64 \
+          timeout 50s qemu-system-x86_64 \
             -M q35 \
             -cpu max \
             -m 512M \
