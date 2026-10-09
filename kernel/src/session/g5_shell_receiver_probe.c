@@ -60,23 +60,38 @@ bool g5_shell_receiver_native_self_test(void) {
     !ipc_send(sender,NULL,bytes,(uint32_t)n,NULL,0)||
     !g5_shell_receiver_poll(&receiver,&status)||
     status!=G5_IPC_DENIED||effects!=1)return false;
- g5_shell_session_end(&session);
+ /* Queued, otherwise valid IPC cannot execute without the receiver authority. */
  h.operation=G5_OP_WINDOW_CLOSE;
  h.payload_bytes=8;
  h.session_generation=71;
  h.request_id=4;
  if(g5_ipc_encode(&h,args,bytes,sizeof(bytes),&n)!=G5_IPC_OK||
     !ipc_send(sender,NULL,bytes,(uint32_t)n,NULL,0)||
+    !cap_revoke(&caps,authority)||
     g5_shell_receiver_poll(&receiver,&status)||effects!=1)return false;
- /* An already queued request cannot execute after receiver authority revocation. */
+ /* Drain the refused request without dispatch, and grant a fresh capability. */
+ struct aurora_ipc_received discarded={0};
+ if(!ipc_receive(endpoint,&caps,&discarded))return false;
+ authority=cap_grant(&caps,&channel,AURORA_CAP_SYSTEM,AURORA_RIGHT_CONTROL);
+ if(authority==AURORA_CAP_INVALID)return false;
+ receiver.endpoint.receiver_authority=authority;
+ /* A revoked endpoint handle also denies a queued valid request. */
  h.request_id=5;
  if(g5_ipc_encode(&h,args,bytes,sizeof(bytes),&n)!=G5_IPC_OK||
     !ipc_send(sender,NULL,bytes,(uint32_t)n,NULL,0)||
-    !cap_revoke(&caps,authority)||
+    !cap_revoke(&caps,receive)||
     g5_shell_receiver_poll(&receiver,&status)||effects!=1)return false;
- /* Revoking the receiver endpoint must also fail closed. */
- if(!cap_revoke(&caps,receive)||
+ if(!ipc_receive(endpoint,&caps,&discarded))return false;
+ receive=cap_grant(&caps,endpoint,AURORA_CAP_IPC_ENDPOINT,AURORA_RIGHT_READ);
+ if(receive==AURORA_CAP_INVALID)return false;
+ receiver.endpoint.receiver_endpoint_handle=receive;
+ /* Session revocation must independently fail closed with live capabilities. */
+ g5_shell_session_end(&session);
+ h.request_id=6;
+ if(g5_ipc_encode(&h,args,bytes,sizeof(bytes),&n)!=G5_IPC_OK||
+    !ipc_send(sender,NULL,bytes,(uint32_t)n,NULL,0)||
     g5_shell_receiver_poll(&receiver,&status)||effects!=1)return false;
  g5_shell_receiver_revoke(&receiver);
- return !g5_shell_receiver_poll(&receiver,&status)&&effects==1;
+ return cap_revoke(&caps,receive)&&cap_revoke(&caps,authority)&&
+        !g5_shell_receiver_poll(&receiver,&status)&&effects==1;
 }
