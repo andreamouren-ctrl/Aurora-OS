@@ -24,7 +24,7 @@ The framebuffer path is now a bootstrap/recovery surface, not the intended final
 
 ## Phase B — Input foundation
 
-Status: **PS/2 bootstrap complete; modern input active under M4 G4**
+Status: **Bootstrap + G4 V1 input foundation complete**
 
 Implemented:
 
@@ -41,11 +41,10 @@ Implemented:
 
 Remaining before broad hardware support:
 
-- USB HID keyboard/mouse;
 - layout/input-method abstraction;
-- compositor focus/capture completion;
-- touch/multitouch/pen;
-- accessibility input paths.
+- touch/multitouch/pen/gamepad;
+- accessibility input paths;
+- broader USB class/hardware coverage beyond the runtime-verified xHCI HID keyboard/mouse baseline.
 
 ## Phase C — Persistent storage substrate
 
@@ -150,14 +149,17 @@ Implemented:
 - User Session Host restart with fresh reduced authority after successful unlock;
 - fail-closed abnormal session termination;
 - Session Manager loss/restart invalidates the old session authority;
-- purpose-bound re-authentication proof core for sensitive actions.
+- purpose-bound re-authentication proof core for sensitive actions;
+- authenticated Ring 3 Shell bootstrap/session lifecycle above the User Session Host through the frozen G5 WP-03 baseline, including scene publication to compositor/display plus clean-stop, crash, stale-generation and fresh-reauthentication gates.
 
 Remaining:
 
 - production Ring 3 issuance/consumption of re-authentication proofs for each sensitive management operation;
 - profile/settings service above the profile capability;
-- compositor/Desktop Shell bootstrap above the User Session Host;
-- full desktop/service teardown once those session services exist.
+- complete desktop/window-manager services above the frozen WP-03 Shell bootstrap (WP-04+);
+- full desktop/service teardown once those higher-level session services exist.
+
+Repository hygiene rule: historical experimental Identity re-authentication branches are not canonical integration targets. New Phase F work must start from the current `main` baseline and port only the required reviewed changes, avoiding merges from branches that predate the frozen G5/session baseline.
 
 Acceptance gate:
 
@@ -167,9 +169,9 @@ Successful Identity authentication starts the correct persistent user profile wi
 
 ## Phase G — Aurora Identity System App
 
-Status: **Waiting on G5/G6 desktop integration; graphics dependencies now substantially available**
+Status: **Backend work may continue; final compositor System App waits on G5 WP-04+**
 
-Graphics G1-G3 are complete and G4 input is active.
+Graphics G1-G4 are complete for the current V1 baselines and G5 WP-03 Shell bootstrap/session lifecycle is frozen and accepted. This is sufficient to continue Identity backend/security work. The final interactive compositor-backed Identity System App still depends on the later Desktop Shell/window-management layer.
 
 Remaining:
 
@@ -191,9 +193,9 @@ Cold boot can authenticate through the normal compositor UI, enter a user deskto
 
 Dependencies still missing:
 
-- USB/xHCI host stack;
-- USB mass-storage/removable-device events;
-- removable-media broker.
+- USB mass-storage/removable-device events above the existing xHCI HID host foundation;
+- removable-media broker;
+- production removable-filesystem/authenticator event integration.
 
 Identity-side policy/credential contracts are already documented.
 
