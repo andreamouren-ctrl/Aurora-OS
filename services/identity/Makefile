@@ -12,6 +12,8 @@ ARGON2_VENDOR_CFLAGS := -std=c11 -O2
 
 CORE_OBJECT := $(BUILD_DIR)/core.o
 AUDIT_LOG_OBJECT := $(BUILD_DIR)/audit_log.o
+AUDIT_STORE_OBJECT := $(BUILD_DIR)/audit_store.o
+AUDIT_STORE_PROTECTED_STATE_OBJECT := $(BUILD_DIR)/audit_store_protected_state.o
 CREATION_ACCESS_POLICY_OBJECT := $(BUILD_DIR)/creation_access_policy.o
 ROTATION_OBJECT := $(BUILD_DIR)/rotation.o
 SESSION_GRANT_OBJECT := $(BUILD_DIR)/session_grant.o
@@ -37,6 +39,7 @@ ARGON2_REF_OBJECTS := $(ARGON2_REF_ARGON2_OBJECT) $(ARGON2_REF_CORE_OBJECT) $(AR
 
 CORE_TEST_BINARY := $(BUILD_DIR)/identity-core-tests
 AUDIT_LOG_TEST_BINARY := $(BUILD_DIR)/identity-audit-log-tests
+AUDIT_STORE_TEST_BINARY := $(BUILD_DIR)/identity-audit-store-tests
 CREATION_TEST_BINARY := $(BUILD_DIR)/identity-creation-tests
 CREATION_ACCESS_POLICY_TEST_BINARY := $(BUILD_DIR)/identity-creation-access-policy-tests
 ROTATION_TEST_BINARY := $(BUILD_DIR)/identity-rotation-tests
@@ -55,9 +58,10 @@ MACHINE_SECRET_PROTECTED_STATE_TEST_BINARY := $(BUILD_DIR)/identity-machine-secr
 
 all: test
 
-test: $(CORE_TEST_BINARY) $(AUDIT_LOG_TEST_BINARY) $(CREATION_TEST_BINARY) $(CREATION_ACCESS_POLICY_TEST_BINARY) $(ROTATION_TEST_BINARY) $(SESSION_GRANT_TEST_BINARY) $(SESSION_GRANT_MEMORY_TEST_BINARY) $(REAUTH_PROOF_TEST_BINARY) $(REAUTH_ROTATION_TEST_BINARY) $(PERSISTENT_STORE_TEST_BINARY) $(PERSISTENT_STORE_PROTECTED_STATE_TEST_BINARY) $(CRYPTO_FOUNDATION_TEST_BINARY) $(ARGON2ID_PROVIDER_TEST_BINARY) $(MACHINE_SECRET_TEST_BINARY) $(MACHINE_SECRET_PROTECTED_STATE_TEST_BINARY)
+test: $(CORE_TEST_BINARY) $(AUDIT_LOG_TEST_BINARY) $(AUDIT_STORE_TEST_BINARY) $(CREATION_TEST_BINARY) $(CREATION_ACCESS_POLICY_TEST_BINARY) $(ROTATION_TEST_BINARY) $(SESSION_GRANT_TEST_BINARY) $(SESSION_GRANT_MEMORY_TEST_BINARY) $(REAUTH_PROOF_TEST_BINARY) $(REAUTH_ROTATION_TEST_BINARY) $(PERSISTENT_STORE_TEST_BINARY) $(PERSISTENT_STORE_PROTECTED_STATE_TEST_BINARY) $(CRYPTO_FOUNDATION_TEST_BINARY) $(ARGON2ID_PROVIDER_TEST_BINARY) $(MACHINE_SECRET_TEST_BINARY) $(MACHINE_SECRET_PROTECTED_STATE_TEST_BINARY)
 	$(CORE_TEST_BINARY)
 	$(AUDIT_LOG_TEST_BINARY)
+	$(AUDIT_STORE_TEST_BINARY)
 	$(CREATION_TEST_BINARY)
 	$(CREATION_ACCESS_POLICY_TEST_BINARY)
 	$(ROTATION_TEST_BINARY)
@@ -80,6 +84,12 @@ $(CORE_OBJECT): src/core.c include/aurora/identity/core.h | $(BUILD_DIR)
 
 $(AUDIT_LOG_OBJECT): src/audit_log.c include/aurora/identity/audit_log.h include/aurora/identity/core.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/audit_log.c -o $@
+
+$(AUDIT_STORE_OBJECT): src/audit_store.c include/aurora/identity/audit_store.h include/aurora/identity/audit_log.h include/aurora/identity/core.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/audit_store.c -o $@
+
+$(AUDIT_STORE_PROTECTED_STATE_OBJECT): src/audit_store_protected_state.c include/aurora/identity/audit_store_protected_state.h include/aurora/identity/audit_store.h include/aurora/identity/protected_state_transport.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/audit_store_protected_state.c -o $@
 
 $(CREATION_ACCESS_POLICY_OBJECT): src/creation_access_policy.c include/aurora/identity/creation_access_policy.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c src/creation_access_policy.c -o $@
@@ -149,6 +159,9 @@ $(CORE_TEST_BINARY): tests/test_identity_core.c $(CORE_OBJECT) include/aurora/id
 
 $(AUDIT_LOG_TEST_BINARY): tests/test_identity_audit_log.c $(CORE_OBJECT) $(AUDIT_LOG_OBJECT) include/aurora/identity/audit_log.h include/aurora/identity/core.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_identity_audit_log.c $(CORE_OBJECT) $(AUDIT_LOG_OBJECT) -o $@
+
+$(AUDIT_STORE_TEST_BINARY): tests/test_identity_audit_store.c $(CORE_OBJECT) $(AUDIT_LOG_OBJECT) $(AUDIT_STORE_OBJECT) include/aurora/identity/audit_store.h include/aurora/identity/audit_log.h include/aurora/identity/core.h | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_identity_audit_store.c $(CORE_OBJECT) $(AUDIT_LOG_OBJECT) $(AUDIT_STORE_OBJECT) -o $@
 
 $(CREATION_TEST_BINARY): tests/test_identity_creation.c $(CORE_OBJECT) include/aurora/identity/core.h | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_identity_creation.c $(CORE_OBJECT) -o $@
