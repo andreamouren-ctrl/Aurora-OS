@@ -12,6 +12,7 @@
 #include <aurora/pmm.h>
 #include <aurora/process.h>
 #include <aurora/scheduler.h>
+#include <aurora/software_compositor.h>
 #include <aurora/syscall_abi.h>
 #include <aurora/usercopy.h>
 
@@ -272,6 +273,23 @@ bool graphics_ring3_two_client_self_test(void) {
         callback_b.commit_serial != commit_b ||
         callback_a.presentation_serial != UINT64_C(0xCA001) ||
         callback_b.presentation_serial != UINT64_C(0xCB001)) {
+        return false;
+    }
+
+    /* Actual Ring3-written committed buffers -> software compositor ->
+     * display backend. No mock display or stubbed compositor in this gate. */
+    static struct aurora_software_compositor compositor;
+    uint64_t node_a=0u,node_b=0u,display_serial=0u;
+    if (!software_compositor_init(&compositor,0u) ||
+        !software_compositor_add_surface(&compositor,surface_a,
+                                         24,24,0,255u,&node_a) ||
+        !software_compositor_add_surface(&compositor,surface_b,
+                                         88,24,1,255u,&node_b) ||
+        !software_compositor_compose_present(&compositor,&display_serial) ||
+        display_serial==0u ||
+        !software_compositor_remove_surface(&compositor,node_b) ||
+        !software_compositor_remove_surface(&compositor,node_a) ||
+        !software_compositor_destroy(&compositor)) {
         return false;
     }
 
