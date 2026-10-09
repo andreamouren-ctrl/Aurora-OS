@@ -143,6 +143,21 @@ static bool send_g5_ready(uint64_t endpoint,uint64_t generation) {
     return syscall5(AURORA_SYS_IPC_SEND,endpoint,
         (uint64_t)(uintptr_t)wire,sizeof(wire),0u,0u)==0u;
 }
+static bool send_g5_health(uint64_t endpoint,uint64_t generation) {
+    /* A second authenticated Ring 3 IPC request, checked by kernel dispatch. */
+    uint8_t wire[G5_IPC_WIRE_HEADER_BYTES]={0};
+    wire[0]='G';wire[1]='5';wire[2]='I';wire[3]='P';
+    wire[4]=G5_IPC_WIRE_MAJOR;
+    wire[8]=G5_IPC_WIRE_HEADER_BYTES;
+    wire[10]=G5_IPC_REQUEST;
+    const uint32_t op=G5_OP_SHELL_HEALTH;
+    for(unsigned i=0;i<4u;++i)wire[12u+i]=(uint8_t)(op>>(8u*i));
+    wire[24]=2u; /* strictly increasing request_id */
+    for(unsigned i=0;i<8u;++i)
+        wire[32u+i]=(uint8_t)(generation>>(8u*i));
+    return syscall5(AURORA_SYS_IPC_SEND,endpoint,
+        (uint64_t)(uintptr_t)wire,sizeof(wire),0u,0u)==0u;
+}
 static bool wait_message(uint64_t endpoint) {
     return syscall2(AURORA_SYS_IPC_WAIT, endpoint, 0u) == 0u;
 }
@@ -216,6 +231,10 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
     if (!send_message(startup->control_endpoint, AURORA_USER_SESSION_HOST_READY, 0u)) {
         return 1;
     }
+
+    if (startup->g5_endpoint != 0u &&
+        !send_g5_health(startup->g5_endpoint,startup->session_generation))
+        return 1;
 
     for (;;) {
         if (!wait_message(startup->control_endpoint)) return 1;
