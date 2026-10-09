@@ -376,6 +376,29 @@ static bool start_with_context(
     return true;
 }
 
+bool user_session_host_health_check(void) {
+    if (!user_session_host_active() || !host.g5_ready ||
+        session_g5_dispatcher == NULL || host.kernel_endpoint == NULL)
+        return false;
+    /* IDs 1 and 2 are reserved by Ring3 startup. All subsequent requests
+     * consume a strictly increasing G5 and control ID in the same session. */
+    uint64_t request_id=host.next_request_id++;
+    if (request_id < 3u || request_id == UINT64_MAX)
+        return false;
+    struct aurora_user_session_host_message request={
+        .version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+        .type=AURORA_USER_SESSION_HOST_HEALTH_POLL,
+        .request_id=request_id
+    };
+    if (!ipc_send(host.kernel_endpoint,&host.kernel_caps,&request,
+                  (uint32_t)sizeof(request),NULL,0u) ||
+        !receive_expected(AURORA_USER_SESSION_HOST_HEALTH_ACK,request_id))
+        return false;
+    enum g5_ipc_status health=G5_IPC_DENIED;
+    return g5_ipc_endpoint_poll(&host.g5_binding,&health) &&
+           health==G5_IPC_OK;
+}
+
 bool user_session_host_stop(void) {
     /* Fail closed immediately, including IPC send timeout/failure paths. */
     g5_shell_session_end(&shell_session);
@@ -580,8 +603,12 @@ bool user_session_host_self_test(void) {
             status==G5_IPC_DENIED &&
             g5_session_health_events==1u;
     }
-    bool stopped = running && replay_denied &&
-        wrong_generation_denied && user_session_host_stop();
+    /* Exercise the post-bootstrap Ring3 control loop and its kernel G5
+     * dispatch, rather than just proving startup SHELL_READY/HEALTH. */
+    bool live_health=running && replay_denied &&
+        wrong_generation_denied && user_session_host_health_check() &&
+        g5_session_health_events==2u;
+    bool stopped = live_health && user_session_host_stop();
     bool receiver_revoked = stopped &&
         host.g5_receiver_handle == AURORA_CAP_INVALID &&
         host.g5_authority_handle == AURORA_CAP_INVALID &&
@@ -599,6 +626,7 @@ bool user_session_host_self_test(void) {
     return started &&
         running &&
         stopped &&
+        live_health &&
         receiver_revoked &&
         source_revoked &&
         root_revoked &&
