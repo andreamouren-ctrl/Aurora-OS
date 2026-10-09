@@ -1393,6 +1393,7 @@ static bool execute_reauth_job(
             aurora_identity_reauth_issue(
                 &context->reauth_proof_core,
                 &auth.user_id,
+                &auth.credential_id,
                 job->session_generation,
                 job->purpose);
         secure_zero(&auth, sizeof(auth));
