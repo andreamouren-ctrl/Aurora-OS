@@ -25,6 +25,7 @@ static uint64_t reauth_authority_object;
 static uint64_t manage_self_authority_object;
 static uint64_t audit_read_authority_object;
 static struct aurora_security_activity_record pending_activity_record;
+static bool abandoned_activity_read;
 static uint8_t pending_session_grant[AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE];
 static uint8_t pending_reauth_proof[AURORA_IDENTITY_SERVICE_REAUTH_PROOF_SIZE];
 static uint32_t pending_reauth_purpose;
@@ -276,6 +277,7 @@ bool identity_client_init(void) {
     pending_reauth_expires_at_ms = 0u;
     current_request_id = 0u;
     retry_after_ms = 0u;
+    abandoned_activity_read = false;
 
     if (!service_supervisor_init(
             &identity_supervisor,
@@ -654,12 +656,22 @@ bool identity_client_begin_security_activity_read(
         return false;
     }
 
+    abandoned_activity_read = false;
     client_state = AURORA_IDENTITY_CLIENT_READING_ACTIVITY;
     return true;
 }
 
 void identity_client_pump(void) {
     if (client_state == AURORA_IDENTITY_CLIENT_UNINITIALIZED) return;
+    /* An abandoned request keeps ownership until its reply is actually
+     * received. Only its own terminal activity/error state may be cleared. */
+    if (abandoned_activity_read &&
+        (client_state == AURORA_IDENTITY_CLIENT_ACTIVITY_RECORD ||
+         client_state == AURORA_IDENTITY_CLIENT_ACTIVITY_END ||
+         client_state == AURORA_IDENTITY_CLIENT_ERROR)) {
+        abandoned_activity_read = false;
+        identity_client_reset_result();
+    }
 
     if (!service_supervisor_step(&identity_supervisor)) {
         clear_bytes(pending_session_grant, sizeof(pending_session_grant));
@@ -854,6 +866,12 @@ void identity_client_pump(void) {
 
     clear_bytes(&received, sizeof(received));
     client_state = AURORA_IDENTITY_CLIENT_ERROR;
+}
+
+void identity_client_abandon_security_activity_read(void) {
+    if (client_state == AURORA_IDENTITY_CLIENT_READING_ACTIVITY) {
+        abandoned_activity_read = true;
+    }
 }
 
 bool identity_client_discard_completed_security_activity(void) {
