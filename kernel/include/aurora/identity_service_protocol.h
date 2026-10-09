@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION 6u
+#define AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION 7u
 #define AURORA_IDENTITY_SERVICE_MESSAGE_SIZE 16u
 #define AURORA_IDENTITY_SERVICE_KEY_MAX_LEN 32u
 #define AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE 32u
@@ -48,6 +48,9 @@ enum aurora_identity_service_message_type {
     AURORA_IDENTITY_SERVICE_ROTATE_KEY_RESULT = 83,
     AURORA_IDENTITY_SERVICE_CANCEL_ROTATE_KEY = 84,
     AURORA_IDENTITY_SERVICE_ROTATE_KEY_CANCELLED = 85,
+
+    AURORA_IDENTITY_SERVICE_AUDIT_SESSION_EVENT = 96,
+    AURORA_IDENTITY_SERVICE_AUDIT_SESSION_RESULT = 97,
 
     AURORA_IDENTITY_SERVICE_ERROR = 255
 };
@@ -104,6 +107,19 @@ enum aurora_identity_service_rotate_key_state {
     AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_ALREADY_EXISTS,
     AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_SERVICE_ERROR,
     AURORA_IDENTITY_SERVICE_ROTATE_KEY_STATE_CANCELLED
+};
+
+enum aurora_identity_service_audit_session_event {
+    AURORA_IDENTITY_SERVICE_AUDIT_SESSION_STARTED = 1,
+    AURORA_IDENTITY_SERVICE_AUDIT_SESSION_LOCKED,
+    AURORA_IDENTITY_SERVICE_AUDIT_SESSION_UNLOCKED,
+    AURORA_IDENTITY_SERVICE_AUDIT_SESSION_LOGOUT,
+    AURORA_IDENTITY_SERVICE_AUDIT_SESSION_TERMINATED
+};
+
+enum aurora_identity_service_audit_state {
+    AURORA_IDENTITY_SERVICE_AUDIT_STATE_SUCCESS = 1,
+    AURORA_IDENTITY_SERVICE_AUDIT_STATE_SERVICE_ERROR
 };
 
 enum aurora_identity_service_public_error {
@@ -203,6 +219,20 @@ struct aurora_identity_service_rotate_key_result {
     uint32_t state;
     uint32_t public_error;
     uint8_t new_credential_id[AURORA_IDENTITY_SERVICE_CREDENTIAL_ID_SIZE];
+};
+
+struct aurora_identity_service_audit_session_event {
+    struct aurora_identity_service_message header;
+    uint32_t event;
+    uint32_t reserved;
+    uint64_t session_generation;
+    uint8_t user_id[AURORA_IDENTITY_SERVICE_USER_ID_SIZE];
+};
+
+struct aurora_identity_service_audit_session_result {
+    struct aurora_identity_service_message header;
+    uint32_t state;
+    uint32_t public_error;
 };
 
 #endif
