@@ -5,6 +5,11 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+## G5 WP-03 — BIOS runtime completion and CI timing (2026-10-09)
+
+- [ ] **Bootstrap stability investigation (new CI pending):** HEAD `8ccb3ffa` built the kernel/ISO and emitted the actual native G5 receiver runtime marker, but four-vCPU QEMU BIOS smoke did not emit the final M1 user-space bootstrap marker within its 25-second run. No demonstrated kernel panic in its serial tail; do not attribute to Shell IPC without proof.
+- [ ] **Non-bypass timing adjustment:** increase the four-vCPU QEMU run budget to 45 seconds and the HID injection wait loop to 45 seconds. All existing required success markers, device input gates, errors and failure handling remain mandatory. Acceptance requires a fresh green Bootstrap run.
+
 ## G5 WP-03 — Production Login IPC Binding (2026-10-09)
 
 - [ ] **Production dispatcher and acceptance gate (new CI pending):** actual login now registers a default least-privilege G5 dispatcher for READY/HEALTH tied to the Session Manager's active generation, provisions the exclusive Ring3 sender and kernel receiver via the already-existing User Session Host flow, and refuses to enter the authenticated session UI if the post-bootstrap Ring3→G5 health request fails. The User Session Host tears down an active process if its production handshake effect count disagrees. This is a real production integration rather than a validation-only registration; it is **not** the complete window/surface graphics protocol.
