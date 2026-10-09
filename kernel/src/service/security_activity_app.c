@@ -65,7 +65,15 @@ void security_activity_app_close(
 void security_activity_app_pump(
     struct aurora_security_activity_app *app
 ) {
-    if (app == NULL || !app->active) return;
+    if (app == NULL) return;
+    if (!app->active) {
+        /* Drain only an activity request explicitly abandoned by this view.
+         * Never pump an unrelated login or reauthentication operation here. */
+        if (identity_client_has_abandoned_security_activity_read()) {
+            identity_client_pump();
+        }
+        return;
+    }
 
     enum aurora_security_activity_view_state previous_state =
         app->controller.state;
