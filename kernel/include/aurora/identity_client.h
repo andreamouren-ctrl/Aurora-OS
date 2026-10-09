@@ -23,6 +23,9 @@ enum aurora_identity_client_state {
     AURORA_IDENTITY_CLIENT_REAUTH_VERIFIED,
     AURORA_IDENTITY_CLIENT_REAUTH_FAILED,
     AURORA_IDENTITY_CLIENT_REAUTH_THROTTLED,
+    AURORA_IDENTITY_CLIENT_ROTATING_KEY,
+    AURORA_IDENTITY_CLIENT_KEY_ROTATED,
+    AURORA_IDENTITY_CLIENT_ROTATE_KEY_EXISTS,
     AURORA_IDENTITY_CLIENT_UNAVAILABLE,
     AURORA_IDENTITY_CLIENT_ERROR
 };
@@ -43,6 +46,12 @@ bool identity_client_begin_reauth(
     const char *key,
     size_t key_length,
     uint32_t purpose
+);
+
+bool identity_client_begin_rotate_key(
+    const uint8_t proof[AURORA_IDENTITY_SERVICE_REAUTH_PROOF_SIZE],
+    const char *new_key,
+    size_t new_key_length
 );
 
 void identity_client_pump(void);
