@@ -226,3 +226,17 @@ Hardware-specific USB tests may initially run outside hosted CI but should have 
 ## 17. Release gate
 
 Aurora Identity cannot be marked production-ready until all relevant phase acceptance tests pass, known security limitations are documented, and no open critical issue allows authentication bypass, credential disclosure, session replay, or silent revocation failure.
+
+## Purpose-bound re-authentication and Aurora Key rotation
+
+Required acceptance coverage:
+
+- a valid `ROTATE_PRIMARY_KEY` proof is single-use and yields the authenticated credential id;
+- proof consumption requires exact stable `user_id`, active session generation and purpose;
+- replay, wrong-user, wrong-session and wrong-purpose attempts are rejected;
+- the rotation caller cannot supply or override the current credential id;
+- a request without `AURORA_CAP_IDENTITY_MANAGE_SELF/CONTROL` is rejected;
+- an invalid or already-consumed proof cannot create a rotation job;
+- successful rotation atomically retires the old key and publishes the replacement for the same stable user;
+- commit conflict, storage failure, crypto failure, RNG failure, invalid replacement key or missing current credential leave the old credential valid;
+- cancellation after proof consumption does not restore/reissue the proof.
