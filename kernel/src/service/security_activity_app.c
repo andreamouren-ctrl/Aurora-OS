@@ -45,6 +45,7 @@ void security_activity_app_close(
     if (app == NULL) return;
 
     /* Only discard completed activity replies; leave authentication untouched. */
+    identity_client_abandon_security_activity_read();
     (void)identity_client_discard_completed_security_activity();
     app->active = false;
     security_activity_controller_init(&app->controller);
