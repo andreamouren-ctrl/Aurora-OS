@@ -161,15 +161,20 @@ static bool send_g5_health(uint64_t endpoint,uint64_t generation,
         (uint64_t)(uintptr_t)wire,sizeof(wire),0u,0u)==0u;
 }
 static uint64_t commit_ring3_shell_surface(
-    const struct aurora_user_session_host_startup *startup
+    const struct aurora_user_session_host_startup *startup,
+    uint64_t *failure_stage
 ) {
+    if (failure_stage) *failure_stage=20u;
     if (startup==NULL || startup->graphics_width==0u ||
         startup->graphics_height==0u ||
         startup->graphics_width>8192u || startup->graphics_height>8192u)
         return 0u;
     uint64_t address=syscall2(AURORA_SYS_GRAPHICS_BUFFER_MAP,
                               startup->graphics_buffer,1u);
-    if (address==0u || address==AURORA_SYS_RESULT_ERROR)return 0u;
+    if (address==0u || address==AURORA_SYS_RESULT_ERROR) {
+        if (failure_stage) *failure_stage=21u;
+        return 0u;
+    }
     /* Ring3 owns the actual pixel writes; only the compositor may present. */
     volatile uint32_t *pixels=(volatile uint32_t *)(uintptr_t)address;
     for (uint64_t y=0u;y<startup->graphics_height;++y)
@@ -179,16 +184,28 @@ static uint64_t commit_ring3_shell_surface(
             pixels[y*startup->graphics_width+x]=
                 UINT32_C(0xff000000)|(r<<16u)|(g<<8u)|UINT32_C(0x9c);
         }
-    if (syscall1(AURORA_SYS_GRAPHICS_BUFFER_UNMAP,address)!=0u ||
-        syscall2(AURORA_SYS_GRAPHICS_SURFACE_ATTACH,
-                 startup->graphics_surface,startup->graphics_buffer)!=0u ||
-        syscall5(AURORA_SYS_GRAPHICS_SURFACE_DAMAGE,
-                 startup->graphics_surface,0u,0u,
-                 startup->graphics_width,startup->graphics_height)!=0u)
+    if (syscall1(AURORA_SYS_GRAPHICS_BUFFER_UNMAP,address)!=0u) {
+        if (failure_stage) *failure_stage=22u;
         return 0u;
+    }
+    if (syscall2(AURORA_SYS_GRAPHICS_SURFACE_ATTACH,
+                 startup->graphics_surface,startup->graphics_buffer)!=0u) {
+        if (failure_stage) *failure_stage=23u;
+        return 0u;
+    }
+    if (syscall5(AURORA_SYS_GRAPHICS_SURFACE_DAMAGE,
+                 startup->graphics_surface,0u,0u,
+                 startup->graphics_width,startup->graphics_height)!=0u) {
+        if (failure_stage) *failure_stage=24u;
+        return 0u;
+    }
     uint64_t commit=syscall1(AURORA_SYS_GRAPHICS_SURFACE_COMMIT,
                              startup->graphics_surface);
-    return commit==AURORA_SYS_RESULT_ERROR ? 0u : commit;
+    if (commit==0u || commit==AURORA_SYS_RESULT_ERROR) {
+        if (failure_stage) *failure_stage=25u;
+        return 0u;
+    }
+    return commit;
 }
 
 static bool send_g5_scene_publish(
@@ -299,7 +316,7 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
         startup->profile_handle == 0u ||
         startup->session_generation == 0u ||
         !user_id_valid(startup->user_id)) {
-        return 1;
+        return 11;
     }
 
     if (!capability_has(
@@ -324,39 +341,40 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
             startup->profile_handle,
             AURORA_CAP_FILE,
             AURORA_RIGHT_CONTROL)) {
-        return 1;
+        return 12;
     }
 
     uint64_t shell_commit=0u;
     if (startup->g5_endpoint != 0u) {
-        shell_commit=commit_ring3_shell_surface(startup);
-        if (!shell_commit ||
-            !send_g5_ready(startup->g5_endpoint,startup->session_generation))
-            return 1;
+        uint64_t failure_stage=20u;
+        shell_commit=commit_ring3_shell_surface(startup,&failure_stage);
+        if (!shell_commit)return (int64_t)failure_stage;
+        if (!send_g5_ready(startup->g5_endpoint,startup->session_generation))
+            return 26;
     }
 
     /* Publish bootstrap proof before READY: the kernel can consume READY
      * immediately without racing a later BOOTSTRAP_SIGNAL syscall. */
     if (syscall1(AURORA_SYS_BOOTSTRAP_SIGNAL,
-                 AURORA_USER_SESSION_HOST_READY_MAGIC) != 0u) return 1;
+                 AURORA_USER_SESSION_HOST_READY_MAGIC) != 0u) return 27;
 
     /* Queue both G5 messages before publishing control READY, so
      * kernel admission is deterministic rather than a scheduler race. */
     if (startup->g5_endpoint != 0u &&
         !send_g5_health(startup->g5_endpoint,startup->session_generation,2u))
-        return 1;
+        return 28;
     if (startup->g5_endpoint != 0u &&
         !send_g5_scene_publish(startup->g5_endpoint,
             startup->session_generation,startup->graphics_object_id,
             startup->graphics_object_generation,shell_commit))
-        return 1;
+        return 29;
     if (startup->g5_endpoint != 0u &&
         !send_g5_window_place(startup->g5_endpoint,
             startup->session_generation,startup->graphics_object_id,
             startup->graphics_object_generation))
-        return 1;
+        return 30;
     if (!send_message(startup->control_endpoint, AURORA_USER_SESSION_HOST_READY, 0u)) {
-        return 1;
+        return 31;
     }
 
     for (;;) {
