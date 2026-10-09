@@ -824,6 +824,57 @@ bool user_session_host_self_test(void) {
         !host.g5_binding.provisioned_exclusively &&
         host.g5_binding.receiver == NULL &&
         !host.g5_ready;
+    /* WP-03 crash/reauth acceptance: a second trusted generation must
+     * bootstrap with new endpoints; deliberately terminate its Ring3
+     * control loop without SHUTDOWN to prove crash cleanup fails closed. */
+    bool reauthenticated=false, crashed=false, crash_revoked=false;
+    if (post_stop_denied && receiver_revoked) {
+        session_profile_lease_end();
+        if (session_profile_lease_begin(
+                &bridge.capabilities,profile,user_id,UINT64_C(2))) {
+            g5_session_test_generation=2u;
+            g5_session_ready_events=0u;
+            g5_session_health_events=0u;
+            g5_session_present_events=0u;
+            g5_session_place_events=0u;
+            reauthenticated=start_with_context(user_id,UINT64_C(2)) &&
+                user_session_host_active() && host.g5_ready &&
+                g5_session_ready_events==1u &&
+                g5_session_health_events==1u &&
+                g5_session_present_events==1u &&
+                g5_session_place_events==1u &&
+                host.scene.active && host.scene.last_display_serial>=2u &&
+                user_session_host_health_check() &&
+                g5_session_health_events==2u;
+            if (reauthenticated) {
+                struct aurora_user_session_host_message malformed={
+                    .version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+                    .type=AURORA_USER_SESSION_HOST_HEALTH_POLL,
+                    .request_id=0u
+                };
+                if (ipc_send(host.kernel_endpoint,&host.kernel_caps,
+                             &malformed,(uint32_t)sizeof(malformed),NULL,0u)) {
+                    uint64_t deadline=clock_now_ns()+USER_SESSION_HOST_TIMEOUT_NS;
+                    while (!scheduler_thread_finished(host.thread) &&
+                           clock_now_ns()<deadline) arch_idle();
+                    crashed=scheduler_thread_finished(host.thread) &&
+                        process_state(host.process)==AURORA_PROCESS_EXITED &&
+                        host.process->exit_code!=0;
+                }
+                if (crashed) {
+                    cleanup_finished_host();
+                    crash_revoked=!host.active && !host.g5_ready &&
+                        host.process==NULL && host.thread==0u &&
+                        !host.scene.active &&
+                        host.g5_sender_handle==AURORA_CAP_INVALID &&
+                        host.g5_receiver_handle==AURORA_CAP_INVALID &&
+                        host.g5_authority_handle==AURORA_CAP_INVALID &&
+                        !host.g5_binding.provisioned_exclusively &&
+                        g5_test_dispatcher.active_session_generation==0u;
+                }
+            }
+        }
+    }
     user_session_host_unregister_g5_dispatcher(&g5_test_dispatcher);
 
     session_profile_lease_end();
@@ -835,6 +886,7 @@ bool user_session_host_self_test(void) {
     bool accepted=started &&
         running && stopped && live_health &&
         post_stop_denied && receiver_revoked &&
+        reauthenticated && crashed && crash_revoked &&
         source_revoked && root_revoked &&
         !user_session_host_active() &&
         !session_profile_lease_active();
@@ -848,7 +900,11 @@ bool user_session_host_self_test(void) {
         log_u64(close_opcode_denied);log_write("/");
         log_u64(live_health);log_write("/");
         log_u64(stopped);log_write("/");
-        log_u64(receiver_revoked);log_line("");
+        log_u64(receiver_revoked);
+        log_write("[g5-shell-diagnostic] reauthenticated/crashed/crash-revoked: ");
+        log_u64(reauthenticated);log_write("/");
+        log_u64(crashed);log_write("/");
+        log_u64(crash_revoked);log_line("");
     }
     return accepted;
 }
