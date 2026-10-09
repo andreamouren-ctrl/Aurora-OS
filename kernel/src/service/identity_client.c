@@ -677,6 +677,12 @@ void identity_client_pump(void) {
     }
 
     if (!service_supervisor_step(&identity_supervisor)) {
+        /* A failed supervisor step is not a completed IPC reply.
+         * Retire abandoned activity ownership, but keep ERROR fail-closed. */
+        if (abandoned_activity_read) {
+            abandoned_activity_read = false;
+            current_request_id = 0u;
+        }
         clear_bytes(pending_session_grant, sizeof(pending_session_grant));
         clear_bytes(pending_reauth_proof, sizeof(pending_reauth_proof));
         pending_reauth_purpose = 0u;
