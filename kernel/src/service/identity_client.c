@@ -23,6 +23,8 @@ static uint64_t auth_authority_object;
 static uint64_t create_authority_object;
 static uint64_t reauth_authority_object;
 static uint64_t manage_self_authority_object;
+static uint64_t audit_read_authority_object;
+static struct aurora_security_activity_record pending_activity_record;
 static uint8_t pending_session_grant[AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE];
 static uint8_t pending_reauth_proof[AURORA_IDENTITY_SERVICE_REAUTH_PROOF_SIZE];
 static uint32_t pending_reauth_purpose;
@@ -269,6 +271,7 @@ bool identity_client_init(void) {
     clear_bytes(&identity_supervisor, sizeof(identity_supervisor));
     clear_bytes(pending_session_grant, sizeof(pending_session_grant));
     clear_bytes(pending_reauth_proof, sizeof(pending_reauth_proof));
+    clear_bytes(&pending_activity_record, sizeof(pending_activity_record));
     pending_reauth_purpose = 0u;
     pending_reauth_expires_at_ms = 0u;
     current_request_id = 0u;
@@ -584,6 +587,77 @@ bool identity_client_begin_rotate_key(
     return true;
 }
 
+bool identity_client_begin_security_activity_read(
+    uint64_t before_sequence
+) {
+    if (client_state != AURORA_IDENTITY_CLIENT_READY ||
+        identity_supervisor.state != AURORA_SERVICE_SUPERVISOR_RUNNING ||
+        session_manager_client_state() != AURORA_SESSION_CLIENT_ACTIVE) {
+        return false;
+    }
+
+    const uint8_t *user_id = session_manager_client_user_id();
+    uint64_t session_generation = session_manager_client_generation();
+    if (user_id == NULL || session_generation == 0u) return false;
+
+    uint8_t aggregate = 0u;
+    for (size_t i = 0u; i < AURORA_IDENTITY_SERVICE_USER_ID_SIZE; ++i) {
+        aggregate |= user_id[i];
+    }
+    if (aggregate == 0u) return false;
+
+    struct aurora_identity_service_security_activity_read request;
+    clear_bytes(&request, sizeof(request));
+    current_request_id = allocate_request_id();
+    request.header.version = AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION;
+    request.header.type = AURORA_IDENTITY_SERVICE_SECURITY_ACTIVITY_READ;
+    request.header.request_id = current_request_id;
+    request.before_sequence = before_sequence;
+    request.session_generation = session_generation;
+    for (size_t i = 0u; i < AURORA_IDENTITY_SERVICE_USER_ID_SIZE; ++i) {
+        request.expected_user_id[i] = user_id[i];
+    }
+
+    audit_read_authority_object ^= current_request_id | 1u;
+    aurora_cap_handle authority = cap_grant(
+        &identity_supervisor.service.supervisor_caps,
+        &audit_read_authority_object,
+        AURORA_CAP_IDENTITY_AUDIT_READ,
+        AURORA_RIGHT_READ | AURORA_RIGHT_TRANSFER);
+    if (authority == AURORA_CAP_INVALID) {
+        clear_bytes(&request, sizeof(request));
+        current_request_id = 0u;
+        client_state = AURORA_IDENTITY_CLIENT_ERROR;
+        return false;
+    }
+
+    const struct aurora_ipc_transfer transfer = {
+        .handle = authority,
+        .rights = AURORA_RIGHT_READ
+    };
+    bool sent = ipc_send(
+        identity_supervisor.service.supervisor_endpoint,
+        &identity_supervisor.service.supervisor_caps,
+        &request,
+        (uint32_t)sizeof(request),
+        &transfer,
+        1u);
+    bool revoked = cap_revoke(
+        &identity_supervisor.service.supervisor_caps,
+        authority);
+    clear_bytes(&request, sizeof(request));
+    clear_bytes(&pending_activity_record, sizeof(pending_activity_record));
+
+    if (!sent || !revoked) {
+        current_request_id = 0u;
+        client_state = AURORA_IDENTITY_CLIENT_ERROR;
+        return false;
+    }
+
+    client_state = AURORA_IDENTITY_CLIENT_READING_ACTIVITY;
+    return true;
+}
+
 void identity_client_pump(void) {
     if (client_state == AURORA_IDENTITY_CLIENT_UNINITIALIZED) return;
 
@@ -592,6 +666,7 @@ void identity_client_pump(void) {
         clear_bytes(pending_reauth_proof, sizeof(pending_reauth_proof));
         pending_reauth_purpose = 0u;
         pending_reauth_expires_at_ms = 0u;
+        clear_bytes(&pending_activity_record, sizeof(pending_activity_record));
         client_state = AURORA_IDENTITY_CLIENT_ERROR;
         return;
     }
@@ -601,11 +676,13 @@ void identity_client_pump(void) {
         clear_bytes(pending_reauth_proof, sizeof(pending_reauth_proof));
         pending_reauth_purpose = 0u;
         pending_reauth_expires_at_ms = 0u;
+        clear_bytes(&pending_activity_record, sizeof(pending_activity_record));
         if (client_state == AURORA_IDENTITY_CLIENT_AUTHENTICATING ||
             client_state == AURORA_IDENTITY_CLIENT_CREATING ||
             client_state == AURORA_IDENTITY_CLIENT_REAUTHENTICATING ||
             client_state == AURORA_IDENTITY_CLIENT_REAUTH_VERIFIED ||
             client_state == AURORA_IDENTITY_CLIENT_ROTATING_KEY ||
+            client_state == AURORA_IDENTITY_CLIENT_READING_ACTIVITY ||
             client_state == AURORA_IDENTITY_CLIENT_VERIFIED) {
             client_state = AURORA_IDENTITY_CLIENT_UNAVAILABLE;
         }
@@ -615,7 +692,8 @@ void identity_client_pump(void) {
     if (client_state != AURORA_IDENTITY_CLIENT_AUTHENTICATING &&
         client_state != AURORA_IDENTITY_CLIENT_CREATING &&
         client_state != AURORA_IDENTITY_CLIENT_REAUTHENTICATING &&
-        client_state != AURORA_IDENTITY_CLIENT_ROTATING_KEY) {
+        client_state != AURORA_IDENTITY_CLIENT_ROTATING_KEY &&
+        client_state != AURORA_IDENTITY_CLIENT_READING_ACTIVITY) {
         return;
     }
 
@@ -629,7 +707,8 @@ void identity_client_pump(void) {
         return;
     }
 
-    if (received.length == sizeof(struct aurora_identity_service_message)) {
+    if (client_state != AURORA_IDENTITY_CLIENT_READING_ACTIVITY &&
+        received.length == sizeof(struct aurora_identity_service_message)) {
         struct aurora_identity_service_message message;
         clear_bytes(&message, sizeof(message));
         for (size_t i = 0u; i < sizeof(message); ++i) {
@@ -720,6 +799,59 @@ void identity_client_pump(void) {
         return;
     }
 
+    if (client_state == AURORA_IDENTITY_CLIENT_READING_ACTIVITY &&
+        received.length ==
+            sizeof(struct aurora_identity_service_security_activity_result)) {
+        struct aurora_identity_service_security_activity_result result;
+        clear_bytes(&result, sizeof(result));
+        for (size_t i = 0u; i < sizeof(result); ++i) {
+            ((uint8_t *)&result)[i] = received.data[i];
+        }
+        clear_bytes(&received, sizeof(received));
+
+        if (result.header.version != AURORA_IDENTITY_SERVICE_PROTOCOL_VERSION ||
+            result.header.type != AURORA_IDENTITY_SERVICE_SECURITY_ACTIVITY_RESULT ||
+            result.header.request_id != current_request_id) {
+            clear_bytes(&result, sizeof(result));
+            current_request_id = 0u;
+            client_state = AURORA_IDENTITY_CLIENT_ERROR;
+            return;
+        }
+
+        current_request_id = 0u;
+        clear_bytes(&pending_activity_record, sizeof(pending_activity_record));
+        if (result.state == AURORA_IDENTITY_SERVICE_SECURITY_ACTIVITY_END &&
+            result.public_error == AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE) {
+            clear_bytes(&result, sizeof(result));
+            client_state = AURORA_IDENTITY_CLIENT_ACTIVITY_END;
+            return;
+        }
+
+        if (result.state == AURORA_IDENTITY_SERVICE_SECURITY_ACTIVITY_RECORD &&
+            result.public_error == AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE &&
+            result.record_version != 0u &&
+            result.sequence != 0u) {
+            pending_activity_record.record_version = result.record_version;
+            pending_activity_record.event_type = result.event_type;
+            pending_activity_record.outcome = result.outcome;
+            pending_activity_record.reason_code = result.reason_code;
+            pending_activity_record.sequence = result.sequence;
+            pending_activity_record.monotonic_ms = result.monotonic_ms;
+            pending_activity_record.session_generation = result.session_generation;
+            clear_bytes(&result, sizeof(result));
+            client_state = AURORA_IDENTITY_CLIENT_ACTIVITY_RECORD;
+            return;
+        }
+
+        uint32_t public_error = result.public_error;
+        clear_bytes(&result, sizeof(result));
+        client_state =
+            public_error == AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE
+                ? AURORA_IDENTITY_CLIENT_UNAVAILABLE
+                : AURORA_IDENTITY_CLIENT_ERROR;
+        return;
+    }
+
     clear_bytes(&received, sizeof(received));
     client_state = AURORA_IDENTITY_CLIENT_ERROR;
 }
@@ -736,13 +868,17 @@ void identity_client_reset_result(void) {
         client_state == AURORA_IDENTITY_CLIENT_REAUTH_THROTTLED ||
         client_state == AURORA_IDENTITY_CLIENT_KEY_ROTATED ||
         client_state == AURORA_IDENTITY_CLIENT_ROTATE_KEY_EXISTS ||
+        client_state == AURORA_IDENTITY_CLIENT_ACTIVITY_RECORD ||
+        client_state == AURORA_IDENTITY_CLIENT_ACTIVITY_END ||
         client_state == AURORA_IDENTITY_CLIENT_ERROR) {
         clear_bytes(pending_session_grant, sizeof(pending_session_grant));
         clear_bytes(pending_reauth_proof, sizeof(pending_reauth_proof));
         pending_reauth_purpose = 0u;
         pending_reauth_expires_at_ms = 0u;
+        clear_bytes(&pending_activity_record, sizeof(pending_activity_record));
         retry_after_ms = 0u;
         current_request_id = 0u;
+        clear_bytes(&pending_activity_record, sizeof(pending_activity_record));
         clear_bytes(pending_session_grant, sizeof(pending_session_grant));
         client_state = identity_supervisor.state == AURORA_SERVICE_SUPERVISOR_RUNNING
             ? AURORA_IDENTITY_CLIENT_READY
@@ -758,6 +894,21 @@ uint64_t identity_client_retry_after_ms(void) {
     return retry_after_ms;
 }
 
+
+bool identity_client_take_security_activity_record(
+    struct aurora_security_activity_record *out_record
+) {
+    if (out_record == NULL ||
+        client_state != AURORA_IDENTITY_CLIENT_ACTIVITY_RECORD ||
+        pending_activity_record.sequence == 0u) {
+        return false;
+    }
+
+    *out_record = pending_activity_record;
+    clear_bytes(&pending_activity_record, sizeof(pending_activity_record));
+    client_state = AURORA_IDENTITY_CLIENT_READY;
+    return true;
+}
 
 bool identity_client_take_session_grant(
     uint8_t out_grant[AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE]
