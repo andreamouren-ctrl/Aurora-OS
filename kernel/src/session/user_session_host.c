@@ -4,6 +4,7 @@
 #include <aurora/arch.h>
 #include <aurora/capability.h>
 #include <aurora/clock.h>
+#include <aurora/log.h>
 #include <aurora/ipc.h>
 #include <aurora/process.h>
 #include <aurora/scheduler.h>
@@ -288,6 +289,7 @@ static bool start_with_context(
             .pending_requests=&host.g5_pending
         };
         if (!g5_shell_scene_begin(&host.scene,host.process,generation)) {
+            log_line("[g5-shell-diagnostic] failed to initialize compositor scene");
             cleanup_unstarted_host();
             return false;
         }
@@ -340,6 +342,7 @@ static bool start_with_context(
     if (!receive_expected(AURORA_USER_SESSION_HOST_READY, 0u) ||
         process_bootstrap_signal(host.process) !=
             AURORA_USER_SESSION_HOST_READY_MAGIC) {
+        log_line("[g5-shell-diagnostic] Ring3 control READY or bootstrap proof missing");
         /* A failed handshake must immediately invalidate both G5 ends,
          * not leave a privileged endpoint while a failed process winds down. */
         g5_shell_session_end(&shell_session);
@@ -363,6 +366,7 @@ static bool start_with_context(
         enum g5_ipc_status ready=G5_IPC_DENIED;
         if (!g5_ipc_endpoint_poll(&host.g5_binding,&ready) ||
             ready!=G5_IPC_OK) {
+            log_line("[g5-shell-diagnostic] first G5 READY rejected");
             g5_ipc_dispatch_revoke(session_g5_dispatcher);
             revoke_g5_sender();
             revoke_g5_receiver();
@@ -375,6 +379,7 @@ static bool start_with_context(
         enum g5_ipc_status health=G5_IPC_DENIED;
         if (!g5_ipc_endpoint_poll(&host.g5_binding,&health) ||
             health!=G5_IPC_OK) {
+            log_line("[g5-shell-diagnostic] second G5 HEALTH rejected");
             g5_ipc_dispatch_revoke(session_g5_dispatcher);
             revoke_g5_sender();
             revoke_g5_receiver();
@@ -387,6 +392,7 @@ static bool start_with_context(
         enum g5_ipc_status present=G5_IPC_DENIED;
         if (!g5_ipc_endpoint_poll(&host.g5_binding,&present) ||
             present!=G5_IPC_OK || host.scene.last_display_serial==0u) {
+            log_line("[g5-shell-diagnostic] SCENE_PUBLISH rejected or no display serial");
             g5_ipc_dispatch_revoke(session_g5_dispatcher);
             revoke_g5_sender();
             revoke_g5_receiver();
@@ -398,6 +404,7 @@ static bool start_with_context(
         if (!g5_ipc_endpoint_poll(&host.g5_binding,&placed) ||
             placed!=G5_IPC_OK || host.scene.x!=80 || host.scene.y!=72 ||
             host.scene.last_display_serial<2u) {
+            log_line("[g5-shell-diagnostic] WINDOW_PLACE rejected or no display update");
             g5_ipc_dispatch_revoke(session_g5_dispatcher);
             revoke_g5_sender();
             revoke_g5_receiver();
