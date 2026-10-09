@@ -65,6 +65,7 @@ struct aurora_identity_reauth_policy {
 
 struct aurora_identity_reauth_record {
     struct aurora_identity_user_id user_id;
+    struct aurora_identity_credential_id credential_id;
     uint32_t purpose;
     uint32_t record_version;
     uint64_t session_generation;
@@ -110,6 +111,7 @@ struct aurora_identity_reauth_issue_result {
 struct aurora_identity_reauth_consume_result {
     enum aurora_identity_reauth_result result;
     struct aurora_identity_user_id user_id;
+    struct aurora_identity_credential_id credential_id;
     uint64_t session_generation;
     uint32_t purpose;
 };
@@ -121,6 +123,7 @@ bool aurora_identity_reauth_token_is_zero(
 struct aurora_identity_reauth_issue_result aurora_identity_reauth_issue(
     const struct aurora_identity_reauth_core *core,
     const struct aurora_identity_user_id *authenticated_user_id,
+    const struct aurora_identity_credential_id *authenticated_credential_id,
     uint64_t session_generation,
     uint32_t purpose);
 
