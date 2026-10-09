@@ -630,6 +630,7 @@ void login_input_init(void) {
         kernel_panic("G2 two-client Ring 3 graphics acceptance probe failed");
     }
     log_line("[graphics-ring3] two-client syscall isolation + frame callback acceptance gate passed");
+    log_line("[g5-graphics] Ring3 committed surfaces composed and presented to display");
 #endif
 
     log_write("[boot-perf] storage init start at ");
