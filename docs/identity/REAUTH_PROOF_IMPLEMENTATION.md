@@ -120,3 +120,7 @@ The proof HMAC key is derived separately from Machine Secret under `AURORA.IDENT
 ## Remaining integration gate
 
 Issuance is production-wired, but a proof intentionally has no generic privileged effect. The next milestone is to make a concrete sensitive operation—starting with Aurora Key rotation—consume the proof internally while also requiring its own management capability. A generic UI-accessible “consume proof” endpoint must not be introduced.
+
+## First production consumer
+
+Aurora Key rotation consumes a `ROTATE_PRIMARY_KEY` proof inside the Ring 3 Identity Service. The consumed proof supplies trusted `user_id`, session generation, and authenticated `credential_id`; only the replacement key comes from the caller. Proof consumption happens before the asynchronous rotation job is accepted, so replay is impossible even if the accepted job is later cancelled or fails.
