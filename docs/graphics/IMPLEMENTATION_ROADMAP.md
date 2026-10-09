@@ -5,6 +5,11 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+## G5 WP-03 — Production Login IPC Binding (2026-10-09)
+
+- [ ] **Production dispatcher and acceptance gate (new CI pending):** actual login now registers a default least-privilege G5 dispatcher for READY/HEALTH tied to the Session Manager's active generation, provisions the exclusive Ring3 sender and kernel receiver via the already-existing User Session Host flow, and refuses to enter the authenticated session UI if the post-bootstrap Ring3→G5 health request fails. The User Session Host tears down an active process if its production handshake effect count disagrees. This is a real production integration rather than a validation-only registration; it is **not** the complete window/surface graphics protocol.
+- [ ] **Remaining WP-03 exit criteria:** implement a graphical Shell dispatcher/service, capability-backed window/surface lifecycle and verified compositor-to-display frame under a genuine Ring3 request; prove cancellation, crash/restart and session revoke with QEMU artifacts before closing.
+
 ## G5 WP-03 — Persistent Ring 3 control-loop health (2026-10-09)
 
 - [ ] **Repeated live control-loop and post-stop denial (CI pending):** host self-test requires two separate authenticated Ring3 `HEALTH_POLL`/`SHELL_HEALTH`/`HEALTH_ACK` cycles with monotonically increasing request IDs, checks exactly three health effects including bootstrap, then proves that the same API denies requests after stop with no further effects. This remains control-plane acceptance, not graphical end-to-end.
