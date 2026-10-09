@@ -497,6 +497,12 @@ bool user_session_host_self_test(void) {
     bool running = started && user_session_host_active() &&
         host.g5_ready && g5_session_ready_events==1u;
     bool stopped = running && user_session_host_stop();
+    bool receiver_revoked = stopped &&
+        host.g5_receiver_handle == AURORA_CAP_INVALID &&
+        host.g5_authority_handle == AURORA_CAP_INVALID &&
+        !host.g5_binding.provisioned_exclusively &&
+        host.g5_binding.receiver == NULL &&
+        !host.g5_ready;
     user_session_host_unregister_g5_dispatcher(&g5_test_dispatcher);
 
     session_profile_lease_end();
@@ -508,6 +514,7 @@ bool user_session_host_self_test(void) {
     return started &&
         running &&
         stopped &&
+        receiver_revoked &&
         source_revoked &&
         root_revoked &&
         !user_session_host_active() &&
