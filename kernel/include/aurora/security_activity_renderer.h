@@ -22,6 +22,13 @@ struct aurora_security_activity_render_state {
 bool security_activity_renderer_validate_framebuffer(
     const struct aurora_framebuffer *framebuffer);
 
+void security_activity_renderer_reset_native(void);
+
+void security_activity_renderer_draw(
+    const struct aurora_framebuffer *framebuffer,
+    const struct aurora_security_activity_controller *controller,
+    const struct aurora_security_activity_render_state *render_state);
+
 void security_activity_renderer_draw_fallback(
     const struct aurora_framebuffer *framebuffer,
     const struct aurora_security_activity_controller *controller,
