@@ -79,11 +79,13 @@ static bool initialize_test_hmac_provider(
     uint8_t nonce[16];
     uint8_t lookup_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE];
     uint8_t grant_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE];
+    uint8_t reauth_key[AURORA_IDENTITY_PROVIDER_KEY_SIZE];
 
     fill_sequence(entropy, sizeof(entropy), 0x11u);
     fill_sequence(nonce, sizeof(nonce), 0x22u);
     fill_sequence(lookup_key, sizeof(lookup_key), 0x33u);
     fill_sequence(grant_key, sizeof(grant_key), 0x44u);
+    fill_sequence(reauth_key, sizeof(reauth_key), 0x55u);
 
     if (!aurora_identity_hmac_drbg_instantiate(
             drbg,
@@ -100,6 +102,7 @@ static bool initialize_test_hmac_provider(
         provider,
         lookup_key,
         grant_key,
+        reauth_key,
         drbg);
 }
 
