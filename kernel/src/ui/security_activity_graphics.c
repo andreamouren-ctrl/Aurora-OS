@@ -281,3 +281,49 @@ bool security_activity_graphics_draw(
 
     return true;
 }
+
+enum aurora_security_activity_graphic
+security_activity_graphic_for_category(uint32_t category) {
+    switch (category) {
+        case AURORA_SECURITY_ACTIVITY_CATEGORY_AUTH:
+            return AURORA_SECURITY_ACTIVITY_GRAPHIC_CATEGORY_AUTH;
+        case AURORA_SECURITY_ACTIVITY_CATEGORY_SESSION:
+            return AURORA_SECURITY_ACTIVITY_GRAPHIC_CATEGORY_SESSION;
+        case AURORA_SECURITY_ACTIVITY_CATEGORY_CREDENTIAL:
+            return AURORA_SECURITY_ACTIVITY_GRAPHIC_CATEGORY_CREDENTIAL;
+        default:
+            return AURORA_SECURITY_ACTIVITY_GRAPHIC_COUNT;
+    }
+}
+
+enum aurora_security_activity_graphic
+security_activity_graphic_for_severity(uint32_t severity) {
+    switch (severity) {
+        case AURORA_SECURITY_ACTIVITY_SEVERITY_INFO:
+            return AURORA_SECURITY_ACTIVITY_GRAPHIC_STATUS_INFO;
+        case AURORA_SECURITY_ACTIVITY_SEVERITY_WARNING:
+            return AURORA_SECURITY_ACTIVITY_GRAPHIC_STATUS_WARNING;
+        case AURORA_SECURITY_ACTIVITY_SEVERITY_CRITICAL:
+            return AURORA_SECURITY_ACTIVITY_GRAPHIC_STATUS_CRITICAL;
+        default:
+            return AURORA_SECURITY_ACTIVITY_GRAPHIC_COUNT;
+    }
+}
+
+enum aurora_security_activity_graphic
+security_activity_graphic_for_view_state(
+    enum aurora_security_activity_view_state state
+) {
+    switch (state) {
+        case AURORA_SECURITY_ACTIVITY_VIEW_LOADING:
+            return AURORA_SECURITY_ACTIVITY_GRAPHIC_LOADING;
+        case AURORA_SECURITY_ACTIVITY_VIEW_EMPTY:
+            return AURORA_SECURITY_ACTIVITY_GRAPHIC_EMPTY;
+        case AURORA_SECURITY_ACTIVITY_VIEW_END:
+            return AURORA_SECURITY_ACTIVITY_GRAPHIC_END;
+        case AURORA_SECURITY_ACTIVITY_VIEW_ERROR:
+            return AURORA_SECURITY_ACTIVITY_GRAPHIC_ERROR;
+        default:
+            return AURORA_SECURITY_ACTIVITY_GRAPHIC_COUNT;
+    }
+}
