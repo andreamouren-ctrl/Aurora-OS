@@ -668,9 +668,12 @@ void identity_client_pump(void) {
     if (abandoned_activity_read &&
         (client_state == AURORA_IDENTITY_CLIENT_ACTIVITY_RECORD ||
          client_state == AURORA_IDENTITY_CLIENT_ACTIVITY_END ||
-         client_state == AURORA_IDENTITY_CLIENT_ERROR)) {
+         client_state == AURORA_IDENTITY_CLIENT_ERROR ||
+         client_state == AURORA_IDENTITY_CLIENT_UNAVAILABLE)) {
         abandoned_activity_read = false;
-        identity_client_reset_result();
+        if (client_state != AURORA_IDENTITY_CLIENT_UNAVAILABLE) {
+            identity_client_reset_result();
+        }
     }
 
     if (!service_supervisor_step(&identity_supervisor)) {
