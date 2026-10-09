@@ -239,6 +239,10 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
     const struct aurora_user_session_host_startup *startup =
         (const struct aurora_user_session_host_startup *)(uintptr_t)(
             initial_rsp - AURORA_USER_SESSION_HOST_STARTUP_STACK_OFFSET);
+    /* The launcher placed startup below the entry RSP. Copy it into this
+     * frame before syscall helpers reuse the stack below the original RSP. */
+    struct aurora_user_session_host_startup owned_startup=*startup;
+    startup=&owned_startup;
 
     if (startup->abi_version != AURORA_USER_SESSION_HOST_ABI_VERSION ||
         startup->flags != 0u ||
