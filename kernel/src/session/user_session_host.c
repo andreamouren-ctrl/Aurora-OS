@@ -284,7 +284,9 @@ static bool start_with_context(
             .dispatch=session_g5_dispatcher,
             .receiver_authority=host.g5_authority_handle,
             .authority_type=AURORA_CAP_SYSTEM,
-            .authority_rights=AURORA_RIGHT_READ,
+            .authority_rights=AURORA_RIGHT_READ|
+                              AURORA_RIGHT_CONTROL|
+                              AURORA_RIGHT_WRITE,
             .provisioned_exclusively=true,
             .pending_requests=&host.g5_pending
         };
