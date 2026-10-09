@@ -70,6 +70,7 @@ void security_activity_controller_pump(
         if (!identity_client_take_security_activity_record(&record) ||
             !security_activity_page_append(&controller->page, &record)) {
             controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
+            identity_client_reset_result();
             return;
         }
 
@@ -82,6 +83,7 @@ void security_activity_controller_pump(
 
         if (!identity_client_begin_security_activity_read(controller->cursor)) {
             controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
+            identity_client_reset_result();
         }
         return;
     }
@@ -94,6 +96,7 @@ void security_activity_controller_pump(
     }
 
     controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
+    identity_client_reset_result();
 }
 
 bool security_activity_controller_next_page(
