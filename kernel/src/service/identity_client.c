@@ -856,6 +856,17 @@ void identity_client_pump(void) {
     client_state = AURORA_IDENTITY_CLIENT_ERROR;
 }
 
+bool identity_client_discard_completed_security_activity(void) {
+    if (client_state != AURORA_IDENTITY_CLIENT_ACTIVITY_RECORD &&
+        client_state != AURORA_IDENTITY_CLIENT_ACTIVITY_END) return false;
+    clear_bytes(&pending_activity_record, sizeof(pending_activity_record));
+    current_request_id = 0u;
+    client_state = identity_supervisor.state == AURORA_SERVICE_SUPERVISOR_RUNNING
+        ? AURORA_IDENTITY_CLIENT_READY
+        : AURORA_IDENTITY_CLIENT_UNAVAILABLE;
+    return true;
+}
+
 void identity_client_reset_result(void) {
     if (client_state == AURORA_IDENTITY_CLIENT_AUTH_FAILED ||
         client_state == AURORA_IDENTITY_CLIENT_THROTTLED ||
