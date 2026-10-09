@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 
-#define AURORA_USER_SESSION_HOST_ABI_VERSION 2u
-#define AURORA_USER_SESSION_HOST_STARTUP_STACK_OFFSET 64u
+#define AURORA_USER_SESSION_HOST_ABI_VERSION 3u
+#define AURORA_USER_SESSION_HOST_STARTUP_STACK_OFFSET 112u
 #define AURORA_USER_SESSION_HOST_USER_ID_SIZE 16u
 
 #define AURORA_USER_SESSION_HOST_PROTOCOL_VERSION 1u
@@ -12,6 +12,8 @@
 #define AURORA_USER_SESSION_HOST_READY 1u
 #define AURORA_USER_SESSION_HOST_SHUTDOWN 2u
 #define AURORA_USER_SESSION_HOST_SHUTDOWN_ACK 3u
+#define AURORA_USER_SESSION_HOST_HEALTH_POLL 4u
+#define AURORA_USER_SESSION_HOST_HEALTH_ACK 5u
 
 #define AURORA_USER_SESSION_HOST_READY_MAGIC UINT64_C(0x4155525345535348)
 
@@ -24,6 +26,12 @@ struct aurora_user_session_host_startup {
     uint8_t user_id[AURORA_USER_SESSION_HOST_USER_ID_SIZE];
     uint64_t g5_endpoint; /* optional, exclusive non-transferable G5 sender */
     uint64_t reserved1;
+    uint64_t graphics_buffer; /* write/map, non-transferable */
+    uint64_t graphics_surface; /* write/read, non-transferable */
+    uint64_t graphics_object_id;
+    uint64_t graphics_object_generation;
+    uint64_t graphics_width;
+    uint64_t graphics_height;
 };
 
 struct aurora_user_session_host_message {

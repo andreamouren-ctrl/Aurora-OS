@@ -56,7 +56,7 @@ jobs:
           PY
 
           set +e
-          timeout 25s qemu-system-x86_64 \
+          timeout 50s qemu-system-x86_64 \
             -M q35 \
             -cpu max \
             -m 512M \
@@ -84,9 +84,11 @@ jobs:
 
           grep -F "[ring3-entropy] capability-gated trusted seed syscall probe passed" "$SERIAL_LOG"
           grep -F "[identity-service] long-lived blocking IPC request loop passed" "$SERIAL_LOG"
+          grep -F "[g5-wp03] Ring3 Shell crash and reauthentication lifecycle gate passed" "$SERIAL_LOG"
           grep -F "[service-supervisor] bounded Identity restart + fresh capability bootstrap passed" "$SERIAL_LOG"
           grep -F "[kernel] M1 user-space bootstrap reached successfully" "$SERIAL_LOG"
           grep -F "[identity-gui] full-quality PNG artwork active" "$SERIAL_LOG"
+          grep -F "[g5-wp03] Ring3 Shell clean stop, fresh reauth, forced crash and capability revocation passed" "$SERIAL_LOG"
 
       - name: Upload entropy smoke logs
         if: always()

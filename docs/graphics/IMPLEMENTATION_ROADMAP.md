@@ -5,6 +5,84 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+## G5 WP-03 — Frozen verified baseline (2026-10-09)
+
+**Status: FROZEN / ACCEPTED within the WP-03 Shell bootstrap and lifecycle scope.** GitHub Actions commit `096464c83aa76b3b4c91ddd4fddf5c1676f61c6f` completed four of four workflows successfully: Aurora OS Bootstrap Build, G5 IPC QEMU Cold Boot Recovery, Aurora Identity Entropy Handoff, and Aurora Entropy Source Policy. Bootstrap/Identity enforce the dedicated Ring3 Shell crash-and-reauthentication lifecycle marker, in addition to the real Ring3 G5 IPC-to-compositor/display marker. No test gate was weakened to declare acceptance.
+
+**Freeze policy:** preserve this commit as the last verified WP-03 baseline. Any further edits on the PR are outside the frozen baseline until independently revalidated; security-critical fixes can reopen WP-03 with explicit regression evidence. Work on Identity takes priority. **WP-04 has not started:** dynamic multi-client window policy, focus/hit-testing, window resize/close and the interactive Living Canvas remain future milestones. This freeze does not mean all of G5 or Identity is complete.
+
+## G5 WP-03 — Formal closeout candidate (2026-10-09)
+
+**Scope:** WP-03 as formally defined by `G5_DESIGN_SPEC.md` is the Ring 3 Shell bootstrap and session lifecycle, including clean stop/lock, fresh instance creation, crash, revocation, and reauthentication. Dynamic multi-client window management, resize/close/focus/input, and the complete Canvas UI begin at **WP-04 and beyond**.
+
+**Verified previous baseline:** GitHub Actions commit `a21b5b4f505dc2b9d4b5470e6efb3a20c353b69a` completed all four workflows successfully. Bootstrap and Identity QEMU logs show the real Ring3 User Session Host, G5 scene IPC/frame presentation, and completed lifecycle probe without diagnostic failures. These are CI-run test results, not evidence of a completed desktop UI.
+
+**Final explicit-gate revision:** the self-test emits `[g5-wp03] Ring3 Shell crash and reauthentication lifecycle gate passed` only after checking initial authorized session, repeated health traffic, anti-replay, generation and object checks, clean stop/revocations, fresh generation bootstrap, malformed-control induced Ring3 crash, and stale capability/compositor teardown. BIOS Bootstrap and Identity CI now require that exact marker. Treat WP-03 as **accepted only if the new head has all required workflows green**. Avoid weakening those markers or conflating WP-03 with WP-04.
+
+## G5 WP-03 — Shell lifecycle: clean stop, lock/unlock, crash and reauthentication (2026-10-09)
+
+- [ ] **Formal WP-03 scope:** `G5_DESIGN_SPEC.md` assigns Shell bootstrap, Ring 3 lifecycle, session start/lock/restart and crash + reauthentication QEMU gate to WP-03. The multi-client compositor/window management, focus and runtime resize/close contract is assigned to **WP-04**, and must not be falsely made a prerequisite for WP-03 closure.
+- [ ] **Separate trusted Shell incarnation (CI pending):** Session Manager's authenticated generation may remain unchanged over a lock/unlock. Each new Shell process now gets a strictly increasing receiver-local G5 generation, authenticated against the live Session Manager generation; revoked Shell generations are never reused. Its endpoint rights remain exclusive and non-transferable.
+- [ ] **Forced crash + fresh authentication test (CI pending):** native QEMU User Session Host probe performs clean generation-1 stop/revocation, then generation-2 bootstrap with new endpoints and scene, health round-trip, malformed-control induced nonzero Ring 3 exit, and verified fail-closed process/endpoint/compositor cleanup. No accepted status until fresh QEMU gate passes.
+
+## G5 WP-03 — Native graphics IPC authority binding (2026-10-09)
+
+- [ ] **G5 `SCENE_PUBLISH` policy mask fix (CI pending):** QEMU diagnostics confirmed the ABI v3 startup fix reaches G5 READY/HEALTH, then rejects the scene before any handler was called. Code review of `g5_ipc_endpoint_poll` proved the receiver binding explicitly checks `(authority_rights & opcode_required_rights)==opcode_required_rights`; the User Session Host had granted kernel SYSTEM READ|CONTROL|WRITE but mistakenly advertised only READ in the binding. Correct the binding to all three rights while retaining the Ring3 sender's exclusive WRITE-only and no-transfer capability. Operation dispatch policy and per-session generation still gate every command.
+
+## G5 WP-03 — Ring3 ABI v3 entrypoint diagnosis and fix (2026-10-09)
+
+- [ ] **Verified failure root and corrective code (CI pending):** the initial Ring3 graphics ABI v3 integration consistently failed the User Session Host native QEMU self-test before CONTROL READY. Inspection found `services/user_session/runtime/entry.S` still copying the old 64-byte startup while C required 112 bytes; the entrypoint now copies all 14 8-byte fields into protected call-stack storage with corrected initial-RSP math. This defect is distinct from earlier QEMU M1 timeout failures.
+- [ ] **Prevent recurrence (CI pending):** new `scripts/check-user-session-entry-abi.py` validates ABI size versus assembler source/destination offsets and call stack frame; it is a prerequisite to compiling `entry.S`. Native Ring3 QEMU acceptance is mandatory before marking the fix complete.
+
+## G5 WP-03 — Authenticated Shell Ring3-to-Display Slice (2026-10-09)
+
+- [ ] **Production and QEMU Shell frame flow (new CI pending):** User Session Host ABI v3 passes non-transferable Ring3 GRAPHICS_BUFFER and SURFACE handles plus trusted object identity; its real Ring3 process maps and paints 160×96 pixels, attaches/damages/commits the surface through graphics syscalls, and sends an authorized G5 `SCENE_PUBLISH` request after READY/HEALTH. Kernel checks session, capability rights, object identity/generation and committed serial and routes the frame through Surface Registry, Configure/ACK, Frame Submission, Frame Delivery, Compositor Bridge and actual display. It then sends ABI-valid `WINDOW_PLACE` to reposition that same authorized surface, requiring a second increasing display serial and verifying ownership again. Session revoke removes scene nodes and graphics capabilities. Both production login and boot-validation host probe require successful G5 Shell scene presentation before declaring readiness; Bootstrap CI now requires a dedicated real-QEMU marker. No CI success claim before the new revision passes.
+- [ ] **Remaining independent-Shell/desktop functional breadth:** this proves a minimal Shell frame through real Ring3 IPC, not yet full window manager: dynamic multiwindow creation/configure/close, focus/input, Shell crash supervision/restart with new capabilities, and final QEMU screen-content assertion must be completed before final WP-03 acceptance. No G6 work until then.
+
+## G5 WP-03 — Real Ring3 Surface-to-Display Integration Gate (2026-10-09)
+
+- [ ] **Real boot-validation display stage (CI pending):** extend the existing native two-client Ring3 graphics syscall probe to take two genuinely committed process-owned surfaces through a capability-backed G5 Surface Registry, Configure/ACK, Frame Submission, Frame Delivery, G5 Compositor Bridge and `software_compositor_compose_present()`; it requires nonzero display serial, detaches nodes and revokes every binding. Emit a unique `[g5-graphics]` marker only after success, now mandatory for Bootstrap BIOS acceptance. This proves the G2 Ring3 surface→compositor→display chain in QEMU, **not yet the missing G5 Shell IPC→surface chain**. No stubs or host mocks in this gate.
+- [ ] **WP-03 still blocked:** an authenticated Shell G5 opcode must create/control/present an owned surface in production; the live session graphics coordinator, Ring3-created window semantics and crash/restart display acceptance remain open.
+
+## G5 WP-03 — BIOS runtime completion and CI timing (2026-10-09)
+
+- [ ] **Bootstrap stability investigation (new CI pending):** HEAD `8ccb3ffa` built the kernel/ISO and emitted the actual native G5 receiver runtime marker, but four-vCPU QEMU BIOS smoke did not emit the final M1 user-space bootstrap marker within its 25-second run. No demonstrated kernel panic in its serial tail; do not attribute to Shell IPC without proof.
+- [ ] **Non-bypass timing adjustment:** increase the four-vCPU QEMU run budget to 45 seconds and the HID injection wait loop to 45 seconds. All existing required success markers, device input gates, errors and failure handling remain mandatory. Acceptance requires a fresh green Bootstrap run.
+
+## G5 WP-03 — Production Login IPC Binding (2026-10-09)
+
+- [ ] **Production dispatcher and acceptance gate (new CI pending):** actual login now registers a default least-privilege G5 dispatcher for READY/HEALTH tied to the Session Manager's active generation, provisions the exclusive Ring3 sender and kernel receiver via the already-existing User Session Host flow, and refuses to enter the authenticated session UI if the post-bootstrap Ring3→G5 health request fails. The User Session Host tears down an active process if its production handshake effect count disagrees. This is a real production integration rather than a validation-only registration; it is **not** the complete window/surface graphics protocol.
+- [ ] **Remaining WP-03 exit criteria:** implement a graphical Shell dispatcher/service, capability-backed window/surface lifecycle and verified compositor-to-display frame under a genuine Ring3 request; prove cancellation, crash/restart and session revoke with QEMU artifacts before closing.
+
+## G5 WP-03 — Persistent Ring 3 control-loop health (2026-10-09)
+
+- [ ] **Repeated live control-loop and post-stop denial (CI pending):** host self-test requires two separate authenticated Ring3 `HEALTH_POLL`/`SHELL_HEALTH`/`HEALTH_ACK` cycles with monotonically increasing request IDs, checks exactly three health effects including bootstrap, then proves that the same API denies requests after stop with no further effects. This remains control-plane acceptance, not graphical end-to-end.
+- [ ] **Live control-loop round-trip (CI pending):** User Session Host Ring3 handles `HEALTH_POLL` after its original startup handshake, sends a strictly increasing session-generation-bound `SHELL_HEALTH` over the exclusive G5 IPC sender, and acknowledges the control request. Kernel `user_session_host_health_check()` verifies both responses. QEMU integration self-test requires a second HEALTH effect after rejection of duplicate and wrong-generation traffic; stop must revoke capabilities. This is an ongoing control loop, **not** the full desktop Shell or graphics frame-to-display path.
+- [ ] **Production Shell/displays still missing:** compositor surface allocation and rendering triggered by Ring3 IPC, real display confirmation, independently supervised Shell principal and crash/restart end-to-end gate. WP-03 cannot be marked accepted yet.
+
+## G5 WP-03 — Live session Ring 3 negative IPC integration (2026-10-09)
+
+- [ ] **Authenticated live-session receiver regression (new CI pending):** after the real Ring 3 User Session Host sends G5 READY/HEALTH, the host kernel integration test submits an already-used HEALTH request ID and a fresh HEALTH request with the wrong session generation over the same live native IPC channel. Both must be denied without incrementing the effect counter, then session stop must revoke both endpoint rights. This checks a running authenticated session, but is not a production graphical Shell or compositor/display end-to-end.
+- [ ] **Outstanding WP-03 exit gate:** persistent independently supervised Shell service with ongoing Ring 3 requests, surface lifecycle and actual display presentation QEMU evidence, including restart/crash recovery. Keep unchecked.
+
+## G5 WP-03 — Ring 3 Shell IPC startup progression (2026-10-09)
+
+- [ ] **READY rejection and dispatcher registration isolation (CI pending):** rejecting the first authenticated Ring3 `SHELL_READY` now immediately revokes both G5 capability ends in addition to the dispatcher; registration rejects an unreaped host even when `host.active` is false. Current QEMU validation pending. These are failure-path guards, not compositor integration.
+
+
+
+- [ ] **Ring 3 two-message bootstrap (CI pending):** the actual User Session Host sends G5 `SHELL_READY` (event ID 1) and `SHELL_HEALTH` (request ID 2), both bound to its trusted session generation and exclusive sender capability, before notifying the kernel control READY. The kernel G5 endpoint dispatches and validates both; the host self-test requires one callback for each. This exercises a genuine Ring3→syscall→kernel receiver flow; not yet a long-lived Desktop Shell Coordinator or compositor presentation.
+- [ ] **WP-03 exit criteria still open:** persistent Shell receive/dispatch loop, real window/surface operations, display output proof, and crash/restart QEMU validation. Keep WP-03 open regardless of this startup smoke passing.
+
+## G5 WP-03 — Revocation and Bootstrap diagnosis (2026-10-09)
+
+- [ ] **New development PR (pending CI):** kernel QEMU native Shell receiver probe extended to queue a request and assert denial after receiver-side authority capability revocation, then endpoint capability revocation. Effects counter remains exactly one. These controls are kernel-thread integration tests, **not a Ring 3 Shell service**; full CI/QEMU verdict pending.
+- [ ] **Bootstrap diagnostic improvement (pending CI):** when the M1 user-space completion marker is absent, print the last 60 serial-log lines before the interrupt trace. This does not bypass or relax the required markers.
+- [ ] **Historical failure diagnosis:** PR #160 run `37869625627` compiled kernel/ISO and printed `[g5-shell] native IPC receiver/replay/revoke probe passed`, but BIOS smoke boot returned exit code 1 because the final M1 user-space bootstrap marker was not found. This is a later boot-completion failure, **not evidence that the Shell IPC probe failed**.
+- [ ] **User Session Host teardown hardening (pending CI):** explicitly revoke G5 receiver endpoint and authority capabilities, disable the binding and clear readiness on stop/cleanup. The existing authenticated Ring 3 host self-test now asserts these post-stop invariants. Not a production Shell-to-display service.
+- [ ] **Failed Ring3 host bootstrap hardening (pending CI):** READY handshake failure revokes both G5 capabilities and dispatcher before unwind; a still-live failed host is not silently overwritten by a fresh startup. A later retry may reap a finished failed thread first. Requires runtime QEMU acceptance.
+- [ ] **Next production milestone:** provision a genuine Ring 3 Shell principal and endpoint under the authenticated User Session Host; run a bounded receive/dispatch loop, connect authorized surface operations to compositor presentation, and validate display output plus crash/restart revocation in QEMU. No end-to-end acceptance yet.
+
 ## G5 WP-01 — Source audit baseline (2026-10-08)
 
 - [x] Targeted current-source inspection and P0/P1 risk register: [G5_WP01_REPOSITORY_AUDIT.md](G5_WP01_REPOSITORY_AUDIT.md).

@@ -143,6 +143,125 @@ static bool send_g5_ready(uint64_t endpoint,uint64_t generation) {
     return syscall5(AURORA_SYS_IPC_SEND,endpoint,
         (uint64_t)(uintptr_t)wire,sizeof(wire),0u,0u)==0u;
 }
+static bool send_g5_health(uint64_t endpoint,uint64_t generation,
+                           uint64_t request_id) {
+    /* A second authenticated Ring 3 IPC request, checked by kernel dispatch. */
+    uint8_t wire[G5_IPC_WIRE_HEADER_BYTES]={0};
+    wire[0]='G';wire[1]='5';wire[2]='I';wire[3]='P';
+    wire[4]=G5_IPC_WIRE_MAJOR;
+    wire[8]=G5_IPC_WIRE_HEADER_BYTES;
+    wire[10]=G5_IPC_REQUEST;
+    const uint32_t op=G5_OP_SHELL_HEALTH;
+    for(unsigned i=0;i<4u;++i)wire[12u+i]=(uint8_t)(op>>(8u*i));
+    for(unsigned i=0;i<8u;++i)
+        wire[24u+i]=(uint8_t)(request_id>>(8u*i));
+    for(unsigned i=0;i<8u;++i)
+        wire[32u+i]=(uint8_t)(generation>>(8u*i));
+    return syscall5(AURORA_SYS_IPC_SEND,endpoint,
+        (uint64_t)(uintptr_t)wire,sizeof(wire),0u,0u)==0u;
+}
+static uint64_t commit_ring3_shell_surface(
+    const struct aurora_user_session_host_startup *startup,
+    uint64_t *failure_stage
+) {
+    if (failure_stage) *failure_stage=20u;
+    if (startup==NULL || startup->graphics_width==0u ||
+        startup->graphics_height==0u ||
+        startup->graphics_width>8192u || startup->graphics_height>8192u)
+        return 0u;
+    uint64_t address=syscall2(AURORA_SYS_GRAPHICS_BUFFER_MAP,
+                              startup->graphics_buffer,1u);
+    if (address==0u || address==AURORA_SYS_RESULT_ERROR) {
+        if (failure_stage) *failure_stage=21u;
+        return 0u;
+    }
+    /* Ring3 owns the actual pixel writes; only the compositor may present. */
+    volatile uint32_t *pixels=(volatile uint32_t *)(uintptr_t)address;
+    for (uint64_t y=0u;y<startup->graphics_height;++y)
+        for (uint64_t x=0u;x<startup->graphics_width;++x) {
+            uint32_t r=(uint32_t)(30u+(x*100u/startup->graphics_width));
+            uint32_t g=(uint32_t)(48u+(y*110u/startup->graphics_height));
+            pixels[y*startup->graphics_width+x]=
+                UINT32_C(0xff000000)|(r<<16u)|(g<<8u)|UINT32_C(0x9c);
+        }
+    if (syscall1(AURORA_SYS_GRAPHICS_BUFFER_UNMAP,address)!=0u) {
+        if (failure_stage) *failure_stage=22u;
+        return 0u;
+    }
+    if (syscall2(AURORA_SYS_GRAPHICS_SURFACE_ATTACH,
+                 startup->graphics_surface,startup->graphics_buffer)!=0u) {
+        if (failure_stage) *failure_stage=23u;
+        return 0u;
+    }
+    if (syscall5(AURORA_SYS_GRAPHICS_SURFACE_DAMAGE,
+                 startup->graphics_surface,0u,0u,
+                 startup->graphics_width,startup->graphics_height)!=0u) {
+        if (failure_stage) *failure_stage=24u;
+        return 0u;
+    }
+    uint64_t commit=syscall1(AURORA_SYS_GRAPHICS_SURFACE_COMMIT,
+                             startup->graphics_surface);
+    if (commit==0u || commit==AURORA_SYS_RESULT_ERROR) {
+        if (failure_stage) *failure_stage=25u;
+        return 0u;
+    }
+    return commit;
+}
+
+static bool send_g5_scene_publish(
+    uint64_t endpoint,uint64_t generation,uint64_t object_id,
+    uint64_t object_generation,uint64_t commit_serial
+) {
+    if (!endpoint || !generation || !object_id ||
+        !object_generation || !commit_serial)return false;
+    uint8_t wire[G5_IPC_WIRE_HEADER_BYTES+16u]={0};
+    wire[0]='G';wire[1]='5';wire[2]='I';wire[3]='P';
+    wire[4]=G5_IPC_WIRE_MAJOR;
+    wire[8]=G5_IPC_WIRE_HEADER_BYTES;
+    wire[10]=G5_IPC_REQUEST;
+    uint32_t op=G5_OP_SCENE_PUBLISH;
+    for (unsigned i=0u;i<4u;++i)
+        wire[12u+i]=(uint8_t)(op>>(8u*i));
+    wire[20]=16u; /* payload_bytes at v1 byte offset 20; flags remain zero */
+    wire[24]=3u;
+    for (unsigned i=0u;i<8u;++i) {
+        wire[32u+i]=(uint8_t)(generation>>(8u*i));
+        wire[40u+i]=(uint8_t)(object_generation>>(8u*i));
+        wire[48u+i]=(uint8_t)(object_id>>(8u*i));
+        wire[56u+i]=(uint8_t)(commit_serial>>(8u*i));
+    }
+    return syscall5(AURORA_SYS_IPC_SEND,endpoint,
+        (uint64_t)(uintptr_t)wire,sizeof(wire),0u,0u)==0u;
+}
+
+static bool send_g5_window_place(
+    uint64_t endpoint,uint64_t generation,
+    uint64_t object_id,uint64_t object_generation
+) {
+    if (!endpoint || !generation || !object_id || !object_generation)
+        return false;
+    uint8_t wire[G5_IPC_WIRE_HEADER_BYTES+24u]={0};
+    wire[0]='G';wire[1]='5';wire[2]='I';wire[3]='P';
+    wire[4]=G5_IPC_WIRE_MAJOR;
+    wire[8]=G5_IPC_WIRE_HEADER_BYTES;
+    wire[10]=G5_IPC_REQUEST;
+    uint32_t op=G5_OP_WINDOW_PLACE;
+    for (unsigned i=0u;i<4u;++i) wire[12u+i]=(uint8_t)(op>>(8u*i));
+    wire[20]=24u; /* payload_bytes at v1 byte offset 20; flags remain zero */
+    wire[24]=4u; /* monotonic after READY(1), HEALTH(2), PUBLISH(3) */
+    for (unsigned i=0u;i<8u;++i) {
+        wire[32u+i]=(uint8_t)(generation>>(8u*i));
+        wire[40u+i]=(uint8_t)(object_generation>>(8u*i));
+        wire[64u+i]=(uint8_t)(object_id>>(8u*i));
+    }
+    wire[48]=80u; /* position x */
+    wire[52]=72u; /* position y */
+    wire[56]=160u; /* width */
+    wire[60]=96u; /* height */
+    return syscall5(AURORA_SYS_IPC_SEND,endpoint,
+        (uint64_t)(uintptr_t)wire,sizeof(wire),0u,0u)==0u;
+}
+
 static bool wait_message(uint64_t endpoint) {
     return syscall2(AURORA_SYS_IPC_WAIT, endpoint, 0u) == 0u;
 }
@@ -165,6 +284,10 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
     const struct aurora_user_session_host_startup *startup =
         (const struct aurora_user_session_host_startup *)(uintptr_t)(
             initial_rsp - AURORA_USER_SESSION_HOST_STARTUP_STACK_OFFSET);
+    /* The launcher placed startup below the entry RSP. Copy it into this
+     * frame before syscall helpers reuse the stack below the original RSP. */
+    struct aurora_user_session_host_startup owned_startup=*startup;
+    startup=&owned_startup;
 
     if (startup->abi_version != AURORA_USER_SESSION_HOST_ABI_VERSION ||
         startup->flags != 0u ||
@@ -173,11 +296,27 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
           capability_has(startup->g5_endpoint,AURORA_CAP_IPC_ENDPOINT,AURORA_RIGHT_TRANSFER) ||
           capability_has(startup->g5_endpoint,AURORA_CAP_IPC_ENDPOINT,AURORA_RIGHT_READ))) ||
         startup->reserved1 != 0u ||
+        ((startup->g5_endpoint != 0u) &&
+         (startup->graphics_buffer == 0u ||
+          startup->graphics_surface == 0u ||
+          startup->graphics_object_id == 0u ||
+          startup->graphics_object_generation == 0u ||
+          startup->graphics_width != 160u ||
+          startup->graphics_height != 96u ||
+          !capability_has(startup->graphics_buffer,
+               AURORA_CAP_GRAPHICS_BUFFER,
+               AURORA_RIGHT_READ|AURORA_RIGHT_WRITE|AURORA_RIGHT_MAP) ||
+          capability_has(startup->graphics_buffer,
+               AURORA_CAP_GRAPHICS_BUFFER,AURORA_RIGHT_TRANSFER) ||
+          !capability_has(startup->graphics_surface,AURORA_CAP_SURFACE,
+               AURORA_RIGHT_READ|AURORA_RIGHT_WRITE) ||
+          capability_has(startup->graphics_surface,
+               AURORA_CAP_SURFACE,AURORA_RIGHT_TRANSFER))) ||
         startup->control_endpoint == 0u ||
         startup->profile_handle == 0u ||
         startup->session_generation == 0u ||
         !user_id_valid(startup->user_id)) {
-        return 1;
+        return 11;
     }
 
     if (!capability_has(
@@ -202,19 +341,40 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
             startup->profile_handle,
             AURORA_CAP_FILE,
             AURORA_RIGHT_CONTROL)) {
-        return 1;
+        return 12;
     }
 
-    if (startup->g5_endpoint != 0u &&
-        !send_g5_ready(startup->g5_endpoint,startup->session_generation)) return 1;
+    uint64_t shell_commit=0u;
+    if (startup->g5_endpoint != 0u) {
+        uint64_t failure_stage=20u;
+        shell_commit=commit_ring3_shell_surface(startup,&failure_stage);
+        if (!shell_commit)return (int64_t)failure_stage;
+        if (!send_g5_ready(startup->g5_endpoint,startup->session_generation))
+            return 26;
+    }
 
     /* Publish bootstrap proof before READY: the kernel can consume READY
      * immediately without racing a later BOOTSTRAP_SIGNAL syscall. */
     if (syscall1(AURORA_SYS_BOOTSTRAP_SIGNAL,
-                 AURORA_USER_SESSION_HOST_READY_MAGIC) != 0u) return 1;
+                 AURORA_USER_SESSION_HOST_READY_MAGIC) != 0u) return 27;
 
+    /* Queue both G5 messages before publishing control READY, so
+     * kernel admission is deterministic rather than a scheduler race. */
+    if (startup->g5_endpoint != 0u &&
+        !send_g5_health(startup->g5_endpoint,startup->session_generation,2u))
+        return 28;
+    if (startup->g5_endpoint != 0u &&
+        !send_g5_scene_publish(startup->g5_endpoint,
+            startup->session_generation,startup->graphics_object_id,
+            startup->graphics_object_generation,shell_commit))
+        return 29;
+    if (startup->g5_endpoint != 0u &&
+        !send_g5_window_place(startup->g5_endpoint,
+            startup->session_generation,startup->graphics_object_id,
+            startup->graphics_object_generation))
+        return 30;
     if (!send_message(startup->control_endpoint, AURORA_USER_SESSION_HOST_READY, 0u)) {
-        return 1;
+        return 31;
     }
 
     for (;;) {
@@ -234,15 +394,27 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
         clear_bytes(&received, sizeof(received));
 
         if (message.version != AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
-            message.type != AURORA_USER_SESSION_HOST_SHUTDOWN ||
+            (message.type != AURORA_USER_SESSION_HOST_SHUTDOWN &&
+             message.type != AURORA_USER_SESSION_HOST_HEALTH_POLL) ||
             message.request_id == 0u) {
             clear_bytes(&message, sizeof(message));
             return 1;
         }
 
         uint64_t request_id = message.request_id;
+        uint32_t type = message.type;
         clear_bytes(&message, sizeof(message));
-
+        if (type == AURORA_USER_SESSION_HOST_HEALTH_POLL) {
+            if (startup->g5_endpoint == 0u ||
+                request_id == UINT64_MAX ||
+                !send_g5_health(startup->g5_endpoint,
+                                startup->session_generation,request_id))
+                return 1;
+            if (!send_message(startup->control_endpoint,
+                              AURORA_USER_SESSION_HOST_HEALTH_ACK,request_id))
+                return 1;
+            continue;
+        }
         return send_message(
             startup->control_endpoint,
             AURORA_USER_SESSION_HOST_SHUTDOWN_ACK,

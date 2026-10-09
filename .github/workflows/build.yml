@@ -82,7 +82,7 @@ jobs:
 
           (
             injected=0
-            for attempt in $(seq 1 250); do
+            for attempt in $(seq 1 450); do
               if grep -Fq "[xhci] HID interrupt-IN armed" "$SERIAL_LOG" 2>/dev/null; then
                 python3 - "$MONITOR_PORT" <<'PY'
           import socket
@@ -273,7 +273,7 @@ jobs:
           INJECTOR_PID=$!
 
           set +e
-          timeout 25s qemu-system-x86_64 \
+          timeout 45s qemu-system-x86_64 \
             -cpu max \
             -M q35 \
             -m 512M \
@@ -383,10 +383,17 @@ jobs:
           grep -F "[xhci] G4 input transport runtime completion gate passed" "$SERIAL_LOG"
           grep -F "[input] PS/2 mouse IRQ path online" "$SERIAL_LOG"
           grep -F "[g5-shell] native IPC receiver/replay/revoke probe passed" "$SERIAL_LOG"
+          grep -F "[g5-graphics] Ring3 committed surfaces composed and presented to display" "$SERIAL_LOG"
+          grep -F "[g5-shell] authenticated Ring3 SCENE_PUBLISH reached compositor display" "$SERIAL_LOG"
+          grep -F "[g5-wp03] Ring3 Shell crash and reauthentication lifecycle gate passed" "$SERIAL_LOG"
+          grep -F "[g5-wp03] Ring3 Shell clean stop, fresh reauth, forced crash and capability revocation passed" "$SERIAL_LOG"
 
           if ! grep -F \
             "[kernel] M1 user-space bootstrap reached successfully" \
             "$SERIAL_LOG"; then
+            echo "Bootstrap did not reach M1 user-space marker; native G5 Shell IPC probe may have passed independently." >&2
+            echo "===== Last 60 serial lines =====" >&2
+            tail -n 60 "$SERIAL_LOG" >&2 || true
             echo "===== QEMU interrupt/reset trace (tail) =====" >&2
             tail -n 200 "$DEBUG_LOG" >&2 || true
             exit 1
