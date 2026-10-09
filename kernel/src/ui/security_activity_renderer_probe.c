@@ -27,8 +27,14 @@ bool security_activity_renderer_self_test(void) {
 
     if (!security_activity_renderer_validate_framebuffer(&fb)) return false;
 
+    /*
+     * No native asset object is linked in this safety-stage branch. The
+     * primary renderer must therefore detect absent weak asset symbols and
+     * transparently produce the procedural fallback.
+     */
+    security_activity_renderer_reset_native();
     controller.state = AURORA_SECURITY_ACTIVITY_VIEW_EMPTY;
-    security_activity_renderer_draw_fallback(&fb, &controller, &state);
+    security_activity_renderer_draw(&fb, &controller, &state);
 
     uint32_t aggregate = 0u;
     for (size_t i = 0u; i < 64u * 48u; ++i) aggregate |= pixels[i];
@@ -39,7 +45,9 @@ bool security_activity_renderer_self_test(void) {
     controller.page.items[0].sequence = 1u;
     controller.page.items[0].category = AURORA_SECURITY_ACTIVITY_CATEGORY_AUTH;
     controller.page.items[0].severity = AURORA_SECURITY_ACTIVITY_SEVERITY_INFO;
-    security_activity_renderer_draw_fallback(&fb, &controller, &state);
+    security_activity_renderer_draw(&fb, &controller, &state);
 
-    return pixels[0] != 0u;
+    bool ok = pixels[0] != 0u;
+    security_activity_renderer_reset_native();
+    return ok;
 }
