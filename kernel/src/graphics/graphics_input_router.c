@@ -373,6 +373,28 @@ bool graphics_input_sync_window_focus(
     return target_id != 0u;
 }
 
+bool graphics_input_unbind_window_target(
+    struct aurora_graphics_input_router *router,
+    uint64_t target_id
+) {
+    if (router == NULL || !router->initialized ||
+        router->window_policy == NULL) return false;
+    struct aurora_graphics_input_target *target =
+        find_target(router, target_id);
+    if (target == NULL || target->window_id == 0u) return false;
+    if (router->pointer_focus_target == target_id)
+        router->pointer_focus_target = 0u;
+    if (router->keyboard_focus_target == target_id)
+        router->keyboard_focus_target = 0u;
+    if (router->capture_target == target_id)
+        router->capture_target = 0u;
+    /* Old queued key/button events must not survive window re-use. */
+    target->head = 0u;
+    target->tail = 0u;
+    target->window_id = 0u;
+    return true;
+}
+
 bool graphics_input_unregister_target(
     struct aurora_graphics_input_router *router,
     uint64_t target_id
