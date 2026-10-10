@@ -871,6 +871,12 @@ bool window_policy_selftest(void) {
         return false;
     }
     stale_surface.generation++;
+    /* A reused surface pointer cannot mint a second window identity
+     * until the previous slot has been explicitly revoked. */
+    uint64_t aliased_id = 0u;
+    if (window_policy_create_toplevel(&policy, &stale_surface,
+                                      &aliased_id) || aliased_id != 0u)
+        return false;
     uint64_t serial = 0u;
     if (window_policy_configure(&policy, stale_id, 400u, 300u, 0u, &serial) ||
         window_policy_issue_activation_token(&policy, stale_id, 400u, &token) ||
