@@ -555,6 +555,38 @@ bool window_policy_focus_at(
     return true;
 }
 
+bool window_policy_active_committed(
+    const struct aurora_window_policy *policy,
+    uint64_t *out_window_id
+) {
+    if (out_window_id != NULL) *out_window_id = 0u;
+    if (policy == NULL || !policy->initialized || out_window_id == NULL)
+        return false;
+    for (uint32_t i = 0u; i < AURORA_WINDOW_POLICY_MAX_TOPLEVELS; ++i) {
+        const struct aurora_window_toplevel *w = &policy->toplevels[i];
+        if (!w->used || !w->active || !surface_live(w) ||
+            !w->configured ||
+            w->pending_configure.serial == 0u ||
+            w->acked_configure_serial != w->pending_configure.serial ||
+            (w->pending_configure.state_flags &
+             AURORA_WINDOW_STATE_MINIMIZED) != 0u) continue;
+        const struct aurora_graphics_surface_snapshot *frame =
+            &w->surface->committed;
+        if (w->surface->state != AURORA_GRAPHICS_SURFACE_MAPPED ||
+            frame->commit_serial == 0u ||
+            frame->commit_serial <= w->commit_serial_at_ack ||
+            frame->buffer == NULL || frame->buffer->destroy_requested ||
+            (frame->buffer->state != AURORA_GRAPHICS_BUFFER_COMMITTED &&
+             frame->buffer->state != AURORA_GRAPHICS_BUFFER_IN_USE) ||
+            frame->buffer->width != w->pending_configure.width ||
+            frame->buffer->height != w->pending_configure.height)
+            continue;
+        *out_window_id = w->window_id;
+        return true;
+    }
+    return false;
+}
+
 bool window_policy_selftest(void) {
     struct aurora_window_policy policy;
     struct aurora_graphics_surface surface = {
