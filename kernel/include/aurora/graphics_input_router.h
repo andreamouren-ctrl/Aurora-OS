@@ -58,6 +58,12 @@ bool graphics_input_bind_window_target(
 bool graphics_input_sync_window_focus(
     struct aurora_graphics_input_router *router
 );
+/* Removes a window mapping without relying on a stale process endpoint;
+ * all queued input and capture belonging to that target are revoked. */
+bool graphics_input_unbind_window_target(
+    struct aurora_graphics_input_router *router,
+    uint64_t target_id
+);
 
 bool graphics_input_unregister_target(
     struct aurora_graphics_input_router *router,
