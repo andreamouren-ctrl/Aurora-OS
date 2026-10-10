@@ -47,6 +47,12 @@ SECURITY_ACTIVITY_ASSET_OBJ := $(BUILD_DIR)/src/ui/security_activity_asset.o
 COLOR_LUT_TOOL := $(ROOT)/scripts/generate-color-luts.py
 COLOR_LUT_HEADER := include/aurora/color_luts_generated.h
 
+CELESTIA_GENERATOR := $(ROOT)/scripts/generate-celestia-atlas.py
+CELESTIA_FONT_SOURCES := \
+    $(ROOT)/assets/fonts/aurora-celestia/ui/v1.0/AuroraCelestiaUI-Regular.ttf \
+    $(ROOT)/assets/fonts/aurora-celestia/ui/v1.0/AuroraCelestiaUI-Bold.ttf
+CELESTIA_ATLAS_HEADER := include/aurora/celestia_atlas_generated.h
+
 IDENTITY_RUNTIME_DIR := $(ROOT)/services/identity/runtime
 IDENTITY_RUNTIME_BIN := $(ROOT)/build/$(ARCH)/identity-runtime/identity-service.bin
 IDENTITY_RUNTIME_OBJ := $(BUILD_DIR)/identity-service.bin.o
@@ -118,6 +124,13 @@ $(COLOR_LUT_HEADER): $(COLOR_LUT_TOOL)
 	$(PYTHON) "$(COLOR_LUT_TOOL)" --output "$@"
 
 $(BUILD_DIR)/src/graphics/color_management.o: $(COLOR_LUT_HEADER)
+
+$(CELESTIA_ATLAS_HEADER): $(CELESTIA_GENERATOR) $(CELESTIA_FONT_SOURCES)
+	cd "$(ROOT)" && $(PYTHON) scripts/generate-celestia-atlas.py \
+		--fonts assets/fonts/aurora-celestia/ui/v1.0 \
+		--output kernel/include/aurora/celestia_atlas_generated.h
+
+$(BUILD_DIR)/src/ui/system_font.o: $(CELESTIA_ATLAS_HEADER)
 
 $(BOOT_ASSET): $(BOOT_ASSET_SOURCES) $(BOOT_ASSET_TOOL)
 	@test -n "$(BOOT_ASSET_SOURCES)" || (echo "No HD boot asset chunks found" >&2; exit 1)
@@ -193,4 +206,5 @@ clean:
 	$(MAKE) -C "$(USER_SESSION_RUNTIME_DIR)" ARCH=$(ARCH) clean
 	rm -rf "$(ROOT)/build/$(ARCH)/kernel" "$(OUTPUT)" "$(BOOT_ASSET)" \
 		"$(IDENTITY_BACKGROUND)" "$(IDENTITY_MARK)" "$(COLOR_LUT_HEADER)" \
+		"$(CELESTIA_ATLAS_HEADER)" \
 		"$(SECURITY_ACTIVITY_RUNTIME_DIR)"
