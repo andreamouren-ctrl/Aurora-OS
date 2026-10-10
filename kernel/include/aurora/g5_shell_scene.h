@@ -15,6 +15,20 @@
 
 /* Per-authenticated-session scene, owned by the trusted receiver.
  * Ring3 owns only non-transferable buffer and surface capabilities. */
+/* Additional independently owned client sharing the Shell's compositor. */
+struct g5_shell_extra_client {
+    struct aurora_process *owner;
+    struct aurora_graphics_buffer *buffer;
+    struct aurora_graphics_surface *surface;
+    aurora_cap_handle kernel_surface;
+    aurora_cap_handle user_buffer;
+    aurora_cap_handle user_surface;
+    uint64_t window_id;
+    uint64_t configure_serial;
+    uint32_t slot;
+    bool active;
+};
+
 struct g5_shell_scene {
     struct aurora_process *owner;
     struct aurora_graphics_buffer *buffer;
@@ -30,6 +44,7 @@ struct g5_shell_scene {
     struct aurora_window_policy window_policy;
     struct aurora_graphics_input_router input_router;
     uint64_t window_id;
+    struct g5_shell_extra_client extra;
     uint64_t generation;
     uint64_t configure_serial;
     uint64_t last_display_serial;
@@ -47,6 +62,11 @@ bool g5_shell_scene_publish(struct g5_shell_scene *scene,
 bool g5_shell_scene_place(struct g5_shell_scene *scene,
                           const struct g5_ipc_header *header,
                           const uint8_t *payload);
+bool g5_shell_scene_attach_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *second_owner
+);
+void g5_shell_scene_detach_second(struct g5_shell_scene *scene);
 bool g5_shell_scene_close(struct g5_shell_scene *scene,
                           const struct g5_ipc_header *header,
                           const uint8_t *payload);
