@@ -169,7 +169,17 @@ Successful Identity authentication starts the correct persistent user profile wi
 
 ## Phase G — Aurora Identity System App
 
-Status: **Windowing prerequisite WP-04 satisfied; pre-session secure compositor Identity integration still pending**
+Status: **Implementation resumed on current `main`; G0 native typography in progress; pre-session secure compositor Identity integration still pending**
+
+### G0 — Canonical Aurora UI typography
+
+- [x] Original Aurora Celestia UI 1.0 font binaries committed and SHA-256 verified.
+- [x] Official family/style contract and host-generated bitmap atlas pipeline implemented on Identity typography feature branch.
+- [x] Identity login, lock and state text connected to native Celestia drawing with independent bitmap recovery fallback (build/QEMU acceptance pending).
+- [ ] Complete native build, QEMU/login readability acceptance on the feature branch.
+- [ ] Add secure compositor-backed pre-session Identity surface and reusable Ring 3 font service (do not place untrusted font parser inside Ring 0).
+
+G0 changes only presentation. They must not change Aurora Key verification, IPC authority, session grants, rate limiting or the framebuffer recovery trust boundary.
 
 Graphics G1-G4 and G5 WP-03/WP-04 are accepted on `main` (WP-04 merge PR #185, 2026-10-10). Two ordinary Ring 3 clients now have real compositor/window lifecycle and input routing. **This does not itself implement trusted pre-session/lock-screen Identity presentation**: the normal compositor Identity System App requires a dedicated secure pre-session mode, credential-input isolation, policy-driven handoff, and a tested framebuffer recovery fallback. Backend/security work can proceed independently.
 
