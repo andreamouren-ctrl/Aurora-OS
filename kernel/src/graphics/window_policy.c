@@ -761,6 +761,31 @@ bool window_policy_selftest(void) {
         return false;
     }
 
+    /* A previously ACK-configured window is never hittable after its
+     * surface generation changes, even before the policy slot is reaped. */
+    struct aurora_graphics_surface reused_surface = {
+        .generation = 31u,
+        .state = AURORA_GRAPHICS_SURFACE_READY
+    };
+    uint64_t reused_id = 0u;
+    uint64_t reused_serial = 0u;
+    if (!window_policy_create_toplevel(&policy, &reused_surface, &reused_id) ||
+        !window_policy_configure(&policy, reused_id, 100u, 100u, 0u,
+                                 &reused_serial) ||
+        !window_policy_ack_configure(&policy, reused_id, reused_serial) ||
+        !window_policy_place_initial(&policy, reused_id, 100u, 100u,
+                                     &first_place) ||
+        !window_policy_hit_test(&policy, first_place.x, first_place.y, &hit) ||
+        hit != reused_id) {
+        return false;
+    }
+    reused_surface.generation++;
+    if (window_policy_hit_test(&policy, first_place.x, first_place.y, &hit) ||
+        hit != 0u ||
+        !window_policy_destroy_toplevel(&policy, reused_id)) {
+        return false;
+    }
+
     /* Surface teardown revokes all outstanding activation authority. */
     struct aurora_graphics_surface cleanup_surface = {
         .generation = 20u,
