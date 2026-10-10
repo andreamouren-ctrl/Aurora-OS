@@ -758,6 +758,31 @@ bool graphics_input_poll_target(
         }
     }
 
+    /* Queue membership is not sufficient authorization: a key event
+     * must still belong to the current keyboard focus at dequeue time.
+     * Pointer input is likewise bound to the current pointer/capture
+     * target, preventing delivery after another window takes focus. */
+    if (router->window_policy != NULL) {
+        const struct aurora_input_event *pending =
+            &target->queue[target->tail];
+        bool keyboard = pending->type == AURORA_INPUT_EVENT_KEY;
+        bool pointer =
+            pending->type == AURORA_INPUT_EVENT_POINTER_RELATIVE ||
+            pending->type == AURORA_INPUT_EVENT_POINTER_ABSOLUTE ||
+            pending->type == AURORA_INPUT_EVENT_POINTER_BUTTON ||
+            pending->type == AURORA_INPUT_EVENT_SCROLL;
+        if ((keyboard &&
+             router->keyboard_focus_target != target_id) ||
+            (pointer &&
+             router->pointer_focus_target != target_id &&
+             router->capture_target != target_id)) {
+            target->tail =
+                (target->tail + 1u) %
+                AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY;
+            return false;
+        }
+    }
+
     *out_event = target->queue[target->tail];
     target->tail =
         (target->tail + 1u) %
