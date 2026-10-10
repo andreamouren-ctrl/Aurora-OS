@@ -90,6 +90,44 @@ jobs:
           grep -F "[identity-gui] full-quality PNG artwork active" "$SERIAL_LOG"
           grep -F "[g5-wp03] Ring3 Shell clean stop, fresh reauth, forced crash and capability revocation passed" "$SERIAL_LOG"
 
+      - name: Trusted entropy absent must fail closed in validation
+        run: |
+          set -eu
+          SERIAL_LOG=build/qemu-entropy-negative-serial.log
+          rm -f "$SERIAL_LOG"
+
+          # qemu64 intentionally omits RDSEED. This separate negative scenario
+          # must NOT make the authenticated Ring 3 bootstrap appear successful.
+          set +e
+          timeout 18s qemu-system-x86_64 \
+            -M q35 \
+            -cpu qemu64 \
+            -m 512M \
+            -smp 1 \
+            -vga std \
+            -cdrom build/AuroraOS-x86_64.iso \
+            -serial file:"$SERIAL_LOG" \
+            -display none \
+            -no-reboot \
+            -no-shutdown
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -ne 0 ] && [ "$STATUS" -ne 124 ]; then
+            echo "Untrusted-CPU QEMU exited unexpectedly: $STATUS" >&2
+            exit "$STATUS"
+          fi
+
+          grep -F "[ring3-entropy] trusted seed unavailable; capability probe skipped" "$SERIAL_LOG"
+          grep -F "Reason: Ring 3 trusted entropy unavailable in boot validation" "$SERIAL_LOG"
+          if grep -Fq "[ring3-entropy] capability-gated trusted seed syscall probe passed" "$SERIAL_LOG"; then
+            echo "Untrusted CPU illegally passed trusted entropy gate" >&2
+            exit 1
+          fi
+          if grep -Fq "[kernel] M1 user-space bootstrap reached successfully" "$SERIAL_LOG"; then
+            echo "Untrusted CPU illegally passed the full trusted validation boot" >&2
+            exit 1
+          fi
+
       - name: Upload entropy smoke logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -98,3 +136,4 @@ jobs:
           path: |
             build/qemu-entropy-serial.log
             build/qemu-entropy-debug.log
+            build/qemu-entropy-negative-serial.log
