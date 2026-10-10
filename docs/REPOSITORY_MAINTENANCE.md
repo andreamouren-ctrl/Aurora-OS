@@ -38,3 +38,7 @@ On 2026-10-10, root `README.md`, global `docs/ROADMAP.md`, graphics README/imple
 - compositor-backed **pre-session Identity System App and recovery credential/device flows still pending**.
 
 For identity development, review `docs/identity/IMPLEMENTATION_ROADMAP.md` and `docs/identity/SYSTEM_APP_UX.md` before starting a new branch.
+
+## Bootstrap of the cleanup workflow
+
+The workflow was added by [PR #186](https://github.com/andreamouren-ctrl/Aurora-OS/pull/186). GitHub may not execute a newly introduced push workflow for the same merge event that introduces it. A dedicated follow-up push with the narrowly matched `[repo-cleanup]` marker requests the first cleanup run; the report and actual branch inventory remain the authoritative evidence of deletion.
