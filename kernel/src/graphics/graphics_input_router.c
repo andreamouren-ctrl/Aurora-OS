@@ -512,9 +512,20 @@ static uint64_t update_pointer_focus(
         return 0u;
     }
 
-    router->pointer_focus_target =
-        target_for_node(router, node_id);
-    return router->pointer_focus_target;
+    uint64_t selected_target = target_for_node(router, node_id);
+    if (router->window_policy != NULL && selected_target != 0u) {
+        struct aurora_graphics_input_target *target =
+            find_target(router, selected_target);
+        uint64_t selected_window = 0u;
+        if (target == NULL || target->window_id == 0u ||
+            !window_policy_hit_test_committed(
+                router->window_policy, router->pointer_x,
+                router->pointer_y, &selected_window) ||
+            selected_window != target->window_id)
+            selected_target = 0u;
+    }
+    router->pointer_focus_target = selected_target;
+    return selected_target;
 }
 
 bool graphics_input_route_event(
@@ -568,6 +579,8 @@ bool graphics_input_route_event(
     }
 
     if (event->type == AURORA_INPUT_EVENT_KEY) {
+        if (router->window_policy != NULL)
+            (void)graphics_input_sync_window_focus(router);
         if (router->keyboard_focus_target != 0u &&
             !target_node_still_hittable(
                 router,
