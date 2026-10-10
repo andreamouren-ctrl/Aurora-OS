@@ -1205,6 +1205,96 @@ static bool g5_session_test_handle(void *ctx,const struct g5_ipc_header *header,
     return false;
 }
 
+/* Phase-end WP-04 interaction oracle. The surface was committed by
+ * its own Ring3 process; the router never accepts a fabricated window ID. */
+static bool g5_wp04_two_window_interaction_probe(void) {
+    if (!host.scene.active || !host.scene.extra.active ||
+        !host.second_process || !host.second_kernel_endpoint ||
+        !host.scene.input_router.initialized)
+        return false;
+    struct aurora_window_toplevel w={0};
+    if (!window_policy_read_toplevel(&host.scene.window_policy,
+                                     host.scene.extra.window_id,&w) ||
+        w.placement.x<0 || w.placement.y<0)
+        return false;
+    struct aurora_input_event pointer={0};
+    pointer.type=AURORA_INPUT_EVENT_POINTER_ABSOLUTE;
+    pointer.source=AURORA_INPUT_SOURCE_SYNTHETIC;
+    pointer.synthetic=true;
+    pointer.sequence=UINT64_C(1000);
+    pointer.absolute_x=w.placement.x+8;
+    pointer.absolute_y=w.placement.y+8;
+    uint64_t hit=0u,token=0u,focused=0u;
+    struct aurora_graphics_input_router *r=&host.scene.input_router;
+    if (!graphics_input_route_event(r,&pointer) ||
+        !window_policy_hit_test_committed(
+            &host.scene.window_policy,pointer.absolute_x,
+            pointer.absolute_y,&hit) ||
+        hit!=host.scene.extra.window_id ||
+        !window_policy_issue_activation_token(
+            &host.scene.window_policy,hit,pointer.sequence,&token) ||
+        !graphics_input_focus_pointer(
+            r,token,pointer.sequence,&focused) ||
+        focused!=host.scene.extra.window_id)
+        return false;
+    struct aurora_input_event delivered={0};
+    if (!g5_shell_scene_poll_input_second(
+            &host.scene,host.second_process,&delivered) ||
+        delivered.type!=AURORA_INPUT_EVENT_POINTER_ABSOLUTE ||
+        graphics_input_poll_target(r,host.scene.window_id,&delivered))
+        return false;
+    struct aurora_input_event key={0};
+    key.type=AURORA_INPUT_EVENT_KEY;
+    key.source=AURORA_INPUT_SOURCE_SYNTHETIC;
+    key.synthetic=true;
+    key.sequence=UINT64_C(1001);
+    key.key=AURORA_KEY_A;
+    key.pressed=true;
+    if (!graphics_input_route_event(r,&key) ||
+        !g5_shell_scene_poll_input_second(
+            &host.scene,host.second_process,&delivered) ||
+        delivered.type!=AURORA_INPUT_EVENT_KEY ||
+        delivered.key!=AURORA_KEY_A ||
+        graphics_input_poll_target(r,host.scene.window_id,&delivered))
+        return false;
+    /* Send actual client-owned input through the secondary's private IPC.
+     * A following health ACK proves its Ring3 loop consumed the message. */
+    if (!send_client_input(host.second_kernel_endpoint,&key))
+        return false;
+    uint64_t health_id=host.next_request_id++;
+    const struct aurora_user_session_host_message health={
+        .version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+        .type=AURORA_USER_SESSION_HOST_HEALTH_POLL,
+        .request_id=health_id
+    };
+    uint64_t ack=0u;
+    if (!health_id ||
+        !ipc_send(host.second_kernel_endpoint,&host.kernel_caps,
+                  &health,(uint32_t)sizeof(health),NULL,0u) ||
+        !receive_second_event(AURORA_USER_SESSION_HOST_HEALTH_ACK,&ack) ||
+        ack!=health_id)
+        return false;
+    int32_t moved_x=w.placement.x>0?w.placement.x-1:w.placement.x+1;
+    int32_t moved_y=w.placement.y;
+    if (!g5_shell_scene_move_second(
+            &host.scene,host.second_process,moved_x,moved_y) ||
+        !window_policy_read_toplevel(
+            &host.scene.window_policy,host.scene.extra.window_id,&w) ||
+        w.placement.x!=moved_x)
+        return false;
+    if (!g5_shell_scene_close_second(
+            &host.scene,host.second_process))
+        return false;
+    uint64_t display_serial=0u;
+    if (!software_compositor_compose_present(
+            &host.scene.compositor,&display_serial) ||
+        display_serial==0u || !shutdown_second_client() ||
+        !host.scene.active || host.scene.extra.active ||
+        !user_session_host_active())
+        return false;
+    return true;
+}
+
 bool user_session_host_self_test(void) {
     if (host.active || session_profile_lease_active()) return false;
 
@@ -1419,6 +1509,8 @@ bool user_session_host_self_test(void) {
         host.scene.extra.pending_resize_buffer==NULL &&
         host.scene.extra.last_commit_serial>=3u &&
         host.scene.extra.last_display_serial>original_second_serial;
+    bool interaction_verified=resized_roundtrip &&
+        g5_wp04_two_window_interaction_probe();
     bool stopped = user_session_host_active() && user_session_host_stop();
     bool post_stop_denied=stopped && !user_session_host_health_check() &&
         g5_session_health_events==3u &&
@@ -1491,7 +1583,8 @@ bool user_session_host_self_test(void) {
         cap_revoke(&bridge.capabilities, root);
 
     bool accepted=started &&
-        running && stopped && live_health && resized_roundtrip &&
+        running && stopped && live_health &&
+        resized_roundtrip && interaction_verified &&
         post_stop_denied && receiver_revoked &&
         reauthenticated && crashed && crash_revoked &&
         source_revoked && root_revoked &&
@@ -1510,6 +1603,7 @@ bool user_session_host_self_test(void) {
         log_u64(foreign_object_denied);log_write("/");
         log_u64(close_opcode_denied);log_write("/");
         log_u64(resized_roundtrip);log_write("/");
+        log_u64(interaction_verified);log_write("/");
         log_u64(live_health);log_write("/");
         log_u64(stopped);log_write("/");
         log_u64(receiver_revoked);
