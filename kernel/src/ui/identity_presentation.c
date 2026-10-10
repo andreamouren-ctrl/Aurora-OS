@@ -112,6 +112,21 @@ bool identity_presentation_self_test(void) {
     d = identity_presentation_decide(AURORA_SESSION_CLIENT_LOGGING_OUT,false,17u);
     if (d.allow_credential_input || d.allow_desktop_input ||
         !d.allow_login_framebuffer) return false;
+    /* Runtime boot validation must exercise the generation fence too:
+     * two valid desktop sessions must not share their input queue epoch. */
+    struct aurora_identity_presentation_decision first =
+        identity_presentation_decide(AURORA_SESSION_CLIENT_ACTIVE,true,17u);
+    struct aurora_identity_presentation_decision second =
+        identity_presentation_decide(AURORA_SESSION_CLIENT_ACTIVE,true,18u);
+    if (!identity_presentation_same_input_epoch(&first,17u,&first,17u) ||
+        identity_presentation_same_input_epoch(&first,17u,&second,18u))
+        return false;
+    struct aurora_identity_presentation_decision ready =
+        identity_presentation_decide(AURORA_SESSION_CLIENT_READY,false,0u);
+    struct aurora_identity_presentation_decision starting =
+        identity_presentation_decide(AURORA_SESSION_CLIENT_STARTING,false,0u);
+    if (identity_presentation_same_input_epoch(&ready,0u,&starting,0u))
+        return false;
     d = identity_presentation_decide(
         (enum aurora_session_manager_client_state)255, false, 0u);
     return d.domain == AURORA_IDENTITY_PRESENTATION_QUARANTINE &&
