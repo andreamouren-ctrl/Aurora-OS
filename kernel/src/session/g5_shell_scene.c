@@ -167,6 +167,13 @@ bool g5_shell_scene_configure_second(
         scene->extra.pending_resize_buffer != NULL ||
         scene->extra.slot >= G5_SURFACE_REGISTRY_CAPACITY)
         return false;
+    /* Do not overwrite an unacknowledged configure. After ACK, the
+     * client must publish a frame for the current dimensions first. */
+    if (!window_policy_configure_ready(&scene->window_policy,
+                                        scene->extra.window_id,
+                                        scene->extra.width,
+                                        scene->extra.height))
+        return false;
     struct aurora_window_toplevel placement = {0};
     if (!window_policy_read_toplevel(&scene->window_policy,
                                      scene->extra.window_id, &placement) ||
@@ -214,7 +221,10 @@ bool g5_shell_scene_allocate_resize_buffer_second(
         !sender || sender != scene->extra.owner || !out_buffer ||
         scene->extra.pending_resize_buffer != NULL ||
         scene->extra.width == 0u || scene->extra.height == 0u ||
-        scene->extra.slot >= G5_SURFACE_REGISTRY_CAPACITY)
+        scene->extra.slot >= G5_SURFACE_REGISTRY_CAPACITY ||
+        g5_surface_configure_ready(
+            &scene->frame.registry.entries[scene->extra.slot].bridge.configure,
+            &scene->frame.registry.session))
         return false;
     const struct aurora_display_mode *mode = display_mode_at(0u,0u);
     if (!mode || !g5_session_context_authorized(
