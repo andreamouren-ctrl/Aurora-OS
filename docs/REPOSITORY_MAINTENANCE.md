@@ -42,3 +42,7 @@ For identity development, review `docs/identity/IMPLEMENTATION_ROADMAP.md` and `
 ## Bootstrap of the cleanup workflow
 
 The workflow was added by [PR #186](https://github.com/andreamouren-ctrl/Aurora-OS/pull/186). GitHub may not execute a newly introduced push workflow for the same merge event that introduces it. A dedicated follow-up push with the narrowly matched `[repo-cleanup]` marker requests the first cleanup run; the report and actual branch inventory remain the authoritative evidence of deletion.
+
+## Cleanup execution marker
+
+The branch-pruning operation is bound to the explicitly authorized one-time cleanup PR closure event and its merged status. This avoids relying solely on the first push after introducing a new GitHub Actions workflow; deletion is still controlled by the merged-only SHA and open-PR checks documented above.
