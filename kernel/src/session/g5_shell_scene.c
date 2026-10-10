@@ -36,6 +36,15 @@ bool g5_shell_scene_close(struct g5_shell_scene *scene,
 
 void g5_shell_scene_end(struct g5_shell_scene *scene) {
     if (scene==NULL) return;
+    /* Stop input delivery and unregister target before removing the node. */
+    if (scene->input_router.initialized) {
+        graphics_input_revoke_session(&scene->input_router);
+        if (scene->bridge.node_ids[scene->slot < G5_SURFACE_REGISTRY_CAPACITY
+                                   ? scene->slot : 0u] != 0u)
+            (void)graphics_input_unregister_target(&scene->input_router,
+                                                     scene->window_id);
+        scene->input_router.window_policy = NULL;
+    }
     /* Revoke trusted window identity before freeing the backing surface. */
     if (scene->window_id != 0u)
         (void)window_policy_destroy_toplevel(&scene->window_policy,
@@ -139,6 +148,18 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
                                      &initial_placement) ||
         !window_policy_move(&scene->window_policy,scene->window_id,
                             48,48,G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT))
+        goto failure;
+    /* The trusted receiver registers its real compositor node, surface
+     * and window as one input authority. No Ring 3 ID is trusted here. */
+    if (!graphics_input_router_init(&scene->input_router,
+                                    &scene->compositor) ||
+        !graphics_input_register_target(&scene->input_router,
+                                         scene->window_id,node) ||
+        !graphics_input_bind_window_policy(&scene->input_router,
+                                           &scene->window_policy) ||
+        !graphics_input_bind_window_target(&scene->input_router,
+                                           scene->window_id,
+                                           scene->window_id))
         goto failure;
     scene->x=48;
     scene->y=48;
