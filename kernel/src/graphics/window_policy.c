@@ -702,6 +702,17 @@ bool window_policy_selftest(void) {
         return false;
     }
 
+    /* A pending resize must not expose geometry before its exact ACK. */
+    uint64_t pending_resize = 0u;
+    if (!window_policy_configure(&policy, second_window, 300u, 200u,
+                                 AURORA_WINDOW_STATE_NONE, &pending_resize) ||
+        window_policy_hit_test(&policy, 600, 300, &hit) ||
+        !window_policy_ack_configure(&policy, second_window, pending_resize) ||
+        !window_policy_hit_test(&policy, 600, 300, &hit) ||
+        hit != window) {
+        return false;
+    }
+
     /* G5 lifecycle gate: no offscreen move, no stale token after close. */
     if (!window_policy_move(&policy, window, 50, 60, 1024u, 768u) ||
         window_policy_move(&policy, window, -1, 60, 1024u, 768u) ||
