@@ -194,6 +194,7 @@ bool g5_shell_scene_publish_second(
     if (out_display_serial) *out_display_serial = 0u;
     if (!scene || !scene->active || !sender || !out_display_serial ||
         !request_id || !commit_serial || !scene->extra.active ||
+        commit_serial <= scene->extra.last_commit_serial ||
         scene->extra.owner != sender || !scene->extra.surface ||
         scene->extra.slot >= G5_SURFACE_REGISTRY_CAPACITY ||
         !g5_session_context_authorized(&scene->frame.registry.session,
@@ -212,6 +213,7 @@ bool g5_shell_scene_publish_second(
         *out_display_serial <= scene->extra.last_display_serial)
         return false;
     scene->extra.last_display_serial = *out_display_serial;
+    scene->extra.last_commit_serial = commit_serial;
     return true;
 }
 
