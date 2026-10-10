@@ -117,6 +117,8 @@ bool g5_shell_scene_attach_second(struct g5_shell_scene *scene,
         !graphics_input_bind_window_target(&scene->input_router,
                                            e->window_id,e->window_id))
         goto failure;
+    e->width = G5_SHELL_SCENE_WIDTH;
+    e->height = G5_SHELL_SCENE_HEIGHT;
     e->active = true;
     return true;
 failure:
@@ -135,6 +137,66 @@ bool g5_shell_scene_close_second(
         return false;
     g5_shell_scene_detach_second(scene);
     return true;
+}
+
+bool g5_shell_scene_configure_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    uint32_t width, uint32_t height,
+    uint64_t *out_serial
+) {
+    if (out_serial) *out_serial = 0u;
+    if (!scene || !scene->active || !scene->extra.active ||
+        !sender || sender != scene->extra.owner || !out_serial ||
+        width == 0u || height == 0u ||
+        width > scene->window_policy.output_width ||
+        height > scene->window_policy.output_height ||
+        scene->extra.slot >= G5_SURFACE_REGISTRY_CAPACITY)
+        return false;
+    struct g5_surface_bridge *bridge =
+        &scene->frame.registry.entries[scene->extra.slot].bridge;
+    if (!g5_session_context_authorized(&scene->frame.registry.session,
+                                       scene->generation))
+        return false;
+    /* Issue a new Shell policy configure first, invalidating focus and
+     * old presentation. The peer's ACK can only accept current serial. */
+    uint64_t policy_serial = 0u;
+    if (!window_policy_configure(&scene->window_policy,
+                                 scene->extra.window_id,
+                                 width,height,0u,&policy_serial))
+        return false;
+    if (!g5_surface_bridge_configure(bridge,
+                                     &scene->frame.registry.session,
+                                     width,height,out_serial))
+        return false;
+    scene->extra.configure_serial = *out_serial;
+    scene->extra.width = width;
+    scene->extra.height = height;
+    return true;
+}
+
+bool g5_shell_scene_ack_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    uint64_t serial
+) {
+    if (!scene || !scene->active || !scene->extra.active ||
+        !sender || sender != scene->extra.owner ||
+        serial == 0u || serial != scene->extra.configure_serial ||
+        scene->extra.slot >= G5_SURFACE_REGISTRY_CAPACITY)
+        return false;
+    struct g5_surface_bridge *bridge =
+        &scene->frame.registry.entries[scene->extra.slot].bridge;
+    if (!g5_surface_bridge_ack(bridge,
+                              &scene->frame.registry.session,serial))
+        return false;
+    struct aurora_window_toplevel window;
+    if (!window_policy_read_toplevel(&scene->window_policy,
+                                     scene->extra.window_id,&window))
+        return false;
+    return window_policy_ack_configure(&scene->window_policy,
+                                       scene->extra.window_id,
+                                       window.pending_configure.serial);
 }
 
 bool g5_shell_scene_move_second(
