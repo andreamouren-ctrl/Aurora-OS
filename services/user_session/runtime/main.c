@@ -432,6 +432,25 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                               AURORA_USER_SESSION_HOST_RESIZE_ACK,
                               request.configure_serial))
                 return 1;
+            /* Do not publish the replacement surface before the trusted
+             * Window Policy has recorded this ACK. Otherwise scheduling
+             * can race the commit baseline and make the new frame unfocusable. */
+            if (!wait_message(startup->control_endpoint))
+                return 1;
+            struct aurora_sys_ipc_received granted;
+            if (!receive_message(startup->control_endpoint,&granted) ||
+                granted.capability_count!=0u ||
+                granted.length!=
+                    sizeof(struct aurora_user_session_host_message))
+                return 1;
+            struct aurora_user_session_host_message grant;
+            clear_bytes(&grant,sizeof(grant));
+            copy_bytes(&grant,granted.data,sizeof(grant));
+            clear_bytes(&granted,sizeof(granted));
+            if (grant.version!=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
+                grant.type!=AURORA_USER_SESSION_HOST_RESIZE_COMMIT_GRANT ||
+                grant.request_id!=request.configure_serial)
+                return 1;
             struct aurora_user_session_host_startup resized=*startup;
             resized.graphics_buffer=request.graphics_buffer;
             resized.graphics_width=request.width;
