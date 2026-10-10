@@ -343,6 +343,49 @@ bool graphics_input_bind_window_target(
     return true;
 }
 
+bool graphics_input_focus_pointer(
+    struct aurora_graphics_input_router *router,
+    uint64_t activation_token,
+    uint64_t interaction_serial,
+    uint64_t *out_window_id
+) {
+    if (out_window_id != NULL) *out_window_id = 0u;
+    if (router == NULL || !router->initialized ||
+        router->window_policy == NULL || out_window_id == NULL ||
+        activation_token == 0u || interaction_serial == 0u)
+        return false;
+    uint64_t window_id = 0u;
+    uint64_t node_id = 0u;
+    if (!window_policy_hit_test_committed(
+            router->window_policy, router->pointer_x,
+            router->pointer_y, &window_id) ||
+        !software_compositor_hit_test(
+            router->compositor, router->pointer_x,
+            router->pointer_y, &node_id))
+        return false;
+    uint64_t target_id = target_for_node(router, node_id);
+    struct aurora_graphics_input_target *target =
+        find_target(router, target_id);
+    struct aurora_window_toplevel window;
+    if (target == NULL || target->window_id != window_id ||
+        !window_policy_read_toplevel(router->window_policy,
+                                     window_id, &window) ||
+        !target_matches_window_surface(router, target, &window) ||
+        !target_node_still_hittable(router, target_id))
+        return false;
+    uint64_t authorized_id = 0u;
+    if (!window_policy_focus_at(router->window_policy,
+                                router->pointer_x,router->pointer_y,
+                                activation_token,interaction_serial,
+                                &authorized_id) ||
+        authorized_id != window_id)
+        return false;
+    if (!graphics_input_sync_window_focus(router))
+        return false;
+    *out_window_id = window_id;
+    return true;
+}
+
 bool graphics_input_sync_window_focus(
     struct aurora_graphics_input_router *router
 ) {
