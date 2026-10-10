@@ -683,6 +683,25 @@ bool window_policy_selftest(void) {
         return false;
     }
 
+    /* WP-04: unconfigured second client cannot receive a hit. The
+     * configured topmost client wins where their placements overlap. */
+    uint64_t hit = 0u;
+    if (!window_policy_hit_test(&policy, 600, 300, &hit) ||
+        hit != window ||
+        window_policy_hit_test(&policy, -1, 300, &hit) ||
+        hit != 0u ||
+        window_policy_hit_test(&policy, 1919, 1079, &hit)) {
+        return false;
+    }
+    uint64_t second_serial = 0u;
+    if (!window_policy_configure(&policy, second_window, 800u, 600u,
+                                 AURORA_WINDOW_STATE_NONE, &second_serial) ||
+        !window_policy_ack_configure(&policy, second_window, second_serial) ||
+        !window_policy_hit_test(&policy, 600, 300, &hit) ||
+        hit != window) {
+        return false;
+    }
+
     /* G5 lifecycle gate: no offscreen move, no stale token after close. */
     if (!window_policy_move(&policy, window, 50, 60, 1024u, 768u) ||
         window_policy_move(&policy, window, -1, 60, 1024u, 768u) ||
@@ -693,6 +712,17 @@ bool window_policy_selftest(void) {
         window_policy_destroy_toplevel(&policy, window) ||
         window_policy_activate(&policy, window, token, 300u, false) ||
         window_policy_move(&policy, window, 0, 0, 1024u, 768u)) {
+        return false;
+    }
+
+    if (!window_policy_hit_test(&policy, 600, 300, &hit) ||
+        hit != second_window) {
+        return false;
+    }
+    if (!window_policy_configure(&policy, second_window, 800u, 600u,
+                                 AURORA_WINDOW_STATE_MINIMIZED, &second_serial) ||
+        !window_policy_ack_configure(&policy, second_window, second_serial) ||
+        window_policy_hit_test(&policy, 600, 300, &hit)) {
         return false;
     }
 
