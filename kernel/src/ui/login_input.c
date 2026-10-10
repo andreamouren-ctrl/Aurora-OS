@@ -51,8 +51,10 @@ static bool logout_in_progress;
 static bool unlock_failed_notice;
 /* Transitions are also input queue boundaries: events enqueued under an
  * old desktop authority must never become credential keystrokes. */
-static enum aurora_identity_presentation_domain current_input_domain =
-    AURORA_IDENTITY_PRESENTATION_QUARANTINE;
+static struct aurora_identity_presentation_decision current_input_decision = {
+    .domain = AURORA_IDENTITY_PRESENTATION_QUARANTINE
+};
+static uint64_t current_input_generation;
 
 
 static void clear_credential(void) {
@@ -842,9 +844,10 @@ void login_input_init(void) {
         login_ui_set_state(AURORA_LOGIN_ERROR);
     }
 
-    current_input_domain = identity_presentation_decide(
+    current_input_generation = session_manager_client_generation();
+    current_input_decision = identity_presentation_decide(
         session_manager_client_state(), user_session_host_active(),
-        session_manager_client_generation()).domain;
+        current_input_generation);
 
     log_write("[boot] Identity login ready at ");
     log_u64(clock_now_ns() / UINT64_C(1000000));
@@ -855,14 +858,20 @@ void login_input_pump(void) {
     synchronize_identity_state();
 
     struct aurora_input_event event;
+    const uint64_t initial_generation = session_manager_client_generation();
     const struct aurora_identity_presentation_decision initial =
         identity_presentation_decide(
             session_manager_client_state(), user_session_host_active(),
-            session_manager_client_generation());
-    if (initial.domain != current_input_domain) {
-        /* A queued desktop event must never be replayed as an Aurora Key.
-         * Drop the old epoch instead of guessing which process sent it. */
-        current_input_domain = initial.domain;
+            initial_generation);
+    if (!identity_presentation_same_input_epoch(
+            &current_input_decision, current_input_generation,
+            &initial, initial_generation)) {
+        /* Session generations and input permissions, not just the coarse
+         * visual domain, delimit trust epochs. Never carry partial keys or
+         * queued desktop events into the replacement authority. */
+        current_input_decision = initial;
+        current_input_generation = initial_generation;
+        clear_credential();
         while (input_poll_event(&event)) { }
         return;
     }
@@ -872,11 +881,20 @@ void login_input_pump(void) {
          * input domain. No compositor window or client can choose a
          * privileged pre-session/lock recipient. Recompute after every
          * event: a lock key may revoke Ring3 authority mid-queue. */
+        const uint64_t generation = session_manager_client_generation();
         const struct aurora_identity_presentation_decision presentation =
             identity_presentation_decide(
                 session_manager_client_state(),
-                user_session_host_active(),
-                session_manager_client_generation());
+                user_session_host_active(), generation);
+        if (!identity_presentation_same_input_epoch(
+                &current_input_decision, current_input_generation,
+                &presentation, generation)) {
+            current_input_decision = presentation;
+            current_input_generation = generation;
+            clear_credential();
+            while (input_poll_event(&event)) { }
+            return;
+        }
         if (presentation.allow_desktop_input) {
             /* Trusted system shortcuts are consumed before client routing. */
             if (event.type == AURORA_INPUT_EVENT_KEY && event.pressed &&
@@ -886,13 +904,19 @@ void login_input_pump(void) {
                 /* The trusted shortcut may stop the desktop and switch to
                  * the lock domain synchronously. Drain any old queued keys
                  * before accepting a single credential character. */
+                const uint64_t after_generation =
+                    session_manager_client_generation();
                 const struct aurora_identity_presentation_decision after =
                     identity_presentation_decide(
                         session_manager_client_state(),
                         user_session_host_active(),
-                        session_manager_client_generation());
-                if (after.domain != current_input_domain) {
-                    current_input_domain = after.domain;
+                        after_generation);
+                if (!identity_presentation_same_input_epoch(
+                        &current_input_decision, current_input_generation,
+                        &after, after_generation)) {
+                    current_input_decision = after;
+                    current_input_generation = after_generation;
+                    clear_credential();
                     while (input_poll_event(&event)) { }
                     return;
                 }

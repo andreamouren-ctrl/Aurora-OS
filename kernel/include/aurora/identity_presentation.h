@@ -28,6 +28,16 @@ identity_presentation_decide(
     uint64_t session_generation
 );
 
+/* A trusted queue epoch is scoped to the full routing decision AND the
+ * Session Manager generation. Even when both sessions map to DESKTOP,
+ * queued events from an old generation must be discarded. */
+bool identity_presentation_same_input_epoch(
+    const struct aurora_identity_presentation_decision *previous,
+    uint64_t previous_generation,
+    const struct aurora_identity_presentation_decision *current,
+    uint64_t current_generation
+);
+
 /* Pure contract self-test, including forbidden mixed-trust transitions. */
 bool identity_presentation_self_test(void);
 
