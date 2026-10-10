@@ -182,7 +182,7 @@ Status: **G0 official system font and native Identity typography integrated/runt
 
 G0 changes only presentation. They must not change Aurora Key verification, IPC authority, session grants, rate limiting or the framebuffer recovery trust boundary.
 
-### G1 — Trusted presentation handoff and input ownership (under integration)
+### G1 — Trusted presentation handoff and input ownership (merged and QEMU verified, PR #189)
 
 - [x] Introduce a pure trusted decision engine for pre-session, lock, authenticated desktop and quarantine (unknown/inconsistent states fail closed).
 - [x] Gate production input dispatch on Session Manager state, live User Session Host and session generation; re-evaluate on every event so lock/logout revocation is immediate.
@@ -190,7 +190,7 @@ G0 changes only presentation. They must not change Aurora Key verification, IPC 
 - [x] Ensure Identity framebuffer text updates no longer overwrite the active G5 compositor display during the session handoff.
 - [x] Revoke a lingering desktop host before trusted credential UI is shown following an externally initiated lock/logout.
 - [x] Add bounded host test matrix and a QEMU boot-validation policy test.
-- [ ] Verify all tests and QEMU boot/reboot on the PR final HEAD.
+- [x] Verify all five CI workflows and QEMU first boot/cold reboot on accepted source commit `f9aa8de5` (merge `6fdfc1cd`, 2026-10-10).
 - [ ] Build independent compositor-backed PRE_SESSION/LOCK surfaces with dedicated capability authority and zero profile delegation. This remains **not implemented** by G1 handoff policy.
 - [ ] Prove compositor failure/restart and native fallback on real hardware.
 
