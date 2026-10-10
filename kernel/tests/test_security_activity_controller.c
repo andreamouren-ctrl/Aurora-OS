@@ -153,6 +153,17 @@ static void test_unexpected_ready_does_not_reset_client(void) {
     assert(fake_state == AURORA_IDENTITY_CLIENT_READY);
     assert(resets == 0 && discards == 0);
 }
+static void test_ipc_protocol_error_stays_fail_closed(void) {
+    struct aurora_security_activity_controller ctl;
+    setup();
+    security_activity_controller_init(&ctl);
+    assert(security_activity_controller_begin(&ctl));
+    fake_state = AURORA_IDENTITY_CLIENT_ERROR;
+    security_activity_controller_pump(&ctl);
+    assert(ctl.state == AURORA_SECURITY_ACTIVITY_VIEW_ERROR);
+    assert(fake_state == AURORA_IDENTITY_CLIENT_ERROR);
+    assert(resets == 0 && discards == 0);
+}
 int main(void) {
     test_initial_send_failure_recovery();
     test_busy_client_not_reset();
@@ -162,5 +173,6 @@ int main(void) {
     test_failed_page_read_preserves_previous_page();
     test_unexpected_auth_result_is_not_consumed();
     test_unexpected_ready_does_not_reset_client();
+    test_ipc_protocol_error_stays_fail_closed();
     return 0;
 }
