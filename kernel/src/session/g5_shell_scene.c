@@ -145,6 +145,7 @@ bool g5_shell_scene_move_second(
 ) {
     if (!scene || !scene->active || !scene->extra.active ||
         !sender || sender != scene->extra.owner ||
+        scene->extra.last_display_serial == 0u ||
         scene->extra.slot >= G5_SURFACE_REGISTRY_CAPACITY ||
         !g5_session_context_authorized(&scene->frame.registry.session,
                                        scene->generation))
@@ -205,8 +206,13 @@ bool g5_shell_scene_publish_second(
                                      request_id,&config) ||
         config != scene->extra.configure_serial)
         return false;
-    return g5_compositor_bridge_present(&scene->bridge,scene->extra.slot,
-                                         request_id,config,out_display_serial);
+    if (!g5_compositor_bridge_present(&scene->bridge,scene->extra.slot,
+                                       request_id,config,out_display_serial) ||
+        *out_display_serial == 0u ||
+        *out_display_serial <= scene->extra.last_display_serial)
+        return false;
+    scene->extra.last_display_serial = *out_display_serial;
+    return true;
 }
 
 bool g5_shell_scene_close(struct g5_shell_scene *scene,
