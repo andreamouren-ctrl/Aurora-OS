@@ -928,11 +928,15 @@ bool window_policy_selftest(void) {
         !window_policy_focus_at(&policy, input_place.x, input_place.y,
                                 focus_token, 510u, &selected) ||
         selected != input_id ||
+        !window_policy_active_committed(&policy, &selected) ||
+        selected != input_id ||
         window_policy_focus_at(&policy, input_place.x, input_place.y,
                                focus_token, 510u, &selected))
         return false;
 
     input_surface.generation++;
+    if (window_policy_active_committed(&policy, &selected) ||
+        selected != 0u) return false;
     if (window_policy_hit_test_committed(&policy, input_place.x,
                                          input_place.y, &hit)) return false;
 
