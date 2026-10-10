@@ -1104,7 +1104,7 @@ bool user_session_host_route_input(const struct aurora_input_event *event) {
      * the owning process. */
     if (event->type==AURORA_INPUT_EVENT_POINTER_BUTTON &&
         event->button==AURORA_POINTER_BUTTON_RIGHT && event->pressed &&
-        !event->synthetic && host.scene.extra.active) {
+        !event->synthetic) {
         uint64_t hit=0u;
         struct aurora_graphics_input_router *router=&host.scene.input_router;
         if (window_policy_hit_test_committed(
@@ -1116,6 +1116,13 @@ bool user_session_host_route_input(const struct aurora_input_event *event) {
             uint32_t new_height=host.scene.extra.height==G5_SHELL_SCENE_HEIGHT
                 ? 120u : G5_SHELL_SCENE_HEIGHT;
             if (!resize_second_client(new_width,new_height))
+                return false;
+        } else if (hit==host.scene.window_id) {
+            uint32_t new_width=host.scene.width==G5_SHELL_SCENE_WIDTH
+                ? 192u : G5_SHELL_SCENE_WIDTH;
+            uint32_t new_height=host.scene.height==G5_SHELL_SCENE_HEIGHT
+                ? 120u : G5_SHELL_SCENE_HEIGHT;
+            if (!resize_primary_client(new_width,new_height))
                 return false;
         }
     }
