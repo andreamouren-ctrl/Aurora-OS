@@ -18,6 +18,11 @@ static uint64_t read_u64_le(const uint8_t *p) {
 
 void g5_shell_scene_end(struct g5_shell_scene *scene) {
     if (scene==NULL) return;
+    /* Revoke trusted window identity before freeing the backing surface. */
+    if (scene->window_id != 0u)
+        (void)window_policy_destroy_toplevel(&scene->window_policy,
+                                             scene->window_id);
+    window_policy_reset(&scene->window_policy);
     /* Detach the compositor before invalidating the buffer capability. */
     g5_compositor_bridge_revoke(&scene->bridge);
     g5_frame_delivery_revoke(&scene->delivery);
@@ -92,6 +97,21 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
     uint64_t node=0u;
     if (!g5_compositor_bridge_attach(
             &scene->bridge,scene->slot,48,48,0,&node) || node==0u)
+        goto failure;
+    /* The Ring 3 surface is now also tracked by the trusted WP-04 policy.
+     * This preserves the existing verified WP-03 scene/display flow. */
+    uint64_t policy_serial = 0u;
+    if (!window_policy_init(&scene->window_policy,
+                            (uint32_t)mode->width,
+                            (uint32_t)mode->height) ||
+        !window_policy_create_toplevel(&scene->window_policy,
+                                       scene->surface,&scene->window_id) ||
+        !window_policy_configure(&scene->window_policy,
+                                 scene->window_id,
+                                 G5_SHELL_SCENE_WIDTH,
+                                 G5_SHELL_SCENE_HEIGHT,0u,&policy_serial) ||
+        !window_policy_ack_configure(&scene->window_policy,
+                                     scene->window_id,policy_serial))
         goto failure;
     scene->x=48;
     scene->y=48;
@@ -170,6 +190,16 @@ bool g5_shell_scene_place(struct g5_shell_scene *scene,
             &scene->frame.registry.session,scene->generation))
         return false;
     int32_t old_x=scene->x,old_y=scene->y;
+    if (!window_policy_configure_ready(&scene->window_policy,
+                                        scene->window_id,
+                                        G5_SHELL_SCENE_WIDTH,
+                                        G5_SHELL_SCENE_HEIGHT) ||
+        x < 0 || y < 0 ||
+        (uint64_t)(uint32_t)x + G5_SHELL_SCENE_WIDTH >
+            scene->window_policy.output_width ||
+        (uint64_t)(uint32_t)y + G5_SHELL_SCENE_HEIGHT >
+            scene->window_policy.output_height)
+        return false;
     if (!software_compositor_set_node(
             &scene->compositor,node,x,y,0,255u,true))
         return false;
@@ -179,6 +209,12 @@ bool g5_shell_scene_place(struct g5_shell_scene *scene,
         serial<=scene->last_display_serial) {
         (void)software_compositor_set_node(
             &scene->compositor,node,old_x,old_y,0,255u,true);
+        return false;
+    }
+    if (!window_policy_move(&scene->window_policy,scene->window_id,
+                            x,y,G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT)) {
+        (void)software_compositor_set_node(&scene->compositor,node,
+                                           old_x,old_y,0,255u,true);
         return false;
     }
     scene->x=x;
