@@ -612,6 +612,28 @@ bool g5_shell_scene_publish(struct g5_shell_scene *scene,
     return true;
 }
 
+bool g5_shell_scene_move_primary(struct g5_shell_scene *scene,
+                                 int32_t x,int32_t y) {
+    if (!scene || !scene->active || !scene->surface ||
+        scene->generation==0u) return false;
+    struct g5_ipc_header request = {0};
+    request.kind=G5_IPC_REQUEST;
+    request.operation=G5_OP_WINDOW_PLACE;
+    request.payload_bytes=24u;
+    request.session_generation=scene->generation;
+    request.object_generation=scene->surface->generation;
+    uint8_t payload[24]={0};
+    uint32_t fields[4]={(uint32_t)x,(uint32_t)y,
+                        G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT};
+    for (uint32_t field=0u;field<4u;++field)
+        for (uint32_t byte=0u;byte<4u;++byte)
+            payload[field*4u+byte]=(uint8_t)(fields[field]>>(8u*byte));
+    for (uint32_t byte=0u;byte<8u;++byte)
+        payload[16u+byte]=(uint8_t)(
+            scene->surface->object_id>>(8u*byte));
+    return g5_shell_scene_place(scene,&request,payload);
+}
+
 bool g5_shell_scene_place(struct g5_shell_scene *scene,
                           const struct g5_ipc_header *header,
                           const uint8_t *payload) {
