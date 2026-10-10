@@ -8,6 +8,7 @@
 #include <aurora/graphics_ring3_probe.h>
 #include <aurora/identity_auth_probe.h>
 #include <aurora/identity_client.h>
+#include <aurora/identity_presentation.h>
 #include <aurora/identity_create_probe.h>
 #include <aurora/identity_session_grant_probe.h>
 #include <aurora/identity_reauth_probe.h>
@@ -101,13 +102,16 @@ static void synchronize_identity_state(void) {
             log_line("[user-session] Ring 3 host and G5 IPC health operational");
         }
 
+        /* The compositor is already presenting the desktop here.
+         * Transfer visual ownership before clearing credential UI state:
+         * any intermediate text redraw must not overwrite Ring3 pixels. */
+        login_ui_set_state(AURORA_LOGIN_SESSION_ACTIVE);
         clear_credential();
         create_offer_active = false;
         create_entry_mode = false;
         creation_notice_active = false;
         logout_in_progress = false;
         unlock_failed_notice = false;
-        login_ui_set_state(AURORA_LOGIN_SESSION_ACTIVE);
         if (!session_active_announced) {
             session_active_announced = true;
             log_write("[session-manager] authenticated session active; generation ");
@@ -814,26 +818,28 @@ void login_input_pump(void) {
     struct aurora_input_event event;
 
     while (input_poll_event(&event)) {
-        /* Once logged in, pointer and ordinary keyboard input belong to
-         * G5's focused Ring3 window, never the credential/login editor.
-         * Enter and Escape remain trusted Shell lock/logout shortcuts. */
-        if (session_manager_client_state()==AURORA_SESSION_CLIENT_ACTIVE &&
-            user_session_host_active()) {
-            if (event.type==AURORA_INPUT_EVENT_KEY &&
-                event.pressed &&
-                (event.key==AURORA_KEY_ENTER ||
-                 event.key==AURORA_KEY_ESCAPE)) {
+        /* Only Session Manager state and the trusted host determine the
+         * input domain. No compositor window or client can choose a
+         * privileged pre-session/lock recipient. Recompute after every
+         * event: a lock key may revoke Ring3 authority mid-queue. */
+        const struct aurora_identity_presentation_decision presentation =
+            identity_presentation_decide(
+                session_manager_client_state(),
+                user_session_host_active(),
+                session_manager_client_generation());
+        if (presentation.allow_desktop_input) {
+            /* Trusted system shortcuts are consumed before client routing. */
+            if (event.type == AURORA_INPUT_EVENT_KEY && event.pressed &&
+                (event.key == AURORA_KEY_ENTER ||
+                 event.key == AURORA_KEY_ESCAPE))
                 handle_pressed_key(event.key);
-            } else {
+            else
                 (void)user_session_host_route_input(&event);
-            }
             continue;
         }
-        if (event.type != AURORA_INPUT_EVENT_KEY ||
-            !event.pressed) {
+        if (!presentation.allow_credential_input ||
+            event.type != AURORA_INPUT_EVENT_KEY || !event.pressed)
             continue;
-        }
-
         handle_pressed_key(event.key);
     }
 }
