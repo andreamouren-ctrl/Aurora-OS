@@ -26,6 +26,7 @@ struct g5_shell_extra_client {
     uint64_t window_id;
     uint64_t configure_serial;
     uint64_t last_display_serial;
+    uint64_t last_commit_serial;
     uint32_t slot;
     bool active;
 };
