@@ -4,6 +4,16 @@ on:
   workflow_dispatch:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'kernel/**'
+      - 'services/**'
+      - 'scripts/**'
+      - 'linker/**'
+      - 'Makefile'
+      - 'limine.conf'
+      - '.github/workflows/nvme-probe.yml'
 
 jobs:
   nvme-probe-x86_64:
