@@ -631,7 +631,11 @@ bool user_session_host_health_check(void) {
         return false;
     enum g5_ipc_status health=G5_IPC_DENIED;
     if (!g5_ipc_endpoint_poll(&host.g5_binding,&health) ||
-        health!=G5_IPC_OK || !host.second_process ||
+        health!=G5_IPC_OK)
+        return false;
+    if (!host.scene.extra.active && host.second_process==NULL)
+        return true; /* User closed the secondary window normally. */
+    if (!host.scene.extra.active || !host.second_process ||
         !host.second_kernel_endpoint)
         return false;
     uint64_t second_id=host.next_request_id++;
@@ -820,10 +824,12 @@ bool user_session_host_active(void) {
         host.thread != 0u &&
         process_state(host.process) == AURORA_PROCESS_RUNNING &&
         (!host.g5_ready ||
-         (host.second_process != NULL &&
+         (host.scene.extra.active &&
+          host.second_process != NULL &&
           host.second_thread != 0u &&
-          process_state(host.second_process)==AURORA_PROCESS_RUNNING &&
-          host.scene.extra.active));
+          process_state(host.second_process)==AURORA_PROCESS_RUNNING) ||
+         (!host.scene.extra.active && host.second_process==NULL &&
+          host.second_thread==0u));
 }
 
 /* Deliver only dequeued, policy-authorized events through the corresponding
@@ -913,7 +919,6 @@ static bool resize_second_client(uint32_t width,uint32_t height) {
 bool user_session_host_route_input(const struct aurora_input_event *event) {
     if (!event || !user_session_host_active() || !host.scene.active ||
         !host.scene.input_router.initialized ||
-        !host.second_process || !host.second_kernel_endpoint ||
         session_manager_client_state()!=AURORA_SESSION_CLIENT_ACTIVE)
         return false;
     if (!g5_shell_scene_route_input(&host.scene,event)) return false;
@@ -1016,7 +1021,11 @@ bool user_session_host_route_input(const struct aurora_input_event *event) {
         if (!send_client_input(host.kernel_endpoint,&queued))
             delivered=false;
     }
-    for (uint32_t i=0u;i<AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY;++i) {
+    for (uint32_t i=0u;
+         host.scene.extra.active &&
+         host.second_process!=NULL &&
+         host.second_kernel_endpoint!=NULL &&
+         i<AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY;++i) {
         if (!g5_shell_scene_poll_input_second(
                  &host.scene,host.second_process,&queued))
             break;
