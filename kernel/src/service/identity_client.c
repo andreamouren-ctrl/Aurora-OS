@@ -732,8 +732,10 @@ void identity_client_pump(void) {
         client_state = AURORA_IDENTITY_CLIENT_ERROR;
         clear_bytes(&received, sizeof(received));
         if (abandoned_activity_read) {
+            /* Unexpected capability or reply shape: remain fail-closed.
+             * Another response may still be queued for the old request. */
             abandoned_activity_read = false;
-            identity_client_reset_result();
+            current_request_id = 0u;
         }
         return;
     }
@@ -847,8 +849,8 @@ void identity_client_pump(void) {
             current_request_id = 0u;
             client_state = AURORA_IDENTITY_CLIENT_ERROR;
             if (abandoned_activity_read) {
+                /* Request-id mismatch must not make the client READY. */
                 abandoned_activity_read = false;
-                identity_client_reset_result();
             }
             return;
         }
@@ -905,7 +907,7 @@ void identity_client_pump(void) {
     client_state = AURORA_IDENTITY_CLIENT_ERROR;
     if (abandoned_activity_read) {
         abandoned_activity_read = false;
-        identity_client_reset_result();
+        current_request_id = 0u;
     }
 }
 
