@@ -7,6 +7,7 @@
 #include <aurora/g5_ipc_abi.h>
 #include <aurora/graphics_buffer.h>
 #include <aurora/process.h>
+#include <aurora/window_policy.h>
 
 #define G5_SHELL_SCENE_WIDTH 160u
 #define G5_SHELL_SCENE_HEIGHT 96u
@@ -25,6 +26,8 @@ struct g5_shell_scene {
     struct g5_frame_delivery delivery;
     struct g5_compositor_bridge bridge;
     struct aurora_software_compositor compositor;
+    struct aurora_window_policy window_policy;
+    uint64_t window_id;
     uint64_t generation;
     uint64_t configure_serial;
     uint64_t last_display_serial;
