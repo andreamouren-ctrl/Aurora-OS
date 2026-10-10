@@ -544,14 +544,27 @@ static uint64_t update_pointer_focus(
     struct aurora_graphics_input_router *router
 ) {
     if (router->capture_target != 0u) {
-        if (target_node_still_hittable(
-                router,
-                router->capture_target)) {
-            router->pointer_focus_target =
-                router->capture_target;
+        bool valid = target_node_still_hittable(
+            router, router->capture_target);
+        if (valid && router->window_policy != NULL) {
+            struct aurora_graphics_input_target *t =
+                find_target(router, router->capture_target);
+            struct aurora_window_toplevel w;
+            valid = t != NULL && t->window_id != 0u &&
+                window_policy_read_toplevel(router->window_policy,
+                                            t->window_id, &w) &&
+                target_matches_window_surface(router, t, &w) &&
+                w.surface->committed.buffer != NULL &&
+                w.surface->committed.commit_serial > w.commit_serial_at_ack &&
+                window_policy_configure_ready(
+                    router->window_policy, t->window_id,
+                    (uint32_t)w.surface->committed.buffer->width,
+                    (uint32_t)w.surface->committed.buffer->height);
+        }
+        if (valid) {
+            router->pointer_focus_target = router->capture_target;
             return router->capture_target;
         }
-
         router->capture_target = 0u;
     }
 
