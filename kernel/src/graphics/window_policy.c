@@ -460,6 +460,42 @@ bool window_policy_read_toplevel(
     return true;
 }
 
+bool window_policy_hit_test(
+    const struct aurora_window_policy *policy,
+    int32_t x,
+    int32_t y,
+    uint64_t *out_window_id
+) {
+    if (out_window_id != NULL) *out_window_id = 0u;
+    if (policy == NULL || !policy->initialized || out_window_id == NULL ||
+        x < 0 || y < 0 ||
+        (uint32_t)x >= policy->output_width ||
+        (uint32_t)y >= policy->output_height) return false;
+
+    int32_t top_z = INT32_MIN;
+    uint64_t top_id = 0u;
+    for (uint32_t i = 0u; i < AURORA_WINDOW_POLICY_MAX_TOPLEVELS; ++i) {
+        const struct aurora_window_toplevel *w = &policy->toplevels[i];
+        if (!w->used || !surface_live(w) || !w->configured ||
+            (w->pending_configure.state_flags &
+             AURORA_WINDOW_STATE_MINIMIZED) != 0u ||
+            w->acked_configure_serial != w->pending_configure.serial ||
+            w->pending_configure.serial == 0u) continue;
+        const int64_t dx = (int64_t)x - w->placement.x;
+        const int64_t dy = (int64_t)y - w->placement.y;
+        if (dx < 0 || dy < 0 ||
+            (uint64_t)dx >= w->pending_configure.width ||
+            (uint64_t)dy >= w->pending_configure.height) continue;
+        if (top_id == 0u || w->placement.z > top_z) {
+            top_z = w->placement.z;
+            top_id = w->window_id;
+        }
+    }
+    if (top_id == 0u) return false;
+    *out_window_id = top_id;
+    return true;
+}
+
 bool window_policy_selftest(void) {
     struct aurora_window_policy policy;
     struct aurora_graphics_surface surface = {
