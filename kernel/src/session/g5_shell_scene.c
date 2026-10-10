@@ -455,6 +455,9 @@ void g5_shell_scene_end(struct g5_shell_scene *scene) {
         (void)graphics_surface_detach_buffers(
             &scene->kernel_caps,scene->kernel_surface);
     if (scene->owner!=NULL) {
+        if (scene->pending_resize_handle!=AURORA_CAP_INVALID)
+            (void)cap_revoke(&scene->owner->capabilities,
+                             scene->pending_resize_handle);
         if (scene->user_surface!=AURORA_CAP_INVALID)
             (void)cap_revoke(&scene->owner->capabilities,scene->user_surface);
         if (scene->user_buffer!=AURORA_CAP_INVALID)
@@ -465,6 +468,10 @@ void g5_shell_scene_end(struct g5_shell_scene *scene) {
     if (scene->surface!=NULL)
         (void)graphics_surface_release_owner(
             scene->surface,scene->surface->generation);
+    if (scene->pending_resize_buffer!=NULL)
+        (void)graphics_buffer_release_owner(
+            scene->pending_resize_buffer,
+            scene->pending_resize_buffer->generation);
     if (scene->buffer!=NULL)
         (void)graphics_buffer_release_owner(
             scene->buffer,scene->buffer->generation);
@@ -484,6 +491,9 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
     scene->slot=UINT32_MAX;
     scene->owner=owner;
     scene->generation=generation;
+    scene->width=G5_SHELL_SCENE_WIDTH;
+    scene->height=G5_SHELL_SCENE_HEIGHT;
+    scene->pending_resize_handle=AURORA_CAP_INVALID;
     cap_table_init(&scene->kernel_caps);
     scene->buffer=graphics_buffer_create(
         G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT,&mode->format);
