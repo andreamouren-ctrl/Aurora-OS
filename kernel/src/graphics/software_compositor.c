@@ -262,7 +262,12 @@ static bool node_allowed_in_scene(
         return false;
     }
 
-    if (!compositor->secure_scene_active) return true;
+    /* PRE_SESSION surfaces are privileged precisely because they can host
+     * credential UI. They must never remain visible or hit-testable after
+     * transition to the ordinary desktop, even if a trusted host was slow
+     * to remove a node. Full-screen damage on mode change erases pixels. */
+    if (!compositor->secure_scene_active)
+        return node->surface_class != AURORA_COMPOSITOR_SURFACE_PRE_SESSION;
 
     return node_is_secure(node) ||
         node->surface_class == AURORA_COMPOSITOR_SURFACE_CURSOR;
@@ -2447,12 +2452,21 @@ static bool software_compositor_advanced_selftest(void) {
             secure_surface,
             AURORA_COMPOSITOR_SURFACE_PRE_SESSION,
             40, 2, 100, 255u,
-            &secure_node) ||
+            &secure_node)) {
+        return false;
+    }
+    /* A trusted PRE_SESSION node must not enter hit-testing or the ordinary
+     * desktop before the privileged scene activation is authorized. */
+    uint64_t secure_hit = 0u;
+    if (software_compositor_hit_test(&compositor, 40, 2, &secure_hit) ||
+        secure_hit != 0u ||
         !software_compositor_set_secure_scene(
             &compositor,
             &authority_caps,
             display_control,
-            true)) {
+            true) ||
+        !software_compositor_hit_test(&compositor, 40, 2, &secure_hit) ||
+        secure_hit != secure_node) {
         return false;
     }
 
@@ -2488,7 +2502,15 @@ static bool software_compositor_advanced_selftest(void) {
         !pixel_rgb_equals(
             backbuffer_pixel(&compositor.backbuffer, 2u, 2u),
             &mode->format,
-            0u, 255u, 0u)) {
+            0u, 255u, 0u) ||
+        !pixel_rgb_equals(
+            backbuffer_pixel(&compositor.backbuffer, 40u, 2u),
+            &mode->format,
+            0u, 0u, 0u) ||
+        software_compositor_hit_test(&compositor, 40, 2, &secure_hit) ||
+        secure_hit != 0u) {
+        /* PRE_SESSION content must not leave stale pixels or retain input
+         * hit-test access after returning to the ordinary desktop. */
         return false;
     }
 
