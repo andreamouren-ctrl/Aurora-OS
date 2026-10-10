@@ -19,6 +19,8 @@
 struct g5_shell_extra_client {
     struct aurora_process *owner;
     struct aurora_graphics_buffer *buffer;
+    struct aurora_graphics_buffer *pending_resize_buffer;
+    aurora_cap_handle pending_resize_handle;
     struct aurora_graphics_surface *surface;
     aurora_cap_handle kernel_surface;
     aurora_cap_handle user_buffer;
@@ -84,6 +86,13 @@ bool g5_shell_scene_configure_second(
     struct aurora_process *sender,
     uint32_t width, uint32_t height,
     uint64_t *out_serial
+);
+/* Allocate a size-matched replacement buffer with owner-only mapping
+ * rights. It remains pending until the owner's matching frame is presented. */
+bool g5_shell_scene_allocate_resize_buffer_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    aurora_cap_handle *out_buffer
 );
 bool g5_shell_scene_ack_second(
     struct g5_shell_scene *scene,
