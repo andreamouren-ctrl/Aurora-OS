@@ -5,6 +5,25 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+## G5 WP-04 — Two independent Ring 3 window clients (2026-10-10)
+
+**Status: END-OF-PHASE ACCEPTANCE IN PROGRESS.** Implementation is on draft [PR #185](https://github.com/andreamouren-ctrl/Aurora-OS/pull/185) (branch `feature/g5-wp04-window-hit-test-20261010`). The narrower WP-04 scope is real multi-client window lifecycle and input, **not** the later Living Canvas/camera UX (WP-05+). No merge to `main` is authorized by this status entry.
+
+**Implemented contracts and production paths:**
+
+- Two distinct executable Ring 3 address spaces/threads with separately granted graphics buffer, surface and private control IPC capability, committing their own different-color frames into a single G5 compositor; the primary Shell retains trusted placement authority.
+- Bounded Window Policy create/configure/ACK/commit eligibility, compositor-backed z-order hit test, surface-generation/ownership checks, per-interaction token activation, focus, pointer capture, keyboard/pointer queue and IPC routing, revocation on resize/close.
+- Interactive pointer control: left-click activates/drags either committed window within the output, right-click resizes either window through configure/ACK and a freshly mapped Ring 3 graphics buffer/commit, middle-click closes only the second window; primary close is authenticated through G5 WINDOW_CLOSE.
+- Crash/logout teardown revokes graphical/input capability ownership before process reap. Primary/secondary replacement buffer promotion occurs only after successful compositor presentation.
+- **Resize ordering invariant:** kernel must accept G5 configure + Window Policy ACK before giving Ring 3 a `RESIZE_COMMIT_GRANT`. Client cannot commit the new surface until it receives the matching grant; this prevents a new frame being mistaken for an old pre-ACK commit.
+
+**Reproducible end-of-phase evidence and oracle:**
+
+1. On commit `8c9bc12f15bba0ae98b16f71b259670f24f9e8b5`, all five PR workflows succeeded: x86-64 Bootstrap Build, G5 IPC QEMU Cold Boot Recovery, Ring 3 Identity Entropy Handoff, Entropy Source Policy and G5 WP-04 Window Policy Host Tests. Earlier failing QEMU diagnostics showed the ACK race directly (`commit_serial_at_ack == committed.commit_serial == 26`).
+2. `user_session_host_self_test()` runs two real process startups, two Ring 3 resize/ACK/buffer round-trips **per client**, post-resize window hit test, one-shot focus, per-owner pointer/keyboard input delivery, secondary move/close, primary survival, crash/reauth and capability revocation.
+3. `.github/workflows/g5-ipc-qemu.yml` now requires explicit `[g5-wp04]` dual-client and `[g5-wp04-interaction]` two-way input/move/close markers in **both** first boot and reboot against the same disk image, in addition to unchanged WP-03 gates.
+4. **Closure condition:** the latest commit (including the extended primary-focus/input oracle) must pass every required CI workflow, especially QEMU first boot and cold reboot. Do not mark accepted/frozen or merge until this latest-HEAD gate is green.
+
 ## G5 WP-03 — Frozen verified baseline (2026-10-09)
 
 **Status: FROZEN / ACCEPTED within the WP-03 Shell bootstrap and lifecycle scope.** GitHub Actions commit `096464c83aa76b3b4c91ddd4fddf5c1676f61c6f` completed four of four workflows successfully: Aurora OS Bootstrap Build, G5 IPC QEMU Cold Boot Recovery, Aurora Identity Entropy Handoff, and Aurora Entropy Source Policy. Bootstrap/Identity enforce the dedicated Ring3 Shell crash-and-reauthentication lifecycle marker, in addition to the real Ring3 G5 IPC-to-compositor/display marker. No test gate was weakened to declare acceptance.
