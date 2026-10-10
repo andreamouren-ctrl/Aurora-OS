@@ -27,6 +27,8 @@ struct g5_shell_extra_client {
     uint64_t configure_serial;
     uint64_t last_display_serial;
     uint64_t last_commit_serial;
+    uint32_t width;
+    uint32_t height;
     uint32_t slot;
     bool active;
 };
@@ -74,6 +76,19 @@ void g5_shell_scene_detach_second(struct g5_shell_scene *scene);
 bool g5_shell_scene_close_second(
     struct g5_shell_scene *scene,
     struct aurora_process *sender
+);
+/* Start a resize handshake; owner must ACK and commit a matching new
+ * graphics buffer before the next frame can be presented. */
+bool g5_shell_scene_configure_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    uint32_t width, uint32_t height,
+    uint64_t *out_serial
+);
+bool g5_shell_scene_ack_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    uint64_t serial
 );
 bool g5_shell_scene_move_second(
     struct g5_shell_scene *scene,
