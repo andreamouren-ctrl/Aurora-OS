@@ -22,15 +22,10 @@ static bool begin_read(
 
     /* A rejected request must not destroy a previously displayed page.
      * The shared Identity client may be occupied by authentication. */
-    enum aurora_identity_client_state initial_state = identity_client_state();
     if (!identity_client_begin_security_activity_read(before_sequence)) {
         controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
-        /* Recover only an error produced by this attempted read.
-         * Do not clear another operation's pending or terminal result. */
-        if (initial_state == AURORA_IDENTITY_CLIENT_READY &&
-            identity_client_state() == AURORA_IDENTITY_CLIENT_ERROR) {
-            identity_client_reset_result();
-        }
+        /* An IPC send failure may have left a reply outstanding.
+         * Never reopen the shared client by resetting a transport ERROR. */
         return false;
     }
 
@@ -92,11 +87,8 @@ void security_activity_controller_pump(
 
         if (!identity_client_begin_security_activity_read(controller->cursor)) {
             controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
-            /* A transport/send failure may leave the client in ERROR.
-             * Do not reset READY or any unrelated auth/reauth result. */
-            if (identity_client_state() == AURORA_IDENTITY_CLIENT_ERROR) {
-                identity_client_reset_result();
-            }
+            /* A continuation send failure must remain fail-closed.
+             * Only the Identity supervisor may decide when to recover. */
         }
         return;
     }
