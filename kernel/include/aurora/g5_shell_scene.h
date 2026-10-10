@@ -65,6 +65,10 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
 bool g5_shell_scene_publish(struct g5_shell_scene *scene,
                             const struct g5_ipc_header *header,
                             const uint8_t *payload);
+/* Trusted Shell pointer-drag path reuses the same window placement checks
+ * as the authenticated G5_OP_WINDOW_PLACE receiver. */
+bool g5_shell_scene_move_primary(struct g5_shell_scene *scene,
+                                 int32_t x,int32_t y);
 bool g5_shell_scene_place(struct g5_shell_scene *scene,
                           const struct g5_ipc_header *header,
                           const uint8_t *payload);
