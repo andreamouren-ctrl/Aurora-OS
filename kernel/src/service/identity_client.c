@@ -693,6 +693,12 @@ void identity_client_pump(void) {
     }
 
     if (identity_supervisor.state != AURORA_SERVICE_SUPERVISOR_RUNNING) {
+        /* A service outage invalidates an abandoned activity request.
+         * Do not retain its ownership across supervisor generations. */
+        if (abandoned_activity_read) {
+            abandoned_activity_read = false;
+            current_request_id = 0u;
+        }
         clear_bytes(pending_session_grant, sizeof(pending_session_grant));
         clear_bytes(pending_reauth_proof, sizeof(pending_reauth_proof));
         pending_reauth_purpose = 0u;
