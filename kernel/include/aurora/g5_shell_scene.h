@@ -69,6 +69,12 @@ bool g5_shell_scene_attach_second(
 void g5_shell_scene_detach_second(struct g5_shell_scene *scene);
 /* Trusted per-client receiver must authenticate process ownership before
  * calling this; it is not a globally exposed Ring 3 IPC dispatcher. */
+bool g5_shell_scene_move_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    int32_t x,
+    int32_t y
+);
 bool g5_shell_scene_publish_second(
     struct g5_shell_scene *scene,
     struct aurora_process *sender,
