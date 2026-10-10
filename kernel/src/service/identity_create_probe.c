@@ -12,11 +12,7 @@
 #include <aurora/scheduler.h>
 #include <aurora/service_bootstrap.h>
 
-/* This is a boot-validation liveness bound, not a production auth policy.
- * In single-vCPU QEMU TCG with both SATA and NVMe attached, the cancel reply
- * can queue behind a bounded Argon2id create operation. Preserve a deadline
- * while allowing that CPU/disk-contended service execution to finish. */
-#define IDENTITY_CREATE_PROBE_TIMEOUT_NS 10000000000ull
+#define IDENTITY_CREATE_PROBE_TIMEOUT_NS 2000000000ull
 
 static uint64_t identity_create_probe_authority;
 
