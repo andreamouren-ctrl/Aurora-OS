@@ -77,6 +77,8 @@ The desktop/session host does not receive the Aurora Key or verifier material.
 
 ### Graphics and input
 
+**Aurora Celestia UI 1.0** is the official Aurora OS user-interface typeface (Regular, Medium, SemiBold and Bold). The verified release resides under `assets/fonts/aurora-celestia/ui/v1.0/`. Initial integration compiles the verified TTF glyphs into a bounded native Identity login atlas; early-boot/recovery typography stays independent. Full compositor/Ring 3 font service integration remains planned.
+
 M4 graphics is now active implementation, not design-only.
 
 - **G1 Display foundation — complete/runtime verified**
