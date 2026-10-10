@@ -25,6 +25,7 @@ struct g5_shell_extra_client {
     aurora_cap_handle user_surface;
     uint64_t window_id;
     uint64_t configure_serial;
+    uint64_t last_display_serial;
     uint32_t slot;
     bool active;
 };
