@@ -362,6 +362,7 @@ bool window_policy_place_initial(
         policy->next_z = 1;
     }
 
+    window->placed = true;
     window->placement = (struct aurora_window_placement){
         .x = (int32_t)x,
         .y = (int32_t)y,
@@ -383,6 +384,7 @@ bool window_policy_move(
     struct aurora_window_toplevel *window =
         find_toplevel(policy, window_id);
     if (window == NULL ||
+        !window->placed ||
         window->surface == NULL ||
         window->surface->generation != window->surface_generation ||
         window->surface->destroy_requested ||
@@ -492,7 +494,7 @@ static bool hit_test_impl(
     uint64_t top_id = 0u;
     for (uint32_t i = 0u; i < AURORA_WINDOW_POLICY_MAX_TOPLEVELS; ++i) {
         const struct aurora_window_toplevel *w = &policy->toplevels[i];
-        if (!w->used || !surface_live(w) || !w->configured ||
+        if (!w->used || !w->placed || !surface_live(w) || !w->configured ||
             (w->pending_configure.state_flags &
              AURORA_WINDOW_STATE_MINIMIZED) != 0u ||
             w->acked_configure_serial != w->pending_configure.serial ||
