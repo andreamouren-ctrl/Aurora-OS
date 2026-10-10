@@ -402,7 +402,8 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
             clear_bytes(&received, sizeof(received));
             return 1;
         }
-        if (secondary && received.length ==
+        if ((secondary || startup->g5_endpoint != 0u) &&
+            received.length ==
             sizeof(struct aurora_user_session_host_resize_message)) {
             struct aurora_user_session_host_resize_message request;
             clear_bytes(&request,sizeof(request));
