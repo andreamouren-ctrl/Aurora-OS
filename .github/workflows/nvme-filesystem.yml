@@ -119,7 +119,7 @@ jobs:
           set +e
           # BOOT_VALIDATION=1 must exercise the trusted RDSEED security gate.
           # Use the validated Identity entropy QEMU CPU profile; never bypass this check.
-          timeout 25s qemu-system-x86_64 \
+          timeout 90s qemu-system-x86_64 \
             -M q35 \
             -cpu max \
             -m 512M \
@@ -162,6 +162,7 @@ jobs:
           grep -F "[exfat] external file read verified" "$SERIAL_LOG"
           grep -F "[vfs] exFAT mounted-path routing verified" "$SERIAL_LOG"
           grep -F "[storage] NVMe partition/filesystem/VFS traversal completed" "$SERIAL_LOG"
+          grep -F "[ring3-entropy] capability-gated trusted seed syscall probe passed" "$SERIAL_LOG"
           grep -F "[kernel] M1 user-space bootstrap reached successfully" "$SERIAL_LOG"
 
       - name: Upload NVMe filesystem logs
