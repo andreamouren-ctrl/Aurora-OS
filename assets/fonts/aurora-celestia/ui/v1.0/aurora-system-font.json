@@ -1,0 +1,51 @@
+{
+  "schema": "aurora.os.system-font.v1",
+  "id": "aurora-celestia-ui",
+  "family": "Aurora Celestia UI",
+  "version": "1.0.0",
+  "role": "system-ui-default",
+  "default_weight": 400,
+  "weights": [
+    {
+      "weight": 400,
+      "style": "Regular",
+      "ttf": "AuroraCelestiaUI-Regular.ttf",
+      "otf": "AuroraCelestiaUI-Regular.otf",
+      "woff2": "AuroraCelestiaUI-Regular.woff2",
+      "sha256_ttf": "4637123e5ac90e21e9b16efc0ec8c6ee3a75d17727f33305137e3539b54eee59"
+    },
+    {
+      "weight": 500,
+      "style": "Medium",
+      "ttf": "AuroraCelestiaUI-Medium.ttf",
+      "otf": "AuroraCelestiaUI-Medium.otf",
+      "woff2": "AuroraCelestiaUI-Medium.woff2",
+      "sha256_ttf": "607f4061ffc148ac949faa4739bae53f0ec0ed298adac7827fa5c951ead23092"
+    },
+    {
+      "weight": 600,
+      "style": "SemiBold",
+      "ttf": "AuroraCelestiaUI-SemiBold.ttf",
+      "otf": "AuroraCelestiaUI-SemiBold.otf",
+      "woff2": "AuroraCelestiaUI-SemiBold.woff2",
+      "sha256_ttf": "22eb223074e1a98393c94526b76d1dcd4f46b8eec4fb4d1e530fc05c5caaec2e"
+    },
+    {
+      "weight": 700,
+      "style": "Bold",
+      "ttf": "AuroraCelestiaUI-Bold.ttf",
+      "otf": "AuroraCelestiaUI-Bold.otf",
+      "woff2": "AuroraCelestiaUI-Bold.woff2",
+      "sha256_ttf": "f9a1855012a8e5c36d4522aa4e99ee1f8eb1ad565d35287e903d60f9a42a399c"
+    }
+  ],
+  "target_locales": [
+    "it-IT",
+    "fr-FR",
+    "en-US"
+  ],
+  "coverage_claim": "802 mapped Unicode codepoints in the source font release, not the restricted native bootstrap atlas",
+  "fallback": "built-in-bitmap-for-recovery; future-font-fallback-chain-for-other-scripts",
+  "native_login": "regular18-bold30-buildtime-atlas",
+  "redistribution": "internal-only-pending-owner-license-approval"
+}

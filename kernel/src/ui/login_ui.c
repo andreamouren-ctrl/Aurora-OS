@@ -4,6 +4,7 @@
 #include <aurora/framebuffer.h>
 #include <aurora/identity_graphics.h>
 #include <aurora/login_ui.h>
+#include <aurora/system_font.h>
 
 #define LOGIN_FONT_WIDTH  5u
 #define LOGIN_FONT_HEIGHT 7u
@@ -97,6 +98,13 @@ static uint64_t login_text_width(
     if (text == NULL || scale == 0u) {
         return 0;
     }
+    if (aurora_system_font_ready()) {
+        enum aurora_system_font_weight weight = scale >= 3u
+            ? AURORA_SYSTEM_FONT_BOLD : AURORA_SYSTEM_FONT_REGULAR;
+        uint32_t font_scale = scale >= 4u ? 2u :
+                              scale >= 3u ? 1u : scale;
+        return aurora_system_font_text_width(text, weight, font_scale);
+    }
 
     while (text[count] != '\0') {
         ++count;
@@ -147,6 +155,15 @@ static void login_draw_text(
     uint32_t color
 ) {
     if (text == NULL || scale == 0u) {
+        return;
+    }
+    if (aurora_system_font_ready()) {
+        enum aurora_system_font_weight weight = scale >= 3u
+            ? AURORA_SYSTEM_FONT_BOLD : AURORA_SYSTEM_FONT_REGULAR;
+        uint32_t font_scale = scale >= 4u ? 2u :
+                              scale >= 3u ? 1u : scale;
+        aurora_system_font_draw_text(&login_fb, x, y, text,
+                                      weight, font_scale, color);
         return;
     }
 
@@ -597,7 +614,9 @@ void login_ui_render(void) {
 
     if (masked_key_length == 0u) {
         login_draw_text_centered(
-            field_y + (field_height - LOGIN_FONT_HEIGHT * text_scale) / 2u,
+            field_y + (field_height -
+                (aurora_system_font_ready() ? 18u : LOGIN_FONT_HEIGHT)
+                    * text_scale) / 2u,
             "AURORA KEY",
             text_scale,
             muted
