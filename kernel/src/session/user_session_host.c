@@ -119,6 +119,42 @@ static bool receive_expected(
     return false;
 }
 
+/* The secondary IPC endpoint is exclusively granted to a distinct Ring3
+ * process. Never accept a frame receipt from the primary Shell channel. */
+static bool receive_second_event(uint32_t type, uint64_t *out_request) {
+    if (out_request) *out_request = 0u;
+    if (host.second_kernel_endpoint == NULL || out_request == NULL)
+        return false;
+    uint64_t deadline = clock_now_ns() + USER_SESSION_HOST_TIMEOUT_NS;
+    while (clock_now_ns() < deadline) {
+        struct aurora_ipc_received received;
+        clear_bytes(&received,sizeof(received));
+        if (ipc_receive(host.second_kernel_endpoint,
+                        &host.kernel_caps,&received)) {
+            struct aurora_user_session_host_message expected = {
+                .version = AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+                .type = type
+            };
+            if (received.capability_count != 0u ||
+                received.length != sizeof(expected))
+                return false;
+            struct aurora_user_session_host_message incoming;
+            clear_bytes(&incoming,sizeof(incoming));
+            copy_bytes(&incoming,received.data,sizeof(incoming));
+            if (incoming.version != expected.version ||
+                incoming.type != expected.type)
+                return false;
+            *out_request = incoming.request_id;
+            return true;
+        }
+        if (host.second_thread != 0u &&
+            scheduler_thread_finished(host.second_thread))
+            return false;
+        arch_idle();
+    }
+    return false;
+}
+
 static void revoke_g5_sender(void) {
     if (host.process != NULL &&
         host.g5_sender_handle != AURORA_CAP_INVALID) {
