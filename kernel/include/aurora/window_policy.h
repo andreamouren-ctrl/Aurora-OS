@@ -40,6 +40,7 @@ struct aurora_window_toplevel {
     uint64_t commit_serial_at_ack;
     struct aurora_window_placement placement;
     bool configured;
+    bool placed;
     bool active;
     bool used;
 };
