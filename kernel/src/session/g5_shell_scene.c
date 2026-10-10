@@ -495,6 +495,7 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
     scene->height=G5_SHELL_SCENE_HEIGHT;
     scene->pending_resize_handle=AURORA_CAP_INVALID;
     cap_table_init(&scene->kernel_caps);
+    log_line("[g5-wp04-gate] begin scene surface allocation");
     scene->buffer=graphics_buffer_create(
         G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT,&mode->format);
     scene->surface=graphics_surface_create();
@@ -525,10 +526,12 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
         !g5_compositor_bridge_bind(
             &scene->bridge,&scene->delivery,&scene->compositor))
         goto failure;
+    log_line("[g5-wp04-gate] scene bridge and compositor initialized");
     uint64_t node=0u;
     if (!g5_compositor_bridge_attach(
             &scene->bridge,scene->slot,48,48,0,&node) || node==0u)
         goto failure;
+    log_line("[g5-wp04-gate] scene compositor node attached");
     /* The Ring 3 surface is now also tracked by the trusted WP-04 policy.
      * This preserves the existing verified WP-03 scene/display flow. */
     uint64_t policy_serial = 0u;
@@ -553,6 +556,7 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
         !window_policy_move(&scene->window_policy,scene->window_id,
                             48,48,G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT))
         goto failure;
+    log_line("[g5-wp04-gate] scene window policy registered");
     /* The trusted receiver registers its real compositor node, surface
      * and window as one input authority. No Ring 3 ID is trusted here. */
     if (!graphics_input_router_init(&scene->input_router,
@@ -565,11 +569,13 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
                                            scene->window_id,
                                            scene->window_id))
         goto failure;
+    log_line("[g5-wp04-gate] scene input router registered");
     scene->x=48;
     scene->y=48;
     scene->active=true;
     return true;
 failure:
+    log_line("[g5-wp04-gate] scene initialization failed; revoking");
     g5_shell_scene_end(scene);
     return false;
 }
