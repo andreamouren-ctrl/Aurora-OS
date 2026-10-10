@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'kernel/src/service/security_activity_controller.c'
+      - 'kernel/src/service/identity_client.c'
+      - 'kernel/tests/test_identity_client_ipc.c'
       - 'kernel/src/service/security_activity_model.c'
       - 'kernel/include/aurora/identity_client.h'
       - 'kernel/include/aurora/security_activity_*.h'
@@ -12,6 +14,8 @@ on:
   push:
     paths:
       - 'kernel/src/service/security_activity_controller.c'
+      - 'kernel/src/service/identity_client.c'
+      - 'kernel/tests/test_identity_client_ipc.c'
       - 'kernel/src/service/security_activity_model.c'
       - 'kernel/include/aurora/identity_client.h'
       - 'kernel/include/aurora/security_activity_*.h'
@@ -36,3 +40,10 @@ jobs:
             -o /tmp/aurora-security-activity-controller-test
       - name: Exercise controller failure and cursor scenarios
         run: /tmp/aurora-security-activity-controller-test
+      - name: Build production Identity client fault-injection regression
+        run: |
+          cc -std=c11 -O1 -Wall -Wextra -Werror -ffunction-sections -fdata-sections -Ikernel/include \
+            kernel/tests/test_identity_client_ipc.c -Wl,--gc-sections \
+            -o /tmp/aurora-identity-ipc-test
+      - name: Exercise production IPC parser error and ownership scenarios
+        run: /tmp/aurora-identity-ipc-test
