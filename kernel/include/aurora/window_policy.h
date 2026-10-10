@@ -188,6 +188,13 @@ bool window_policy_focus_at(
     uint64_t *out_window_id
 );
 
+/* Read-only keyboard focus query. Never expose a stale or not-yet
+ * committed window to the input router after resize or revocation. */
+bool window_policy_active_committed(
+    const struct aurora_window_policy *policy,
+    uint64_t *out_window_id
+);
+
 bool window_policy_selftest(void);
 
 #endif
