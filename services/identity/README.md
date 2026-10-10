@@ -89,7 +89,7 @@ The persistent backend stores `failed_attempts` but **does not serialize `thrott
 
 The crypto foundation provides SHA-256, HMAC-SHA256, a constant-time comparison helper, HMAC-DRBG, and the isolated Argon2id verifier provider.
 
-Aurora OS now also has a kernel entropy seed foundation that qualifies RDSEED with startup/continuous health checks and fails closed when a trusted seed source is unavailable. The Identity service still needs its future Ring 3 handoff and reseed lifecycle before live production use.
+Aurora OS now also has a kernel entropy seed foundation that qualifies RDSEED with startup/continuous health checks and fails closed when a trusted seed source is unavailable. The live kernel-to-Ring 3 entropy handoff, HMAC-DRBG initialization and service authority are now integrated. Hardware/VM entropy trust qualification, production-grade reseed policy and broad device coverage still require additional review.
 
 The provider derives the Aurora Key lookup tag as a domain-separated HMAC-SHA256 value under a dedicated protected lookup key. A copied identity database therefore does not expose the plain deterministic hash oracle that the original design explicitly prohibited.
 
@@ -116,7 +116,7 @@ The root secret derives the persistent lookup key as:
 HMAC-SHA256(machine_root_secret, "AURORA.IDENTITY.LOOKUP-KEY.V1")
 ```
 
-The POSIX adapter validates create-once durability, owner-only permissions, close/reopen stability, and replica recovery. It is not the final Aurora Protected System State adapter and does not claim hardware sealing or offline-disk confidentiality.
+The POSIX adapter validates create-once durability, owner-only permissions, close/reopen stability, and replica recovery. The runtime has a separate Aurora-native Protected System State adapter; the POSIX adapter remains a host-test provider. Neither provides hardware sealing or offline-disk confidentiality by itself.
 
 See `docs/identity/MACHINE_SECRET_PROVISIONING.md`.
 
@@ -128,7 +128,7 @@ The deterministic test inputs/providers under `tests/` are validation-only. They
 
 `machine_secret_posix.c` proves create-once machine-secret publication with owner-only files, file `fsync`, atomic no-clobber publication, and directory `fsync`.
 
-Neither POSIX adapter is the final AuroraFS protected-system-state adapter.
+The live Ring 3 service uses separate Aurora-native Protected System State adapters. These POSIX adapters remain portable host-test/durability references.
 
 Tests cover, among other cases:
 
@@ -149,24 +149,24 @@ Tests cover, among other cases:
 - fail-closed handling when no valid machine-secret replica remains;
 - RNG failure leaving machine-secret state unprovisioned.
 
-## Not implemented yet
+## Remaining limitations (current main, 2026-10-10)
 
-This layer still deliberately does not provide:
+The core and live Ring 3 Identity Service, capability-authorized IPC, persistent Aurora-native Protected System State adapters, entropy handoff, session-grant consumption, Session Manager/profile bootstrap, login and logout/lock/unlock are **implemented**. These should not be listed as future work.
 
-- Ring 3 handoff from the kernel entropy seed service into the Identity DRBG lifecycle;
-- calibrated production Argon2id creation parameters for Aurora hardware classes;
-- Aurora-native Protected System State adapter for the machine secret and Identity database;
-- capability-authorized machine-secret access restricted to the Identity Service;
-- hardware sealing/encrypted-at-rest protection against an offline raw-disk attacker;
-- safe machine-root-secret rotation/migration;
-- Ring 3 Aurora Identity Service lifecycle;
-- capability-authorized Identity IPC transport;
-- production Session Manager/profile bootstrap;
-- recovery credentials and Identity Drive integration;
-- live login integration;
-- graphical System App UI.
+Production gaps remain:
 
-The existing framebuffer login remains a bootstrap/recovery prototype and must not claim production authentication.
+- compositor-hosted **trusted pre-session and lock** Identity System App: today the credential UI still uses its independent direct-framebuffer path;
+- account/profile/security management UI, including integrating purpose-bound re-authentication in every sensitive management action;
+- full local recovery credentials, forced post-recovery key rotation and recovery UI;
+- removable-media event/USB mass-storage stack and Aurora Identity Drive;
+- secure hardware authenticators and TPM/hardware-backed machine-secret sealing; the current software machine secret is not protected against a capable offline disk attacker;
+- audited machine-root-secret rotation and migration;
+- Argon2id calibration across supported hardware classes and broader independent crypto/security review;
+- security activity System App, cryptographic audit-record authenticity, trusted wall-clock/boot-epoch semantics and broader incident testing;
+- robust production font/shaping and compositor migration while keeping an independent recovery font;
+- fuzzing, power-failure injection, real-hardware tests, visual accessibility tests and complete security certification.
+
+Do not infer production security or general-purpose OS readiness from successful host or QEMU tests.
 
 ## Build and test
 
@@ -190,14 +190,10 @@ make -C services/identity test
 
 Aurora-owned host code is compiled as strict C11 with warning-as-error flags. The pinned Argon2 reference source is built separately with `ARGON2_NO_THREADS` for the isolated validation path.
 
-## Integration gate
+## Runtime integration and release gate
 
-The isolated Identity implementation should only be connected to the real Aurora OS login path after at least:
+The foundational protected AuroraFS/Protected System State authority, Ring 3 service lifecycle, entropy handoff, credential persistence, Argon2id verifier, Session Manager and non-replayable grants are already part of the live OS. Build and boot probes verify a bounded subset of their behavior.
 
-1. a protected service-owned AuroraFS system-state namespace/capability exists;
-2. the Ring 3 Identity Service can obtain seed material through a capability-authorized entropy handoff and run the DRBG reseed lifecycle;
-3. the machine root secret is provisioned through an Aurora-native protected-state adapter;
-4. Argon2id parameters are calibrated for Aurora hardware targets and bound into production policy;
-5. the Identity database uses the Aurora-native durable adapter;
-6. the Ring 3 Identity Service lifecycle and capability-authorized IPC transport exist;
-7. the Session Manager can consume non-replayable session grants and bootstrap the correct profile/session context.
+**Current runtime boundary:** the normal credential presentation remains framebuffer-based, independent of the G5 compositor. The Phase G1 presentation/input-ownership policy was merged in PR #189; it is *not* a compositor-hosted Identity System App.
+
+**Before production release:** complete and independently verify the remaining security and recovery capabilities enumerated above; require CI success on the exact release commit (including storage/QEMU/Identity workflows), negative-failure/replay tests and real-hardware certification. In particular, do not weaken the trusted-entropy gate merely to pass a QEMU storage smoke run.
