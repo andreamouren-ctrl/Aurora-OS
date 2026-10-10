@@ -24,6 +24,12 @@
 struct user_session_host_runtime {
     struct aurora_process *process;
     aurora_thread_id thread;
+    /* Second Ring3 process, exclusive control endpoint and graphics owner. */
+    struct aurora_process *second_process;
+    aurora_thread_id second_thread;
+    struct aurora_ipc_channel second_channel;
+    struct aurora_ipc_endpoint *second_kernel_endpoint;
+    aurora_cap_handle second_control_handle;
     struct aurora_ipc_channel channel;
     struct aurora_cap_table kernel_caps;
     struct aurora_ipc_endpoint *kernel_endpoint;
@@ -165,6 +171,7 @@ static void cleanup_finished_host(void) {
 
     host.kernel_endpoint = NULL;
     host.control_handle = AURORA_CAP_INVALID;
+    host.second_control_handle = AURORA_CAP_INVALID;
     host.profile_handle = AURORA_CAP_INVALID;
     host.active = false;
     host.g5_ready = false;
