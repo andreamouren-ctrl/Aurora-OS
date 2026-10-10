@@ -396,9 +396,30 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
 
         struct aurora_sys_ipc_received received;
         if (!receive_message(startup->control_endpoint, &received) ||
-            received.capability_count != 0u ||
-            received.length != sizeof(struct aurora_user_session_host_message)) {
+            received.capability_count != 0u) {
             clear_bytes(&received, sizeof(received));
+            return 1;
+        }
+        if (received.length ==
+            sizeof(struct aurora_user_session_host_input_message)) {
+            struct aurora_user_session_host_input_message input;
+            clear_bytes(&input,sizeof(input));
+            copy_bytes(&input,received.data,sizeof(input));
+            clear_bytes(&received,sizeof(received));
+            if (input.header.version !=
+                    AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
+                input.header.type != AURORA_USER_SESSION_HOST_INPUT_EVENT ||
+                input.header.request_id == 0u ||
+                input.event.type <= AURORA_INPUT_EVENT_NONE ||
+                input.event.type > AURORA_INPUT_EVENT_SCROLL)
+                return 1;
+            /* This independent Ring3 client has consumed its own input.
+             * No reply is sent into the health/control response queue. */
+            continue;
+        }
+        if (received.length !=
+            sizeof(struct aurora_user_session_host_message)) {
+            clear_bytes(&received,sizeof(received));
             return 1;
         }
 
