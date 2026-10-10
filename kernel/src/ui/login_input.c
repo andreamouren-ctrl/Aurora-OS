@@ -645,6 +645,11 @@ void login_input_init(void) {
      * builds used by CI.
      */
 #if AURORA_BOOT_VALIDATION
+    if (!identity_presentation_self_test())
+        kernel_panic("Identity pre-session/desktop input isolation policy failed");
+    log_line("[identity-presentation] trusted login/lock/desktop isolation policy passed");
+#endif
+#if AURORA_BOOT_VALIDATION
     if (!display_ring3_self_test()) {
         kernel_panic("Ring 3 Display Service acceptance probe failed");
     }
