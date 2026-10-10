@@ -158,17 +158,21 @@ bool g5_shell_scene_configure_second(
     if (!g5_session_context_authorized(&scene->frame.registry.session,
                                        scene->generation))
         return false;
-    /* Issue a new Shell policy configure first, invalidating focus and
-     * old presentation. The peer's ACK can only accept current serial. */
+    /* Update both configuration authorities. A failed second stage
+     * cannot be presented; revoke the extra client rather than keep
+     * policy and surface geometry in divergent states. */
     uint64_t policy_serial = 0u;
-    if (!window_policy_configure(&scene->window_policy,
-                                 scene->extra.window_id,
-                                 width,height,0u,&policy_serial))
-        return false;
     if (!g5_surface_bridge_configure(bridge,
                                      &scene->frame.registry.session,
                                      width,height,out_serial))
         return false;
+    if (!window_policy_configure(&scene->window_policy,
+                                 scene->extra.window_id,
+                                 width,height,0u,&policy_serial)) {
+        g5_shell_scene_detach_second(scene);
+        *out_serial = 0u;
+        return false;
+    }
     scene->extra.configure_serial = *out_serial;
     scene->extra.width = width;
     scene->extra.height = height;
