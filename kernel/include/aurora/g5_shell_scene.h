@@ -8,6 +8,7 @@
 #include <aurora/graphics_buffer.h>
 #include <aurora/process.h>
 #include <aurora/window_policy.h>
+#include <aurora/graphics_input_router.h>
 
 #define G5_SHELL_SCENE_WIDTH 160u
 #define G5_SHELL_SCENE_HEIGHT 96u
@@ -27,6 +28,7 @@ struct g5_shell_scene {
     struct g5_compositor_bridge bridge;
     struct aurora_software_compositor compositor;
     struct aurora_window_policy window_policy;
+    struct aurora_graphics_input_router input_router;
     uint64_t window_id;
     uint64_t generation;
     uint64_t configure_serial;
