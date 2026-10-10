@@ -714,6 +714,38 @@ bool graphics_input_poll_target(
         return false;
     }
 
+    /* Even previously queued input loses delivery authority when the
+     * window is revoked, resized, minimized, or superseded. */
+    if (router->window_policy != NULL) {
+        struct aurora_window_toplevel window;
+        bool valid = target->window_id != 0u &&
+            window_policy_read_toplevel(router->window_policy,
+                                         target->window_id, &window) &&
+            target_matches_window_surface(router, target, &window) &&
+            target_node_still_hittable(router, target_id) &&
+            window.surface->state == AURORA_GRAPHICS_SURFACE_MAPPED &&
+            window.surface->committed.buffer != NULL &&
+            window.surface->committed.commit_serial >
+                window.commit_serial_at_ack &&
+            window_policy_configure_ready(
+                router->window_policy, target->window_id,
+                (uint32_t)window.surface->committed.buffer->width,
+                (uint32_t)window.surface->committed.buffer->height) &&
+            (window.pending_configure.state_flags &
+             AURORA_WINDOW_STATE_MINIMIZED) == 0u;
+        if (!valid) {
+            target->head = 0u;
+            target->tail = 0u;
+            if (router->pointer_focus_target == target_id)
+                router->pointer_focus_target = 0u;
+            if (router->keyboard_focus_target == target_id)
+                router->keyboard_focus_target = 0u;
+            if (router->capture_target == target_id)
+                router->capture_target = 0u;
+            return false;
+        }
+    }
+
     *out_event = target->queue[target->tail];
     target->tail =
         (target->tail + 1u) %
