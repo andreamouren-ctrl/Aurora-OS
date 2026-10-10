@@ -368,15 +368,18 @@ static bool start_second_client(
         return false;
     }
     clear_bytes(&startup,sizeof(startup));
+    log_line("[g5-wp04-gate] starting secondary Ring3 thread");
     host.second_thread=scheduler_create_user_thread(
         "g5-ring3-renderer-2",host.second_process);
     if (host.second_thread==0u) return false;
     uint64_t receipt=0u;
+    log_line("[g5-wp04-gate] waiting for secondary READY");
     if (!receive_second_event(AURORA_USER_SESSION_HOST_READY,&receipt) ||
         receipt!=0u ||
         process_bootstrap_signal(host.second_process)!=
             AURORA_USER_SESSION_HOST_READY_MAGIC)
         return false;
+    log_line("[g5-wp04-gate] waiting for secondary committed frame");
     if (!receive_second_event(
             AURORA_USER_SESSION_HOST_FRAME_COMMITTED,&receipt) ||
         receipt==0u || receipt>UINT64_C(0xffffffff))
@@ -415,6 +418,7 @@ static bool start_with_context(
     host.g5_sender_handle = AURORA_CAP_INVALID;
     host.next_request_id = UINT64_C(0x5553455200000001);
 
+    log_line("[g5-wp04-gate] creating primary Ring3 process");
     host.process = process_create_image(
         "user-session-host",
         user_session_host_image(),
@@ -541,6 +545,7 @@ static bool start_with_context(
     }
     clear_bytes(&startup, sizeof(startup));
 
+    log_line("[g5-wp04-gate] launching primary Ring3 thread");
     host.thread = scheduler_create_user_thread(
         "user-session-host-main",
         host.process
@@ -632,6 +637,7 @@ static bool start_with_context(
         }
         host.g5_ready=true;
     }
+    log_line("[g5-wp04-gate] primary ready, entering secondary Ring3 bootstrap");
     if (session_g5_dispatcher != NULL &&
         !start_second_client(user_id,generation)) {
         log_line("[g5-wp04] independent second Ring3 render client failed");
@@ -1248,7 +1254,9 @@ bool user_session_host_self_test(void) {
         (void)cap_revoke(&bridge.capabilities,root);
         return false;
     }
+    log_line("[g5-wp04-gate] begin first-generation dual Ring3 bootstrap");
     bool started = start_with_context(user_id, UINT64_C(1));
+    log_line("[g5-wp04-gate] first-generation bootstrap returned");
     bool running = started && user_session_host_active() &&
         host.g5_ready && g5_session_ready_events==1u &&
         g5_session_health_events==1u &&
