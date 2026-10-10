@@ -1165,7 +1165,21 @@ bool user_session_host_self_test(void) {
         g5_session_present_events==1u &&
         g5_session_place_events==1u &&
         host.scene.x==80 && host.scene.y==72 &&
-        host.scene.last_display_serial>=2u;
+        host.scene.last_display_serial>=2u &&
+        host.second_process!=NULL &&
+        host.second_process!=host.process &&
+        host.second_thread!=0u &&
+        host.second_kernel_endpoint!=host.kernel_endpoint &&
+        host.scene.extra.active &&
+        host.scene.extra.owner==host.second_process &&
+        host.scene.extra.surface!=host.scene.surface &&
+        host.scene.extra.buffer!=host.scene.buffer &&
+        host.scene.extra.last_commit_serial>0u &&
+        host.scene.extra.last_display_serial>0u &&
+        host.scene.extra.window_id!=host.scene.window_id &&
+        host.scene.bridge.node_ids[host.scene.extra.slot]!=0u &&
+        host.scene.bridge.node_ids[host.scene.extra.slot]!=
+            host.scene.bridge.node_ids[host.scene.slot];
     /* A live session may not accept a duplicate or out-of-order G5 request. */
     bool replay_denied=false;
     if (running) {
@@ -1251,7 +1265,7 @@ bool user_session_host_self_test(void) {
             .header_bytes=G5_IPC_WIRE_HEADER_BYTES,.kind=G5_IPC_REQUEST,
             .operation=G5_OP_WINDOW_CLOSE,.payload_bytes=8u,
             .request_id=6u,.session_generation=1u,
-            .object_generation=host.scene.surface->generation
+            .object_generation=host.scene.surface->generation+1u
         };
         enum g5_ipc_status status=G5_IPC_OK;
         struct aurora_ipc_endpoint *sender=
