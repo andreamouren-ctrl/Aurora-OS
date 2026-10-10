@@ -182,6 +182,7 @@ bool window_policy_ack_configure(
     }
 
     window->acked_configure_serial = serial;
+    window->commit_serial_at_ack = window->surface->committed.commit_serial;
     return true;
 }
 
@@ -460,11 +461,12 @@ bool window_policy_read_toplevel(
     return true;
 }
 
-bool window_policy_hit_test(
+static bool hit_test_impl(
     const struct aurora_window_policy *policy,
     int32_t x,
     int32_t y,
-    uint64_t *out_window_id
+    uint64_t *out_window_id,
+    bool require_commit
 ) {
     if (out_window_id != NULL) *out_window_id = 0u;
     if (policy == NULL || !policy->initialized || out_window_id == NULL ||
@@ -481,6 +483,20 @@ bool window_policy_hit_test(
              AURORA_WINDOW_STATE_MINIMIZED) != 0u ||
             w->acked_configure_serial != w->pending_configure.serial ||
             w->pending_configure.serial == 0u) continue;
+        if (require_commit) {
+            const struct aurora_graphics_surface_snapshot *frame =
+                &w->surface->committed;
+            if (w->surface->state != AURORA_GRAPHICS_SURFACE_MAPPED ||
+                frame->commit_serial == 0u ||
+                frame->commit_serial <= w->commit_serial_at_ack ||
+                frame->buffer == NULL ||
+                frame->buffer->destroy_requested ||
+                (frame->buffer->state != AURORA_GRAPHICS_BUFFER_COMMITTED &&
+                 frame->buffer->state != AURORA_GRAPHICS_BUFFER_IN_USE) ||
+                frame->buffer->width != w->pending_configure.width ||
+                frame->buffer->height != w->pending_configure.height)
+                continue;
+        }
         const int64_t dx = (int64_t)x - w->placement.x;
         const int64_t dy = (int64_t)y - w->placement.y;
         if (dx < 0 || dy < 0 ||
@@ -494,6 +510,25 @@ bool window_policy_hit_test(
     if (top_id == 0u) return false;
     *out_window_id = top_id;
     return true;
+}
+
+
+bool window_policy_hit_test(
+    const struct aurora_window_policy *policy,
+    int32_t x,
+    int32_t y,
+    uint64_t *out_window_id
+) {
+    return hit_test_impl(policy, x, y, out_window_id, false);
+}
+
+bool window_policy_hit_test_committed(
+    const struct aurora_window_policy *policy,
+    int32_t x,
+    int32_t y,
+    uint64_t *out_window_id
+) {
+    return hit_test_impl(policy, x, y, out_window_id, true);
 }
 
 bool window_policy_selftest(void) {
