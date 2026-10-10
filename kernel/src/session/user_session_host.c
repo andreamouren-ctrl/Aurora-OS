@@ -343,6 +343,7 @@ static bool start_second_client(
     if (host.second_control_handle==AURORA_CAP_INVALID ||
         !g5_shell_scene_attach_second(&host.scene,host.second_process))
         return false;
+    log_line("[g5-wp04-gate] primary graphics scene ready");
     struct aurora_user_session_host_startup startup;
     clear_bytes(&startup,sizeof(startup));
     startup.abi_version=AURORA_USER_SESSION_HOST_ABI_VERSION;
@@ -425,6 +426,7 @@ static bool start_with_context(
         user_session_host_image_size()
     );
     if (host.process == NULL) return false;
+    log_line("[g5-wp04-gate] primary process image allocated");
 
     ipc_channel_init(&host.channel);
     cap_table_init(&host.kernel_caps);
@@ -459,6 +461,7 @@ static bool start_with_context(
         return false;
     }
 
+    log_line("[g5-wp04-gate] primary control/profile capabilities delegated");
     /* Optional dedicated G5 channel: the only sender grant is held by this
      * authenticated session process. No TRANSFER and no sender READ right.
      * The receiver remains in the kernel-owned capability table. */
@@ -503,6 +506,7 @@ static bool start_with_context(
             .provisioned_exclusively=true,
             .pending_requests=&host.g5_pending
         };
+        log_line("[g5-wp04-gate] starting primary graphics scene");
         if (!g5_shell_scene_begin(&host.scene,host.process,generation)) {
             log_line("[g5-shell-diagnostic] failed to initialize compositor scene");
             cleanup_unstarted_host();
