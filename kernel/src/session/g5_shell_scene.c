@@ -574,6 +574,117 @@ failure:
     return false;
 }
 
+bool g5_shell_scene_configure_primary(struct g5_shell_scene *scene,
+                                      uint32_t width,uint32_t height,
+                                      uint64_t *out_serial) {
+    if (out_serial) *out_serial=0u;
+    if (!scene || !scene->active || !scene->owner || !out_serial ||
+        scene->pending_resize_buffer || !width || !height ||
+        width>scene->window_policy.output_width ||
+        height>scene->window_policy.output_height ||
+        scene->x<0 || scene->y<0 ||
+        (uint64_t)(uint32_t)scene->x+width>
+            scene->window_policy.output_width ||
+        (uint64_t)(uint32_t)scene->y+height>
+            scene->window_policy.output_height ||
+        scene->slot>=G5_SURFACE_REGISTRY_CAPACITY ||
+        !window_policy_configure_ready(
+            &scene->window_policy,scene->window_id,
+            scene->width,scene->height) ||
+        !g5_session_context_authorized(
+            &scene->frame.registry.session,scene->generation))
+        return false;
+    struct g5_surface_bridge *bridge=
+        &scene->frame.registry.entries[scene->slot].bridge;
+    if (!g5_surface_bridge_configure(
+            bridge,&scene->frame.registry.session,width,height,out_serial))
+        return false;
+    uint64_t policy_serial=0u;
+    if (!window_policy_configure(
+            &scene->window_policy,scene->window_id,width,height,
+            AURORA_WINDOW_STATE_NONE,&policy_serial)) {
+        g5_shell_scene_end(scene); /* fail closed on divergent configures */
+        *out_serial=0u;
+        return false;
+    }
+    scene->configure_serial=*out_serial;
+    scene->width=width;
+    scene->height=height;
+    (void)graphics_input_sync_window_focus(&scene->input_router);
+    return true;
+}
+
+bool g5_shell_scene_allocate_resize_buffer_primary(
+    struct g5_shell_scene *scene,aurora_cap_handle *out_handle) {
+    if (out_handle) *out_handle=AURORA_CAP_INVALID;
+    if (!scene || !scene->active || !scene->owner || !out_handle ||
+        scene->pending_resize_buffer || scene->slot>=G5_SURFACE_REGISTRY_CAPACITY ||
+        !scene->width || !scene->height ||
+        g5_surface_configure_ready(
+            &scene->frame.registry.entries[scene->slot].bridge.configure,
+            &scene->frame.registry.session))
+        return false;
+    const struct aurora_display_mode *mode=display_mode_at(0u,0u);
+    if (!mode || !g5_session_context_authorized(
+            &scene->frame.registry.session,scene->generation))
+        return false;
+    struct aurora_graphics_buffer *buffer=
+        graphics_buffer_create(scene->width,scene->height,&mode->format);
+    if (!buffer) return false;
+    aurora_cap_handle handle=graphics_buffer_grant(
+        &scene->owner->capabilities,buffer,
+        AURORA_RIGHT_READ|AURORA_RIGHT_WRITE|AURORA_RIGHT_MAP);
+    if (handle==AURORA_CAP_INVALID) {
+        (void)graphics_buffer_release_owner(buffer,buffer->generation);
+        return false;
+    }
+    scene->pending_resize_buffer=buffer;
+    scene->pending_resize_handle=handle;
+    *out_handle=handle;
+    return true;
+}
+
+bool g5_shell_scene_ack_primary(struct g5_shell_scene *scene,
+                                uint64_t serial) {
+    if (!scene || !scene->active || !scene->owner ||
+        !serial || serial!=scene->configure_serial ||
+        scene->slot>=G5_SURFACE_REGISTRY_CAPACITY)
+        return false;
+    struct g5_surface_bridge *bridge=
+        &scene->frame.registry.entries[scene->slot].bridge;
+    if (!g5_surface_bridge_ack(
+            bridge,&scene->frame.registry.session,serial))
+        return false;
+    struct aurora_window_toplevel window;
+    if (!window_policy_read_toplevel(&scene->window_policy,
+                                     scene->window_id,&window))
+        return false;
+    return window_policy_ack_configure(
+        &scene->window_policy,scene->window_id,
+        window.pending_configure.serial);
+}
+
+bool g5_shell_scene_publish_primary_resized(struct g5_shell_scene *scene,
+                                           uint64_t request_id,
+                                           uint64_t commit_serial) {
+    if (!scene || !scene->active || !scene->surface ||
+        !scene->pending_resize_buffer || !request_id || !commit_serial)
+        return false;
+    struct g5_ipc_header header={0};
+    header.kind=G5_IPC_REQUEST;
+    header.operation=G5_OP_SCENE_PUBLISH;
+    header.payload_bytes=16u;
+    header.request_id=request_id;
+    header.session_generation=scene->generation;
+    header.object_generation=scene->surface->generation;
+    uint8_t payload[16]={0};
+    uint64_t fields[2]={scene->surface->object_id,commit_serial};
+    for (uint32_t field=0u;field<2u;++field)
+        for (uint32_t byte=0u;byte<8u;++byte)
+            payload[field*8u+byte]=(uint8_t)(fields[field]>>(8u*byte));
+    return g5_shell_scene_publish(scene,&header,payload);
+}
+
 bool g5_shell_scene_publish(struct g5_shell_scene *scene,
                             const struct g5_ipc_header *header,
                             const uint8_t *payload) {
