@@ -19,6 +19,8 @@
 /* Exclusive process control endpoint: request_id = committed frame serial. */
 #define AURORA_USER_SESSION_HOST_FRAME_COMMITTED 6u
 #define AURORA_USER_SESSION_HOST_INPUT_EVENT 7u
+#define AURORA_USER_SESSION_HOST_RESIZE_PREPARE 8u
+#define AURORA_USER_SESSION_HOST_RESIZE_ACK 9u
 
 #define AURORA_USER_SESSION_HOST_READY_MAGIC UINT64_C(0x4155525345535348)
 
@@ -50,6 +52,16 @@ struct aurora_user_session_host_message {
 struct aurora_user_session_host_input_message {
     struct aurora_user_session_host_message header;
     struct aurora_input_event event;
+};
+
+/* Receiver-owned graphics buffer handle (in this process's cap table).
+ * The client ACKs configure_serial before committing the new pixels. */
+struct aurora_user_session_host_resize_message {
+    struct aurora_user_session_host_message header;
+    uint64_t graphics_buffer;
+    uint64_t configure_serial;
+    uint32_t width;
+    uint32_t height;
 };
 
 #endif
