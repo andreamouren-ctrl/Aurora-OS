@@ -320,6 +320,9 @@ bool g5_shell_scene_publish_second(
              scene->extra.width ||
         scene->extra.surface->committed.buffer->height !=
              scene->extra.height ||
+        (scene->extra.pending_resize_buffer != NULL &&
+         scene->extra.surface->committed.buffer !=
+             scene->extra.pending_resize_buffer) ||
         !window_policy_configure_ready(&scene->window_policy,
                                        scene->extra.window_id,
                                        scene->extra.width,
@@ -336,6 +339,23 @@ bool g5_shell_scene_publish_second(
         *out_display_serial == 0u ||
         *out_display_serial <= scene->extra.last_display_serial)
         return false;
+    /* Promote only an actually presented replacement buffer. The old
+     * handle remains valid until compositor presentation has succeeded. */
+    if (scene->extra.pending_resize_buffer != NULL) {
+        if (scene->extra.surface->committed.buffer !=
+            scene->extra.pending_resize_buffer)
+            return false;
+        if (scene->extra.user_buffer != AURORA_CAP_INVALID)
+            (void)cap_revoke(&sender->capabilities,
+                             scene->extra.user_buffer);
+        if (scene->extra.buffer)
+            (void)graphics_buffer_release_owner(
+                scene->extra.buffer,scene->extra.buffer->generation);
+        scene->extra.buffer = scene->extra.pending_resize_buffer;
+        scene->extra.user_buffer = scene->extra.pending_resize_handle;
+        scene->extra.pending_resize_buffer = NULL;
+        scene->extra.pending_resize_handle = AURORA_CAP_INVALID;
+    }
     scene->extra.last_display_serial = *out_display_serial;
     scene->extra.last_commit_serial = commit_serial;
     return true;
