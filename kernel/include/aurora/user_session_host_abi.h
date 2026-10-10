@@ -8,18 +8,21 @@
 #define AURORA_USER_SESSION_HOST_USER_ID_SIZE 16u
 
 #define AURORA_USER_SESSION_HOST_PROTOCOL_VERSION 1u
+#define AURORA_USER_SESSION_HOST_FLAG_RENDER_CLIENT 1u
 
 #define AURORA_USER_SESSION_HOST_READY 1u
 #define AURORA_USER_SESSION_HOST_SHUTDOWN 2u
 #define AURORA_USER_SESSION_HOST_SHUTDOWN_ACK 3u
 #define AURORA_USER_SESSION_HOST_HEALTH_POLL 4u
 #define AURORA_USER_SESSION_HOST_HEALTH_ACK 5u
+/* Exclusive process control endpoint: request_id = committed frame serial. */
+#define AURORA_USER_SESSION_HOST_FRAME_COMMITTED 6u
 
 #define AURORA_USER_SESSION_HOST_READY_MAGIC UINT64_C(0x4155525345535348)
 
 struct aurora_user_session_host_startup {
     uint32_t abi_version;
-    uint32_t flags;
+    uint32_t flags; /* 0: Shell, RENDER_CLIENT: isolated secondary Ring3 renderer */
     uint64_t control_endpoint;
     uint64_t profile_handle;
     uint64_t session_generation;
