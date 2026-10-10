@@ -122,7 +122,13 @@ static void draw_coverage(
     if (fb->bpp != 32u || !fb->address ||
         fb->pitch < fb->width * sizeof(uint32_t) ||
         fb->red_mask_size > 16u || fb->green_mask_size > 16u ||
-        fb->blue_mask_size > 16u) {
+        fb->blue_mask_size > 16u ||
+        (uint32_t)fb->red_mask_shift + fb->red_mask_size > 32u ||
+        (uint32_t)fb->green_mask_shift + fb->green_mask_size > 32u ||
+        (uint32_t)fb->blue_mask_shift + fb->blue_mask_size > 32u ||
+        fb->red_mask_shift >= 32u ||
+        fb->green_mask_shift >= 32u ||
+        fb->blue_mask_shift >= 32u) {
         if (alpha >= 112u)
             framebuffer_fill_rect(fb, x, y, scale, scale, color);
         return;
