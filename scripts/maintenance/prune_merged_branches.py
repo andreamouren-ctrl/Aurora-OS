@@ -91,21 +91,29 @@ def main():
             cmp = api(repo, token, "/compare/" + quote(default, safe="") +
                       "..." + quote(name, safe=""))
             ahead = cmp.get("ahead_by")
-            current_head = cmp.get("head_commit", {}).get("sha")
             listed_head = branch.get("commit", {}).get("sha")
             if (ahead != 0 or cmp.get("status") not in ("behind", "identical")):
                 outcomes["unique_commits"].append(f"{name} (ahead={ahead})")
                 continue
-            if not current_head or current_head != listed_head:
-                outcomes["uncertain"].append(name + " (moved during compare)")
+            # GitHub's compare response may omit or reinterpret head_commit
+            # for a branch that is entirely behind main. Use the branch/ref
+            # SHA itself, not compare.head_commit, as the stability check.
+            actual = api(repo, token, "/git/ref/heads/" + encoded)
+            if not listed_head or actual.get("object", {}).get("sha") != listed_head:
+                outcomes["uncertain"].append(name + " (ref differs from inventory)")
                 continue
             if not a.apply:
                 outcomes["eligible_dry_run"].append(name)
                 continue
-            # Recheck for a moving branch; no stale ref may be deleted.
-            actual = api(repo, token, "/git/ref/heads/" + encoded)
-            if actual.get("object", {}).get("sha") != listed_head:
-                outcomes["uncertain"].append(name + " (moved before delete)")
+            # Repeat membership and ref checks immediately before deletion.
+            fresh = api(repo, token, "/compare/" + quote(default, safe="") +
+                        "..." + quote(name, safe=""))
+            if fresh.get("ahead_by") != 0 or fresh.get("status") not in ("behind", "identical"):
+                outcomes["uncertain"].append(name + " (new unmerged work)")
+                continue
+            second_read = api(repo, token, "/git/ref/heads/" + encoded)
+            if second_read.get("object", {}).get("sha") != listed_head:
+                outcomes["uncertain"].append(name + " (ref changed before delete)")
                 continue
             api(repo, token, "/git/refs/heads/" + encoded, method="DELETE")
             outcomes["deleted"].append(name)
