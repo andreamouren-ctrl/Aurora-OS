@@ -41,6 +41,9 @@ struct user_session_host_runtime {
     struct g5_ipc_endpoint_binding g5_binding;
     struct g5_pending_queue g5_pending;
     struct g5_shell_scene scene;
+    uint64_t drag_window_id;
+    int32_t drag_offset_x;
+    int32_t drag_offset_y;
     aurora_cap_handle g5_receiver_handle;
     aurora_cap_handle g5_authority_handle;
     aurora_cap_handle g5_sender_handle;
@@ -914,6 +917,15 @@ bool user_session_host_route_input(const struct aurora_input_event *event) {
         session_manager_client_state()!=AURORA_SESSION_CLIENT_ACTIVE)
         return false;
     if (!g5_shell_scene_route_input(&host.scene,event)) return false;
+    struct aurora_graphics_input_router *r=&host.scene.input_router;
+    if (event->type==AURORA_INPUT_EVENT_POINTER_BUTTON &&
+        event->button==AURORA_POINTER_BUTTON_LEFT && !event->pressed) {
+        if (host.drag_window_id) {
+            (void)graphics_input_release_capture(
+                r,host.drag_window_id);
+            host.drag_window_id=0u;
+        }
+    }
     if (event->type==AURORA_INPUT_EVENT_POINTER_BUTTON &&
         event->button==AURORA_POINTER_BUTTON_LEFT && event->pressed &&
         !event->synthetic && event->sequence!=0u) {
@@ -925,6 +937,55 @@ bool user_session_host_route_input(const struct aurora_input_event *event) {
                 &host.scene.window_policy,clicked,event->sequence,&token))
             (void)graphics_input_focus_pointer(
                 r,token,event->sequence,&focused);
+        if (focused!=0u) {
+            struct aurora_window_toplevel w;
+            if (window_policy_read_toplevel(
+                    &host.scene.window_policy,focused,&w) &&
+                graphics_input_request_capture(r,focused)) {
+                host.drag_window_id=focused;
+                host.drag_offset_x=r->pointer_x-w.placement.x;
+                host.drag_offset_y=r->pointer_y-w.placement.y;
+            }
+        }
+    }
+    if (host.drag_window_id &&
+        (event->type==AURORA_INPUT_EVENT_POINTER_ABSOLUTE ||
+         event->type==AURORA_INPUT_EVENT_POINTER_RELATIVE)) {
+        struct aurora_window_toplevel w;
+        if (!window_policy_read_toplevel(&host.scene.window_policy,
+                                         host.drag_window_id,&w) ||
+            !window_policy_configure_ready(
+                &host.scene.window_policy,host.drag_window_id,
+                w.pending_configure.width,w.pending_configure.height)) {
+            (void)graphics_input_release_capture(r,host.drag_window_id);
+            host.drag_window_id=0u;
+        } else {
+            int64_t nx=(int64_t)r->pointer_x-host.drag_offset_x;
+            int64_t ny=(int64_t)r->pointer_y-host.drag_offset_y;
+            int64_t max_x=(int64_t)host.scene.window_policy.output_width-
+                          w.pending_configure.width;
+            int64_t max_y=(int64_t)host.scene.window_policy.output_height-
+                          w.pending_configure.height;
+            if (nx<0) nx=0;
+            if (ny<0) ny=0;
+            if (nx>max_x) nx=max_x;
+            if (ny>max_y) ny=max_y;
+            if (nx!=w.placement.x || ny!=w.placement.y) {
+                bool moved=host.drag_window_id==host.scene.window_id
+                    ? g5_shell_scene_move_primary(
+                        &host.scene,(int32_t)nx,(int32_t)ny)
+                    : host.scene.extra.active &&
+                      host.drag_window_id==host.scene.extra.window_id &&
+                      g5_shell_scene_move_second(
+                        &host.scene,host.second_process,
+                        (int32_t)nx,(int32_t)ny);
+                if (!moved) {
+                    (void)graphics_input_release_capture(
+                        r,host.drag_window_id);
+                    host.drag_window_id=0u;
+                }
+            }
+        }
     }
     /* Trusted demo interaction: right-click the second committed window to
      * toggle its negotiated size. Normal client input still routes only to
