@@ -915,6 +915,21 @@ static bool send_client_input(struct aurora_ipc_endpoint *endpoint,
 
 /* The primary Shell follows the same independent ACK/commit handshake as
  * the second process, but only its own private control endpoint is trusted. */
+/* Deliberately sent only after both Window Policy and G5 configure
+ * authorities have consumed the client's ACK. Prevents pre-baseline
+ * frame commits under concurrent Ring3/kernel scheduling. */
+static bool send_resize_commit_grant(
+    struct aurora_ipc_endpoint *endpoint,uint64_t configure_serial) {
+    if (!endpoint || configure_serial==0u) return false;
+    const struct aurora_user_session_host_message grant={
+        .version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+        .type=AURORA_USER_SESSION_HOST_RESIZE_COMMIT_GRANT,
+        .request_id=configure_serial
+    };
+    return ipc_send(endpoint,&host.kernel_caps,&grant,
+                    (uint32_t)sizeof(grant),NULL,0u);
+}
+
 static bool resize_primary_client(uint32_t width,uint32_t height) {
     if (!user_session_host_active() || !host.process ||
         !host.kernel_endpoint || !host.scene.active)
@@ -947,6 +962,7 @@ static bool resize_primary_client(uint32_t width,uint32_t height) {
         receive_primary_event(AURORA_USER_SESSION_HOST_RESIZE_ACK,&ack) &&
         ack==configure_serial &&
         g5_shell_scene_ack_primary(&host.scene,ack) &&
+        send_resize_commit_grant(host.kernel_endpoint,ack) &&
         receive_primary_event(
             AURORA_USER_SESSION_HOST_FRAME_COMMITTED,&commit) &&
         commit!=0u &&
@@ -996,6 +1012,7 @@ static bool resize_second_client(uint32_t width,uint32_t height) {
         ack==configure_serial &&
         g5_shell_scene_ack_second(
             &host.scene,host.second_process,ack) &&
+        send_resize_commit_grant(host.second_kernel_endpoint,ack) &&
         receive_second_event(
             AURORA_USER_SESSION_HOST_FRAME_COMMITTED,&commit) &&
         commit!=0u &&
