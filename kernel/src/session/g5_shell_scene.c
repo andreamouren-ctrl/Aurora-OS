@@ -16,6 +16,24 @@ static uint64_t read_u64_le(const uint8_t *p) {
     return value;
 }
 
+bool g5_shell_scene_close(struct g5_shell_scene *scene,
+                          const struct g5_ipc_header *header,
+                          const uint8_t *payload) {
+    if (scene == NULL || !scene->active || scene->surface == NULL ||
+        header == NULL || payload == NULL ||
+        header->kind != G5_IPC_REQUEST ||
+        header->operation != G5_OP_WINDOW_CLOSE ||
+        header->payload_bytes != 8u ||
+        header->session_generation != scene->generation ||
+        header->object_generation != scene->surface->generation ||
+        read_u64_le(payload) > 3u ||
+        !g5_session_context_authorized(&scene->frame.registry.session,
+                                       scene->generation))
+        return false;
+    g5_shell_scene_end(scene);
+    return true;
+}
+
 void g5_shell_scene_end(struct g5_shell_scene *scene) {
     if (scene==NULL) return;
     /* Revoke trusted window identity before freeing the backing surface. */
