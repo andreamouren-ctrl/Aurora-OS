@@ -168,7 +168,10 @@ Implemented and connected to the live OS:
 - logout authority revocation;
 - lock/unlock requiring fresh same-user authentication;
 - fail-closed abnormal session termination;
-- purpose-bound single-use re-authentication proof core.
+- purpose-bound single-use re-authentication proof core;
+- protected dual-slot Security Activity audit persistence, runtime event emission and user-scoped paged read API;
+- Security Activity presentation model, renderer, graphics asset catalog and lifecycle controller (not yet an interactive compositor System App);
+- G1 trusted presentation/input authority policy for pre-session, active desktop, lock and quarantine.
 
 Still incomplete:
 
@@ -179,7 +182,7 @@ Still incomplete:
 - USB/xHCI/removable-media stack required for Aurora Identity Drive;
 - secure hardware authenticator transport;
 - hardware-backed machine-secret sealing/TPM integration;
-- complete audit/security-activity pipeline;
+- compositor-hosted Security Activity System App, trusted wall-clock/boot epochs and cryptographically authenticated audit-record persistence;
 - broad fuzzing/security review and real-hardware certification.
 
 ## Documentation completion gate
