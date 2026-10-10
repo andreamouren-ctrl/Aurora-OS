@@ -1,6 +1,6 @@
 # Aurora Celestia UI 1.0 — Official Aurora OS System Typeface
 
-Status: **designated official Aurora OS UI typeface; initial native Identity renderer integrated in feature branch pending runtime validation**.
+Status: **official Aurora OS UI typeface; native Identity login/lock renderer merged into `main` as PR #188 (2026-10-10), QEMU/bootstrap validated; broader Ring 3 font-service rollout pending**.
 
 Aurora Celestia UI is the original geometric, softly rounded, space-inspired proportional typeface selected for Aurora OS.
 
@@ -71,5 +71,5 @@ Do not describe this candidate as a font already deployed in the OS or as univer
 ### Native acceptance gates
 
 1. Verify both exact TTF SHA-256 values before generating the atlas, and require FreeType family name `Aurora Celestia UI`.
-2. Build the kernel and QEMU ISO with the generated atlas. Ensure the native Identity UI renders correctly and normal login/lock/logout and crash recovery gates remain green.
+2. **CI gate passed on PR #188:** kernel/ISO build, G5 IPC QEMU cold boot/reboot, Identity entropy handoff and entropy source policy all green on source commit `0c14d68e`. Frame-level visual appearance/legibility at real display resolutions still requires a separate screenshot/manual acceptance.
 3. Exercise accented Italian/French samples, USD/EUR and unsupported glyphs in a dedicated typography snapshot; document differences before expanding system-wide use.
