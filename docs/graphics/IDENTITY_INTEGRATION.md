@@ -14,6 +14,10 @@ The initial Phase G1 implementation introduces `identity_presentation_decide()` 
 
 The normal login UI now avoids framebuffer redraw after the G5 desktop owns scanout. Login/lock transitions stop the old host before displaying trusted prompts. Host policy tests exercise mixed states and a QEMU gate checks the same policy.
 
+### G1 input-epoch hardening (separate acceptance gate)
+
+The trusted login input pump fences the entire routing decision (DESKTOP, LOCK, PRE_SESSION, QUARANTINE and enabled permissions) **and** the Session Manager generation, not merely the coarse domain. On a mismatch it wipes the partially entered local Aurora Key and discards the pending normalized input queue. This blocks stale same-domain events across fresh desktop generations or lock/unlock generations and events crossing READY-to-STARTING permission changes. Host tests cover the pure epoch predicate; boot-validation continues running the routing policy self-test. The input queue has no per-event immutable source-generation tag; therefore this is a bounded queue-epoch defense, not a substitute for future authenticated per-event tagging and the dedicated secure pre-session compositor domain.
+
 **Scope warning:** this is the trusted handoff foundation, not a pre-session compositor-hosted Identity System App yet. The direct framebuffer remains the active login/recovery renderer until a dedicated pre-session client/surface, secure compositor domain and fallback have been tested. Authentication remains solely in Identity Service.
 
 ## Goal
