@@ -1339,6 +1339,40 @@ static bool g5_wp04_two_window_interaction_probe(void) {
         ack!=health_id)
         return false;
     log_line("[g5-wp04-interaction] private Ring3 input IPC acknowledged");
+    /* Switch focus back to the independent primary process and prove
+     * that input cannot leak to the former secondary keyboard owner. */
+    pointer.sequence=UINT64_C(1002);
+    pointer.absolute_x=host.scene.x+8;
+    pointer.absolute_y=host.scene.y+8;
+    hit=0u;
+    token=0u;
+    focused=0u;
+    if (!graphics_input_route_event(r,&pointer) ||
+        !window_policy_hit_test_committed(
+            &host.scene.window_policy,pointer.absolute_x,
+            pointer.absolute_y,&hit) ||
+        hit!=host.scene.window_id ||
+        !window_policy_issue_activation_token(
+            &host.scene.window_policy,hit,pointer.sequence,&token) ||
+        !graphics_input_focus_pointer(
+            r,token,pointer.sequence,&focused) ||
+        focused!=host.scene.window_id ||
+        !graphics_input_poll_target(r,host.scene.window_id,&delivered) ||
+        delivered.type!=AURORA_INPUT_EVENT_POINTER_ABSOLUTE ||
+        g5_shell_scene_poll_input_second(
+            &host.scene,host.second_process,&delivered))
+        return false;
+    key.sequence=UINT64_C(1003);
+    key.key=AURORA_KEY_B;
+    if (!graphics_input_route_event(r,&key) ||
+        !graphics_input_poll_target(r,host.scene.window_id,&delivered) ||
+        delivered.type!=AURORA_INPUT_EVENT_KEY ||
+        delivered.key!=AURORA_KEY_B ||
+        g5_shell_scene_poll_input_second(
+            &host.scene,host.second_process,&delivered) ||
+        !send_client_input(host.kernel_endpoint,&key))
+        return false;
+    log_line("[g5-wp04-interaction] primary focus/input isolation passed");
     int32_t moved_x=w.placement.x>0?w.placement.x-1:w.placement.x+1;
     int32_t moved_y=w.placement.y;
     if (!g5_shell_scene_move_second(
