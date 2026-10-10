@@ -948,6 +948,19 @@ bool window_policy_selftest(void) {
                                focus_token, 510u, &selected))
         return false;
 
+    /* Reconfigure revokes keyboard focus and all tokens bound to the
+     * old presentation, including an unconsumed token. */
+    uint64_t obsolete_token = 0u, fresh_configure = 0u;
+    if (!window_policy_issue_activation_token(&policy, input_id, 600u,
+                                               &obsolete_token) ||
+        !window_policy_configure(&policy, input_id, 130u, 80u,
+                                 AURORA_WINDOW_STATE_NONE,
+                                 &fresh_configure) ||
+        window_policy_active_committed(&policy, &selected) ||
+        window_policy_activate(&policy, input_id, obsolete_token,
+                               600u, false))
+        return false;
+
     input_surface.generation++;
     if (window_policy_active_committed(&policy, &selected) ||
         selected != 0u) return false;
