@@ -139,6 +139,33 @@ failure:
     return false;
 }
 
+bool g5_shell_scene_route_input(
+    struct g5_shell_scene *scene,
+    const struct aurora_input_event *event
+) {
+    if (scene == NULL || !scene->active || event == NULL ||
+        !scene->input_router.initialized ||
+        !g5_session_context_authorized(&scene->frame.registry.session,
+                                       scene->generation))
+        return false;
+    return graphics_input_route_event(&scene->input_router,event);
+}
+
+bool g5_shell_scene_poll_input_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    struct aurora_input_event *out_event
+) {
+    if (scene == NULL || !scene->active || !scene->extra.active ||
+        sender == NULL || sender != scene->extra.owner ||
+        out_event == NULL || !scene->input_router.initialized ||
+        !g5_session_context_authorized(&scene->frame.registry.session,
+                                       scene->generation))
+        return false;
+    return graphics_input_poll_target(&scene->input_router,
+                                      scene->extra.window_id,out_event);
+}
+
 bool g5_shell_scene_close_second(
     struct g5_shell_scene *scene,
     struct aurora_process *sender
