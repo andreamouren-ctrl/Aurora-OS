@@ -169,14 +169,15 @@ Successful Identity authentication starts the correct persistent user profile wi
 
 ## Phase G — Aurora Identity System App
 
-Status: **Implementation resumed on current `main`; G0 native typography in progress; pre-session secure compositor Identity integration still pending**
+Status: **G0 official system font and native Identity typography integrated/runtime regression-tested; pre-session secure compositor Identity integration still pending**
 
 ### G0 — Canonical Aurora UI typography
 
 - [x] Original Aurora Celestia UI 1.0 font binaries committed and SHA-256 verified.
 - [x] Official family/style contract and host-generated bitmap atlas pipeline implemented on Identity typography feature branch.
-- [x] Identity login, lock and state text connected to native Celestia drawing with independent bitmap recovery fallback (build/QEMU acceptance pending).
-- [ ] Complete native build, QEMU/login readability acceptance on the feature branch.
+- [x] Identity login, lock and state text connected to native Celestia drawing with independent bitmap recovery fallback (PR #188 merged; CI/QEMU validated).
+- [x] Complete native kernel build and QEMU/session regression gates on the verified merge candidate.
+- [ ] Complete font visual/readability acceptance for 10–18 px, contrast modes and localized accents; CI boot success alone does not certify typography appearance.
 - [ ] Add secure compositor-backed pre-session Identity surface and reusable Ring 3 font service (do not place untrusted font parser inside Ring 0).
 
 G0 changes only presentation. They must not change Aurora Key verification, IPC authority, session grants, rate limiting or the framebuffer recovery trust boundary.
