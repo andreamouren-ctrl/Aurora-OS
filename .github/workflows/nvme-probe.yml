@@ -57,7 +57,7 @@ jobs:
             -M q35 \
             -cpu max \
             -m 512M \
-            -smp 1 \
+            -smp 4,sockets=1,cores=2,threads=2 \
             -vga std \
             -cdrom build/AuroraOS-x86_64.iso \
             -boot d \
