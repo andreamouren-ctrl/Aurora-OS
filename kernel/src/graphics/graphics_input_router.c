@@ -725,6 +725,11 @@ bool graphics_input_poll_target(
             target_node_still_hittable(router, target_id) &&
             window.surface->state == AURORA_GRAPHICS_SURFACE_MAPPED &&
             window.surface->committed.buffer != NULL &&
+            !window.surface->committed.buffer->destroy_requested &&
+            (window.surface->committed.buffer->state ==
+                 AURORA_GRAPHICS_BUFFER_COMMITTED ||
+             window.surface->committed.buffer->state ==
+                 AURORA_GRAPHICS_BUFFER_IN_USE) &&
             window.surface->committed.commit_serial >
                 window.commit_serial_at_ack &&
             window_policy_configure_ready(
