@@ -278,6 +278,173 @@ bool graphics_input_register_target(
     return false;
 }
 
+bool graphics_input_bind_window_policy(
+    struct aurora_graphics_input_router *router,
+    struct aurora_window_policy *policy
+) {
+    if (router == NULL || !router->initialized ||
+        policy == NULL || !policy->initialized ||
+        router->window_policy != NULL) return false;
+    /* Never activate policy mode while unrelated targets have focus/capture. */
+    if (router->keyboard_focus_target != 0u ||
+        router->capture_target != 0u) return false;
+    router->window_policy = policy;
+    return true;
+}
+
+static bool target_matches_window_surface(
+    struct aurora_graphics_input_router *router,
+    const struct aurora_graphics_input_target *target,
+    const struct aurora_window_toplevel *window
+) {
+    if (router == NULL || target == NULL || window == NULL ||
+        window->surface == NULL ||
+        window->surface->generation != window->surface_generation)
+        return false;
+    for (uint32_t i = 0u; i < AURORA_COMPOSITOR_MAX_NODES; ++i) {
+        const struct aurora_compositor_node *node =
+            &router->compositor->nodes[i];
+        if (!node->used || !node->visible ||
+            node->node_id != target->node_id ||
+            node->surface_class != AURORA_COMPOSITOR_SURFACE_NORMAL)
+            continue;
+        struct aurora_graphics_surface *attached = NULL;
+        return graphics_surface_lookup(&router->compositor->surface_caps,
+                        node->surface_handle, AURORA_RIGHT_READ, &attached) &&
+               attached == window->surface;
+    }
+    return false;
+}
+
+bool graphics_input_bind_window_target(
+    struct aurora_graphics_input_router *router,
+    uint64_t target_id,
+    uint64_t window_id
+) {
+    if (router == NULL || !router->initialized ||
+        router->window_policy == NULL || !window_id) return false;
+    struct aurora_graphics_input_target *target =
+        find_target(router, target_id);
+    struct aurora_window_toplevel window;
+    if (target == NULL || target->window_id != 0u ||
+        !window_policy_read_toplevel(router->window_policy,
+                                     window_id, &window) ||
+        !target_node_still_hittable(router, target_id) ||
+        !target_matches_window_surface(router, target, &window))
+        return false;
+    for (uint32_t i = 0u; i < AURORA_GRAPHICS_INPUT_MAX_TARGETS; ++i) {
+        if (router->targets[i].used &&
+            router->targets[i].window_id == window_id) return false;
+    }
+    /* Only trusted callers can map a compositor target to its window.
+     * The surface-to-node match is verified by the compositor owner when
+     * that target/node pair is provisioned, before this function is called. */
+    target->window_id = window_id;
+    return true;
+}
+
+bool graphics_input_focus_pointer(
+    struct aurora_graphics_input_router *router,
+    uint64_t activation_token,
+    uint64_t interaction_serial,
+    uint64_t *out_window_id
+) {
+    if (out_window_id != NULL) *out_window_id = 0u;
+    if (router == NULL || !router->initialized ||
+        router->window_policy == NULL || out_window_id == NULL ||
+        activation_token == 0u || interaction_serial == 0u)
+        return false;
+    uint64_t window_id = 0u;
+    uint64_t node_id = 0u;
+    if (!window_policy_hit_test_committed(
+            router->window_policy, router->pointer_x,
+            router->pointer_y, &window_id) ||
+        !software_compositor_hit_test(
+            router->compositor, router->pointer_x,
+            router->pointer_y, &node_id))
+        return false;
+    uint64_t target_id = target_for_node(router, node_id);
+    struct aurora_graphics_input_target *target =
+        find_target(router, target_id);
+    struct aurora_window_toplevel window;
+    if (target == NULL || target->window_id != window_id ||
+        !window_policy_read_toplevel(router->window_policy,
+                                     window_id, &window) ||
+        !target_matches_window_surface(router, target, &window) ||
+        !target_node_still_hittable(router, target_id))
+        return false;
+    uint64_t authorized_id = 0u;
+    if (!window_policy_focus_at(router->window_policy,
+                                router->pointer_x,router->pointer_y,
+                                activation_token,interaction_serial,
+                                &authorized_id) ||
+        authorized_id != window_id)
+        return false;
+    if (!graphics_input_sync_window_focus(router))
+        return false;
+    *out_window_id = window_id;
+    return true;
+}
+
+bool graphics_input_sync_window_focus(
+    struct aurora_graphics_input_router *router
+) {
+    if (router == NULL || !router->initialized ||
+        router->window_policy == NULL) return false;
+    uint64_t window_id = 0u;
+    uint64_t target_id = 0u;
+    if (window_policy_active_committed(router->window_policy, &window_id)) {
+        for (uint32_t i = 0u; i < AURORA_GRAPHICS_INPUT_MAX_TARGETS; ++i) {
+            struct aurora_graphics_input_target *t = &router->targets[i];
+            if (t->used && t->window_id == window_id &&
+                target_node_still_hittable(router, t->target_id)) {
+                struct aurora_window_toplevel window;
+                if (!window_policy_read_toplevel(router->window_policy,
+                                                  window_id, &window) ||
+                    !target_matches_window_surface(router, t, &window))
+                    continue;
+                target_id = t->target_id;
+                break;
+            }
+        }
+    }
+    if (router->keyboard_focus_target != target_id) {
+        /* Never deliver queued keyboard events to a window that lost
+         * authority: drain the old target when focus transitions. */
+        struct aurora_graphics_input_target *previous =
+            find_target(router, router->keyboard_focus_target);
+        if (previous != NULL && previous->window_id != 0u) {
+            previous->head = 0u;
+            previous->tail = 0u;
+        }
+        router->capture_target = 0u;
+    }
+    router->keyboard_focus_target = target_id;
+    return target_id != 0u;
+}
+
+bool graphics_input_unbind_window_target(
+    struct aurora_graphics_input_router *router,
+    uint64_t target_id
+) {
+    if (router == NULL || !router->initialized ||
+        router->window_policy == NULL) return false;
+    struct aurora_graphics_input_target *target =
+        find_target(router, target_id);
+    if (target == NULL || target->window_id == 0u) return false;
+    if (router->pointer_focus_target == target_id)
+        router->pointer_focus_target = 0u;
+    if (router->keyboard_focus_target == target_id)
+        router->keyboard_focus_target = 0u;
+    if (router->capture_target == target_id)
+        router->capture_target = 0u;
+    /* Old queued key/button events must not survive window re-use. */
+    target->head = 0u;
+    target->tail = 0u;
+    target->window_id = 0u;
+    return true;
+}
+
 bool graphics_input_unregister_target(
     struct aurora_graphics_input_router *router,
     uint64_t target_id
@@ -308,10 +475,24 @@ bool graphics_input_set_keyboard_focus(
     if (router == NULL || !router->initialized) return false;
 
     if (target_id != 0u &&
-        (!target_node_still_hittable(router, target_id))) {
+        !target_node_still_hittable(router, target_id))
         return false;
+    if (router->window_policy != NULL && target_id != 0u) {
+        uint64_t authorized_window = 0u;
+        struct aurora_graphics_input_target *target =
+            find_target(router, target_id);
+        struct aurora_window_toplevel window;
+        if (target == NULL || target->window_id == 0u ||
+            !window_policy_active_committed(router->window_policy,
+                                            &authorized_window) ||
+            authorized_window != target->window_id ||
+            !window_policy_read_toplevel(router->window_policy,
+                                         authorized_window, &window) ||
+            !target_matches_window_surface(router, target, &window))
+            return false;
     }
-
+    if (router->keyboard_focus_target != target_id)
+        router->capture_target = 0u;
     router->keyboard_focus_target = target_id;
     return true;
 }
@@ -326,6 +507,21 @@ bool graphics_input_request_capture(
         router->pointer_focus_target != target_id ||
         !target_node_still_hittable(router, target_id)) {
         return false;
+    }
+    if (router->window_policy != NULL) {
+        struct aurora_graphics_input_target *target =
+            find_target(router, target_id);
+        struct aurora_window_toplevel window;
+        uint64_t hit = 0u;
+        if (target == NULL || target->window_id == 0u ||
+            !window_policy_hit_test_committed(
+                router->window_policy, router->pointer_x,
+                router->pointer_y, &hit) ||
+            hit != target->window_id ||
+            !window_policy_read_toplevel(router->window_policy,
+                                         hit, &window) ||
+            !target_matches_window_surface(router, target, &window))
+            return false;
     }
 
     if (router->capture_target != 0u &&
@@ -427,14 +623,27 @@ static uint64_t update_pointer_focus(
     struct aurora_graphics_input_router *router
 ) {
     if (router->capture_target != 0u) {
-        if (target_node_still_hittable(
-                router,
-                router->capture_target)) {
-            router->pointer_focus_target =
-                router->capture_target;
+        bool valid = target_node_still_hittable(
+            router, router->capture_target);
+        if (valid && router->window_policy != NULL) {
+            struct aurora_graphics_input_target *t =
+                find_target(router, router->capture_target);
+            struct aurora_window_toplevel w;
+            valid = t != NULL && t->window_id != 0u &&
+                window_policy_read_toplevel(router->window_policy,
+                                            t->window_id, &w) &&
+                target_matches_window_surface(router, t, &w) &&
+                w.surface->committed.buffer != NULL &&
+                w.surface->committed.commit_serial > w.commit_serial_at_ack &&
+                window_policy_configure_ready(
+                    router->window_policy, t->window_id,
+                    (uint32_t)w.surface->committed.buffer->width,
+                    (uint32_t)w.surface->committed.buffer->height);
+        }
+        if (valid) {
+            router->pointer_focus_target = router->capture_target;
             return router->capture_target;
         }
-
         router->capture_target = 0u;
     }
 
@@ -448,9 +657,27 @@ static uint64_t update_pointer_focus(
         return 0u;
     }
 
-    router->pointer_focus_target =
-        target_for_node(router, node_id);
-    return router->pointer_focus_target;
+    uint64_t selected_target = target_for_node(router, node_id);
+    if (router->window_policy != NULL && selected_target != 0u) {
+        struct aurora_graphics_input_target *target =
+            find_target(router, selected_target);
+        uint64_t selected_window = 0u;
+        if (target == NULL || target->window_id == 0u ||
+            !window_policy_hit_test_committed(
+                router->window_policy, router->pointer_x,
+                router->pointer_y, &selected_window) ||
+            selected_window != target->window_id) {
+            selected_target = 0u;
+        } else {
+            struct aurora_window_toplevel window;
+            if (!window_policy_read_toplevel(router->window_policy,
+                                              selected_window, &window) ||
+                !target_matches_window_surface(router, target, &window))
+                selected_target = 0u;
+        }
+    }
+    router->pointer_focus_target = selected_target;
+    return selected_target;
 }
 
 bool graphics_input_route_event(
@@ -504,6 +731,8 @@ bool graphics_input_route_event(
     }
 
     if (event->type == AURORA_INPUT_EVENT_KEY) {
+        if (router->window_policy != NULL)
+            (void)graphics_input_sync_window_focus(router);
         if (router->keyboard_focus_target != 0u &&
             !target_node_still_hittable(
                 router,
@@ -533,6 +762,68 @@ bool graphics_input_poll_target(
     if (target == NULL || out_event == NULL ||
         target->tail == target->head) {
         return false;
+    }
+
+    /* Even previously queued input loses delivery authority when the
+     * window is revoked, resized, minimized, or superseded. */
+    if (router->window_policy != NULL) {
+        struct aurora_window_toplevel window;
+        bool valid = target->window_id != 0u &&
+            window_policy_read_toplevel(router->window_policy,
+                                         target->window_id, &window) &&
+            target_matches_window_surface(router, target, &window) &&
+            target_node_still_hittable(router, target_id) &&
+            window.surface->state == AURORA_GRAPHICS_SURFACE_MAPPED &&
+            window.surface->committed.buffer != NULL &&
+            !window.surface->committed.buffer->destroy_requested &&
+            (window.surface->committed.buffer->state ==
+                 AURORA_GRAPHICS_BUFFER_COMMITTED ||
+             window.surface->committed.buffer->state ==
+                 AURORA_GRAPHICS_BUFFER_IN_USE) &&
+            window.surface->committed.commit_serial >
+                window.commit_serial_at_ack &&
+            window_policy_configure_ready(
+                router->window_policy, target->window_id,
+                (uint32_t)window.surface->committed.buffer->width,
+                (uint32_t)window.surface->committed.buffer->height) &&
+            (window.pending_configure.state_flags &
+             AURORA_WINDOW_STATE_MINIMIZED) == 0u;
+        if (!valid) {
+            target->head = 0u;
+            target->tail = 0u;
+            if (router->pointer_focus_target == target_id)
+                router->pointer_focus_target = 0u;
+            if (router->keyboard_focus_target == target_id)
+                router->keyboard_focus_target = 0u;
+            if (router->capture_target == target_id)
+                router->capture_target = 0u;
+            return false;
+        }
+    }
+
+    /* Queue membership is not sufficient authorization: a key event
+     * must still belong to the current keyboard focus at dequeue time.
+     * Pointer input is likewise bound to the current pointer/capture
+     * target, preventing delivery after another window takes focus. */
+    if (router->window_policy != NULL) {
+        const struct aurora_input_event *pending =
+            &target->queue[target->tail];
+        bool keyboard = pending->type == AURORA_INPUT_EVENT_KEY;
+        bool pointer =
+            pending->type == AURORA_INPUT_EVENT_POINTER_RELATIVE ||
+            pending->type == AURORA_INPUT_EVENT_POINTER_ABSOLUTE ||
+            pending->type == AURORA_INPUT_EVENT_POINTER_BUTTON ||
+            pending->type == AURORA_INPUT_EVENT_SCROLL;
+        if ((keyboard &&
+             router->keyboard_focus_target != target_id) ||
+            (pointer &&
+             router->pointer_focus_target != target_id &&
+             router->capture_target != target_id)) {
+            target->tail =
+                (target->tail + 1u) %
+                AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY;
+            return false;
+        }
     }
 
     *out_event = target->queue[target->tail];

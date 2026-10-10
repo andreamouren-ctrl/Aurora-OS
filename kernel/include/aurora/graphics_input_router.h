@@ -6,6 +6,7 @@
 
 #include <aurora/input.h>
 #include <aurora/software_compositor.h>
+#include <aurora/window_policy.h>
 
 #define AURORA_GRAPHICS_INPUT_MAX_TARGETS 32u
 #define AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY 32u
@@ -13,6 +14,7 @@
 struct aurora_graphics_input_target {
     uint64_t target_id;
     uint64_t node_id;
+    uint64_t window_id; /* Trusted policy binding, never supplied by Ring 3. */
     struct aurora_input_event queue[AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY];
     uint32_t head;
     uint32_t tail;
@@ -21,6 +23,7 @@ struct aurora_graphics_input_target {
 
 struct aurora_graphics_input_router {
     struct aurora_software_compositor *compositor;
+    struct aurora_window_policy *window_policy;
     struct aurora_graphics_input_target targets[AURORA_GRAPHICS_INPUT_MAX_TARGETS];
     int32_t pointer_x;
     int32_t pointer_y;
@@ -39,6 +42,35 @@ bool graphics_input_register_target(
     struct aurora_graphics_input_router *router,
     uint64_t target_id,
     uint64_t node_id
+);
+
+/* Trusted Shell-only registration and focus synchronization.
+ * Unbound legacy targets retain their existing compositor-only behavior. */
+bool graphics_input_bind_window_policy(
+    struct aurora_graphics_input_router *router,
+    struct aurora_window_policy *policy
+);
+bool graphics_input_bind_window_target(
+    struct aurora_graphics_input_router *router,
+    uint64_t target_id,
+    uint64_t window_id
+);
+/* Trusted Shell input dispatcher only. Consumes a target-bound one-shot
+ * interaction token to transition keyboard focus at current pointer. */
+bool graphics_input_focus_pointer(
+    struct aurora_graphics_input_router *router,
+    uint64_t activation_token,
+    uint64_t interaction_serial,
+    uint64_t *out_window_id
+);
+bool graphics_input_sync_window_focus(
+    struct aurora_graphics_input_router *router
+);
+/* Removes a window mapping without relying on a stale process endpoint;
+ * all queued input and capture belonging to that target are revoked. */
+bool graphics_input_unbind_window_target(
+    struct aurora_graphics_input_router *router,
+    uint64_t target_id
 );
 
 bool graphics_input_unregister_target(

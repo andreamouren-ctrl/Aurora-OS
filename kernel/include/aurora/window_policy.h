@@ -37,8 +37,10 @@ struct aurora_window_toplevel {
     uint32_t surface_generation;
     struct aurora_window_configure pending_configure;
     uint64_t acked_configure_serial;
+    uint64_t commit_serial_at_ack;
     struct aurora_window_placement placement;
     bool configured;
+    bool placed;
     bool active;
     bool used;
 };
@@ -156,6 +158,42 @@ bool window_policy_read_toplevel(
     const struct aurora_window_policy *policy,
     uint64_t window_id,
     struct aurora_window_toplevel *out_toplevel
+);
+
+/* Query the topmost visible, configured toplevel containing a point.
+ * This is policy geometry only: the input router still owns delivery. */
+/* Input-safe variant: requires a newer committed buffer after configure ACK.
+ * A geometry-only hit test must never authorize pointer delivery. */
+bool window_policy_hit_test_committed(
+    const struct aurora_window_policy *policy,
+    int32_t x,
+    int32_t y,
+    uint64_t *out_window_id
+);
+
+bool window_policy_hit_test(
+    const struct aurora_window_policy *policy,
+    int32_t x,
+    int32_t y,
+    uint64_t *out_window_id
+);
+
+/* Trusted input router only: select a committed target and consume a
+ * target-bound, one-shot interaction token before changing focus. */
+bool window_policy_focus_at(
+    struct aurora_window_policy *policy,
+    int32_t x,
+    int32_t y,
+    uint64_t activation_token,
+    uint64_t interaction_serial,
+    uint64_t *out_window_id
+);
+
+/* Read-only keyboard focus query. Never expose a stale or not-yet
+ * committed window to the input router after resize or revocation. */
+bool window_policy_active_committed(
+    const struct aurora_window_policy *policy,
+    uint64_t *out_window_id
 );
 
 bool window_policy_selftest(void);

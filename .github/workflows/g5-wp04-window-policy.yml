@@ -1,0 +1,33 @@
+name: G5 WP-04 Window Policy Host Tests
+
+on:
+  pull_request:
+    paths:
+      - 'kernel/src/graphics/window_policy.c'
+      - 'kernel/include/aurora/window_policy.h'
+      - 'tests/g5/window_hit_test_host.c'
+      - '.github/workflows/g5-wp04-window-policy.yml'
+  push:
+    paths:
+      - 'kernel/src/graphics/window_policy.c'
+      - 'kernel/include/aurora/window_policy.h'
+      - 'tests/g5/window_hit_test_host.c'
+      - '.github/workflows/g5-wp04-window-policy.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  host-window-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build strict window-policy regression
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Werror -Ikernel/include \
+            kernel/src/graphics/window_policy.c \
+            tests/g5/window_hit_test_host.c \
+            -o /tmp/g5-wp04-window-policy
+      - name: Exercise window policy
+        run: /tmp/g5-wp04-window-policy

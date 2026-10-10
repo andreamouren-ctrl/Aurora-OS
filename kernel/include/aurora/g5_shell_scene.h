@@ -7,15 +7,39 @@
 #include <aurora/g5_ipc_abi.h>
 #include <aurora/graphics_buffer.h>
 #include <aurora/process.h>
+#include <aurora/window_policy.h>
+#include <aurora/graphics_input_router.h>
 
 #define G5_SHELL_SCENE_WIDTH 160u
 #define G5_SHELL_SCENE_HEIGHT 96u
 
 /* Per-authenticated-session scene, owned by the trusted receiver.
  * Ring3 owns only non-transferable buffer and surface capabilities. */
+/* Additional independently owned client sharing the Shell's compositor. */
+struct g5_shell_extra_client {
+    struct aurora_process *owner;
+    struct aurora_graphics_buffer *buffer;
+    struct aurora_graphics_buffer *pending_resize_buffer;
+    aurora_cap_handle pending_resize_handle;
+    struct aurora_graphics_surface *surface;
+    aurora_cap_handle kernel_surface;
+    aurora_cap_handle user_buffer;
+    aurora_cap_handle user_surface;
+    uint64_t window_id;
+    uint64_t configure_serial;
+    uint64_t last_display_serial;
+    uint64_t last_commit_serial;
+    uint32_t width;
+    uint32_t height;
+    uint32_t slot;
+    bool active;
+};
+
 struct g5_shell_scene {
     struct aurora_process *owner;
     struct aurora_graphics_buffer *buffer;
+    struct aurora_graphics_buffer *pending_resize_buffer;
+    aurora_cap_handle pending_resize_handle;
     struct aurora_graphics_surface *surface;
     struct aurora_cap_table kernel_caps;
     aurora_cap_handle kernel_surface;
@@ -25,9 +49,16 @@ struct g5_shell_scene {
     struct g5_frame_delivery delivery;
     struct g5_compositor_bridge bridge;
     struct aurora_software_compositor compositor;
+    struct aurora_window_policy window_policy;
+    struct aurora_graphics_input_router input_router;
+    uint64_t window_id;
+    struct g5_shell_extra_client extra;
     uint64_t generation;
     uint64_t configure_serial;
     uint64_t last_display_serial;
+    uint64_t last_commit_serial;
+    uint32_t width;
+    uint32_t height;
     uint32_t slot;
     int32_t x;
     int32_t y;
@@ -39,7 +70,79 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
 bool g5_shell_scene_publish(struct g5_shell_scene *scene,
                             const struct g5_ipc_header *header,
                             const uint8_t *payload);
+/* Trusted Shell pointer-drag path reuses the same window placement checks
+ * as the authenticated G5_OP_WINDOW_PLACE receiver. */
+bool g5_shell_scene_configure_primary(struct g5_shell_scene *scene,
+                                      uint32_t width,uint32_t height,
+                                      uint64_t *out_serial);
+bool g5_shell_scene_allocate_resize_buffer_primary(
+    struct g5_shell_scene *scene,aurora_cap_handle *out_handle);
+bool g5_shell_scene_ack_primary(struct g5_shell_scene *scene,
+                                uint64_t serial);
+bool g5_shell_scene_publish_primary_resized(struct g5_shell_scene *scene,
+                                           uint64_t request_id,
+                                           uint64_t commit_serial);
+bool g5_shell_scene_move_primary(struct g5_shell_scene *scene,
+                                 int32_t x,int32_t y);
 bool g5_shell_scene_place(struct g5_shell_scene *scene,
+                          const struct g5_ipc_header *header,
+                          const uint8_t *payload);
+bool g5_shell_scene_attach_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *second_owner
+);
+void g5_shell_scene_detach_second(struct g5_shell_scene *scene);
+/* Trusted per-client receiver must authenticate process ownership before
+ * calling this; it is not a globally exposed Ring 3 IPC dispatcher. */
+/* Trusted input broker: validate the requesting client owner before
+ * draining the queue associated with its compositor-backed window. */
+bool g5_shell_scene_route_input(
+    struct g5_shell_scene *scene,
+    const struct aurora_input_event *event
+);
+bool g5_shell_scene_poll_input_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    struct aurora_input_event *out_event
+);
+bool g5_shell_scene_close_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender
+);
+/* Start a resize handshake; owner must ACK and commit a matching new
+ * graphics buffer before the next frame can be presented. */
+bool g5_shell_scene_configure_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    uint32_t width, uint32_t height,
+    uint64_t *out_serial
+);
+/* Allocate a size-matched replacement buffer with owner-only mapping
+ * rights. It remains pending until the owner's matching frame is presented. */
+bool g5_shell_scene_allocate_resize_buffer_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    aurora_cap_handle *out_buffer
+);
+bool g5_shell_scene_ack_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    uint64_t serial
+);
+bool g5_shell_scene_move_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    int32_t x,
+    int32_t y
+);
+bool g5_shell_scene_publish_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    uint64_t request_id,
+    uint64_t commit_serial,
+    uint64_t *out_display_serial
+);
+bool g5_shell_scene_close(struct g5_shell_scene *scene,
                           const struct g5_ipc_header *header,
                           const uint8_t *payload);
 void g5_shell_scene_end(struct g5_shell_scene *scene);

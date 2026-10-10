@@ -97,8 +97,11 @@ bool window_policy_create_toplevel(
          i < AURORA_WINDOW_POLICY_MAX_TOPLEVELS;
          ++i) {
         if (policy->toplevels[i].used &&
-            policy->toplevels[i].surface == surface &&
-            surface_live(&policy->toplevels[i])) return false;
+            policy->toplevels[i].surface == surface) {
+            /* Refuse aliasing even if its old generation is stale:
+             * the owner must explicitly revoke it first. */
+            return false;
+        }
     }
 
     for (uint32_t i = 0u;
@@ -152,6 +155,20 @@ bool window_policy_configure(
     uint64_t serial =
         next_nonzero(&policy->next_configure_serial);
 
+    /* A new configure invalidates the old focused presentation.
+     * Tokens issued for the prior geometry must not authorize focus
+     * after a resize, minimize or state transition. */
+    window->active = false;
+    for (uint32_t i = 0u;
+         i < AURORA_WINDOW_POLICY_MAX_ACTIVATION_TOKENS;
+         ++i) {
+        if (policy->activation_tokens[i].used &&
+            policy->activation_tokens[i].target_window_id == window_id) {
+            clear_bytes(&policy->activation_tokens[i],
+                        sizeof(policy->activation_tokens[i]));
+        }
+    }
+
     window->pending_configure =
         (struct aurora_window_configure){
             .serial = serial,
@@ -182,6 +199,7 @@ bool window_policy_ack_configure(
     }
 
     window->acked_configure_serial = serial;
+    window->commit_serial_at_ack = window->surface->committed.commit_serial;
     return true;
 }
 
@@ -347,6 +365,7 @@ bool window_policy_place_initial(
         policy->next_z = 1;
     }
 
+    window->placed = true;
     window->placement = (struct aurora_window_placement){
         .x = (int32_t)x,
         .y = (int32_t)y,
@@ -368,6 +387,7 @@ bool window_policy_move(
     struct aurora_window_toplevel *window =
         find_toplevel(policy, window_id);
     if (window == NULL ||
+        !window->placed ||
         window->surface == NULL ||
         window->surface->generation != window->surface_generation ||
         window->surface->destroy_requested ||
@@ -460,6 +480,132 @@ bool window_policy_read_toplevel(
     return true;
 }
 
+static bool hit_test_impl(
+    const struct aurora_window_policy *policy,
+    int32_t x,
+    int32_t y,
+    uint64_t *out_window_id,
+    bool require_commit
+) {
+    if (out_window_id != NULL) *out_window_id = 0u;
+    if (policy == NULL || !policy->initialized || out_window_id == NULL ||
+        x < 0 || y < 0 ||
+        (uint32_t)x >= policy->output_width ||
+        (uint32_t)y >= policy->output_height) return false;
+
+    int32_t top_z = INT32_MIN;
+    uint64_t top_id = 0u;
+    for (uint32_t i = 0u; i < AURORA_WINDOW_POLICY_MAX_TOPLEVELS; ++i) {
+        const struct aurora_window_toplevel *w = &policy->toplevels[i];
+        if (!w->used || !w->placed || !surface_live(w) || !w->configured ||
+            (w->pending_configure.state_flags &
+             AURORA_WINDOW_STATE_MINIMIZED) != 0u ||
+            w->acked_configure_serial != w->pending_configure.serial ||
+            w->pending_configure.serial == 0u) continue;
+        if (require_commit) {
+            const struct aurora_graphics_surface_snapshot *frame =
+                &w->surface->committed;
+            if (w->surface->state != AURORA_GRAPHICS_SURFACE_MAPPED ||
+                frame->commit_serial == 0u ||
+                frame->commit_serial <= w->commit_serial_at_ack ||
+                frame->buffer == NULL ||
+                frame->buffer->destroy_requested ||
+                (frame->buffer->state != AURORA_GRAPHICS_BUFFER_COMMITTED &&
+                 frame->buffer->state != AURORA_GRAPHICS_BUFFER_IN_USE) ||
+                frame->buffer->width != w->pending_configure.width ||
+                frame->buffer->height != w->pending_configure.height)
+                continue;
+        }
+        const int64_t dx = (int64_t)x - w->placement.x;
+        const int64_t dy = (int64_t)y - w->placement.y;
+        if (dx < 0 || dy < 0 ||
+            (uint64_t)dx >= w->pending_configure.width ||
+            (uint64_t)dy >= w->pending_configure.height) continue;
+        if (top_id == 0u || w->placement.z > top_z) {
+            top_z = w->placement.z;
+            top_id = w->window_id;
+        }
+    }
+    if (top_id == 0u) return false;
+    *out_window_id = top_id;
+    return true;
+}
+
+
+bool window_policy_hit_test(
+    const struct aurora_window_policy *policy,
+    int32_t x,
+    int32_t y,
+    uint64_t *out_window_id
+) {
+    return hit_test_impl(policy, x, y, out_window_id, false);
+}
+
+bool window_policy_hit_test_committed(
+    const struct aurora_window_policy *policy,
+    int32_t x,
+    int32_t y,
+    uint64_t *out_window_id
+) {
+    return hit_test_impl(policy, x, y, out_window_id, true);
+}
+
+bool window_policy_focus_at(
+    struct aurora_window_policy *policy,
+    int32_t x,
+    int32_t y,
+    uint64_t activation_token,
+    uint64_t interaction_serial,
+    uint64_t *out_window_id
+) {
+    if (out_window_id != NULL) *out_window_id = 0u;
+    if (out_window_id == NULL || activation_token == 0u ||
+        interaction_serial == 0u) return false;
+
+    uint64_t target = 0u;
+    if (!window_policy_hit_test_committed(policy, x, y, &target))
+        return false;
+    /* The existing activation policy verifies target binding, freshness
+     * and one-shot consumption; hit-testing alone grants no authority. */
+    if (!window_policy_activate(policy, target, activation_token,
+                                interaction_serial, false))
+        return false;
+    *out_window_id = target;
+    return true;
+}
+
+bool window_policy_active_committed(
+    const struct aurora_window_policy *policy,
+    uint64_t *out_window_id
+) {
+    if (out_window_id != NULL) *out_window_id = 0u;
+    if (policy == NULL || !policy->initialized || out_window_id == NULL)
+        return false;
+    for (uint32_t i = 0u; i < AURORA_WINDOW_POLICY_MAX_TOPLEVELS; ++i) {
+        const struct aurora_window_toplevel *w = &policy->toplevels[i];
+        if (!w->used || !w->active || !surface_live(w) ||
+            !w->configured ||
+            w->pending_configure.serial == 0u ||
+            w->acked_configure_serial != w->pending_configure.serial ||
+            (w->pending_configure.state_flags &
+             AURORA_WINDOW_STATE_MINIMIZED) != 0u) continue;
+        const struct aurora_graphics_surface_snapshot *frame =
+            &w->surface->committed;
+        if (w->surface->state != AURORA_GRAPHICS_SURFACE_MAPPED ||
+            frame->commit_serial == 0u ||
+            frame->commit_serial <= w->commit_serial_at_ack ||
+            frame->buffer == NULL || frame->buffer->destroy_requested ||
+            (frame->buffer->state != AURORA_GRAPHICS_BUFFER_COMMITTED &&
+             frame->buffer->state != AURORA_GRAPHICS_BUFFER_IN_USE) ||
+            frame->buffer->width != w->pending_configure.width ||
+            frame->buffer->height != w->pending_configure.height)
+            continue;
+        *out_window_id = w->window_id;
+        return true;
+    }
+    return false;
+}
+
 bool window_policy_selftest(void) {
     struct aurora_window_policy policy;
     struct aurora_graphics_surface surface = {
@@ -482,6 +628,11 @@ bool window_policy_selftest(void) {
 
     uint64_t first = 0u;
     uint64_t second = 0u;
+    /* Created surfaces have no trusted placement, even at origin. */
+    uint64_t preplace_hit = 123u;
+    if (window_policy_hit_test(&policy, 0, 0, &preplace_hit) ||
+        preplace_hit != 0u)
+        return false;
 
     if (!window_policy_configure(
             &policy,
@@ -512,6 +663,11 @@ bool window_policy_selftest(void) {
             600u)) {
         return false;
     }
+
+    /* ACK must not make unplaced geometry eligible for input. */
+    if (window_policy_hit_test(&policy, 0, 0, &preplace_hit) ||
+        preplace_hit != 0u)
+        return false;
 
     if (!window_policy_configure(
             &policy,
@@ -647,6 +803,37 @@ bool window_policy_selftest(void) {
         return false;
     }
 
+    /* WP-04: unconfigured second client cannot receive a hit. The
+     * configured topmost client wins where their placements overlap. */
+    uint64_t hit = 0u;
+    if (!window_policy_hit_test(&policy, 600, 300, &hit) ||
+        hit != window ||
+        window_policy_hit_test(&policy, -1, 300, &hit) ||
+        hit != 0u ||
+        window_policy_hit_test(&policy, 1919, 1079, &hit)) {
+        return false;
+    }
+    uint64_t second_serial = 0u;
+    if (!window_policy_configure(&policy, second_window, 800u, 600u,
+                                 AURORA_WINDOW_STATE_NONE, &second_serial) ||
+        !window_policy_ack_configure(&policy, second_window, second_serial) ||
+        !window_policy_hit_test(&policy, 600, 300, &hit) ||
+        hit != window) {
+        return false;
+    }
+
+    /* A pending resize must not expose geometry before its exact ACK. */
+    uint64_t pending_resize = 0u;
+    if (!window_policy_configure(&policy, second_window, 300u, 200u,
+                                 AURORA_WINDOW_STATE_NONE, &pending_resize) ||
+        !window_policy_hit_test(&policy, 600, 300, &hit) ||
+        hit != window ||
+        !window_policy_ack_configure(&policy, second_window, pending_resize) ||
+        !window_policy_hit_test(&policy, 600, 300, &hit) ||
+        hit != window) {
+        return false;
+    }
+
     /* G5 lifecycle gate: no offscreen move, no stale token after close. */
     if (!window_policy_move(&policy, window, 50, 60, 1024u, 768u) ||
         window_policy_move(&policy, window, -1, 60, 1024u, 768u) ||
@@ -657,6 +844,17 @@ bool window_policy_selftest(void) {
         window_policy_destroy_toplevel(&policy, window) ||
         window_policy_activate(&policy, window, token, 300u, false) ||
         window_policy_move(&policy, window, 0, 0, 1024u, 768u)) {
+        return false;
+    }
+
+    if (!window_policy_hit_test(&policy, 600, 300, &hit) ||
+        hit != second_window) {
+        return false;
+    }
+    if (!window_policy_configure(&policy, second_window, 800u, 600u,
+                                 AURORA_WINDOW_STATE_MINIMIZED, &second_serial) ||
+        !window_policy_ack_configure(&policy, second_window, second_serial) ||
+        window_policy_hit_test(&policy, 600, 300, &hit)) {
         return false;
     }
 
@@ -673,6 +871,12 @@ bool window_policy_selftest(void) {
         return false;
     }
     stale_surface.generation++;
+    /* A reused surface pointer cannot mint a second window identity
+     * until the previous slot has been explicitly revoked. */
+    uint64_t aliased_id = 0u;
+    if (window_policy_create_toplevel(&policy, &stale_surface,
+                                      &aliased_id) || aliased_id != 0u)
+        return false;
     uint64_t serial = 0u;
     if (window_policy_configure(&policy, stale_id, 400u, 300u, 0u, &serial) ||
         window_policy_issue_activation_token(&policy, stale_id, 400u, &token) ||
@@ -682,6 +886,107 @@ bool window_policy_selftest(void) {
         !window_policy_destroy_toplevel(&policy, stale_id)) {
         return false;
     }
+
+    /* A previously ACK-configured window is never hittable after its
+     * surface generation changes, even before the policy slot is reaped. */
+    struct aurora_graphics_surface reused_surface = {
+        .generation = 31u,
+        .state = AURORA_GRAPHICS_SURFACE_READY
+    };
+    uint64_t reused_id = 0u;
+    uint64_t reused_serial = 0u;
+    if (!window_policy_create_toplevel(&policy, &reused_surface, &reused_id) ||
+        !window_policy_configure(&policy, reused_id, 100u, 100u, 0u,
+                                 &reused_serial) ||
+        !window_policy_ack_configure(&policy, reused_id, reused_serial) ||
+        !window_policy_place_initial(&policy, reused_id, 100u, 100u,
+                                     &first_place) ||
+        !window_policy_hit_test(&policy, first_place.x, first_place.y, &hit) ||
+        hit != reused_id) {
+        return false;
+    }
+    reused_surface.generation++;
+    if (window_policy_hit_test(&policy, first_place.x, first_place.y, &hit) ||
+        hit != 0u ||
+        !window_policy_destroy_toplevel(&policy, reused_id)) {
+        return false;
+    }
+
+    /* An ACK alone is insufficient: input-safe targeting requires a
+     * new committed frame with the exact configured buffer dimensions. */
+    struct aurora_graphics_surface input_surface = {
+        .generation = 40u, .state = AURORA_GRAPHICS_SURFACE_READY
+    };
+    struct aurora_graphics_buffer input_buffer = {
+        .width = 120u, .height = 80u,
+        .state = AURORA_GRAPHICS_BUFFER_COMMITTED
+    };
+    uint64_t input_id = 0u, input_serial = 0u;
+    struct aurora_window_placement input_place = {0};
+    if (!window_policy_create_toplevel(&policy, &input_surface, &input_id) ||
+        !window_policy_configure(&policy, input_id, 120u, 80u, 0u,
+                                 &input_serial) ||
+        !window_policy_ack_configure(&policy, input_id, input_serial) ||
+        !window_policy_place_initial(&policy, input_id, 120u, 80u,
+                                     &input_place) ||
+        window_policy_hit_test_committed(&policy, input_place.x,
+                                         input_place.y, &hit)) return false;
+
+    input_surface.state = AURORA_GRAPHICS_SURFACE_MAPPED;
+    input_surface.committed.buffer = &input_buffer;
+    input_surface.committed.commit_serial = 1u;
+    if (!window_policy_hit_test_committed(&policy, input_place.x,
+                                          input_place.y, &hit) ||
+        hit != input_id) return false;
+    uint64_t resize_serial = 0u;
+    if (!window_policy_configure(&policy, input_id, 130u, 80u, 0u,
+                                 &resize_serial) ||
+        !window_policy_ack_configure(&policy, input_id, resize_serial) ||
+        window_policy_hit_test_committed(&policy, input_place.x,
+                                         input_place.y, &hit)) return false;
+    input_surface.committed.commit_serial = 2u;
+    if (window_policy_hit_test_committed(&policy, input_place.x,
+                                         input_place.y, &hit)) return false;
+    input_buffer.width = 130u;
+    if (!window_policy_hit_test_committed(&policy, input_place.x,
+                                          input_place.y, &hit) ||
+        hit != input_id) return false;
+    /* Focus cannot be stolen: one-shot tokens are bound to the hit target
+     * and require a committed frame rather than mere configured geometry. */
+    uint64_t focus_token = 0u;
+    uint64_t selected = 999u;
+    if (!window_policy_issue_activation_token(&policy, input_id, 500u,
+                                               &focus_token) ||
+        window_policy_focus_at(&policy, input_place.x, input_place.y,
+                               focus_token, 533u, &selected) ||
+        selected != 0u ||
+        !window_policy_focus_at(&policy, input_place.x, input_place.y,
+                                focus_token, 510u, &selected) ||
+        selected != input_id ||
+        !window_policy_active_committed(&policy, &selected) ||
+        selected != input_id ||
+        window_policy_focus_at(&policy, input_place.x, input_place.y,
+                               focus_token, 510u, &selected))
+        return false;
+
+    /* Reconfigure revokes keyboard focus and all tokens bound to the
+     * old presentation, including an unconsumed token. */
+    uint64_t obsolete_token = 0u, fresh_configure = 0u;
+    if (!window_policy_issue_activation_token(&policy, input_id, 600u,
+                                               &obsolete_token) ||
+        !window_policy_configure(&policy, input_id, 130u, 80u,
+                                 AURORA_WINDOW_STATE_NONE,
+                                 &fresh_configure) ||
+        window_policy_active_committed(&policy, &selected) ||
+        window_policy_activate(&policy, input_id, obsolete_token,
+                               600u, false))
+        return false;
+
+    input_surface.generation++;
+    if (window_policy_active_committed(&policy, &selected) ||
+        selected != 0u) return false;
+    if (window_policy_hit_test_committed(&policy, input_place.x,
+                                         input_place.y, &hit)) return false;
 
     /* Surface teardown revokes all outstanding activation authority. */
     struct aurora_graphics_surface cleanup_surface = {

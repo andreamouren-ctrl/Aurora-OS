@@ -24,6 +24,12 @@
 struct user_session_host_runtime {
     struct aurora_process *process;
     aurora_thread_id thread;
+    /* Second Ring3 process, exclusive control endpoint and graphics owner. */
+    struct aurora_process *second_process;
+    aurora_thread_id second_thread;
+    struct aurora_ipc_channel second_channel;
+    struct aurora_ipc_endpoint *second_kernel_endpoint;
+    aurora_cap_handle second_control_handle;
     struct aurora_ipc_channel channel;
     struct aurora_cap_table kernel_caps;
     struct aurora_ipc_endpoint *kernel_endpoint;
@@ -35,6 +41,9 @@ struct user_session_host_runtime {
     struct g5_ipc_endpoint_binding g5_binding;
     struct g5_pending_queue g5_pending;
     struct g5_shell_scene scene;
+    uint64_t drag_window_id;
+    int32_t drag_offset_x;
+    int32_t drag_offset_y;
     aurora_cap_handle g5_receiver_handle;
     aurora_cap_handle g5_authority_handle;
     aurora_cap_handle g5_sender_handle;
@@ -113,6 +122,78 @@ static bool receive_expected(
     return false;
 }
 
+/* The secondary IPC endpoint is exclusively granted to a distinct Ring3
+ * process. Never accept a frame receipt from the primary Shell channel. */
+static bool receive_second_event(uint32_t type, uint64_t *out_request) {
+    if (out_request) *out_request = 0u;
+    if (host.second_kernel_endpoint == NULL || out_request == NULL)
+        return false;
+    uint64_t deadline = clock_now_ns() + USER_SESSION_HOST_TIMEOUT_NS;
+    while (clock_now_ns() < deadline) {
+        struct aurora_ipc_received received;
+        clear_bytes(&received,sizeof(received));
+        if (ipc_receive(host.second_kernel_endpoint,
+                        &host.kernel_caps,&received)) {
+            struct aurora_user_session_host_message expected = {
+                .version = AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+                .type = type
+            };
+            if (received.capability_count != 0u ||
+                received.length != sizeof(expected))
+                return false;
+            struct aurora_user_session_host_message incoming;
+            clear_bytes(&incoming,sizeof(incoming));
+            for (size_t i=0u;i<sizeof(incoming);++i)
+                ((uint8_t *)&incoming)[i]=received.data[i];
+            if (incoming.version != expected.version ||
+                incoming.type != expected.type)
+                return false;
+            *out_request = incoming.request_id;
+            return true;
+        }
+        if (host.second_thread != 0u &&
+            scheduler_thread_finished(host.second_thread))
+            return false;
+        arch_idle();
+    }
+    return false;
+}
+
+static bool receive_primary_event(uint32_t type, uint64_t *out_request) {
+    if (out_request) *out_request = 0u;
+    if (host.kernel_endpoint == NULL || out_request == NULL)
+        return false;
+    uint64_t deadline = clock_now_ns() + USER_SESSION_HOST_TIMEOUT_NS;
+    while (clock_now_ns() < deadline) {
+        struct aurora_ipc_received received;
+        clear_bytes(&received,sizeof(received));
+        if (ipc_receive(host.kernel_endpoint,
+                        &host.kernel_caps,&received)) {
+            struct aurora_user_session_host_message expected = {
+                .version = AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+                .type = type
+            };
+            if (received.capability_count != 0u ||
+                received.length != sizeof(expected))
+                return false;
+            struct aurora_user_session_host_message incoming;
+            clear_bytes(&incoming,sizeof(incoming));
+            for (size_t i=0u;i<sizeof(incoming);++i)
+                ((uint8_t *)&incoming)[i]=received.data[i];
+            if (incoming.version != expected.version ||
+                incoming.type != expected.type)
+                return false;
+            *out_request = incoming.request_id;
+            return true;
+        }
+        if (host.thread != 0u &&
+            scheduler_thread_finished(host.thread))
+            return false;
+        arch_idle();
+    }
+    return false;
+}
+
 static void revoke_g5_sender(void) {
     if (host.process != NULL &&
         host.g5_sender_handle != AURORA_CAP_INVALID) {
@@ -139,9 +220,63 @@ static void revoke_g5_receiver(void) {
     host.g5_ready=false;
 }
 
+static bool shutdown_second_client(void) {
+    if (host.second_process==NULL) return true;
+    bool clean=true;
+    if (host.second_thread!=0u &&
+        !scheduler_thread_finished(host.second_thread)) {
+        uint64_t id=host.next_request_id++;
+        if (id==0u) id=host.next_request_id++;
+        const struct aurora_user_session_host_message request={
+            .version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+            .type=AURORA_USER_SESSION_HOST_SHUTDOWN,
+            .request_id=id
+        };
+        uint64_t ack=0u;
+        if (!host.second_kernel_endpoint ||
+            !ipc_send(host.second_kernel_endpoint,&host.kernel_caps,
+                      &request,(uint32_t)sizeof(request),NULL,0u) ||
+            !receive_second_event(AURORA_USER_SESSION_HOST_SHUTDOWN_ACK,&ack) ||
+            ack!=id)
+            clean=false;
+        uint64_t deadline=clock_now_ns()+USER_SESSION_HOST_TIMEOUT_NS;
+        while (!scheduler_thread_finished(host.second_thread) &&
+               clock_now_ns()<deadline)
+            arch_idle();
+    }
+    if (host.second_thread!=0u &&
+        scheduler_thread_finished(host.second_thread)) {
+        (void)scheduler_reap_thread(host.second_thread);
+        host.second_thread=0u;
+    }
+    if (host.second_control_handle!=AURORA_CAP_INVALID) {
+        (void)cap_revoke(&host.second_process->capabilities,
+                         host.second_control_handle);
+        host.second_control_handle=AURORA_CAP_INVALID;
+    }
+    if (host.second_thread==0u &&
+        process_live_thread_count(host.second_process)==0u) {
+        if (process_state(host.second_process)==AURORA_PROCESS_RUNNING)
+            process_mark_exited(host.second_process,clean?0:1);
+        clean=clean &&
+              process_state(host.second_process)==AURORA_PROCESS_EXITED &&
+              host.second_process->exit_code==0;
+        if (process_state(host.second_process)!=AURORA_PROCESS_RUNNING &&
+            process_reap(host.second_process,NULL) &&
+            process_release(host.second_process)) {
+            host.second_process=NULL;
+            host.second_kernel_endpoint=NULL;
+        } else clean=false;
+    } else clean=false;
+    return clean;
+}
+
 static void cleanup_finished_host(void) {
+    /* Scene teardown uses extra.owner->capabilities. Revoke graphics
+     * while the second process object still exists; then reap it. */
     g5_shell_session_end(&shell_session);
     revoke_g5_receiver();
+    (void)shutdown_second_client();
     if (session_g5_dispatcher != NULL)
         g5_ipc_dispatch_revoke(session_g5_dispatcher);
     revoke_g5_sender();
@@ -165,6 +300,7 @@ static void cleanup_finished_host(void) {
 
     host.kernel_endpoint = NULL;
     host.control_handle = AURORA_CAP_INVALID;
+    host.second_control_handle = AURORA_CAP_INVALID;
     host.profile_handle = AURORA_CAP_INVALID;
     host.active = false;
     host.g5_ready = false;
@@ -180,6 +316,88 @@ static void cleanup_unstarted_host(void) {
     }
 
     cleanup_finished_host();
+}
+
+/* Launch a real independent address space using the same small user
+ * image in renderer mode. It has no primary Shell control/health authority,
+ * no profile capability and no shared G5 sender endpoint. */
+static bool start_second_client(
+    const uint8_t user_id[AURORA_USER_SESSION_HOST_USER_ID_SIZE],
+    uint64_t generation
+) {
+    if (host.second_process != NULL || host.second_thread != 0u ||
+        !host.scene.active || !host.process || !generation || !user_id)
+        return false;
+    host.second_process=process_create_image(
+        "g5-render-client-2",user_session_host_image(),
+        user_session_host_image_size());
+    if (!host.second_process) return false;
+    ipc_channel_init(&host.second_channel);
+    host.second_kernel_endpoint=ipc_channel_endpoint(&host.second_channel,0u);
+    struct aurora_ipc_endpoint *user_endpoint=
+        ipc_channel_endpoint(&host.second_channel,1u);
+    if (!host.second_kernel_endpoint || !user_endpoint) return false;
+    host.second_control_handle=cap_grant(
+        &host.second_process->capabilities,user_endpoint,
+        AURORA_CAP_IPC_ENDPOINT,AURORA_RIGHT_READ|AURORA_RIGHT_WRITE);
+    if (host.second_control_handle==AURORA_CAP_INVALID ||
+        !g5_shell_scene_attach_second(&host.scene,host.second_process))
+        return false;
+    log_line("[g5-wp04-gate] primary graphics scene ready");
+    struct aurora_user_session_host_startup startup;
+    clear_bytes(&startup,sizeof(startup));
+    startup.abi_version=AURORA_USER_SESSION_HOST_ABI_VERSION;
+    startup.flags=AURORA_USER_SESSION_HOST_FLAG_RENDER_CLIENT;
+    startup.control_endpoint=host.second_control_handle;
+    startup.session_generation=generation;
+    startup.graphics_buffer=host.scene.extra.user_buffer;
+    startup.graphics_surface=host.scene.extra.user_surface;
+    startup.graphics_object_id=host.scene.extra.surface->object_id;
+    startup.graphics_object_generation=host.scene.extra.surface->generation;
+    startup.graphics_width=host.scene.extra.width;
+    startup.graphics_height=host.scene.extra.height;
+    for (size_t i=0u;i<sizeof(startup.user_id);++i)
+        startup.user_id[i]=user_id[i];
+    if (sizeof(startup)!=AURORA_USER_SESSION_HOST_STARTUP_STACK_OFFSET ||
+        host.second_process->user_stack_top <
+            AURORA_USER_SESSION_HOST_STARTUP_STACK_OFFSET ||
+        !copy_to_user(host.second_process,
+            host.second_process->user_stack_top -
+                AURORA_USER_SESSION_HOST_STARTUP_STACK_OFFSET,
+            &startup,sizeof(startup))) {
+        clear_bytes(&startup,sizeof(startup));
+        return false;
+    }
+    clear_bytes(&startup,sizeof(startup));
+    log_line("[g5-wp04-gate] starting secondary Ring3 thread");
+    host.second_thread=scheduler_create_user_thread(
+        "g5-ring3-renderer-2",host.second_process);
+    if (host.second_thread==0u) return false;
+    uint64_t receipt=0u;
+    log_line("[g5-wp04-gate] waiting for secondary READY");
+    if (!receive_second_event(AURORA_USER_SESSION_HOST_READY,&receipt) ||
+        receipt!=0u ||
+        process_bootstrap_signal(host.second_process)!=
+            AURORA_USER_SESSION_HOST_READY_MAGIC)
+        return false;
+    log_line("[g5-wp04-gate] waiting for secondary committed frame");
+    if (!receive_second_event(
+            AURORA_USER_SESSION_HOST_FRAME_COMMITTED,&receipt) ||
+        receipt==0u || receipt>UINT64_C(0xffffffff))
+        return false;
+    /* Both independent surfaces share one presentation queue. Never
+     * mint a client-local request ID larger than the host's next IDs:
+     * later resize frames must remain globally monotonic. */
+    uint64_t serial=0u;
+    uint64_t submission_id=host.next_request_id++;
+    if (submission_id==0u || submission_id==UINT64_MAX ||
+        !g5_shell_scene_publish_second(
+            &host.scene,host.second_process,
+            submission_id,receipt,&serial) ||
+        serial==0u)
+        return false;
+    log_line("[g5-wp04] second Ring3 process committed and displayed");
+    return true;
 }
 
 static bool start_with_context(
@@ -206,12 +424,14 @@ static bool start_with_context(
     host.g5_sender_handle = AURORA_CAP_INVALID;
     host.next_request_id = UINT64_C(0x5553455200000001);
 
+    log_line("[g5-wp04-gate] creating primary Ring3 process");
     host.process = process_create_image(
         "user-session-host",
         user_session_host_image(),
         user_session_host_image_size()
     );
     if (host.process == NULL) return false;
+    log_line("[g5-wp04-gate] primary process image allocated");
 
     ipc_channel_init(&host.channel);
     cap_table_init(&host.kernel_caps);
@@ -246,6 +466,7 @@ static bool start_with_context(
         return false;
     }
 
+    log_line("[g5-wp04-gate] primary control/profile capabilities delegated");
     /* Optional dedicated G5 channel: the only sender grant is held by this
      * authenticated session process. No TRANSFER and no sender READ right.
      * The receiver remains in the kernel-owned capability table. */
@@ -290,6 +511,7 @@ static bool start_with_context(
             .provisioned_exclusively=true,
             .pending_requests=&host.g5_pending
         };
+        log_line("[g5-wp04-gate] starting primary graphics scene");
         if (!g5_shell_scene_begin(&host.scene,host.process,generation)) {
             log_line("[g5-shell-diagnostic] failed to initialize compositor scene");
             cleanup_unstarted_host();
@@ -332,6 +554,7 @@ static bool start_with_context(
     }
     clear_bytes(&startup, sizeof(startup));
 
+    log_line("[g5-wp04-gate] launching primary Ring3 thread");
     host.thread = scheduler_create_user_thread(
         "user-session-host-main",
         host.process
@@ -423,6 +646,13 @@ static bool start_with_context(
         }
         host.g5_ready=true;
     }
+    log_line("[g5-wp04-gate] primary ready, entering secondary Ring3 bootstrap");
+    if (session_g5_dispatcher != NULL &&
+        !start_second_client(user_id,generation)) {
+        log_line("[g5-wp04] independent second Ring3 render client failed");
+        cleanup_unstarted_host();
+        return false;
+    }
     if (!g5_shell_session_ready(&shell_session,generation)) {
         cleanup_unstarted_host();
         return false;
@@ -450,17 +680,40 @@ bool user_session_host_health_check(void) {
         !receive_expected(AURORA_USER_SESSION_HOST_HEALTH_ACK,request_id))
         return false;
     enum g5_ipc_status health=G5_IPC_DENIED;
-    return g5_ipc_endpoint_poll(&host.g5_binding,&health) &&
-           health==G5_IPC_OK;
+    if (!g5_ipc_endpoint_poll(&host.g5_binding,&health) ||
+        health!=G5_IPC_OK)
+        return false;
+    if (!host.scene.extra.active && host.second_process==NULL)
+        return true; /* User closed the secondary window normally. */
+    if (!host.scene.extra.active || !host.second_process ||
+        !host.second_kernel_endpoint)
+        return false;
+    uint64_t second_id=host.next_request_id++;
+    if (second_id==0u) second_id=host.next_request_id++;
+    const struct aurora_user_session_host_message second_request={
+        .version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+        .type=AURORA_USER_SESSION_HOST_HEALTH_POLL,
+        .request_id=second_id
+    };
+    uint64_t second_ack=0u;
+    return second_id!=0u &&
+        ipc_send(host.second_kernel_endpoint,&host.kernel_caps,
+                 &second_request,(uint32_t)sizeof(second_request),
+                 NULL,0u) &&
+        receive_second_event(AURORA_USER_SESSION_HOST_HEALTH_ACK,
+                             &second_ack) &&
+        second_ack==second_id;
 }
 
 bool user_session_host_stop(void) {
-    /* Fail closed immediately, including IPC send timeout/failure paths. */
+    /* Revoke graphics and capability bindings before releasing the
+     * second process: scene teardown accesses its owner cap table. */
     g5_shell_session_end(&shell_session);
     if (session_g5_dispatcher != NULL)
         g5_ipc_dispatch_revoke(session_g5_dispatcher);
     revoke_g5_sender();
     revoke_g5_receiver();
+    bool second_stopped=shutdown_second_client();
     if (!host.active ||
         host.process == NULL ||
         host.thread == 0u ||
@@ -510,7 +763,7 @@ bool user_session_host_stop(void) {
         host.process->exit_code == 0;
 
     cleanup_finished_host();
-    return acknowledged && clean_exit;
+    return acknowledged && clean_exit && second_stopped;
 }
 
 /* Production G5 receiver policy. The self-test registers its own dispatcher,
@@ -536,7 +789,8 @@ static bool production_g5_authorize(void *ctx,uint32_t operation,uint64_t genera
         session_manager_client_state()==AURORA_SESSION_CLIENT_ACTIVE &&
         (operation==G5_OP_SHELL_READY || operation==G5_OP_SHELL_HEALTH ||
          ((operation==G5_OP_SCENE_PUBLISH ||
-           operation==G5_OP_WINDOW_PLACE) && host.scene.active));
+           operation==G5_OP_WINDOW_PLACE ||
+           operation==G5_OP_WINDOW_CLOSE) && host.scene.active));
 }
 
 static bool production_g5_handle(void *ctx,const struct g5_ipc_header *header,
@@ -564,6 +818,8 @@ static bool production_g5_handle(void *ctx,const struct g5_ipc_header *header,
         ++production_g5_place_count;
         return true;
     }
+    if (header->operation==G5_OP_WINDOW_CLOSE)
+        return g5_shell_scene_close(&host.scene,header,payload);
     return false;
 }
 
@@ -616,7 +872,313 @@ bool user_session_host_active(void) {
     return host.active &&
         host.process != NULL &&
         host.thread != 0u &&
-        process_state(host.process) == AURORA_PROCESS_RUNNING;
+        process_state(host.process) == AURORA_PROCESS_RUNNING &&
+        (!host.g5_ready ||
+         (host.scene.extra.active &&
+          host.second_process != NULL &&
+          host.second_thread != 0u &&
+          process_state(host.second_process)==AURORA_PROCESS_RUNNING) ||
+         (!host.scene.extra.active && host.second_process==NULL &&
+          host.second_thread==0u));
+}
+
+/* Deliver only dequeued, policy-authorized events through the corresponding
+ * process's exclusive control IPC. No client can select the destination. */
+static bool send_client_input(struct aurora_ipc_endpoint *endpoint,
+                              const struct aurora_input_event *event) {
+    if (!endpoint || !event) return false;
+    struct aurora_user_session_host_input_message msg;
+    clear_bytes(&msg,sizeof(msg));
+    msg.header.version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION;
+    msg.header.type=AURORA_USER_SESSION_HOST_INPUT_EVENT;
+    msg.header.request_id=host.next_request_id++;
+    if (msg.header.request_id==0u)
+        msg.header.request_id=host.next_request_id++;
+    if (msg.header.request_id==0u) return false;
+    msg.event.type=event->type;
+    msg.event.source=event->source;
+    msg.event.device_id=event->device_id;
+    msg.event.sequence=event->sequence;
+    msg.event.synthetic=event->synthetic;
+    msg.event.key=event->key;
+    msg.event.button=event->button;
+    msg.event.pressed=event->pressed;
+    msg.event.delta_x=event->delta_x;
+    msg.event.delta_y=event->delta_y;
+    msg.event.absolute_x=event->absolute_x;
+    msg.event.absolute_y=event->absolute_y;
+    msg.event.scroll_x=event->scroll_x;
+    msg.event.scroll_y=event->scroll_y;
+    return ipc_send(endpoint,&host.kernel_caps,&msg,
+                    (uint32_t)sizeof(msg),NULL,0u);
+}
+
+/* The primary Shell follows the same independent ACK/commit handshake as
+ * the second process, but only its own private control endpoint is trusted. */
+/* Deliberately sent only after both Window Policy and G5 configure
+ * authorities have consumed the client's ACK. Prevents pre-baseline
+ * frame commits under concurrent Ring3/kernel scheduling. */
+static bool send_resize_commit_grant(
+    struct aurora_ipc_endpoint *endpoint,uint64_t configure_serial) {
+    if (!endpoint || configure_serial==0u) return false;
+    const struct aurora_user_session_host_message grant={
+        .version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+        .type=AURORA_USER_SESSION_HOST_RESIZE_COMMIT_GRANT,
+        .request_id=configure_serial
+    };
+    return ipc_send(endpoint,&host.kernel_caps,&grant,
+                    (uint32_t)sizeof(grant),NULL,0u);
+}
+
+static bool resize_primary_client(uint32_t width,uint32_t height) {
+    if (!user_session_host_active() || !host.process ||
+        !host.kernel_endpoint || !host.scene.active)
+        return false;
+    uint64_t configure_serial=0u;
+    aurora_cap_handle buffer=AURORA_CAP_INVALID;
+    if (!g5_shell_scene_configure_primary(
+            &host.scene,width,height,&configure_serial))
+        return false;
+    if (!g5_shell_scene_allocate_resize_buffer_primary(
+            &host.scene,&buffer)) {
+        g5_shell_scene_end(&host.scene);
+        return false;
+    }
+    struct aurora_user_session_host_resize_message request;
+    clear_bytes(&request,sizeof(request));
+    request.header.version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION;
+    request.header.type=AURORA_USER_SESSION_HOST_RESIZE_PREPARE;
+    request.header.request_id=host.next_request_id++;
+    if (request.header.request_id==0u)
+        request.header.request_id=host.next_request_id++;
+    request.graphics_buffer=buffer;
+    request.configure_serial=configure_serial;
+    request.width=width;
+    request.height=height;
+    uint64_t ack=0u,commit=0u;
+    bool accepted=request.header.request_id!=0u &&
+        ipc_send(host.kernel_endpoint,&host.kernel_caps,
+                 &request,(uint32_t)sizeof(request),NULL,0u) &&
+        receive_primary_event(AURORA_USER_SESSION_HOST_RESIZE_ACK,&ack) &&
+        ack==configure_serial &&
+        g5_shell_scene_ack_primary(&host.scene,ack) &&
+        send_resize_commit_grant(host.kernel_endpoint,ack) &&
+        receive_primary_event(
+            AURORA_USER_SESSION_HOST_FRAME_COMMITTED,&commit) &&
+        commit!=0u &&
+        g5_shell_scene_publish_primary_resized(
+            &host.scene,request.header.request_id,commit);
+    if (!accepted) {
+        g5_shell_scene_end(&host.scene);
+        log_line("[g5-wp04] primary client resize failed closed");
+        return false;
+    }
+    log_line("[g5-wp04] primary Ring3 client resize ACK + frame presented");
+    return true;
+}
+
+/* Complete the second client's resize transaction across real private
+ * IPC. Both ACK and frame commit are proved by the Ring3 process itself. */
+static bool resize_second_client(uint32_t width,uint32_t height) {
+    if (!user_session_host_active() || !host.second_process ||
+        !host.second_kernel_endpoint || !host.scene.extra.active)
+        return false;
+    uint64_t configure_serial=0u;
+    aurora_cap_handle buffer=AURORA_CAP_INVALID;
+    if (!g5_shell_scene_configure_second(
+            &host.scene,host.second_process,width,height,&configure_serial))
+        return false;
+    if (!g5_shell_scene_allocate_resize_buffer_second(
+            &host.scene,host.second_process,&buffer)) {
+        g5_shell_scene_detach_second(&host.scene);
+        return false;
+    }
+    struct aurora_user_session_host_resize_message request;
+    clear_bytes(&request,sizeof(request));
+    request.header.version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION;
+    request.header.type=AURORA_USER_SESSION_HOST_RESIZE_PREPARE;
+    request.header.request_id=host.next_request_id++;
+    if (request.header.request_id==0u)
+        request.header.request_id=host.next_request_id++;
+    request.graphics_buffer=buffer;
+    request.configure_serial=configure_serial;
+    request.width=width;
+    request.height=height;
+    uint64_t ack=0u, commit=0u, display_serial=0u;
+    bool accepted=request.header.request_id!=0u &&
+        ipc_send(host.second_kernel_endpoint,&host.kernel_caps,
+                 &request,(uint32_t)sizeof(request),NULL,0u) &&
+        receive_second_event(AURORA_USER_SESSION_HOST_RESIZE_ACK,&ack) &&
+        ack==configure_serial &&
+        g5_shell_scene_ack_second(
+            &host.scene,host.second_process,ack) &&
+        send_resize_commit_grant(host.second_kernel_endpoint,ack) &&
+        receive_second_event(
+            AURORA_USER_SESSION_HOST_FRAME_COMMITTED,&commit) &&
+        commit!=0u &&
+        g5_shell_scene_publish_second(
+            &host.scene,host.second_process,
+            request.header.request_id,commit,&display_serial) &&
+        display_serial!=0u;
+    if (!accepted) {
+        /* The old and new configure states may no longer agree. Avoid
+         * delivering further input to a half-resized client. */
+        g5_shell_scene_detach_second(&host.scene);
+        log_line("[g5-wp04] second client resize failed closed");
+        return false;
+    }
+    log_line("[g5-wp04] second Ring3 client resize ACK + frame presented");
+    return true;
+}
+
+bool user_session_host_route_input(const struct aurora_input_event *event) {
+    if (!event || !user_session_host_active() || !host.scene.active ||
+        !host.scene.input_router.initialized ||
+        session_manager_client_state()!=AURORA_SESSION_CLIENT_ACTIVE)
+        return false;
+    if (!g5_shell_scene_route_input(&host.scene,event)) return false;
+    struct aurora_graphics_input_router *r=&host.scene.input_router;
+    if (event->type==AURORA_INPUT_EVENT_POINTER_BUTTON &&
+        event->button==AURORA_POINTER_BUTTON_LEFT && !event->pressed) {
+        if (host.drag_window_id) {
+            (void)graphics_input_release_capture(
+                r,host.drag_window_id);
+            host.drag_window_id=0u;
+        }
+    }
+    if (event->type==AURORA_INPUT_EVENT_POINTER_BUTTON &&
+        event->button==AURORA_POINTER_BUTTON_LEFT && event->pressed &&
+        !event->synthetic && event->sequence!=0u) {
+        struct aurora_graphics_input_router *r=&host.scene.input_router;
+        uint64_t clicked=0u, token=0u, focused=0u;
+        if (window_policy_hit_test_committed(
+                &host.scene.window_policy,r->pointer_x,r->pointer_y,&clicked) &&
+            window_policy_issue_activation_token(
+                &host.scene.window_policy,clicked,event->sequence,&token))
+            (void)graphics_input_focus_pointer(
+                r,token,event->sequence,&focused);
+        if (focused!=0u) {
+            struct aurora_window_toplevel w;
+            if (window_policy_read_toplevel(
+                    &host.scene.window_policy,focused,&w) &&
+                graphics_input_request_capture(r,focused)) {
+                host.drag_window_id=focused;
+                host.drag_offset_x=r->pointer_x-w.placement.x;
+                host.drag_offset_y=r->pointer_y-w.placement.y;
+            }
+        }
+    }
+    if (host.drag_window_id &&
+        (event->type==AURORA_INPUT_EVENT_POINTER_ABSOLUTE ||
+         event->type==AURORA_INPUT_EVENT_POINTER_RELATIVE)) {
+        struct aurora_window_toplevel w;
+        if (!window_policy_read_toplevel(&host.scene.window_policy,
+                                         host.drag_window_id,&w) ||
+            !window_policy_configure_ready(
+                &host.scene.window_policy,host.drag_window_id,
+                w.pending_configure.width,w.pending_configure.height)) {
+            (void)graphics_input_release_capture(r,host.drag_window_id);
+            host.drag_window_id=0u;
+        } else {
+            int64_t nx=(int64_t)r->pointer_x-host.drag_offset_x;
+            int64_t ny=(int64_t)r->pointer_y-host.drag_offset_y;
+            int64_t max_x=(int64_t)host.scene.window_policy.output_width-
+                          w.pending_configure.width;
+            int64_t max_y=(int64_t)host.scene.window_policy.output_height-
+                          w.pending_configure.height;
+            if (nx<0) nx=0;
+            if (ny<0) ny=0;
+            if (nx>max_x) nx=max_x;
+            if (ny>max_y) ny=max_y;
+            if (nx!=w.placement.x || ny!=w.placement.y) {
+                bool moved=host.drag_window_id==host.scene.window_id
+                    ? g5_shell_scene_move_primary(
+                        &host.scene,(int32_t)nx,(int32_t)ny)
+                    : host.scene.extra.active &&
+                      host.drag_window_id==host.scene.extra.window_id &&
+                      g5_shell_scene_move_second(
+                        &host.scene,host.second_process,
+                        (int32_t)nx,(int32_t)ny);
+                if (!moved) {
+                    (void)graphics_input_release_capture(
+                        r,host.drag_window_id);
+                    host.drag_window_id=0u;
+                }
+            }
+        }
+    }
+    /* Middle click closes only the second toplevel. Shutdown its Ring3
+     * process after capability revocation, then redraw the remaining Shell. */
+    if (event->type==AURORA_INPUT_EVENT_POINTER_BUTTON &&
+        event->button==AURORA_POINTER_BUTTON_MIDDLE && event->pressed &&
+        !event->synthetic && host.scene.extra.active) {
+        uint64_t hit=0u;
+        if (window_policy_hit_test_committed(
+                &host.scene.window_policy,r->pointer_x,
+                r->pointer_y,&hit) &&
+            hit==host.scene.extra.window_id) {
+            if (host.drag_window_id==hit) {
+                (void)graphics_input_release_capture(r,hit);
+                host.drag_window_id=0u;
+            }
+            if (!g5_shell_scene_close_second(
+                    &host.scene,host.second_process))
+                return false;
+            uint64_t display_serial=0u;
+            bool painted=software_compositor_compose_present(
+                &host.scene.compositor,&display_serial);
+            bool stopped=shutdown_second_client();
+            return painted && display_serial!=0u && stopped;
+        }
+    }
+    /* Trusted demo interaction: right-click the second committed window to
+     * toggle its negotiated size. Normal client input still routes only to
+     * the owning process. */
+    if (event->type==AURORA_INPUT_EVENT_POINTER_BUTTON &&
+        event->button==AURORA_POINTER_BUTTON_RIGHT && event->pressed &&
+        !event->synthetic) {
+        uint64_t hit=0u;
+        struct aurora_graphics_input_router *router=&host.scene.input_router;
+        if (window_policy_hit_test_committed(
+                &host.scene.window_policy,router->pointer_x,
+                router->pointer_y,&hit) &&
+            hit==host.scene.extra.window_id) {
+            uint32_t new_width=host.scene.extra.width==G5_SHELL_SCENE_WIDTH
+                ? 192u : G5_SHELL_SCENE_WIDTH;
+            uint32_t new_height=host.scene.extra.height==G5_SHELL_SCENE_HEIGHT
+                ? 120u : G5_SHELL_SCENE_HEIGHT;
+            if (!resize_second_client(new_width,new_height))
+                return false;
+        } else if (hit==host.scene.window_id) {
+            uint32_t new_width=host.scene.width==G5_SHELL_SCENE_WIDTH
+                ? 192u : G5_SHELL_SCENE_WIDTH;
+            uint32_t new_height=host.scene.height==G5_SHELL_SCENE_HEIGHT
+                ? 120u : G5_SHELL_SCENE_HEIGHT;
+            if (!resize_primary_client(new_width,new_height))
+                return false;
+        }
+    }
+    bool delivered=true;
+    struct aurora_input_event queued;
+    for (uint32_t i=0u;i<AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY;++i) {
+        if (!graphics_input_poll_target(&host.scene.input_router,
+                                         host.scene.window_id,&queued))
+            break;
+        if (!send_client_input(host.kernel_endpoint,&queued))
+            delivered=false;
+    }
+    for (uint32_t i=0u;
+         host.scene.extra.active &&
+         host.second_process!=NULL &&
+         host.second_kernel_endpoint!=NULL &&
+         i<AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY;++i) {
+        if (!g5_shell_scene_poll_input_second(
+                 &host.scene,host.second_process,&queued))
+            break;
+        if (!send_client_input(host.second_kernel_endpoint,&queued))
+            delivered=false;
+    }
+    return delivered;
 }
 
 static uint64_t g5_session_test_generation=1u;
@@ -629,7 +1191,8 @@ static bool g5_session_test_authorize(void *ctx,uint32_t operation,uint64_t gene
     return (operation==G5_OP_SHELL_READY ||
             operation==G5_OP_SHELL_HEALTH ||
             operation==G5_OP_SCENE_PUBLISH ||
-            operation==G5_OP_WINDOW_PLACE) &&
+            operation==G5_OP_WINDOW_PLACE ||
+            operation==G5_OP_WINDOW_CLOSE) &&
            generation==g5_session_test_generation;
 }
 static bool g5_session_test_handle(void *ctx,const struct g5_ipc_header *header,
@@ -654,7 +1217,183 @@ static bool g5_session_test_handle(void *ctx,const struct g5_ipc_header *header,
         ++g5_session_place_events;
         return true;
     }
+    if (header->operation==G5_OP_WINDOW_CLOSE)
+        return g5_shell_scene_close(&host.scene,header,payload);
     return false;
+}
+
+/* Phase-end WP-04 interaction oracle. The surface was committed by
+ * its own Ring3 process; the router never accepts a fabricated window ID. */
+static bool g5_wp04_two_window_interaction_probe(void) {
+    if (!host.scene.active || !host.scene.extra.active ||
+        !host.second_process || !host.second_kernel_endpoint ||
+        !host.scene.input_router.initialized)
+        return false;
+    log_line("[g5-wp04-interaction] begin hit-test/input/focus probe");
+    struct aurora_window_toplevel w={0};
+    if (!window_policy_read_toplevel(&host.scene.window_policy,
+                                     host.scene.extra.window_id,&w) ||
+        w.placement.x<0 || w.placement.y<0)
+        return false;
+    struct aurora_input_event pointer={0};
+    pointer.type=AURORA_INPUT_EVENT_POINTER_ABSOLUTE;
+    pointer.source=AURORA_INPUT_SOURCE_SYNTHETIC;
+    pointer.synthetic=true;
+    pointer.sequence=UINT64_C(1000);
+    pointer.absolute_x=w.placement.x+8;
+    pointer.absolute_y=w.placement.y+8;
+    uint64_t hit=0u,token=0u,focused=0u;
+    struct aurora_graphics_input_router *r=&host.scene.input_router;
+    struct aurora_window_toplevel inspected={0};
+    if (window_policy_read_toplevel(&host.scene.window_policy,
+                                     host.scene.extra.window_id,&inspected)) {
+        struct aurora_graphics_surface *surface=inspected.surface;
+        const struct aurora_graphics_buffer *buffer=
+            surface!=NULL?surface->committed.buffer:NULL;
+        log_write("[g5-wp04-interaction] policy used/placed/config/ACK/frame-baseline/current/size/min/buffer: ");
+        log_u64(inspected.used);log_write("/");
+        log_u64(inspected.placed);log_write("/");
+        log_u64(inspected.configured);log_write("/");
+        log_u64(inspected.acked_configure_serial);log_write("/");
+        log_u64(inspected.commit_serial_at_ack);log_write("/");
+        log_u64(surface!=NULL?surface->committed.commit_serial:0u);
+        log_write("/");
+        log_u64(inspected.pending_configure.width);log_write("/");
+        log_u64(inspected.pending_configure.height);log_write("/");
+        log_u64(buffer!=NULL?buffer->destroy_requested:1u);log_line("");
+        if (buffer!=NULL) {
+            log_write("[g5-wp04-interaction] mapped/buffer-state/w/h/generation/expected/point-x/point-y: ");
+            log_u64(surface->state==AURORA_GRAPHICS_SURFACE_MAPPED);
+            log_write("/");log_u64(buffer->state);
+            log_write("/");log_u64(buffer->width);
+            log_write("/");log_u64(buffer->height);
+            log_write("/");log_u64(surface->generation);
+            log_write("/");log_u64(inspected.surface_generation);
+            log_write("/");log_u64((uint32_t)pointer.absolute_x);
+            log_write("/");log_u64((uint32_t)pointer.absolute_y);
+            log_line("");
+        }
+    }
+    bool routed=graphics_input_route_event(r,&pointer);
+    bool policy_hit=routed &&
+        window_policy_hit_test_committed(
+            &host.scene.window_policy,pointer.absolute_x,
+            pointer.absolute_y,&hit);
+    bool hit_second=policy_hit && hit==host.scene.extra.window_id;
+    bool token_issued=hit_second &&
+        window_policy_issue_activation_token(
+            &host.scene.window_policy,hit,pointer.sequence,&token);
+    bool focus_assigned=token_issued &&
+        graphics_input_focus_pointer(
+            r,token,pointer.sequence,&focused);
+    if (!routed || !policy_hit || !hit_second || !token_issued ||
+        !focus_assigned || focused!=host.scene.extra.window_id) {
+        log_write("[g5-wp04-interaction] route/policy-hit/topmost/token/focus/window: ");
+        log_u64(routed);log_write("/");
+        log_u64(policy_hit);log_write("/");
+        log_u64(hit_second);log_write("/");
+        log_u64(token_issued);log_write("/");
+        log_u64(focus_assigned);log_write("/");
+        log_u64(hit);log_write("/");
+        log_u64(focused);log_line("");
+        return false;
+    }
+    log_line("[g5-wp04-interaction] trusted focus selected second window");
+    struct aurora_input_event delivered={0};
+    if (!g5_shell_scene_poll_input_second(
+            &host.scene,host.second_process,&delivered) ||
+        delivered.type!=AURORA_INPUT_EVENT_POINTER_ABSOLUTE ||
+        graphics_input_poll_target(r,host.scene.window_id,&delivered))
+        return false;
+    log_line("[g5-wp04-interaction] pointer event dequeued only by second window");
+    struct aurora_input_event key={0};
+    key.type=AURORA_INPUT_EVENT_KEY;
+    key.source=AURORA_INPUT_SOURCE_SYNTHETIC;
+    key.synthetic=true;
+    key.sequence=UINT64_C(1001);
+    key.key=AURORA_KEY_A;
+    key.pressed=true;
+    if (!graphics_input_route_event(r,&key) ||
+        !g5_shell_scene_poll_input_second(
+            &host.scene,host.second_process,&delivered) ||
+        delivered.type!=AURORA_INPUT_EVENT_KEY ||
+        delivered.key!=AURORA_KEY_A ||
+        graphics_input_poll_target(r,host.scene.window_id,&delivered))
+        return false;
+    log_line("[g5-wp04-interaction] keyboard event dequeued only by second window");
+    /* Send actual client-owned input through the secondary's private IPC.
+     * A following health ACK proves its Ring3 loop consumed the message. */
+    if (!send_client_input(host.second_kernel_endpoint,&key))
+        return false;
+    uint64_t health_id=host.next_request_id++;
+    const struct aurora_user_session_host_message health={
+        .version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+        .type=AURORA_USER_SESSION_HOST_HEALTH_POLL,
+        .request_id=health_id
+    };
+    uint64_t ack=0u;
+    if (!health_id ||
+        !ipc_send(host.second_kernel_endpoint,&host.kernel_caps,
+                  &health,(uint32_t)sizeof(health),NULL,0u) ||
+        !receive_second_event(AURORA_USER_SESSION_HOST_HEALTH_ACK,&ack) ||
+        ack!=health_id)
+        return false;
+    log_line("[g5-wp04-interaction] private Ring3 input IPC acknowledged");
+    /* Switch focus back to the independent primary process and prove
+     * that input cannot leak to the former secondary keyboard owner. */
+    pointer.sequence=UINT64_C(1002);
+    pointer.absolute_x=host.scene.x+8;
+    pointer.absolute_y=host.scene.y+8;
+    hit=0u;
+    token=0u;
+    focused=0u;
+    if (!graphics_input_route_event(r,&pointer) ||
+        !window_policy_hit_test_committed(
+            &host.scene.window_policy,pointer.absolute_x,
+            pointer.absolute_y,&hit) ||
+        hit!=host.scene.window_id ||
+        !window_policy_issue_activation_token(
+            &host.scene.window_policy,hit,pointer.sequence,&token) ||
+        !graphics_input_focus_pointer(
+            r,token,pointer.sequence,&focused) ||
+        focused!=host.scene.window_id ||
+        !graphics_input_poll_target(r,host.scene.window_id,&delivered) ||
+        delivered.type!=AURORA_INPUT_EVENT_POINTER_ABSOLUTE ||
+        g5_shell_scene_poll_input_second(
+            &host.scene,host.second_process,&delivered))
+        return false;
+    key.sequence=UINT64_C(1003);
+    key.key=AURORA_KEY_B;
+    if (!graphics_input_route_event(r,&key) ||
+        !graphics_input_poll_target(r,host.scene.window_id,&delivered) ||
+        delivered.type!=AURORA_INPUT_EVENT_KEY ||
+        delivered.key!=AURORA_KEY_B ||
+        g5_shell_scene_poll_input_second(
+            &host.scene,host.second_process,&delivered) ||
+        !send_client_input(host.kernel_endpoint,&key))
+        return false;
+    log_line("[g5-wp04-interaction] primary focus/input isolation passed");
+    int32_t moved_x=w.placement.x>0?w.placement.x-1:w.placement.x+1;
+    int32_t moved_y=w.placement.y;
+    if (!g5_shell_scene_move_second(
+            &host.scene,host.second_process,moved_x,moved_y) ||
+        !window_policy_read_toplevel(
+            &host.scene.window_policy,host.scene.extra.window_id,&w) ||
+        w.placement.x!=moved_x)
+        return false;
+    log_line("[g5-wp04-interaction] second window moved by trusted Shell");
+    if (!g5_shell_scene_close_second(
+            &host.scene,host.second_process))
+        return false;
+    uint64_t display_serial=0u;
+    if (!software_compositor_compose_present(
+            &host.scene.compositor,&display_serial) ||
+        display_serial==0u || !shutdown_second_client() ||
+        !host.scene.active || host.scene.extra.active ||
+        !user_session_host_active())
+        return false;
+    log_line("[g5-wp04-interaction] secondary close and primary survival passed");
+    return true;
 }
 
 bool user_session_host_self_test(void) {
@@ -715,14 +1454,30 @@ bool user_session_host_self_test(void) {
         (void)cap_revoke(&bridge.capabilities,root);
         return false;
     }
+    log_line("[g5-wp04-gate] begin first-generation dual Ring3 bootstrap");
     bool started = start_with_context(user_id, UINT64_C(1));
+    log_line("[g5-wp04-gate] first-generation bootstrap returned");
     bool running = started && user_session_host_active() &&
         host.g5_ready && g5_session_ready_events==1u &&
         g5_session_health_events==1u &&
         g5_session_present_events==1u &&
         g5_session_place_events==1u &&
         host.scene.x==80 && host.scene.y==72 &&
-        host.scene.last_display_serial>=2u;
+        host.scene.last_display_serial>=2u &&
+        host.second_process!=NULL &&
+        host.second_process!=host.process &&
+        host.second_thread!=0u &&
+        host.second_kernel_endpoint!=host.kernel_endpoint &&
+        host.scene.extra.active &&
+        host.scene.extra.owner==host.second_process &&
+        host.scene.extra.surface!=host.scene.surface &&
+        host.scene.extra.buffer!=host.scene.buffer &&
+        host.scene.extra.last_commit_serial>0u &&
+        host.scene.extra.last_display_serial>0u &&
+        host.scene.extra.window_id!=host.scene.window_id &&
+        host.scene.bridge.node_ids[host.scene.extra.slot]!=0u &&
+        host.scene.bridge.node_ids[host.scene.extra.slot]!=
+            host.scene.bridge.node_ids[host.scene.slot];
     /* A live session may not accept a duplicate or out-of-order G5 request. */
     bool replay_denied=false;
     if (running) {
@@ -808,7 +1563,7 @@ bool user_session_host_self_test(void) {
             .header_bytes=G5_IPC_WIRE_HEADER_BYTES,.kind=G5_IPC_REQUEST,
             .operation=G5_OP_WINDOW_CLOSE,.payload_bytes=8u,
             .request_id=6u,.session_generation=1u,
-            .object_generation=host.scene.surface->generation
+            .object_generation=host.scene.surface->generation+1u
         };
         enum g5_ipc_status status=G5_IPC_OK;
         struct aurora_ipc_endpoint *sender=
@@ -828,7 +1583,36 @@ bool user_session_host_self_test(void) {
         g5_session_health_events==2u &&
         user_session_host_health_check() &&
         g5_session_health_events==3u;
-    bool stopped = live_health && user_session_host_stop();
+    /* End-of-phase WP-04 native acceptance: the second *process* must
+     * ACK two real configures and commit/present both replacement buffers. */
+    uint64_t original_primary_serial=host.scene.last_display_serial;
+    bool resized_primary=live_health &&
+        resize_primary_client(128u,80u) &&
+        host.scene.width==128u &&
+        host.scene.height==80u &&
+        host.scene.last_display_serial>original_primary_serial &&
+        host.scene.pending_resize_buffer==NULL &&
+        resize_primary_client(G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT) &&
+        host.scene.width==G5_SHELL_SCENE_WIDTH &&
+        host.scene.height==G5_SHELL_SCENE_HEIGHT &&
+        host.scene.pending_resize_buffer==NULL &&
+        host.scene.last_commit_serial>=3u;
+    uint64_t original_second_serial=host.scene.extra.last_display_serial;
+    bool resized_roundtrip=resized_primary &&
+        resize_second_client(128u,80u) &&
+        host.scene.extra.width==128u &&
+        host.scene.extra.height==80u &&
+        host.scene.extra.last_display_serial>original_second_serial &&
+        host.scene.extra.pending_resize_buffer==NULL &&
+        resize_second_client(G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT) &&
+        host.scene.extra.width==G5_SHELL_SCENE_WIDTH &&
+        host.scene.extra.height==G5_SHELL_SCENE_HEIGHT &&
+        host.scene.extra.pending_resize_buffer==NULL &&
+        host.scene.extra.last_commit_serial>=3u &&
+        host.scene.extra.last_display_serial>original_second_serial;
+    bool interaction_verified=resized_roundtrip &&
+        g5_wp04_two_window_interaction_probe();
+    bool stopped = user_session_host_active() && user_session_host_stop();
     bool post_stop_denied=stopped && !user_session_host_health_check() &&
         g5_session_health_events==3u &&
         g5_session_present_events==1u &&
@@ -901,6 +1685,7 @@ bool user_session_host_self_test(void) {
 
     bool accepted=started &&
         running && stopped && live_health &&
+        resized_roundtrip && interaction_verified &&
         post_stop_denied && receiver_revoked &&
         reauthenticated && crashed && crash_revoked &&
         source_revoked && root_revoked &&
@@ -908,6 +1693,7 @@ bool user_session_host_self_test(void) {
         !session_profile_lease_active();
     if (accepted) {
         log_line("[g5-wp03] Ring3 Shell crash and reauthentication lifecycle gate passed");
+        log_line("[g5-wp04] two independent Ring3 clients and two-client resize roundtrips passed");
     }
     if (!accepted) {
         log_write("[g5-shell-diagnostic] self-test stages started/running/replay/gen/object/close/live/stop/revoke: ");
@@ -917,6 +1703,8 @@ bool user_session_host_self_test(void) {
         log_u64(wrong_generation_denied);log_write("/");
         log_u64(foreign_object_denied);log_write("/");
         log_u64(close_opcode_denied);log_write("/");
+        log_u64(resized_roundtrip);log_write("/");
+        log_u64(interaction_verified);log_write("/");
         log_u64(live_health);log_write("/");
         log_u64(stopped);log_write("/");
         log_u64(receiver_revoked);
