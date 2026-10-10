@@ -39,6 +39,9 @@ void g5_shell_scene_detach_second(struct g5_shell_scene *scene) {
     if (e->user_buffer != AURORA_CAP_INVALID && e->owner)
         (void)cap_revoke(&e->owner->capabilities, e->user_buffer);
     if (e->kernel_surface != AURORA_CAP_INVALID)
+        (void)graphics_surface_detach_buffers(&scene->kernel_caps,
+                                               e->kernel_surface);
+    if (e->kernel_surface != AURORA_CAP_INVALID)
         (void)cap_revoke(&scene->kernel_caps, e->kernel_surface);
     if (e->surface)
         (void)graphics_surface_release_owner(e->surface,
@@ -119,6 +122,32 @@ bool g5_shell_scene_attach_second(struct g5_shell_scene *scene,
 failure:
     g5_shell_scene_detach_second(scene);
     return false;
+}
+
+bool g5_shell_scene_publish_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    uint64_t request_id,
+    uint64_t commit_serial,
+    uint64_t *out_display_serial
+) {
+    if (out_display_serial) *out_display_serial = 0u;
+    if (!scene || !scene->active || !sender || !out_display_serial ||
+        !request_id || !commit_serial || !scene->extra.active ||
+        scene->extra.owner != sender || !scene->extra.surface ||
+        scene->extra.slot >= G5_SURFACE_REGISTRY_CAPACITY ||
+        !g5_session_context_authorized(&scene->frame.registry.session,
+                                       scene->generation) ||
+        scene->extra.surface->destroy_requested ||
+        scene->extra.surface->committed.commit_serial != commit_serial)
+        return false;
+    uint64_t config = 0u;
+    if (!g5_frame_submission_request(&scene->frame,scene->extra.slot,
+                                     request_id,&config) ||
+        config != scene->extra.configure_serial)
+        return false;
+    return g5_compositor_bridge_present(&scene->bridge,scene->extra.slot,
+                                         request_id,config,out_display_serial);
 }
 
 bool g5_shell_scene_close(struct g5_shell_scene *scene,
