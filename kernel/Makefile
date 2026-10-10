@@ -1,5 +1,6 @@
 ARCH ?= x86_64
 BOOT_VALIDATION ?= 0
+NVME_RW_PROBE_ONLY ?= 0
 CC := clang
 LD := ld
 PYTHON ?= python3
@@ -80,6 +81,7 @@ CFLAGS := \
     -target x86_64-unknown-none-elf \
     -std=c11 \
     -DAURORA_BOOT_VALIDATION=$(BOOT_VALIDATION) \
+    -DAURORA_NVME_RW_PROBE_ONLY=$(NVME_RW_PROBE_ONLY) \
     -O2 \
     -g \
     -Wall \

@@ -217,7 +217,9 @@ The Ring 3 runtime test additionally proves:
 - the process/thread/address-space resources are reclaimed after the probe;
 - trusted Identity bootstrap and supervisor generations receive fresh read-only entropy authority.
 
-A dedicated CI boot uses a QEMU CPU model exposing the trusted source and requires the Ring 3 success marker. The normal boot matrix still verifies that Aurora remains bootable when entropy is not available.
+A dedicated CI boot uses a QEMU CPU model exposing the trusted source and requires the Ring 3 success marker.
+
+Every other QEMU boot using `BOOT_VALIDATION=1` and reaching the Ring 3 entropy security gate must also expose a trusted RDSEED-capable CPU model (currently `-cpu max` in the accepted CI environment). The AHCI/NVMe filesystem smoke boots should use the same CPU policy. A QEMU default CPU without RDSEED must not be mislabeled as a storage failure when the kernel deliberately panics rather than skipping a trusted security gate. Retain separate negative/source-policy tests so unsupported entropy continues to fail closed. The normal boot matrix still verifies that Aurora remains bootable when entropy is not available.
 
 ## 11. Current limitations
 

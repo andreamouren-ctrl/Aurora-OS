@@ -1,5 +1,6 @@
 ARCH ?= x86_64
 BOOT_VALIDATION ?= 0
+NVME_RW_PROBE_ONLY ?= 0
 
 LIMINE_VERSION := 12.9.0
 LIMINE_DIR := .cache/limine-$(LIMINE_VERSION)
@@ -17,7 +18,7 @@ deps:
 	sh scripts/bootstrap-deps.sh
 
 kernel: deps
-	$(MAKE) -C kernel ARCH=$(ARCH) BOOT_VALIDATION=$(BOOT_VALIDATION)
+	$(MAKE) -C kernel ARCH=$(ARCH) BOOT_VALIDATION=$(BOOT_VALIDATION) NVME_RW_PROBE_ONLY=$(NVME_RW_PROBE_ONLY)
 
 identity-test:
 	$(MAKE) -C services/identity test

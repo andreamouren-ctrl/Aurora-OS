@@ -194,6 +194,8 @@ G0 changes only presentation. They must not change Aurora Key verification, IPC 
 - [ ] Build independent compositor-backed PRE_SESSION/LOCK surfaces with dedicated capability authority and zero profile delegation. This remains **not implemented** by G1 handoff policy.
 - [ ] Prove compositor failure/restart and native fallback on real hardware.
 
+CI caveat (2026-10-10): existing standalone Identity entropy QEMU accepts a trusted `-cpu max` configuration, while three storage workflows on `main` still ran QEMU's default CPU model and hit the intentional Ring 3 entropy boot-validation panic. The storage CI remediation must supply a trusted CPU model and retain a separate fail-closed negative test; do **not** suppress the panic in trusted-gate validation builds. Passing the feature PR's original gates is historical evidence, not a claim that every later `main` run is green.
+
 G1 changes only ownership and routing; credentials remain in the kernel's existing login input buffer and are never sent over G5 window IPC. The current visual login and recovery path is **still direct framebuffer**; do not claim a Ring 3 Identity login System App or a trusted pre-session compositor until the isolated host and surfaces are implemented and verified.
 
 Graphics G1-G4 and G5 WP-03/WP-04 are accepted on `main` (WP-04 merge PR #185, 2026-10-10). Two ordinary Ring 3 clients now have real compositor/window lifecycle and input routing. **This does not itself implement trusted pre-session/lock-screen Identity presentation**: the normal compositor Identity System App requires a dedicated secure pre-session mode, credential-input isolation, policy-driven handoff, and a tested framebuffer recovery fallback. Backend/security work can proceed independently.

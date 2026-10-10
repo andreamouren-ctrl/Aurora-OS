@@ -2770,6 +2770,16 @@ void kmain(void) {
     boot_ui_complete();
     boot_perf_log("boot UI handoff");
     login_input_init();
+#if AURORA_NVME_RW_PROBE_ONLY && !AURORA_BOOT_VALIDATION
+#error "NVME_RW_PROBE_ONLY is forbidden in production builds"
+#endif
+#if AURORA_BOOT_VALIDATION && AURORA_NVME_RW_PROBE_ONLY
+    /* This explicitly scoped raw-driver CI image is NOT a successful
+     * session/user-space boot. All full-system gates remain mandatory
+     * in the separate filesystem and Identity workflows. */
+    log_line("[kernel] NVMe scoped raw I/O validation completed; full M1 boot not evaluated");
+    for (;;) arch_idle();
+#endif
     boot_perf_log("login input initialized");
 
     log_line("[kernel] M1 user-space bootstrap reached successfully");

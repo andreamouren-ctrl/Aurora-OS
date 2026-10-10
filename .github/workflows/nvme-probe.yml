@@ -4,6 +4,16 @@ on:
   workflow_dispatch:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'kernel/**'
+      - 'services/**'
+      - 'scripts/**'
+      - 'linker/**'
+      - 'Makefile'
+      - 'limine.conf'
+      - '.github/workflows/nvme-probe.yml'
 
 jobs:
   nvme-probe-x86_64:
@@ -21,7 +31,7 @@ jobs:
           sudo apt-get install -y clang lld make xorriso curl git binutils python3 qemu-system-x86
 
       - name: Build Aurora OS
-        run: make BOOT_VALIDATION=1 iso
+        run: make BOOT_VALIDATION=1 NVME_RW_PROBE_ONLY=1 iso
 
       - name: Prepare signed NVMe image
         run: |
@@ -38,8 +48,11 @@ jobs:
           rm -f "$SERIAL_LOG" "$DEBUG_LOG"
 
           set +e
-          timeout 15s qemu-system-x86_64 \
+          # Scoped hardware validation, NOT a full trusted Identity/Session boot.
+          # Full trusted entropy and NVMe filesystem boot have their own CI gates.
+          timeout 30s qemu-system-x86_64 \
             -M q35 \
+            -cpu max \
             -m 512M \
             -smp 1 \
             -vga std \
@@ -73,7 +86,17 @@ jobs:
           grep -F "[storage] block device registered: nvme-ns1" "$SERIAL_LOG"
           grep -F "[nvme] NVM Read LBA0 via block layer verified" "$SERIAL_LOG"
           grep -F "[nvme] NVM Write + Flush reversible probe verified" "$SERIAL_LOG"
-          grep -F "[kernel] M1 user-space bootstrap reached successfully" "$SERIAL_LOG"
+          grep -F "[nvme] dedicated reversible-probe media; filesystem bootstrap skipped" "$SERIAL_LOG"
+          grep -F "[nvme-probe] signed raw media recognized; higher service gates intentionally not exercised" "$SERIAL_LOG"
+          grep -F "[kernel] NVMe scoped raw I/O validation completed; full M1 boot not evaluated" "$SERIAL_LOG"
+          if grep -Fq "AURORA KERNEL PANIC" "$SERIAL_LOG"; then
+            echo "NVMe signed raw acceptance aborted with kernel panic" >&2
+            exit 1
+          fi
+          if grep -Fq "[kernel] M1 user-space bootstrap reached successfully" "$SERIAL_LOG"; then
+            echo "Scoped driver validation must never claim full M1 user-space boot" >&2
+            exit 1
+          fi
 
           printf 'AURORA-NVME-RW-TEST-V1' > build/nvme-expected-signature.bin
           dd if="$IMAGE" of=build/nvme-restored-signature.bin bs=512 skip=131071 count=1 status=none
