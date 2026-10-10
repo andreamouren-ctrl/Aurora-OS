@@ -22,9 +22,12 @@ void g5_shell_scene_detach_second(struct g5_shell_scene *scene) {
     /* An unallocated slot is zero-initialized, and slot 0 belongs
      * to the primary Shell window: never detach it on failed start. */
     if (e->owner == NULL) return;
-    if (e->window_id)
+    if (e->window_id && scene->input_router.initialized) {
+        (void)graphics_input_unbind_window_target(&scene->input_router,
+                                                   e->window_id);
         (void)graphics_input_unregister_target(&scene->input_router,
-                                                 e->window_id);
+                                                e->window_id);
+    }
     if (e->window_id)
         (void)window_policy_destroy_toplevel(&scene->window_policy,
                                               e->window_id);
@@ -196,6 +199,8 @@ bool g5_shell_scene_configure_second(
     scene->extra.configure_serial = *out_serial;
     scene->extra.width = width;
     scene->extra.height = height;
+    /* Never retain a capture or focused queue across new geometry. */
+    (void)graphics_input_sync_window_focus(&scene->input_router);
     return true;
 }
 
