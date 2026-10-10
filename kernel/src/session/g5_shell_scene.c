@@ -486,7 +486,7 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
     scene->generation=generation;
     cap_table_init(&scene->kernel_caps);
     scene->buffer=graphics_buffer_create(
-        scene->extra.width,scene->extra.height,&mode->format);
+        G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT,&mode->format);
     scene->surface=graphics_surface_create();
     if (scene->buffer==NULL || scene->surface==NULL) goto failure;
     scene->user_buffer=graphics_buffer_grant(&owner->capabilities,
@@ -505,7 +505,7 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
         !g5_surface_bridge_configure(
             &scene->frame.registry.entries[scene->slot].bridge,
             &scene->frame.registry.session,
-            scene->extra.width,scene->extra.height,
+            G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT,
             &scene->configure_serial) ||
         !g5_surface_bridge_ack(
             &scene->frame.registry.entries[scene->slot].bridge,
@@ -529,19 +529,19 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
                                        scene->surface,&scene->window_id) ||
         !window_policy_configure(&scene->window_policy,
                                  scene->window_id,
-                                 scene->extra.width,
-                                 scene->extra.height,0u,&policy_serial) ||
+                                 G5_SHELL_SCENE_WIDTH,
+                                 G5_SHELL_SCENE_HEIGHT,0u,&policy_serial) ||
         !window_policy_ack_configure(&scene->window_policy,
                                      scene->window_id,policy_serial))
         goto failure;
     struct aurora_window_placement initial_placement = {0};
     if (!window_policy_place_initial(&scene->window_policy,
                                      scene->window_id,
-                                     scene->extra.width,
-                                     scene->extra.height,
+                                     G5_SHELL_SCENE_WIDTH,
+                                     G5_SHELL_SCENE_HEIGHT,
                                      &initial_placement) ||
         !window_policy_move(&scene->window_policy,scene->window_id,
-                            48,48,scene->extra.width,scene->extra.height))
+                            48,48,G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT))
         goto failure;
     /* The trusted receiver registers its real compositor node, surface
      * and window as one input authority. No Ring 3 ID is trusted here. */
@@ -644,8 +644,8 @@ bool g5_shell_scene_place(struct g5_shell_scene *scene,
         header->session_generation!=scene->generation ||
         header->object_generation!=scene->surface->generation ||
         read_u64_le(payload+16u)!=scene->surface->object_id ||
-        read_u32_le(payload+8u)!=scene->extra.width ||
-        read_u32_le(payload+12u)!=scene->extra.height)
+        read_u32_le(payload+8u)!=G5_SHELL_SCENE_WIDTH ||
+        read_u32_le(payload+12u)!=G5_SHELL_SCENE_HEIGHT)
         return false;
     int32_t x=(int32_t)read_u32_le(payload);
     int32_t y=(int32_t)read_u32_le(payload+4u);
@@ -656,25 +656,25 @@ bool g5_shell_scene_place(struct g5_shell_scene *scene,
     int32_t old_x=scene->x,old_y=scene->y;
     if (!window_policy_configure_ready(&scene->window_policy,
                                         scene->window_id,
-                                        scene->extra.width,
-                                        scene->extra.height) ||
+                                        G5_SHELL_SCENE_WIDTH,
+                                        G5_SHELL_SCENE_HEIGHT) ||
         x < 0 || y < 0 ||
-        (uint64_t)(uint32_t)x + scene->extra.width >
+        (uint64_t)(uint32_t)x + G5_SHELL_SCENE_WIDTH >
             scene->window_policy.output_width ||
-        (uint64_t)(uint32_t)y + scene->extra.height >
+        (uint64_t)(uint32_t)y + G5_SHELL_SCENE_HEIGHT >
             scene->window_policy.output_height)
         return false;
     /* Mutate the trusted policy before publishing pixels. A failed
      * compositor transaction restores both the old policy placement
      * and compositor position; never present an untracked move. */
     if (!window_policy_move(&scene->window_policy,scene->window_id,
-                            x,y,scene->extra.width,scene->extra.height))
+                            x,y,G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT))
         return false;
     if (!software_compositor_set_node(
             &scene->compositor,node,x,y,0,255u,true)) {
         (void)window_policy_move(&scene->window_policy,scene->window_id,
                                  old_x,old_y,
-                                 scene->extra.width,scene->extra.height);
+                                 G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT);
         return false;
     }
     uint64_t serial=0u;
@@ -685,7 +685,7 @@ bool g5_shell_scene_place(struct g5_shell_scene *scene,
             &scene->compositor,node,old_x,old_y,0,255u,true);
         (void)window_policy_move(&scene->window_policy,scene->window_id,
                                  old_x,old_y,
-                                 scene->extra.width,scene->extra.height);
+                                 G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT);
         return false;
     }
     scene->x=x;
