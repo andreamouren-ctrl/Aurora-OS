@@ -159,6 +159,41 @@ static bool receive_second_event(uint32_t type, uint64_t *out_request) {
     return false;
 }
 
+static bool receive_primary_event(uint32_t type, uint64_t *out_request) {
+    if (out_request) *out_request = 0u;
+    if (host.kernel_endpoint == NULL || out_request == NULL)
+        return false;
+    uint64_t deadline = clock_now_ns() + USER_SESSION_HOST_TIMEOUT_NS;
+    while (clock_now_ns() < deadline) {
+        struct aurora_ipc_received received;
+        clear_bytes(&received,sizeof(received));
+        if (ipc_receive(host.kernel_endpoint,
+                        &host.kernel_caps,&received)) {
+            struct aurora_user_session_host_message expected = {
+                .version = AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+                .type = type
+            };
+            if (received.capability_count != 0u ||
+                received.length != sizeof(expected))
+                return false;
+            struct aurora_user_session_host_message incoming;
+            clear_bytes(&incoming,sizeof(incoming));
+            for (size_t i=0u;i<sizeof(incoming);++i)
+                ((uint8_t *)&incoming)[i]=received.data[i];
+            if (incoming.version != expected.version ||
+                incoming.type != expected.type)
+                return false;
+            *out_request = incoming.request_id;
+            return true;
+        }
+        if (host.thread != 0u &&
+            scheduler_thread_finished(host.thread))
+            return false;
+        arch_idle();
+    }
+    return false;
+}
+
 static void revoke_g5_sender(void) {
     if (host.process != NULL &&
         host.g5_sender_handle != AURORA_CAP_INVALID) {
