@@ -226,6 +226,79 @@ static void cleanup_unstarted_host(void) {
     cleanup_finished_host();
 }
 
+/* Launch a real independent address space using the same small user
+ * image in renderer mode. It has no primary Shell control/health authority,
+ * no profile capability and no shared G5 sender endpoint. */
+static bool start_second_client(
+    const uint8_t user_id[AURORA_USER_SESSION_HOST_USER_ID_SIZE],
+    uint64_t generation
+) {
+    if (host.second_process != NULL || host.second_thread != 0u ||
+        !host.scene.active || !host.process || !generation || !user_id)
+        return false;
+    host.second_process=process_create_image(
+        "g5-render-client-2",user_session_host_image(),
+        user_session_host_image_size());
+    if (!host.second_process) return false;
+    ipc_channel_init(&host.second_channel);
+    host.second_kernel_endpoint=ipc_channel_endpoint(&host.second_channel,0u);
+    struct aurora_ipc_endpoint *user_endpoint=
+        ipc_channel_endpoint(&host.second_channel,1u);
+    if (!host.second_kernel_endpoint || !user_endpoint) return false;
+    host.second_control_handle=cap_grant(
+        &host.second_process->capabilities,user_endpoint,
+        AURORA_CAP_IPC_ENDPOINT,AURORA_RIGHT_READ|AURORA_RIGHT_WRITE);
+    if (host.second_control_handle==AURORA_CAP_INVALID ||
+        !g5_shell_scene_attach_second(&host.scene,host.second_process))
+        return false;
+    struct aurora_user_session_host_startup startup;
+    clear_bytes(&startup,sizeof(startup));
+    startup.abi_version=AURORA_USER_SESSION_HOST_ABI_VERSION;
+    startup.flags=AURORA_USER_SESSION_HOST_FLAG_RENDER_CLIENT;
+    startup.control_endpoint=host.second_control_handle;
+    startup.session_generation=generation;
+    startup.graphics_buffer=host.scene.extra.user_buffer;
+    startup.graphics_surface=host.scene.extra.user_surface;
+    startup.graphics_object_id=host.scene.extra.surface->object_id;
+    startup.graphics_object_generation=host.scene.extra.surface->generation;
+    startup.graphics_width=host.scene.extra.width;
+    startup.graphics_height=host.scene.extra.height;
+    for (size_t i=0u;i<sizeof(startup.user_id);++i)
+        startup.user_id[i]=user_id[i];
+    if (sizeof(startup)!=AURORA_USER_SESSION_HOST_STARTUP_STACK_OFFSET ||
+        host.second_process->user_stack_top <
+            AURORA_USER_SESSION_HOST_STARTUP_STACK_OFFSET ||
+        !copy_to_user(host.second_process,
+            host.second_process->user_stack_top -
+                AURORA_USER_SESSION_HOST_STARTUP_STACK_OFFSET,
+            &startup,sizeof(startup))) {
+        clear_bytes(&startup,sizeof(startup));
+        return false;
+    }
+    clear_bytes(&startup,sizeof(startup));
+    host.second_thread=scheduler_create_user_thread(
+        "g5-ring3-renderer-2",host.second_process);
+    if (host.second_thread==0u) return false;
+    uint64_t receipt=0u;
+    if (!receive_second_event(AURORA_USER_SESSION_HOST_READY,&receipt) ||
+        receipt!=0u ||
+        process_bootstrap_signal(host.second_process)!=
+            AURORA_USER_SESSION_HOST_READY_MAGIC)
+        return false;
+    if (!receive_second_event(
+            AURORA_USER_SESSION_HOST_FRAME_COMMITTED,&receipt) ||
+        receipt==0u || receipt>UINT64_C(0xffffffff))
+        return false;
+    uint64_t serial=0u;
+    if (!g5_shell_scene_publish_second(
+            &host.scene,host.second_process,
+            UINT64_C(0x7000000000000000)|receipt,receipt,&serial) ||
+        serial==0u)
+        return false;
+    log_line("[g5-wp04] second Ring3 process committed and displayed");
+    return true;
+}
+
 static bool start_with_context(
     const uint8_t user_id[AURORA_USER_SESSION_HOST_USER_ID_SIZE],
     uint64_t generation
@@ -466,6 +539,12 @@ static bool start_with_context(
             return false;
         }
         host.g5_ready=true;
+    }
+    if (session_g5_dispatcher != NULL &&
+        !start_second_client(user_id,generation)) {
+        log_line("[g5-wp04] independent second Ring3 render client failed");
+        cleanup_unstarted_host();
+        return false;
     }
     if (!g5_shell_session_ready(&shell_session,generation)) {
         cleanup_unstarted_host();
