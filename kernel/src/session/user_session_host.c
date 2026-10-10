@@ -536,7 +536,8 @@ static bool production_g5_authorize(void *ctx,uint32_t operation,uint64_t genera
         session_manager_client_state()==AURORA_SESSION_CLIENT_ACTIVE &&
         (operation==G5_OP_SHELL_READY || operation==G5_OP_SHELL_HEALTH ||
          ((operation==G5_OP_SCENE_PUBLISH ||
-           operation==G5_OP_WINDOW_PLACE) && host.scene.active));
+           operation==G5_OP_WINDOW_PLACE ||
+           operation==G5_OP_WINDOW_CLOSE) && host.scene.active));
 }
 
 static bool production_g5_handle(void *ctx,const struct g5_ipc_header *header,
@@ -564,6 +565,8 @@ static bool production_g5_handle(void *ctx,const struct g5_ipc_header *header,
         ++production_g5_place_count;
         return true;
     }
+    if (header->operation==G5_OP_WINDOW_CLOSE)
+        return g5_shell_scene_close(&host.scene,header,payload);
     return false;
 }
 
