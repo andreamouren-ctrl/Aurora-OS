@@ -75,6 +75,17 @@ bool g5_shell_scene_attach_second(
 void g5_shell_scene_detach_second(struct g5_shell_scene *scene);
 /* Trusted per-client receiver must authenticate process ownership before
  * calling this; it is not a globally exposed Ring 3 IPC dispatcher. */
+/* Trusted input broker: validate the requesting client owner before
+ * draining the queue associated with its compositor-backed window. */
+bool g5_shell_scene_route_input(
+    struct g5_shell_scene *scene,
+    const struct aurora_input_event *event
+);
+bool g5_shell_scene_poll_input_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    struct aurora_input_event *out_event
+);
 bool g5_shell_scene_close_second(
     struct g5_shell_scene *scene,
     struct aurora_process *sender
