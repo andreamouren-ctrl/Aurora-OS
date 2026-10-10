@@ -649,14 +649,14 @@ bool user_session_host_health_check(void) {
 }
 
 bool user_session_host_stop(void) {
-    /* Stop the independent renderer before revoking shared graphics state. */
-    bool second_stopped=shutdown_second_client();
-    /* Fail closed immediately, including IPC send timeout/failure paths. */
+    /* Revoke graphics and capability bindings before releasing the
+     * second process: scene teardown accesses its owner cap table. */
     g5_shell_session_end(&shell_session);
     if (session_g5_dispatcher != NULL)
         g5_ipc_dispatch_revoke(session_g5_dispatcher);
     revoke_g5_sender();
     revoke_g5_receiver();
+    bool second_stopped=shutdown_second_client();
     if (!host.active ||
         host.process == NULL ||
         host.thread == 0u ||
