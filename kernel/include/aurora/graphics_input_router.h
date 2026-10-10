@@ -55,6 +55,14 @@ bool graphics_input_bind_window_target(
     uint64_t target_id,
     uint64_t window_id
 );
+/* Trusted Shell input dispatcher only. Consumes a target-bound one-shot
+ * interaction token to transition keyboard focus at current pointer. */
+bool graphics_input_focus_pointer(
+    struct aurora_graphics_input_router *router,
+    uint64_t activation_token,
+    uint64_t interaction_serial,
+    uint64_t *out_window_id
+);
 bool graphics_input_sync_window_focus(
     struct aurora_graphics_input_router *router
 );
