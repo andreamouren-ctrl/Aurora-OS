@@ -10,7 +10,7 @@ Architecture contracts remain authoritative even as the implementation evolves. 
 
 ## Current implementation status
 
-At the 2026-10-09 synchronized baseline:
+At the 2026-10-10 G5 WP-04 feature-branch acceptance candidate:
 
 - **G0 — Contracts:** complete;
 - **G1 — Display foundation:** complete/runtime verified;
@@ -18,7 +18,8 @@ At the 2026-10-09 synchronized baseline:
 - **G3 — Software compositor + mastering color pipeline:** complete/runtime verified;
 - **G4 — Pointer and modern input:** complete/runtime verified for the V1 bounded-polling baseline;
 - **G5 WP-03 — Ring 3 Shell bootstrap and session lifecycle:** frozen/runtime accepted;
-- **G5 WP-04+ — dynamic multi-client window policy, full Shell UX and Living Canvas:** pending.
+- **G5 WP-04 — two independent Ring 3 window clients, focus, input, move/resize/close:** source implemented on draft PR #185; final per-HEAD native QEMU/host acceptance still required before freezing or merge;
+- **G5 WP-05+ — spatial camera, Living Canvas, full Shell UX:** pending; not part of WP-04 scope.
 
 The current graphics implementation therefore goes substantially beyond the original architecture-only state.
 
