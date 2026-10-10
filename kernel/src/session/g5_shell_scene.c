@@ -19,6 +19,9 @@ static uint64_t read_u64_le(const uint8_t *p) {
 void g5_shell_scene_detach_second(struct g5_shell_scene *scene) {
     if (scene == NULL) return;
     struct g5_shell_extra_client *e = &scene->extra;
+    /* An unallocated slot is zero-initialized, and slot 0 belongs
+     * to the primary Shell window: never detach it on failed start. */
+    if (e->owner == NULL) return;
     if (e->window_id)
         (void)graphics_input_unregister_target(&scene->input_router,
                                                  e->window_id);
