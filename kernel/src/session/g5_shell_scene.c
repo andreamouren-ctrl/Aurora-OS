@@ -161,7 +161,17 @@ bool g5_shell_scene_configure_second(
         width == 0u || height == 0u ||
         width > scene->window_policy.output_width ||
         height > scene->window_policy.output_height ||
+        scene->extra.pending_resize_buffer != NULL ||
         scene->extra.slot >= G5_SURFACE_REGISTRY_CAPACITY)
+        return false;
+    struct aurora_window_toplevel placement = {0};
+    if (!window_policy_read_toplevel(&scene->window_policy,
+                                     scene->extra.window_id, &placement) ||
+        placement.placement.x < 0 || placement.placement.y < 0 ||
+        (uint64_t)(uint32_t)placement.placement.x + width >
+            scene->window_policy.output_width ||
+        (uint64_t)(uint32_t)placement.placement.y + height >
+            scene->window_policy.output_height)
         return false;
     struct g5_surface_bridge *bridge =
         &scene->frame.registry.entries[scene->extra.slot].bridge;
