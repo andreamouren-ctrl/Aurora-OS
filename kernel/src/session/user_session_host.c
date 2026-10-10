@@ -1227,17 +1227,30 @@ static bool g5_wp04_two_window_interaction_probe(void) {
     pointer.absolute_y=w.placement.y+8;
     uint64_t hit=0u,token=0u,focused=0u;
     struct aurora_graphics_input_router *r=&host.scene.input_router;
-    if (!graphics_input_route_event(r,&pointer) ||
-        !window_policy_hit_test_committed(
+    bool routed=graphics_input_route_event(r,&pointer);
+    bool policy_hit=routed &&
+        window_policy_hit_test_committed(
             &host.scene.window_policy,pointer.absolute_x,
-            pointer.absolute_y,&hit) ||
-        hit!=host.scene.extra.window_id ||
-        !window_policy_issue_activation_token(
-            &host.scene.window_policy,hit,pointer.sequence,&token) ||
-        !graphics_input_focus_pointer(
-            r,token,pointer.sequence,&focused) ||
-        focused!=host.scene.extra.window_id)
+            pointer.absolute_y,&hit);
+    bool hit_second=policy_hit && hit==host.scene.extra.window_id;
+    bool token_issued=hit_second &&
+        window_policy_issue_activation_token(
+            &host.scene.window_policy,hit,pointer.sequence,&token);
+    bool focus_assigned=token_issued &&
+        graphics_input_focus_pointer(
+            r,token,pointer.sequence,&focused);
+    if (!routed || !policy_hit || !hit_second || !token_issued ||
+        !focus_assigned || focused!=host.scene.extra.window_id) {
+        log_write("[g5-wp04-interaction] route/policy-hit/topmost/token/focus/window: ");
+        log_u64(routed);log_write("/");
+        log_u64(policy_hit);log_write("/");
+        log_u64(hit_second);log_write("/");
+        log_u64(token_issued);log_write("/");
+        log_u64(focus_assigned);log_write("/");
+        log_u64(hit);log_write("/");
+        log_u64(focused);log_line("");
         return false;
+    }
     log_line("[g5-wp04-interaction] trusted focus selected second window");
     struct aurora_input_event delivered={0};
     if (!g5_shell_scene_poll_input_second(
