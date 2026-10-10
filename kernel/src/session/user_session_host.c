@@ -1227,6 +1227,36 @@ static bool g5_wp04_two_window_interaction_probe(void) {
     pointer.absolute_y=w.placement.y+8;
     uint64_t hit=0u,token=0u,focused=0u;
     struct aurora_graphics_input_router *r=&host.scene.input_router;
+    struct aurora_window_toplevel inspected={0};
+    if (window_policy_read_toplevel(&host.scene.window_policy,
+                                     host.scene.extra.window_id,&inspected)) {
+        struct aurora_graphics_surface *surface=inspected.surface;
+        const struct aurora_graphics_buffer *buffer=
+            surface!=NULL?surface->committed.buffer:NULL;
+        log_write("[g5-wp04-interaction] policy used/placed/config/ACK/frame-baseline/current/size/min/buffer: ");
+        log_u64(inspected.used);log_write("/");
+        log_u64(inspected.placed);log_write("/");
+        log_u64(inspected.configured);log_write("/");
+        log_u64(inspected.acked_configure_serial);log_write("/");
+        log_u64(inspected.commit_serial_at_ack);log_write("/");
+        log_u64(surface!=NULL?surface->committed.commit_serial:0u);
+        log_write("/");
+        log_u64(inspected.pending_configure.width);log_write("/");
+        log_u64(inspected.pending_configure.height);log_write("/");
+        log_u64(buffer!=NULL?buffer->destroy_requested:1u);log_line("");
+        if (buffer!=NULL) {
+            log_write("[g5-wp04-interaction] mapped/buffer-state/w/h/generation/expected/point-x/point-y: ");
+            log_u64(surface->state==AURORA_GRAPHICS_SURFACE_MAPPED);
+            log_write("/");log_u64(buffer->state);
+            log_write("/");log_u64(buffer->width);
+            log_write("/");log_u64(buffer->height);
+            log_write("/");log_u64(surface->generation);
+            log_write("/");log_u64(inspected.surface_generation);
+            log_write("/");log_u64((uint32_t)pointer.absolute_x);
+            log_write("/");log_u64((uint32_t)pointer.absolute_y);
+            log_line("");
+        }
+    }
     bool routed=graphics_input_route_event(r,&pointer);
     bool policy_hit=routed &&
         window_policy_hit_test_committed(
