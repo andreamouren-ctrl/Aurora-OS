@@ -39,10 +39,6 @@ void g5_shell_scene_end(struct g5_shell_scene *scene) {
     /* Stop input delivery and unregister target before removing the node. */
     if (scene->input_router.initialized) {
         graphics_input_revoke_session(&scene->input_router);
-        if (scene->bridge.node_ids[scene->slot < G5_SURFACE_REGISTRY_CAPACITY
-                                   ? scene->slot : 0u] != 0u)
-            (void)graphics_input_unregister_target(&scene->input_router,
-                                                     scene->window_id);
         scene->input_router.window_policy = NULL;
     }
     /* Revoke trusted window identity before freeing the backing surface. */
