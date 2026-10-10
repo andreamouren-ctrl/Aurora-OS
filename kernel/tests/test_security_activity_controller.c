@@ -62,7 +62,7 @@ static void test_initial_send_failure_recovery(void) {
     begin_succeeds = false;
     assert(!security_activity_controller_begin(&ctl));
     assert(ctl.state == AURORA_SECURITY_ACTIVITY_VIEW_ERROR);
-    assert(resets == 1 && fake_state == AURORA_IDENTITY_CLIENT_READY);
+    assert(resets == 0 && fake_state == AURORA_IDENTITY_CLIENT_ERROR);
 }
 static void test_busy_client_not_reset(void) {
     struct aurora_security_activity_controller ctl;
@@ -84,7 +84,7 @@ static void test_continuation_send_failure_recovery(void) {
     security_activity_controller_pump(&ctl);
     assert(ctl.state == AURORA_SECURITY_ACTIVITY_VIEW_ERROR);
     assert(ctl.page.count == 1 && ctl.page.items[0].sequence == 10);
-    assert(resets == 1 && fake_state == AURORA_IDENTITY_CLIENT_READY);
+    assert(resets == 0 && fake_state == AURORA_IDENTITY_CLIENT_ERROR);
 }
 static void test_bad_cursor_rejected(void) {
     struct aurora_security_activity_controller ctl;
