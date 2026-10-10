@@ -34,6 +34,14 @@ void g5_shell_scene_detach_second(struct g5_shell_scene *scene) {
     if (e->slot < G5_SURFACE_REGISTRY_CAPACITY &&
         scene->frame.registry.entries[e->slot].occupied)
         (void)g5_surface_registry_detach(&scene->frame.registry, e->slot);
+    if (e->pending_resize_handle != AURORA_CAP_INVALID &&
+        e->pending_resize_buffer && e->owner)
+        (void)cap_revoke(&e->owner->capabilities,
+                         e->pending_resize_handle);
+    if (e->pending_resize_buffer)
+        (void)graphics_buffer_release_owner(
+            e->pending_resize_buffer,
+            e->pending_resize_buffer->generation);
     if (e->user_surface != AURORA_CAP_INVALID && e->owner)
         (void)cap_revoke(&e->owner->capabilities, e->user_surface);
     if (e->user_buffer != AURORA_CAP_INVALID && e->owner)
@@ -54,6 +62,7 @@ void g5_shell_scene_detach_second(struct g5_shell_scene *scene) {
     e->kernel_surface = AURORA_CAP_INVALID;
     e->user_buffer = AURORA_CAP_INVALID;
     e->user_surface = AURORA_CAP_INVALID;
+    e->pending_resize_handle = AURORA_CAP_INVALID;
 }
 
 bool g5_shell_scene_attach_second(struct g5_shell_scene *scene,
@@ -71,6 +80,7 @@ bool g5_shell_scene_attach_second(struct g5_shell_scene *scene,
     e->kernel_surface = AURORA_CAP_INVALID;
     e->user_buffer = AURORA_CAP_INVALID;
     e->user_surface = AURORA_CAP_INVALID;
+    e->pending_resize_handle = AURORA_CAP_INVALID;
     e->owner = owner;
     e->buffer = graphics_buffer_create(
         G5_SHELL_SCENE_WIDTH, G5_SHELL_SCENE_HEIGHT, &mode->format);
@@ -176,6 +186,39 @@ bool g5_shell_scene_configure_second(
     scene->extra.configure_serial = *out_serial;
     scene->extra.width = width;
     scene->extra.height = height;
+    return true;
+}
+
+bool g5_shell_scene_allocate_resize_buffer_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    aurora_cap_handle *out_buffer
+) {
+    if (out_buffer) *out_buffer = AURORA_CAP_INVALID;
+    if (!scene || !scene->active || !scene->extra.active ||
+        !sender || sender != scene->extra.owner || !out_buffer ||
+        scene->extra.pending_resize_buffer != NULL ||
+        scene->extra.width == 0u || scene->extra.height == 0u ||
+        scene->extra.slot >= G5_SURFACE_REGISTRY_CAPACITY)
+        return false;
+    const struct aurora_display_mode *mode = display_mode_at(0u,0u);
+    if (!mode || !g5_session_context_authorized(
+            &scene->frame.registry.session,scene->generation))
+        return false;
+    struct aurora_graphics_buffer *buffer =
+        graphics_buffer_create(scene->extra.width,scene->extra.height,
+                               &mode->format);
+    if (!buffer) return false;
+    aurora_cap_handle handle = graphics_buffer_grant(
+        &sender->capabilities,buffer,
+        AURORA_RIGHT_READ|AURORA_RIGHT_WRITE|AURORA_RIGHT_MAP);
+    if (handle == AURORA_CAP_INVALID) {
+        (void)graphics_buffer_release_owner(buffer,buffer->generation);
+        return false;
+    }
+    scene->extra.pending_resize_buffer = buffer;
+    scene->extra.pending_resize_handle = handle;
+    *out_buffer = handle;
     return true;
 }
 
