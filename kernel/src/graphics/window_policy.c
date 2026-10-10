@@ -152,6 +152,20 @@ bool window_policy_configure(
     uint64_t serial =
         next_nonzero(&policy->next_configure_serial);
 
+    /* A new configure invalidates the old focused presentation.
+     * Tokens issued for the prior geometry must not authorize focus
+     * after a resize, minimize or state transition. */
+    window->active = false;
+    for (uint32_t i = 0u;
+         i < AURORA_WINDOW_POLICY_MAX_ACTIVATION_TOKENS;
+         ++i) {
+        if (policy->activation_tokens[i].used &&
+            policy->activation_tokens[i].target_window_id == window_id) {
+            clear_bytes(&policy->activation_tokens[i],
+                        sizeof(policy->activation_tokens[i]));
+        }
+    }
+
     window->pending_configure =
         (struct aurora_window_configure){
             .serial = serial,
