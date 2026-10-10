@@ -663,17 +663,18 @@ bool identity_client_begin_security_activity_read(
 
 void identity_client_pump(void) {
     if (client_state == AURORA_IDENTITY_CLIENT_UNINITIALIZED) return;
-    /* An abandoned request keeps ownership until its reply is actually
-     * received. Only its own terminal activity/error state may be cleared. */
+    /* A completed activity reply may be discarded, but a protocol ERROR
+     * must remain fail-closed even if the view was abandoned. */
     if (abandoned_activity_read &&
         (client_state == AURORA_IDENTITY_CLIENT_ACTIVITY_RECORD ||
-         client_state == AURORA_IDENTITY_CLIENT_ACTIVITY_END ||
-         client_state == AURORA_IDENTITY_CLIENT_ERROR ||
-         client_state == AURORA_IDENTITY_CLIENT_UNAVAILABLE)) {
+         client_state == AURORA_IDENTITY_CLIENT_ACTIVITY_END)) {
         abandoned_activity_read = false;
-        if (client_state != AURORA_IDENTITY_CLIENT_UNAVAILABLE) {
-            identity_client_reset_result();
-        }
+        (void)identity_client_discard_completed_security_activity();
+    } else if (abandoned_activity_read &&
+               (client_state == AURORA_IDENTITY_CLIENT_ERROR ||
+                client_state == AURORA_IDENTITY_CLIENT_UNAVAILABLE)) {
+        abandoned_activity_read = false;
+        current_request_id = 0u;
     }
 
     if (!service_supervisor_step(&identity_supervisor)) {
