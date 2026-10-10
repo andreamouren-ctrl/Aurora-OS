@@ -4,6 +4,16 @@ on:
   workflow_dispatch:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'kernel/**'
+      - 'services/**'
+      - 'scripts/**'
+      - 'linker/**'
+      - 'Makefile'
+      - 'limine.conf'
+      - '.github/workflows/nvme-filesystem.yml'
 
 jobs:
   nvme-filesystem-x86_64:
