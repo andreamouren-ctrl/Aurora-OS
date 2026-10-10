@@ -898,6 +898,54 @@ static bool send_client_input(struct aurora_ipc_endpoint *endpoint,
                     (uint32_t)sizeof(msg),NULL,0u);
 }
 
+/* The primary Shell follows the same independent ACK/commit handshake as
+ * the second process, but only its own private control endpoint is trusted. */
+static bool resize_primary_client(uint32_t width,uint32_t height) {
+    if (!user_session_host_active() || !host.process ||
+        !host.kernel_endpoint || !host.scene.active)
+        return false;
+    uint64_t configure_serial=0u;
+    aurora_cap_handle buffer=AURORA_CAP_INVALID;
+    if (!g5_shell_scene_configure_primary(
+            &host.scene,width,height,&configure_serial))
+        return false;
+    if (!g5_shell_scene_allocate_resize_buffer_primary(
+            &host.scene,&buffer)) {
+        g5_shell_scene_end(&host.scene);
+        return false;
+    }
+    struct aurora_user_session_host_resize_message request;
+    clear_bytes(&request,sizeof(request));
+    request.header.version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION;
+    request.header.type=AURORA_USER_SESSION_HOST_RESIZE_PREPARE;
+    request.header.request_id=host.next_request_id++;
+    if (request.header.request_id==0u)
+        request.header.request_id=host.next_request_id++;
+    request.graphics_buffer=buffer;
+    request.configure_serial=configure_serial;
+    request.width=width;
+    request.height=height;
+    uint64_t ack=0u,commit=0u;
+    bool accepted=request.header.request_id!=0u &&
+        ipc_send(host.kernel_endpoint,&host.kernel_caps,
+                 &request,(uint32_t)sizeof(request),NULL,0u) &&
+        receive_primary_event(AURORA_USER_SESSION_HOST_RESIZE_ACK,&ack) &&
+        ack==configure_serial &&
+        g5_shell_scene_ack_primary(&host.scene,ack) &&
+        receive_primary_event(
+            AURORA_USER_SESSION_HOST_FRAME_COMMITTED,&commit) &&
+        commit!=0u &&
+        g5_shell_scene_publish_primary_resized(
+            &host.scene,request.header.request_id,commit);
+    if (!accepted) {
+        g5_shell_scene_end(&host.scene);
+        log_line("[g5-wp04] primary client resize failed closed");
+        return false;
+    }
+    log_line("[g5-wp04] primary Ring3 client resize ACK + frame presented");
+    return true;
+}
+
 /* Complete the second client's resize transaction across real private
  * IPC. Both ACK and frame commit are proved by the Ring3 process itself. */
 static bool resize_second_client(uint32_t width,uint32_t height) {
