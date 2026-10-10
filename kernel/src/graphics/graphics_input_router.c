@@ -366,7 +366,14 @@ bool graphics_input_sync_window_focus(
         }
     }
     if (router->keyboard_focus_target != target_id) {
-        /* Capture is never carried across an authority/focus transition. */
+        /* Never deliver queued keyboard events to a window that lost
+         * authority: drain the old target when focus transitions. */
+        struct aurora_graphics_input_target *previous =
+            find_target(router, router->keyboard_focus_target);
+        if (previous != NULL && previous->window_id != 0u) {
+            previous->head = 0u;
+            previous->tail = 0u;
+        }
         router->capture_target = 0u;
     }
     router->keyboard_focus_target = target_id;
