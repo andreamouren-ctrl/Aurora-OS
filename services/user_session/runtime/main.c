@@ -391,6 +391,8 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                                     shell_commit))
         return 32;
 
+    uint64_t last_resize_serial=0u;
+    uint64_t current_graphics_buffer=startup->graphics_buffer;
     for (;;) {
         if (!wait_message(startup->control_endpoint)) return 1;
 
@@ -399,6 +401,50 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
             received.capability_count != 0u) {
             clear_bytes(&received, sizeof(received));
             return 1;
+        }
+        if (secondary && received.length ==
+            sizeof(struct aurora_user_session_host_resize_message)) {
+            struct aurora_user_session_host_resize_message request;
+            clear_bytes(&request,sizeof(request));
+            copy_bytes(&request,received.data,sizeof(request));
+            clear_bytes(&received,sizeof(received));
+            if (request.header.version !=
+                    AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
+                request.header.type !=
+                    AURORA_USER_SESSION_HOST_RESIZE_PREPARE ||
+                request.header.request_id == 0u ||
+                request.configure_serial == 0u ||
+                request.configure_serial <= last_resize_serial ||
+                request.width == 0u || request.height == 0u ||
+                request.width > 8192u || request.height > 8192u ||
+                request.graphics_buffer == current_graphics_buffer ||
+                !capability_has(request.graphics_buffer,
+                    AURORA_CAP_GRAPHICS_BUFFER,
+                    AURORA_RIGHT_READ|AURORA_RIGHT_WRITE|AURORA_RIGHT_MAP) ||
+                capability_has(request.graphics_buffer,
+                    AURORA_CAP_GRAPHICS_BUFFER,AURORA_RIGHT_TRANSFER))
+                return 1;
+            /* The ACK proves the actual Ring3 client accepted the exact
+             * configure serial. The subsequent receipt proves its new
+             * mapped buffer has been attached, damaged and committed. */
+            if (!send_message(startup->control_endpoint,
+                              AURORA_USER_SESSION_HOST_RESIZE_ACK,
+                              request.configure_serial))
+                return 1;
+            struct aurora_user_session_host_startup resized=*startup;
+            resized.graphics_buffer=request.graphics_buffer;
+            resized.graphics_width=request.width;
+            resized.graphics_height=request.height;
+            uint64_t stage=0u;
+            uint64_t commit=commit_ring3_shell_surface(&resized,&stage);
+            if (commit==0u ||
+                !send_message(startup->control_endpoint,
+                              AURORA_USER_SESSION_HOST_FRAME_COMMITTED,
+                              commit))
+                return 1;
+            last_resize_serial=request.configure_serial;
+            current_graphics_buffer=request.graphics_buffer;
+            continue;
         }
         if (received.length ==
             sizeof(struct aurora_user_session_host_input_message)) {
