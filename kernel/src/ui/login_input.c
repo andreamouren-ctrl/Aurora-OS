@@ -701,6 +701,17 @@ void login_input_init(void) {
         log_line("[nvme] dedicated reversible-probe media; filesystem bootstrap skipped");
     }
 
+#if AURORA_BOOT_VALIDATION && AURORA_NVME_RW_PROBE_ONLY
+    /* Deliberately narrow hardware acceptance. The signed raw NVMe disk is
+     * NOT a mounted /system volume: Identity/G5 lifecycle validation belongs
+     * to the independent NVMe filesystem E2E and Identity QEMU workflows.
+     * Never certify full M1 user-space bootstrap from this scoped probe. */
+    if (nvme == NULL || !nvme_namespace_reserved_for_rw_probe())
+        kernel_panic("NVMe scoped signed raw probe media unavailable");
+    log_line("[nvme-probe] signed raw media recognized; higher service gates intentionally not exercised");
+    return;
+#endif
+
 #if AURORA_BOOT_VALIDATION
     if (!ipc_wait_ring3_self_test()) {
         kernel_panic("Ring 3 IPC blocking wait/wakeup self-test failed");
