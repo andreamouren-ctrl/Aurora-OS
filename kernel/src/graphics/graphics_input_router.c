@@ -425,10 +425,24 @@ bool graphics_input_set_keyboard_focus(
     if (router == NULL || !router->initialized) return false;
 
     if (target_id != 0u &&
-        (!target_node_still_hittable(router, target_id))) {
+        !target_node_still_hittable(router, target_id))
         return false;
+    if (router->window_policy != NULL && target_id != 0u) {
+        uint64_t authorized_window = 0u;
+        struct aurora_graphics_input_target *target =
+            find_target(router, target_id);
+        struct aurora_window_toplevel window;
+        if (target == NULL || target->window_id == 0u ||
+            !window_policy_active_committed(router->window_policy,
+                                            &authorized_window) ||
+            authorized_window != target->window_id ||
+            !window_policy_read_toplevel(router->window_policy,
+                                         authorized_window, &window) ||
+            !target_matches_window_surface(router, target, &window))
+            return false;
     }
-
+    if (router->keyboard_focus_target != target_id)
+        router->capture_target = 0u;
     router->keyboard_focus_target = target_id;
     return true;
 }
@@ -443,6 +457,21 @@ bool graphics_input_request_capture(
         router->pointer_focus_target != target_id ||
         !target_node_still_hittable(router, target_id)) {
         return false;
+    }
+    if (router->window_policy != NULL) {
+        struct aurora_graphics_input_target *target =
+            find_target(router, target_id);
+        struct aurora_window_toplevel window;
+        uint64_t hit = 0u;
+        if (target == NULL || target->window_id == 0u ||
+            !window_policy_hit_test_committed(
+                router->window_policy, router->pointer_x,
+                router->pointer_y, &hit) ||
+            hit != target->window_id ||
+            !window_policy_read_toplevel(router->window_policy,
+                                         hit, &window) ||
+            !target_matches_window_surface(router, target, &window))
+            return false;
     }
 
     if (router->capture_target != 0u &&
