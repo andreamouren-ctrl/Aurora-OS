@@ -177,6 +177,17 @@ bool window_policy_hit_test(
     uint64_t *out_window_id
 );
 
+/* Trusted input router only: select a committed target and consume a
+ * target-bound, one-shot interaction token before changing focus. */
+bool window_policy_focus_at(
+    struct aurora_window_policy *policy,
+    int32_t x,
+    int32_t y,
+    uint64_t activation_token,
+    uint64_t interaction_serial,
+    uint64_t *out_window_id
+);
+
 bool window_policy_selftest(void);
 
 #endif
