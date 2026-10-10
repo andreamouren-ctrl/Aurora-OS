@@ -2,6 +2,7 @@
 #define AURORA_USER_SESSION_HOST_ABI_H
 
 #include <stdint.h>
+#include <aurora/input.h>
 
 #define AURORA_USER_SESSION_HOST_ABI_VERSION 3u
 #define AURORA_USER_SESSION_HOST_STARTUP_STACK_OFFSET 112u
@@ -17,6 +18,7 @@
 #define AURORA_USER_SESSION_HOST_HEALTH_ACK 5u
 /* Exclusive process control endpoint: request_id = committed frame serial. */
 #define AURORA_USER_SESSION_HOST_FRAME_COMMITTED 6u
+#define AURORA_USER_SESSION_HOST_INPUT_EVENT 7u
 
 #define AURORA_USER_SESSION_HOST_READY_MAGIC UINT64_C(0x4155525345535348)
 
@@ -41,6 +43,13 @@ struct aurora_user_session_host_message {
     uint32_t version;
     uint32_t type;
     uint64_t request_id;
+};
+
+/* Kernel-to-one-client delivery through an exclusive process endpoint.
+ * Entire payload is initialized before send; no capability is transferred. */
+struct aurora_user_session_host_input_message {
+    struct aurora_user_session_host_message header;
+    struct aurora_input_event event;
 };
 
 #endif
