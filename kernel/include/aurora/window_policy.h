@@ -158,6 +158,15 @@ bool window_policy_read_toplevel(
     struct aurora_window_toplevel *out_toplevel
 );
 
+/* Query the topmost visible, configured toplevel containing a point.
+ * This is policy geometry only: the input router still owns delivery. */
+bool window_policy_hit_test(
+    const struct aurora_window_policy *policy,
+    int32_t x,
+    int32_t y,
+    uint64_t *out_window_id
+);
+
 bool window_policy_selftest(void);
 
 #endif
