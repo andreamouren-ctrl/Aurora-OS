@@ -182,7 +182,59 @@ static void revoke_g5_receiver(void) {
     host.g5_ready=false;
 }
 
+static bool shutdown_second_client(void) {
+    if (host.second_process==NULL) return true;
+    bool clean=true;
+    if (host.second_thread!=0u &&
+        !scheduler_thread_finished(host.second_thread)) {
+        uint64_t id=host.next_request_id++;
+        if (id==0u) id=host.next_request_id++;
+        const struct aurora_user_session_host_message request={
+            .version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+            .type=AURORA_USER_SESSION_HOST_SHUTDOWN,
+            .request_id=id
+        };
+        uint64_t ack=0u;
+        if (!host.second_kernel_endpoint ||
+            !ipc_send(host.second_kernel_endpoint,&host.kernel_caps,
+                      &request,(uint32_t)sizeof(request),NULL,0u) ||
+            !receive_second_event(AURORA_USER_SESSION_HOST_SHUTDOWN_ACK,&ack) ||
+            ack!=id)
+            clean=false;
+        uint64_t deadline=clock_now_ns()+USER_SESSION_HOST_TIMEOUT_NS;
+        while (!scheduler_thread_finished(host.second_thread) &&
+               clock_now_ns()<deadline)
+            arch_idle();
+    }
+    if (host.second_thread!=0u &&
+        scheduler_thread_finished(host.second_thread)) {
+        (void)scheduler_reap_thread(host.second_thread);
+        host.second_thread=0u;
+    }
+    if (host.second_control_handle!=AURORA_CAP_INVALID) {
+        (void)cap_revoke(&host.second_process->capabilities,
+                         host.second_control_handle);
+        host.second_control_handle=AURORA_CAP_INVALID;
+    }
+    if (host.second_thread==0u &&
+        process_live_thread_count(host.second_process)==0u) {
+        if (process_state(host.second_process)==AURORA_PROCESS_RUNNING)
+            process_mark_exited(host.second_process,clean?0:1);
+        clean=clean &&
+              process_state(host.second_process)==AURORA_PROCESS_EXITED &&
+              host.second_process->exit_code==0;
+        if (process_state(host.second_process)!=AURORA_PROCESS_RUNNING &&
+            process_reap(host.second_process,NULL) &&
+            process_release(host.second_process)) {
+            host.second_process=NULL;
+            host.second_kernel_endpoint=NULL;
+        } else clean=false;
+    } else clean=false;
+    return clean;
+}
+
 static void cleanup_finished_host(void) {
+    (void)shutdown_second_client();
     g5_shell_session_end(&shell_session);
     revoke_g5_receiver();
     if (session_g5_dispatcher != NULL)
@@ -578,6 +630,8 @@ bool user_session_host_health_check(void) {
 }
 
 bool user_session_host_stop(void) {
+    /* Stop the independent renderer before revoking shared graphics state. */
+    bool second_stopped=shutdown_second_client();
     /* Fail closed immediately, including IPC send timeout/failure paths. */
     g5_shell_session_end(&shell_session);
     if (session_g5_dispatcher != NULL)
@@ -633,7 +687,7 @@ bool user_session_host_stop(void) {
         host.process->exit_code == 0;
 
     cleanup_finished_host();
-    return acknowledged && clean_exit;
+    return acknowledged && clean_exit && second_stopped;
 }
 
 /* Production G5 receiver policy. The self-test registers its own dispatcher,
