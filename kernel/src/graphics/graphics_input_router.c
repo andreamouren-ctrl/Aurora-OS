@@ -292,6 +292,30 @@ bool graphics_input_bind_window_policy(
     return true;
 }
 
+static bool target_matches_window_surface(
+    struct aurora_graphics_input_router *router,
+    const struct aurora_graphics_input_target *target,
+    const struct aurora_window_toplevel *window
+) {
+    if (router == NULL || target == NULL || window == NULL ||
+        window->surface == NULL ||
+        window->surface->generation != window->surface_generation)
+        return false;
+    for (uint32_t i = 0u; i < AURORA_COMPOSITOR_MAX_NODES; ++i) {
+        const struct aurora_compositor_node *node =
+            &router->compositor->nodes[i];
+        if (!node->used || !node->visible ||
+            node->node_id != target->node_id ||
+            node->surface_class != AURORA_COMPOSITOR_SURFACE_NORMAL)
+            continue;
+        struct aurora_graphics_surface *attached = NULL;
+        return graphics_surface_lookup(&router->compositor->surface_caps,
+                        node->surface_handle, AURORA_RIGHT_READ, &attached) &&
+               attached == window->surface;
+    }
+    return false;
+}
+
 bool graphics_input_bind_window_target(
     struct aurora_graphics_input_router *router,
     uint64_t target_id,
@@ -305,7 +329,9 @@ bool graphics_input_bind_window_target(
     if (target == NULL || target->window_id != 0u ||
         !window_policy_read_toplevel(router->window_policy,
                                      window_id, &window) ||
-        !target_node_still_hittable(router, target_id)) return false;
+        !target_node_still_hittable(router, target_id) ||
+        !target_matches_window_surface(router, target, &window))
+        return false;
     for (uint32_t i = 0u; i < AURORA_GRAPHICS_INPUT_MAX_TARGETS; ++i) {
         if (router->targets[i].used &&
             router->targets[i].window_id == window_id) return false;
@@ -329,6 +355,11 @@ bool graphics_input_sync_window_focus(
             struct aurora_graphics_input_target *t = &router->targets[i];
             if (t->used && t->window_id == window_id &&
                 target_node_still_hittable(router, t->target_id)) {
+                struct aurora_window_toplevel window;
+                if (!window_policy_read_toplevel(router->window_policy,
+                                                  window_id, &window) ||
+                    !target_matches_window_surface(router, t, &window))
+                    continue;
                 target_id = t->target_id;
                 break;
             }
@@ -521,8 +552,15 @@ static uint64_t update_pointer_focus(
             !window_policy_hit_test_committed(
                 router->window_policy, router->pointer_x,
                 router->pointer_y, &selected_window) ||
-            selected_window != target->window_id)
+            selected_window != target->window_id) {
             selected_target = 0u;
+        } else {
+            struct aurora_window_toplevel window;
+            if (!window_policy_read_toplevel(router->window_policy,
+                                              selected_window, &window) ||
+                !target_matches_window_surface(router, target, &window))
+                selected_target = 0u;
+        }
     }
     router->pointer_focus_target = selected_target;
     return selected_target;
