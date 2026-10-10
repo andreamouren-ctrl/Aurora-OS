@@ -1212,6 +1212,7 @@ static bool g5_wp04_two_window_interaction_probe(void) {
         !host.second_process || !host.second_kernel_endpoint ||
         !host.scene.input_router.initialized)
         return false;
+    log_line("[g5-wp04-interaction] begin hit-test/input/focus probe");
     struct aurora_window_toplevel w={0};
     if (!window_policy_read_toplevel(&host.scene.window_policy,
                                      host.scene.extra.window_id,&w) ||
@@ -1237,12 +1238,14 @@ static bool g5_wp04_two_window_interaction_probe(void) {
             r,token,pointer.sequence,&focused) ||
         focused!=host.scene.extra.window_id)
         return false;
+    log_line("[g5-wp04-interaction] trusted focus selected second window");
     struct aurora_input_event delivered={0};
     if (!g5_shell_scene_poll_input_second(
             &host.scene,host.second_process,&delivered) ||
         delivered.type!=AURORA_INPUT_EVENT_POINTER_ABSOLUTE ||
         graphics_input_poll_target(r,host.scene.window_id,&delivered))
         return false;
+    log_line("[g5-wp04-interaction] pointer event dequeued only by second window");
     struct aurora_input_event key={0};
     key.type=AURORA_INPUT_EVENT_KEY;
     key.source=AURORA_INPUT_SOURCE_SYNTHETIC;
@@ -1257,6 +1260,7 @@ static bool g5_wp04_two_window_interaction_probe(void) {
         delivered.key!=AURORA_KEY_A ||
         graphics_input_poll_target(r,host.scene.window_id,&delivered))
         return false;
+    log_line("[g5-wp04-interaction] keyboard event dequeued only by second window");
     /* Send actual client-owned input through the secondary's private IPC.
      * A following health ACK proves its Ring3 loop consumed the message. */
     if (!send_client_input(host.second_kernel_endpoint,&key))
@@ -1274,6 +1278,7 @@ static bool g5_wp04_two_window_interaction_probe(void) {
         !receive_second_event(AURORA_USER_SESSION_HOST_HEALTH_ACK,&ack) ||
         ack!=health_id)
         return false;
+    log_line("[g5-wp04-interaction] private Ring3 input IPC acknowledged");
     int32_t moved_x=w.placement.x>0?w.placement.x-1:w.placement.x+1;
     int32_t moved_y=w.placement.y;
     if (!g5_shell_scene_move_second(
@@ -1282,6 +1287,7 @@ static bool g5_wp04_two_window_interaction_probe(void) {
             &host.scene.window_policy,host.scene.extra.window_id,&w) ||
         w.placement.x!=moved_x)
         return false;
+    log_line("[g5-wp04-interaction] second window moved by trusted Shell");
     if (!g5_shell_scene_close_second(
             &host.scene,host.second_process))
         return false;
@@ -1292,6 +1298,7 @@ static bool g5_wp04_two_window_interaction_probe(void) {
         !host.scene.active || host.scene.extra.active ||
         !user_session_host_active())
         return false;
+    log_line("[g5-wp04-interaction] secondary close and primary survival passed");
     return true;
 }
 
