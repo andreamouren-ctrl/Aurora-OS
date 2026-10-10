@@ -703,7 +703,18 @@ bool g5_shell_scene_publish(struct g5_shell_scene *scene,
     uint64_t commit_serial=read_u64_le(payload+8u);
     if (object_id!=scene->surface->object_id ||
         commit_serial==0u ||
-        scene->surface->committed.commit_serial!=commit_serial) {
+        commit_serial<=scene->last_commit_serial ||
+        scene->surface->committed.commit_serial!=commit_serial ||
+        scene->surface->state!=AURORA_GRAPHICS_SURFACE_MAPPED ||
+        scene->surface->committed.buffer==NULL ||
+        scene->surface->committed.buffer->destroy_requested ||
+        scene->surface->committed.buffer->width!=scene->width ||
+        scene->surface->committed.buffer->height!=scene->height ||
+        (scene->pending_resize_buffer!=NULL &&
+         scene->surface->committed.buffer!=scene->pending_resize_buffer) ||
+        !window_policy_configure_ready(
+            &scene->window_policy,scene->window_id,
+            scene->width,scene->height)) {
         log_write("[g5-shell-diagnostic] scene commit mismatch ID/commit/actual: ");
         log_u64(object_id);log_write("/");
         log_u64(commit_serial);log_write("/");
@@ -729,7 +740,22 @@ bool g5_shell_scene_publish(struct g5_shell_scene *scene,
         log_line("[g5-shell-diagnostic] scene display serial missing/stale");
         return false;
     }
+    /* Do not revoke old buffer access until a frame with the new buffer
+     * was accepted by the compositor and actually displayed. */
+    if (scene->pending_resize_buffer) {
+        if (scene->user_buffer!=AURORA_CAP_INVALID)
+            (void)cap_revoke(&scene->owner->capabilities,
+                             scene->user_buffer);
+        if (scene->buffer)
+            (void)graphics_buffer_release_owner(
+                scene->buffer,scene->buffer->generation);
+        scene->buffer=scene->pending_resize_buffer;
+        scene->user_buffer=scene->pending_resize_handle;
+        scene->pending_resize_buffer=NULL;
+        scene->pending_resize_handle=AURORA_CAP_INVALID;
+    }
     scene->last_display_serial=serial;
+    scene->last_commit_serial=commit_serial;
     return true;
 }
 
@@ -745,7 +771,7 @@ bool g5_shell_scene_move_primary(struct g5_shell_scene *scene,
     request.object_generation=scene->surface->generation;
     uint8_t payload[24]={0};
     uint32_t fields[4]={(uint32_t)x,(uint32_t)y,
-                        G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT};
+                        scene->width,scene->height};
     for (uint32_t field=0u;field<4u;++field)
         for (uint32_t byte=0u;byte<4u;++byte)
             payload[field*4u+byte]=(uint8_t)(fields[field]>>(8u*byte));
@@ -765,8 +791,8 @@ bool g5_shell_scene_place(struct g5_shell_scene *scene,
         header->session_generation!=scene->generation ||
         header->object_generation!=scene->surface->generation ||
         read_u64_le(payload+16u)!=scene->surface->object_id ||
-        read_u32_le(payload+8u)!=G5_SHELL_SCENE_WIDTH ||
-        read_u32_le(payload+12u)!=G5_SHELL_SCENE_HEIGHT)
+        read_u32_le(payload+8u)!=scene->width ||
+        read_u32_le(payload+12u)!=scene->height)
         return false;
     int32_t x=(int32_t)read_u32_le(payload);
     int32_t y=(int32_t)read_u32_le(payload+4u);
@@ -777,25 +803,25 @@ bool g5_shell_scene_place(struct g5_shell_scene *scene,
     int32_t old_x=scene->x,old_y=scene->y;
     if (!window_policy_configure_ready(&scene->window_policy,
                                         scene->window_id,
-                                        G5_SHELL_SCENE_WIDTH,
-                                        G5_SHELL_SCENE_HEIGHT) ||
+                                        scene->width,
+                                        scene->height) ||
         x < 0 || y < 0 ||
-        (uint64_t)(uint32_t)x + G5_SHELL_SCENE_WIDTH >
+        (uint64_t)(uint32_t)x + scene->width >
             scene->window_policy.output_width ||
-        (uint64_t)(uint32_t)y + G5_SHELL_SCENE_HEIGHT >
+        (uint64_t)(uint32_t)y + scene->height >
             scene->window_policy.output_height)
         return false;
     /* Mutate the trusted policy before publishing pixels. A failed
      * compositor transaction restores both the old policy placement
      * and compositor position; never present an untracked move. */
     if (!window_policy_move(&scene->window_policy,scene->window_id,
-                            x,y,G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT))
+                            x,y,scene->width,scene->height))
         return false;
     if (!software_compositor_set_node(
             &scene->compositor,node,x,y,0,255u,true)) {
         (void)window_policy_move(&scene->window_policy,scene->window_id,
                                  old_x,old_y,
-                                 G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT);
+                                 scene->width,scene->height);
         return false;
     }
     uint64_t serial=0u;
@@ -806,7 +832,7 @@ bool g5_shell_scene_place(struct g5_shell_scene *scene,
             &scene->compositor,node,old_x,old_y,0,255u,true);
         (void)window_policy_move(&scene->window_policy,scene->window_id,
                                  old_x,old_y,
-                                 G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT);
+                                 scene->width,scene->height);
         return false;
     }
     scene->x=x;
