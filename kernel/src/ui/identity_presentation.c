@@ -53,8 +53,7 @@ identity_presentation_decide(
             out.allow_credential_input =
                 session_state == AURORA_SESSION_CLIENT_READY ||
                 session_state == AURORA_SESSION_CLIENT_REJECTED ||
-                session_state == AURORA_SESSION_CLIENT_TERMINATED ||
-                session_state == AURORA_SESSION_CLIENT_UNINITIALIZED;
+                session_state == AURORA_SESSION_CLIENT_TERMINATED;
             return out;
         default:
             return out; /* Unrecognized states fail closed. */
@@ -67,6 +66,8 @@ bool identity_presentation_self_test(void) {
     if (d.domain != AURORA_IDENTITY_PRESENTATION_PRE_SESSION ||
         !d.allow_credential_input || !d.allow_login_framebuffer ||
         d.allow_desktop_input) return false;
+    d = identity_presentation_decide(AURORA_SESSION_CLIENT_UNINITIALIZED,false,0u);
+    if (d.allow_credential_input || d.allow_desktop_input) return false;
     d = identity_presentation_decide(AURORA_SESSION_CLIENT_STARTING,false,0u);
     if (d.allow_credential_input || d.allow_desktop_input ||
         !d.allow_login_framebuffer) return false;
