@@ -40,6 +40,9 @@ jobs:
           set +e
           timeout 15s qemu-system-x86_64 \
             -M q35 \
+            # BOOT_VALIDATION=1 requires a trusted RDSEED source for its Ring 3 security gate.
+            # Match the accepted Identity entropy QEMU CPU profile; never bypass the entropy gate.
+            -cpu max \
             -m 512M \
             -smp 1 \
             -vga std \
