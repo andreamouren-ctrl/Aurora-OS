@@ -97,6 +97,58 @@ uint64_t aurora_system_font_text_width(
     return width;
 }
 
+/* Blend directly in the framebuffer's component masks. Only the
+ * already validated, kernel-owned 32bpp buffer is read/written; no font
+ * buffer is writable by the renderer. Non-32bpp fallback is conservative. */
+static uint32_t blend_component(
+    uint32_t background, uint32_t foreground,
+    uint8_t bits, uint8_t shift, uint8_t alpha
+) {
+    if (bits == 0u || bits > 16u || shift >= 32u ||
+        (uint32_t)bits + (uint32_t)shift > 32u)
+        return 0u;
+    uint32_t max = (1u << bits) - 1u;
+    uint32_t old = (background >> shift) & max;
+    uint32_t next = (foreground >> shift) & max;
+    return ((old * (255u - alpha) + next * alpha + 127u) / 255u) << shift;
+}
+
+static void draw_coverage(
+    const struct aurora_framebuffer *fb,
+    uint64_t x, uint64_t y, uint32_t scale, uint32_t color,
+    uint8_t alpha
+) {
+    if (alpha == 0u) return;
+    if (fb->bpp != 32u || !fb->address ||
+        fb->pitch < fb->width * sizeof(uint32_t) ||
+        fb->red_mask_size > 16u || fb->green_mask_size > 16u ||
+        fb->blue_mask_size > 16u) {
+        if (alpha >= 112u)
+            framebuffer_fill_rect(fb, x, y, scale, scale, color);
+        return;
+    }
+    uint32_t red_mask=((1u<<fb->red_mask_size)-1u)<<fb->red_mask_shift;
+    uint32_t green_mask=((1u<<fb->green_mask_size)-1u)<<fb->green_mask_shift;
+    uint32_t blue_mask=((1u<<fb->blue_mask_size)-1u)<<fb->blue_mask_shift;
+    uint32_t rgb_mask=red_mask|green_mask|blue_mask;
+    volatile uint8_t *base=(volatile uint8_t *)fb->address;
+    for (uint32_t yy=0u;yy<scale && y+yy<fb->height;++yy) {
+        for (uint32_t xx=0u;xx<scale && x+xx<fb->width;++xx) {
+            volatile uint32_t *destination=(volatile uint32_t *)
+                (void *)(base+(y+yy)*fb->pitch+(x+xx)*sizeof(uint32_t));
+            uint32_t bg=*destination;
+            uint32_t mixed=(bg&~rgb_mask) |
+                blend_component(bg,color,fb->red_mask_size,
+                                fb->red_mask_shift,alpha) |
+                blend_component(bg,color,fb->green_mask_size,
+                                fb->green_mask_shift,alpha) |
+                blend_component(bg,color,fb->blue_mask_size,
+                                fb->blue_mask_shift,alpha);
+            *destination=mixed;
+        }
+    }
+}
+
 void aurora_system_font_draw_text(
     const struct aurora_framebuffer *fb, uint64_t x, uint64_t y,
     const char *utf8, enum aurora_system_font_weight weight,
@@ -115,18 +167,16 @@ void aurora_system_font_draw_text(
                      ((int64_t)face.px - (int64_t)g->top) * scale;
         for (uint32_t row = 0u; row < g->height; ++row) {
             for (uint32_t col = 0u; col < g->width; ++col) {
-                /* Ordered antialias approximation on an opaque scanout:
-                 * keep only sufficiently covered sample pixels. */
                 uint8_t alpha = face.pixels[g->offset + row * g->width + col];
-                if (alpha < 112u) continue;
+                if (alpha == 0u) continue;
                 int64_t dx = gx + (int64_t)col * scale;
                 int64_t dy = gy + (int64_t)row * scale;
                 if (dx < 0 || dy < 0 ||
                     (uint64_t)dx >= fb->width ||
                     (uint64_t)dy >= fb->height)
                     continue;
-                framebuffer_fill_rect(fb, (uint64_t)dx, (uint64_t)dy,
-                                      scale, scale, color);
+                draw_coverage(fb, (uint64_t)dx, (uint64_t)dy,
+                              scale, color, alpha);
             }
         }
         cursor += (uint64_t)g->advance * scale;
