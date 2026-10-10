@@ -854,6 +854,59 @@ static bool send_client_input(struct aurora_ipc_endpoint *endpoint,
                     (uint32_t)sizeof(msg),NULL,0u);
 }
 
+/* Complete the second client's resize transaction across real private
+ * IPC. Both ACK and frame commit are proved by the Ring3 process itself. */
+static bool resize_second_client(uint32_t width,uint32_t height) {
+    if (!user_session_host_active() || !host.second_process ||
+        !host.second_kernel_endpoint || !host.scene.extra.active)
+        return false;
+    uint64_t configure_serial=0u;
+    aurora_cap_handle buffer=AURORA_CAP_INVALID;
+    if (!g5_shell_scene_configure_second(
+            &host.scene,host.second_process,width,height,&configure_serial))
+        return false;
+    if (!g5_shell_scene_allocate_resize_buffer_second(
+            &host.scene,host.second_process,&buffer)) {
+        g5_shell_scene_detach_second(&host.scene);
+        return false;
+    }
+    struct aurora_user_session_host_resize_message request;
+    clear_bytes(&request,sizeof(request));
+    request.header.version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION;
+    request.header.type=AURORA_USER_SESSION_HOST_RESIZE_PREPARE;
+    request.header.request_id=host.next_request_id++;
+    if (request.header.request_id==0u)
+        request.header.request_id=host.next_request_id++;
+    request.graphics_buffer=buffer;
+    request.configure_serial=configure_serial;
+    request.width=width;
+    request.height=height;
+    uint64_t ack=0u, commit=0u, display_serial=0u;
+    bool accepted=request.header.request_id!=0u &&
+        ipc_send(host.second_kernel_endpoint,&host.kernel_caps,
+                 &request,(uint32_t)sizeof(request),NULL,0u) &&
+        receive_second_event(AURORA_USER_SESSION_HOST_RESIZE_ACK,&ack) &&
+        ack==configure_serial &&
+        g5_shell_scene_ack_second(
+            &host.scene,host.second_process,ack) &&
+        receive_second_event(
+            AURORA_USER_SESSION_HOST_FRAME_COMMITTED,&commit) &&
+        commit!=0u &&
+        g5_shell_scene_publish_second(
+            &host.scene,host.second_process,
+            request.header.request_id,commit,&display_serial) &&
+        display_serial!=0u;
+    if (!accepted) {
+        /* The old and new configure states may no longer agree. Avoid
+         * delivering further input to a half-resized client. */
+        g5_shell_scene_detach_second(&host.scene);
+        log_line("[g5-wp04] second client resize failed closed");
+        return false;
+    }
+    log_line("[g5-wp04] second Ring3 client resize ACK + frame presented");
+    return true;
+}
+
 bool user_session_host_route_input(const struct aurora_input_event *event) {
     if (!event || !user_session_host_active() || !host.scene.active ||
         !host.scene.input_router.initialized ||
