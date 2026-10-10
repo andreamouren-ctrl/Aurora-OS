@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stddef.h>
 #include <aurora/identity_presentation.h>
 
 int main(void) {
