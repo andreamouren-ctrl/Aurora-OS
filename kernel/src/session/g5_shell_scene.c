@@ -111,7 +111,14 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
                                  G5_SHELL_SCENE_WIDTH,
                                  G5_SHELL_SCENE_HEIGHT,0u,&policy_serial) ||
         !window_policy_ack_configure(&scene->window_policy,
-                                     scene->window_id,policy_serial) ||
+                                     scene->window_id,policy_serial))
+        goto failure;
+    struct aurora_window_placement initial_placement = {0};
+    if (!window_policy_place_initial(&scene->window_policy,
+                                     scene->window_id,
+                                     G5_SHELL_SCENE_WIDTH,
+                                     G5_SHELL_SCENE_HEIGHT,
+                                     &initial_placement) ||
         !window_policy_move(&scene->window_policy,scene->window_id,
                             48,48,G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT))
         goto failure;
