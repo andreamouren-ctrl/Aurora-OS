@@ -104,7 +104,8 @@ void security_activity_controller_pump(
     if (state == AURORA_IDENTITY_CLIENT_UNAVAILABLE ||
         state == AURORA_IDENTITY_CLIENT_ERROR) {
         controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
-        identity_client_reset_result();
+        /* An IPC protocol error is not a completed activity result.
+         * Preserve fail-closed state for supervisor-level recovery. */
         return;
     }
 
