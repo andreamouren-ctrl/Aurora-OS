@@ -821,6 +821,49 @@ bool window_policy_selftest(void) {
         return false;
     }
 
+    /* An ACK alone is insufficient: input-safe targeting requires a
+     * new committed frame with the exact configured buffer dimensions. */
+    struct aurora_graphics_surface input_surface = {
+        .generation = 40u, .state = AURORA_GRAPHICS_SURFACE_READY
+    };
+    struct aurora_graphics_buffer input_buffer = {
+        .width = 120u, .height = 80u,
+        .state = AURORA_GRAPHICS_BUFFER_COMMITTED
+    };
+    uint64_t input_id = 0u, input_serial = 0u;
+    struct aurora_window_placement input_place = {0};
+    if (!window_policy_create_toplevel(&policy, &input_surface, &input_id) ||
+        !window_policy_configure(&policy, input_id, 120u, 80u, 0u,
+                                 &input_serial) ||
+        !window_policy_ack_configure(&policy, input_id, input_serial) ||
+        !window_policy_place_initial(&policy, input_id, 120u, 80u,
+                                     &input_place) ||
+        window_policy_hit_test_committed(&policy, input_place.x,
+                                         input_place.y, &hit)) return false;
+
+    input_surface.state = AURORA_GRAPHICS_SURFACE_MAPPED;
+    input_surface.committed.buffer = &input_buffer;
+    input_surface.committed.commit_serial = 1u;
+    if (!window_policy_hit_test_committed(&policy, input_place.x,
+                                          input_place.y, &hit) ||
+        hit != input_id) return false;
+    uint64_t resize_serial = 0u;
+    if (!window_policy_configure(&policy, input_id, 130u, 80u, 0u,
+                                 &resize_serial) ||
+        !window_policy_ack_configure(&policy, input_id, resize_serial) ||
+        window_policy_hit_test_committed(&policy, input_place.x,
+                                         input_place.y, &hit)) return false;
+    input_surface.committed.commit_serial = 2u;
+    if (window_policy_hit_test_committed(&policy, input_place.x,
+                                         input_place.y, &hit)) return false;
+    input_buffer.width = 130u;
+    if (!window_policy_hit_test_committed(&policy, input_place.x,
+                                          input_place.y, &hit) ||
+        hit != input_id) return false;
+    input_surface.generation++;
+    if (window_policy_hit_test_committed(&policy, input_place.x,
+                                         input_place.y, &hit)) return false;
+
     /* Surface teardown revokes all outstanding activation authority. */
     struct aurora_graphics_surface cleanup_surface = {
         .generation = 20u,
