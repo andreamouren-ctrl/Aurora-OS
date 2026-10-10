@@ -182,6 +182,19 @@ Status: **G0 official system font and native Identity typography integrated/runt
 
 G0 changes only presentation. They must not change Aurora Key verification, IPC authority, session grants, rate limiting or the framebuffer recovery trust boundary.
 
+### G1 — Trusted presentation handoff and input ownership (under integration)
+
+- [x] Introduce a pure trusted decision engine for pre-session, lock, authenticated desktop and quarantine (unknown/inconsistent states fail closed).
+- [x] Gate production input dispatch on Session Manager state, live User Session Host and session generation; re-evaluate on every event so lock/logout revocation is immediate.
+- [x] Ensure Identity framebuffer text updates no longer overwrite the active G5 compositor display during the session handoff.
+- [x] Revoke a lingering desktop host before trusted credential UI is shown following an externally initiated lock/logout.
+- [x] Add bounded host test matrix and a QEMU boot-validation policy test.
+- [ ] Verify all tests and QEMU boot/reboot on the PR final HEAD.
+- [ ] Build independent compositor-backed PRE_SESSION/LOCK surfaces with dedicated capability authority and zero profile delegation. This remains **not implemented** by G1 handoff policy.
+- [ ] Prove compositor failure/restart and native fallback on real hardware.
+
+G1 changes only ownership and routing; credentials remain in the kernel's existing login input buffer and are never sent over G5 window IPC. The current visual login and recovery path is **still direct framebuffer**; do not claim a Ring 3 Identity login System App or a trusted pre-session compositor until the isolated host and surfaces are implemented and verified.
+
 Graphics G1-G4 and G5 WP-03/WP-04 are accepted on `main` (WP-04 merge PR #185, 2026-10-10). Two ordinary Ring 3 clients now have real compositor/window lifecycle and input routing. **This does not itself implement trusted pre-session/lock-screen Identity presentation**: the normal compositor Identity System App requires a dedicated secure pre-session mode, credential-input isolation, policy-driven handoff, and a tested framebuffer recovery fallback. Backend/security work can proceed independently.
 
 Remaining:
