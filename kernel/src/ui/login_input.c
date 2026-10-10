@@ -814,6 +814,21 @@ void login_input_pump(void) {
     struct aurora_input_event event;
 
     while (input_poll_event(&event)) {
+        /* Once logged in, pointer and ordinary keyboard input belong to
+         * G5's focused Ring3 window, never the credential/login editor.
+         * Enter and Escape remain trusted Shell lock/logout shortcuts. */
+        if (session_manager_client_state()==AURORA_SESSION_CLIENT_ACTIVE &&
+            user_session_host_active()) {
+            if (event.type==AURORA_INPUT_EVENT_KEY &&
+                event.pressed &&
+                (event.key==AURORA_KEY_ENTER ||
+                 event.key==AURORA_KEY_ESCAPE)) {
+                handle_pressed_key(event.key);
+            } else {
+                (void)user_session_host_route_input(&event);
+            }
+            continue;
+        }
         if (event.type != AURORA_INPUT_EVENT_KEY ||
             !event.pressed) {
             continue;
