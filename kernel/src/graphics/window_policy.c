@@ -706,7 +706,8 @@ bool window_policy_selftest(void) {
     uint64_t pending_resize = 0u;
     if (!window_policy_configure(&policy, second_window, 300u, 200u,
                                  AURORA_WINDOW_STATE_NONE, &pending_resize) ||
-        window_policy_hit_test(&policy, 600, 300, &hit) ||
+        !window_policy_hit_test(&policy, 600, 300, &hit) ||
+        hit != window ||
         !window_policy_ack_configure(&policy, second_window, pending_resize) ||
         !window_policy_hit_test(&policy, 600, 300, &hit) ||
         hit != window) {
