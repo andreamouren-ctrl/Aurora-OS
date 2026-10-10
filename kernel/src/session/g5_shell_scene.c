@@ -200,6 +200,17 @@ bool g5_shell_scene_publish_second(
         !g5_session_context_authorized(&scene->frame.registry.session,
                                        scene->generation) ||
         scene->extra.surface->destroy_requested ||
+        scene->extra.surface->state != AURORA_GRAPHICS_SURFACE_MAPPED ||
+        scene->extra.surface->committed.buffer == NULL ||
+        scene->extra.surface->committed.buffer->destroy_requested ||
+        (scene->extra.surface->committed.buffer->state !=
+             AURORA_GRAPHICS_BUFFER_COMMITTED &&
+         scene->extra.surface->committed.buffer->state !=
+             AURORA_GRAPHICS_BUFFER_IN_USE) ||
+        scene->extra.surface->committed.buffer->width !=
+             G5_SHELL_SCENE_WIDTH ||
+        scene->extra.surface->committed.buffer->height !=
+             G5_SHELL_SCENE_HEIGHT ||
         scene->extra.surface->committed.commit_serial != commit_serial)
         return false;
     uint64_t config = 0u;
