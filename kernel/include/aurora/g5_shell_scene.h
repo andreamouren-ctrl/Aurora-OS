@@ -45,5 +45,8 @@ bool g5_shell_scene_publish(struct g5_shell_scene *scene,
 bool g5_shell_scene_place(struct g5_shell_scene *scene,
                           const struct g5_ipc_header *header,
                           const uint8_t *payload);
+bool g5_shell_scene_close(struct g5_shell_scene *scene,
+                          const struct g5_ipc_header *header,
+                          const uint8_t *payload);
 void g5_shell_scene_end(struct g5_shell_scene *scene);
 #endif
