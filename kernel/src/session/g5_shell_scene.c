@@ -111,7 +111,9 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
                                  G5_SHELL_SCENE_WIDTH,
                                  G5_SHELL_SCENE_HEIGHT,0u,&policy_serial) ||
         !window_policy_ack_configure(&scene->window_policy,
-                                     scene->window_id,policy_serial))
+                                     scene->window_id,policy_serial) ||
+        !window_policy_move(&scene->window_policy,scene->window_id,
+                            48,48,G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT))
         goto failure;
     scene->x=48;
     scene->y=48;
@@ -200,21 +202,28 @@ bool g5_shell_scene_place(struct g5_shell_scene *scene,
         (uint64_t)(uint32_t)y + G5_SHELL_SCENE_HEIGHT >
             scene->window_policy.output_height)
         return false;
-    if (!software_compositor_set_node(
-            &scene->compositor,node,x,y,0,255u,true))
+    /* Mutate the trusted policy before publishing pixels. A failed
+     * compositor transaction restores both the old policy placement
+     * and compositor position; never present an untracked move. */
+    if (!window_policy_move(&scene->window_policy,scene->window_id,
+                            x,y,G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT))
         return false;
+    if (!software_compositor_set_node(
+            &scene->compositor,node,x,y,0,255u,true)) {
+        (void)window_policy_move(&scene->window_policy,scene->window_id,
+                                 old_x,old_y,
+                                 G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT);
+        return false;
+    }
     uint64_t serial=0u;
     if (!software_compositor_compose_present(
             &scene->compositor,&serial) ||
         serial<=scene->last_display_serial) {
         (void)software_compositor_set_node(
             &scene->compositor,node,old_x,old_y,0,255u,true);
-        return false;
-    }
-    if (!window_policy_move(&scene->window_policy,scene->window_id,
-                            x,y,G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT)) {
-        (void)software_compositor_set_node(&scene->compositor,node,
-                                           old_x,old_y,0,255u,true);
+        (void)window_policy_move(&scene->window_policy,scene->window_id,
+                                 old_x,old_y,
+                                 G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT);
         return false;
     }
     scene->x=x;
