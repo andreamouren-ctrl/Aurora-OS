@@ -1,7 +1,20 @@
 # Aurora Identity Graphics Integration
 
 Status: **Canonical architecture contract**
-Version: **0.1**
+Version: **0.2**
+
+## First integration slice — trusted presentation ownership
+
+The initial Phase G1 implementation introduces `identity_presentation_decide()` under `kernel/src/ui/identity_presentation.c`:
+
+- **PRE_SESSION:** permits credential input only in allowed Session Manager states and only when no desktop User Session Host is alive.
+- **DESKTOP:** permits desktop input only with Session Manager ACTIVE, a live authenticated Ring 3 host and a nonzero session generation.
+- **LOCK:** permits credential input only when locked and the old desktop host is no longer alive.
+- **QUARANTINE:** an unexpected mixed state allows neither desktop nor credential input.
+
+The normal login UI now avoids framebuffer redraw after the G5 desktop owns scanout. Login/lock transitions stop the old host before displaying trusted prompts. Host policy tests exercise mixed states and a QEMU gate checks the same policy.
+
+**Scope warning:** this is the trusted handoff foundation, not a pre-session compositor-hosted Identity System App yet. The direct framebuffer remains the active login/recovery renderer until a dedicated pre-session client/surface, secure compositor domain and fallback have been tested. Authentication remains solely in Identity Service.
 
 ## Goal
 
