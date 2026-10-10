@@ -1285,7 +1285,22 @@ bool user_session_host_self_test(void) {
         g5_session_health_events==2u &&
         user_session_host_health_check() &&
         g5_session_health_events==3u;
-    bool stopped = live_health && user_session_host_stop();
+    /* End-of-phase WP-04 native acceptance: the second *process* must
+     * ACK two real configures and commit/present both replacement buffers. */
+    uint64_t original_second_serial=host.scene.extra.last_display_serial;
+    bool resized_roundtrip=live_health &&
+        resize_second_client(128u,80u) &&
+        host.scene.extra.width==128u &&
+        host.scene.extra.height==80u &&
+        host.scene.extra.last_display_serial>original_second_serial &&
+        host.scene.extra.pending_resize_buffer==NULL &&
+        resize_second_client(G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT) &&
+        host.scene.extra.width==G5_SHELL_SCENE_WIDTH &&
+        host.scene.extra.height==G5_SHELL_SCENE_HEIGHT &&
+        host.scene.extra.pending_resize_buffer==NULL &&
+        host.scene.extra.last_commit_serial>=3u &&
+        host.scene.extra.last_display_serial>original_second_serial;
+    bool stopped = user_session_host_active() && user_session_host_stop();
     bool post_stop_denied=stopped && !user_session_host_health_check() &&
         g5_session_health_events==3u &&
         g5_session_present_events==1u &&
@@ -1357,7 +1372,7 @@ bool user_session_host_self_test(void) {
         cap_revoke(&bridge.capabilities, root);
 
     bool accepted=started &&
-        running && stopped && live_health &&
+        running && stopped && live_health && resized_roundtrip &&
         post_stop_denied && receiver_revoked &&
         reauthenticated && crashed && crash_revoked &&
         source_revoked && root_revoked &&
@@ -1365,6 +1380,7 @@ bool user_session_host_self_test(void) {
         !session_profile_lease_active();
     if (accepted) {
         log_line("[g5-wp03] Ring3 Shell crash and reauthentication lifecycle gate passed");
+        log_line("[g5-wp04] two independent Ring3 clients and second-client resize roundtrip passed");
     }
     if (!accepted) {
         log_write("[g5-shell-diagnostic] self-test stages started/running/replay/gen/object/close/live/stop/revoke: ");
@@ -1374,6 +1390,7 @@ bool user_session_host_self_test(void) {
         log_u64(wrong_generation_denied);log_write("/");
         log_u64(foreign_object_denied);log_write("/");
         log_u64(close_opcode_denied);log_write("/");
+        log_u64(resized_roundtrip);log_write("/");
         log_u64(live_health);log_write("/");
         log_u64(stopped);log_write("/");
         log_u64(receiver_revoked);
