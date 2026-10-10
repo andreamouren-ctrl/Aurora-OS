@@ -625,6 +625,11 @@ bool window_policy_selftest(void) {
 
     uint64_t first = 0u;
     uint64_t second = 0u;
+    /* Created surfaces have no trusted placement, even at origin. */
+    uint64_t preplace_hit = 123u;
+    if (window_policy_hit_test(&policy, 0, 0, &preplace_hit) ||
+        preplace_hit != 0u)
+        return false;
 
     if (!window_policy_configure(
             &policy,
@@ -655,6 +660,11 @@ bool window_policy_selftest(void) {
             600u)) {
         return false;
     }
+
+    /* ACK must not make unplaced geometry eligible for input. */
+    if (window_policy_hit_test(&policy, 0, 0, &preplace_hit) ||
+        preplace_hit != 0u)
+        return false;
 
     if (!window_policy_configure(
             &policy,
