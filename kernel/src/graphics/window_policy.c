@@ -884,6 +884,22 @@ bool window_policy_selftest(void) {
     if (!window_policy_hit_test_committed(&policy, input_place.x,
                                           input_place.y, &hit) ||
         hit != input_id) return false;
+    /* Focus cannot be stolen: one-shot tokens are bound to the hit target
+     * and require a committed frame rather than mere configured geometry. */
+    uint64_t focus_token = 0u;
+    uint64_t selected = 999u;
+    if (!window_policy_issue_activation_token(&policy, input_id, 500u,
+                                               &focus_token) ||
+        window_policy_focus_at(&policy, input_place.x, input_place.y,
+                               focus_token, 533u, &selected) ||
+        selected != 0u ||
+        !window_policy_focus_at(&policy, input_place.x, input_place.y,
+                                focus_token, 510u, &selected) ||
+        selected != input_id ||
+        window_policy_focus_at(&policy, input_place.x, input_place.y,
+                               focus_token, 510u, &selected))
+        return false;
+
     input_surface.generation++;
     if (window_policy_hit_test_committed(&policy, input_place.x,
                                          input_place.y, &hit)) return false;
