@@ -140,7 +140,8 @@ static bool receive_second_event(uint32_t type, uint64_t *out_request) {
                 return false;
             struct aurora_user_session_host_message incoming;
             clear_bytes(&incoming,sizeof(incoming));
-            copy_bytes(&incoming,received.data,sizeof(incoming));
+            for (size_t i=0u;i<sizeof(incoming);++i)
+                ((uint8_t *)&incoming)[i]=received.data[i];
             if (incoming.version != expected.version ||
                 incoming.type != expected.type)
                 return false;
