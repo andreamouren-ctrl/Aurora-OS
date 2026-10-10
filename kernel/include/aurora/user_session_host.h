@@ -3,12 +3,15 @@
 
 #include <stdbool.h>
 #include <aurora/g5_ipc_dispatch.h>
+#include <aurora/input.h>
 
 bool user_session_host_start(void);
 bool user_session_host_stop(void);
 bool user_session_host_active(void);
 /* Live Ring3 control-loop + G5 IPC request/response health probe. */
 bool user_session_host_health_check(void);
+/* Trusted input entry point while authenticated Shell session is active. */
+bool user_session_host_route_input(const struct aurora_input_event *event);
 
 /* Registration is for a future session-scoped G5 service dispatcher.
  * This host owns only the lifecycle, not a Shell IPC endpoint. */
