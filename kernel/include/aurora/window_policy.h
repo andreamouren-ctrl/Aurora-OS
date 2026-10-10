@@ -37,6 +37,7 @@ struct aurora_window_toplevel {
     uint32_t surface_generation;
     struct aurora_window_configure pending_configure;
     uint64_t acked_configure_serial;
+    uint64_t commit_serial_at_ack;
     struct aurora_window_placement placement;
     bool configured;
     bool active;
@@ -160,6 +161,15 @@ bool window_policy_read_toplevel(
 
 /* Query the topmost visible, configured toplevel containing a point.
  * This is policy geometry only: the input router still owns delivery. */
+/* Input-safe variant: requires a newer committed buffer after configure ACK.
+ * A geometry-only hit test must never authorize pointer delivery. */
+bool window_policy_hit_test_committed(
+    const struct aurora_window_policy *policy,
+    int32_t x,
+    int32_t y,
+    uint64_t *out_window_id
+);
+
 bool window_policy_hit_test(
     const struct aurora_window_policy *policy,
     int32_t x,
