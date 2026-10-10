@@ -531,6 +531,30 @@ bool window_policy_hit_test_committed(
     return hit_test_impl(policy, x, y, out_window_id, true);
 }
 
+bool window_policy_focus_at(
+    struct aurora_window_policy *policy,
+    int32_t x,
+    int32_t y,
+    uint64_t activation_token,
+    uint64_t interaction_serial,
+    uint64_t *out_window_id
+) {
+    if (out_window_id != NULL) *out_window_id = 0u;
+    if (out_window_id == NULL || activation_token == 0u ||
+        interaction_serial == 0u) return false;
+
+    uint64_t target = 0u;
+    if (!window_policy_hit_test_committed(policy, x, y, &target))
+        return false;
+    /* The existing activation policy verifies target binding, freshness
+     * and one-shot consumption; hit-testing alone grants no authority. */
+    if (!window_policy_activate(policy, target, activation_token,
+                                interaction_serial, false))
+        return false;
+    *out_window_id = target;
+    return true;
+}
+
 bool window_policy_selftest(void) {
     struct aurora_window_policy policy;
     struct aurora_graphics_surface surface = {
