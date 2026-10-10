@@ -385,10 +385,15 @@ static bool start_second_client(
             AURORA_USER_SESSION_HOST_FRAME_COMMITTED,&receipt) ||
         receipt==0u || receipt>UINT64_C(0xffffffff))
         return false;
+    /* Both independent surfaces share one presentation queue. Never
+     * mint a client-local request ID larger than the host's next IDs:
+     * later resize frames must remain globally monotonic. */
     uint64_t serial=0u;
-    if (!g5_shell_scene_publish_second(
+    uint64_t submission_id=host.next_request_id++;
+    if (submission_id==0u || submission_id==UINT64_MAX ||
+        !g5_shell_scene_publish_second(
             &host.scene,host.second_process,
-            UINT64_C(0x7000000000000000)|receipt,receipt,&serial) ||
+            submission_id,receipt,&serial) ||
         serial==0u)
         return false;
     log_line("[g5-wp04] second Ring3 process committed and displayed");
