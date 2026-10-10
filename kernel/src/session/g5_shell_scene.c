@@ -16,6 +16,108 @@ static uint64_t read_u64_le(const uint8_t *p) {
     return value;
 }
 
+void g5_shell_scene_detach_second(struct g5_shell_scene *scene) {
+    if (scene == NULL) return;
+    struct g5_shell_extra_client *e = &scene->extra;
+    if (e->window_id)
+        (void)graphics_input_unregister_target(&scene->input_router,
+                                                 e->window_id);
+    if (e->window_id)
+        (void)window_policy_destroy_toplevel(&scene->window_policy,
+                                              e->window_id);
+    if (e->slot < G5_SURFACE_REGISTRY_CAPACITY &&
+        scene->bridge.node_ids[e->slot])
+        (void)g5_compositor_bridge_detach(&scene->bridge, e->slot);
+    if (e->slot < G5_SURFACE_REGISTRY_CAPACITY &&
+        scene->frame.registry.entries[e->slot].occupied)
+        (void)g5_surface_registry_detach(&scene->frame.registry, e->slot);
+    if (e->user_surface != AURORA_CAP_INVALID && e->owner)
+        (void)cap_revoke(&e->owner->capabilities, e->user_surface);
+    if (e->user_buffer != AURORA_CAP_INVALID && e->owner)
+        (void)cap_revoke(&e->owner->capabilities, e->user_buffer);
+    if (e->kernel_surface != AURORA_CAP_INVALID)
+        (void)cap_revoke(&scene->kernel_caps, e->kernel_surface);
+    if (e->surface)
+        (void)graphics_surface_release_owner(e->surface,
+                                              e->surface->generation);
+    if (e->buffer)
+        (void)graphics_buffer_release_owner(e->buffer,
+                                             e->buffer->generation);
+    *e = (struct g5_shell_extra_client){0};
+    e->slot = UINT32_MAX;
+    e->kernel_surface = AURORA_CAP_INVALID;
+    e->user_buffer = AURORA_CAP_INVALID;
+    e->user_surface = AURORA_CAP_INVALID;
+}
+
+bool g5_shell_scene_attach_second(struct g5_shell_scene *scene,
+                                   struct aurora_process *owner) {
+    if (!scene || !scene->active || !owner ||
+        owner == scene->owner || scene->extra.active ||
+        scene->extra.owner || !scene->compositor.initialized ||
+        !scene->input_router.initialized)
+        return false;
+    const struct aurora_display_mode *mode = display_mode_at(0u, 0u);
+    if (!mode || mode->format.bits_per_pixel != 32u) return false;
+    struct g5_shell_extra_client *e = &scene->extra;
+    *e = (struct g5_shell_extra_client){0};
+    e->slot = UINT32_MAX;
+    e->kernel_surface = AURORA_CAP_INVALID;
+    e->user_buffer = AURORA_CAP_INVALID;
+    e->user_surface = AURORA_CAP_INVALID;
+    e->owner = owner;
+    e->buffer = graphics_buffer_create(
+        G5_SHELL_SCENE_WIDTH, G5_SHELL_SCENE_HEIGHT, &mode->format);
+    e->surface = graphics_surface_create();
+    if (!e->buffer || !e->surface) goto failure;
+    e->user_buffer = graphics_buffer_grant(&owner->capabilities, e->buffer,
+                            AURORA_RIGHT_READ | AURORA_RIGHT_WRITE |
+                            AURORA_RIGHT_MAP);
+    e->user_surface = graphics_surface_grant(&owner->capabilities, e->surface,
+                            AURORA_RIGHT_READ | AURORA_RIGHT_WRITE);
+    e->kernel_surface = graphics_surface_grant(&scene->kernel_caps, e->surface,
+                            AURORA_RIGHT_READ | AURORA_RIGHT_WRITE |
+                            AURORA_RIGHT_CONTROL);
+    if (e->user_buffer == AURORA_CAP_INVALID ||
+        e->user_surface == AURORA_CAP_INVALID ||
+        e->kernel_surface == AURORA_CAP_INVALID ||
+        !g5_surface_registry_attach(&scene->frame.registry,
+                                     &scene->kernel_caps,
+                                     e->kernel_surface, &e->slot) ||
+        !g5_surface_bridge_configure(
+            &scene->frame.registry.entries[e->slot].bridge,
+            &scene->frame.registry.session, G5_SHELL_SCENE_WIDTH,
+            G5_SHELL_SCENE_HEIGHT, &e->configure_serial) ||
+        !g5_surface_bridge_ack(
+            &scene->frame.registry.entries[e->slot].bridge,
+            &scene->frame.registry.session, e->configure_serial) ||
+        !window_policy_create_toplevel(&scene->window_policy,
+                                        e->surface, &e->window_id))
+        goto failure;
+    uint64_t policy_serial = 0u, node = 0u;
+    struct aurora_window_placement place = {0};
+    if (!window_policy_configure(&scene->window_policy, e->window_id,
+                                 G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT,
+                                 0u,&policy_serial) ||
+        !window_policy_ack_configure(&scene->window_policy,
+                                     e->window_id,policy_serial) ||
+        !window_policy_place_initial(&scene->window_policy,e->window_id,
+                                     G5_SHELL_SCENE_WIDTH,
+                                     G5_SHELL_SCENE_HEIGHT,&place) ||
+        !g5_compositor_bridge_attach(&scene->bridge,e->slot,
+                                      place.x,place.y,place.z,&node) ||
+        !graphics_input_register_target(&scene->input_router,
+                                        e->window_id,node) ||
+        !graphics_input_bind_window_target(&scene->input_router,
+                                           e->window_id,e->window_id))
+        goto failure;
+    e->active = true;
+    return true;
+failure:
+    g5_shell_scene_detach_second(scene);
+    return false;
+}
+
 bool g5_shell_scene_close(struct g5_shell_scene *scene,
                           const struct g5_ipc_header *header,
                           const uint8_t *payload) {
@@ -36,6 +138,7 @@ bool g5_shell_scene_close(struct g5_shell_scene *scene,
 
 void g5_shell_scene_end(struct g5_shell_scene *scene) {
     if (scene==NULL) return;
+    g5_shell_scene_detach_second(scene);
     /* Stop input delivery and unregister target before removing the node. */
     if (scene->input_router.initialized) {
         graphics_input_revoke_session(&scene->input_router);
