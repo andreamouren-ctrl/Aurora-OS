@@ -627,8 +627,25 @@ bool user_session_host_health_check(void) {
         !receive_expected(AURORA_USER_SESSION_HOST_HEALTH_ACK,request_id))
         return false;
     enum g5_ipc_status health=G5_IPC_DENIED;
-    return g5_ipc_endpoint_poll(&host.g5_binding,&health) &&
-           health==G5_IPC_OK;
+    if (!g5_ipc_endpoint_poll(&host.g5_binding,&health) ||
+        health!=G5_IPC_OK || !host.second_process ||
+        !host.second_kernel_endpoint)
+        return false;
+    uint64_t second_id=host.next_request_id++;
+    if (second_id==0u) second_id=host.next_request_id++;
+    const struct aurora_user_session_host_message second_request={
+        .version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+        .type=AURORA_USER_SESSION_HOST_HEALTH_POLL,
+        .request_id=second_id
+    };
+    uint64_t second_ack=0u;
+    return second_id!=0u &&
+        ipc_send(host.second_kernel_endpoint,&host.kernel_caps,
+                 &second_request,(uint32_t)sizeof(second_request),
+                 NULL,0u) &&
+        receive_second_event(AURORA_USER_SESSION_HOST_HEALTH_ACK,
+                             &second_ack) &&
+        second_ack==second_id;
 }
 
 bool user_session_host_stop(void) {
@@ -798,7 +815,12 @@ bool user_session_host_active(void) {
     return host.active &&
         host.process != NULL &&
         host.thread != 0u &&
-        process_state(host.process) == AURORA_PROCESS_RUNNING;
+        process_state(host.process) == AURORA_PROCESS_RUNNING &&
+        (!host.g5_ready ||
+         (host.second_process != NULL &&
+          host.second_thread != 0u &&
+          process_state(host.second_process)==AURORA_PROCESS_RUNNING &&
+          host.scene.extra.active));
 }
 
 /* Deliver only dequeued, policy-authorized events through the corresponding
