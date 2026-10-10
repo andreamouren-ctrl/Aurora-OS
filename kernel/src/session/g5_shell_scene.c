@@ -124,6 +124,19 @@ failure:
     return false;
 }
 
+bool g5_shell_scene_close_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender
+) {
+    if (!scene || !scene->active || !scene->extra.active ||
+        sender == NULL || sender != scene->extra.owner ||
+        !g5_session_context_authorized(&scene->frame.registry.session,
+                                       scene->generation))
+        return false;
+    g5_shell_scene_detach_second(scene);
+    return true;
+}
+
 bool g5_shell_scene_move_second(
     struct g5_shell_scene *scene,
     struct aurora_process *sender,
