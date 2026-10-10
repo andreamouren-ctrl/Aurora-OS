@@ -38,6 +38,8 @@ struct g5_shell_extra_client {
 struct g5_shell_scene {
     struct aurora_process *owner;
     struct aurora_graphics_buffer *buffer;
+    struct aurora_graphics_buffer *pending_resize_buffer;
+    aurora_cap_handle pending_resize_handle;
     struct aurora_graphics_surface *surface;
     struct aurora_cap_table kernel_caps;
     aurora_cap_handle kernel_surface;
@@ -54,6 +56,9 @@ struct g5_shell_scene {
     uint64_t generation;
     uint64_t configure_serial;
     uint64_t last_display_serial;
+    uint64_t last_commit_serial;
+    uint32_t width;
+    uint32_t height;
     uint32_t slot;
     int32_t x;
     int32_t y;
@@ -67,6 +72,16 @@ bool g5_shell_scene_publish(struct g5_shell_scene *scene,
                             const uint8_t *payload);
 /* Trusted Shell pointer-drag path reuses the same window placement checks
  * as the authenticated G5_OP_WINDOW_PLACE receiver. */
+bool g5_shell_scene_configure_primary(struct g5_shell_scene *scene,
+                                      uint32_t width,uint32_t height,
+                                      uint64_t *out_serial);
+bool g5_shell_scene_allocate_resize_buffer_primary(
+    struct g5_shell_scene *scene,aurora_cap_handle *out_handle);
+bool g5_shell_scene_ack_primary(struct g5_shell_scene *scene,
+                                uint64_t serial);
+bool g5_shell_scene_publish_primary_resized(struct g5_shell_scene *scene,
+                                           uint64_t request_id,
+                                           uint64_t commit_serial);
 bool g5_shell_scene_move_primary(struct g5_shell_scene *scene,
                                  int32_t x,int32_t y);
 bool g5_shell_scene_place(struct g5_shell_scene *scene,
