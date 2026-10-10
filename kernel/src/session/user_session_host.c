@@ -992,6 +992,30 @@ bool user_session_host_route_input(const struct aurora_input_event *event) {
             }
         }
     }
+    /* Middle click closes only the second toplevel. Shutdown its Ring3
+     * process after capability revocation, then redraw the remaining Shell. */
+    if (event->type==AURORA_INPUT_EVENT_POINTER_BUTTON &&
+        event->button==AURORA_POINTER_BUTTON_MIDDLE && event->pressed &&
+        !event->synthetic && host.scene.extra.active) {
+        uint64_t hit=0u;
+        if (window_policy_hit_test_committed(
+                &host.scene.window_policy,r->pointer_x,
+                r->pointer_y,&hit) &&
+            hit==host.scene.extra.window_id) {
+            if (host.drag_window_id==hit) {
+                (void)graphics_input_release_capture(r,hit);
+                host.drag_window_id=0u;
+            }
+            if (!g5_shell_scene_close_second(
+                    &host.scene,host.second_process))
+                return false;
+            uint64_t display_serial=0u;
+            bool painted=software_compositor_compose_present(
+                &host.scene.compositor,&display_serial);
+            bool stopped=shutdown_second_client();
+            return painted && display_serial!=0u && stopped;
+        }
+    }
     /* Trusted demo interaction: right-click the second committed window to
      * toggle its negotiated size. Normal client input still routes only to
      * the owning process. */
