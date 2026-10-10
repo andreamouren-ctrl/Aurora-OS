@@ -926,6 +926,26 @@ bool user_session_host_route_input(const struct aurora_input_event *event) {
             (void)graphics_input_focus_pointer(
                 r,token,event->sequence,&focused);
     }
+    /* Trusted demo interaction: right-click the second committed window to
+     * toggle its negotiated size. Normal client input still routes only to
+     * the owning process. */
+    if (event->type==AURORA_INPUT_EVENT_POINTER_BUTTON &&
+        event->button==AURORA_POINTER_BUTTON_RIGHT && event->pressed &&
+        !event->synthetic && host.scene.extra.active) {
+        uint64_t hit=0u;
+        struct aurora_graphics_input_router *router=&host.scene.input_router;
+        if (window_policy_hit_test_committed(
+                &host.scene.window_policy,router->pointer_x,
+                router->pointer_y,&hit) &&
+            hit==host.scene.extra.window_id) {
+            uint32_t new_width=host.scene.extra.width==G5_SHELL_SCENE_WIDTH
+                ? 192u : G5_SHELL_SCENE_WIDTH;
+            uint32_t new_height=host.scene.extra.height==G5_SHELL_SCENE_HEIGHT
+                ? 120u : G5_SHELL_SCENE_HEIGHT;
+            if (!resize_second_client(new_width,new_height))
+                return false;
+        }
+    }
     bool delivered=true;
     struct aurora_input_event queued;
     for (uint32_t i=0u;i<AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY;++i) {
