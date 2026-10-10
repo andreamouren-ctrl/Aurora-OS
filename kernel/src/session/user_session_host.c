@@ -1377,8 +1377,20 @@ bool user_session_host_self_test(void) {
         g5_session_health_events==3u;
     /* End-of-phase WP-04 native acceptance: the second *process* must
      * ACK two real configures and commit/present both replacement buffers. */
+    uint64_t original_primary_serial=host.scene.last_display_serial;
+    bool resized_primary=live_health &&
+        resize_primary_client(128u,80u) &&
+        host.scene.width==128u &&
+        host.scene.height==80u &&
+        host.scene.last_display_serial>original_primary_serial &&
+        host.scene.pending_resize_buffer==NULL &&
+        resize_primary_client(G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT) &&
+        host.scene.width==G5_SHELL_SCENE_WIDTH &&
+        host.scene.height==G5_SHELL_SCENE_HEIGHT &&
+        host.scene.pending_resize_buffer==NULL &&
+        host.scene.last_commit_serial>=3u;
     uint64_t original_second_serial=host.scene.extra.last_display_serial;
-    bool resized_roundtrip=live_health &&
+    bool resized_roundtrip=resized_primary &&
         resize_second_client(128u,80u) &&
         host.scene.extra.width==128u &&
         host.scene.extra.height==80u &&
@@ -1470,7 +1482,7 @@ bool user_session_host_self_test(void) {
         !session_profile_lease_active();
     if (accepted) {
         log_line("[g5-wp03] Ring3 Shell crash and reauthentication lifecycle gate passed");
-        log_line("[g5-wp04] two independent Ring3 clients and second-client resize roundtrip passed");
+        log_line("[g5-wp04] two independent Ring3 clients and two-client resize roundtrips passed");
     }
     if (!accepted) {
         log_write("[g5-shell-diagnostic] self-test stages started/running/replay/gen/object/close/live/stop/revoke: ");
