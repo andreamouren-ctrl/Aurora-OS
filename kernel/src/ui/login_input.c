@@ -8,6 +8,7 @@
 #include <aurora/graphics_ring3_probe.h>
 #include <aurora/identity_auth_probe.h>
 #include <aurora/identity_client.h>
+#include <aurora/identity_presentation.h>
 #include <aurora/identity_create_probe.h>
 #include <aurora/identity_session_grant_probe.h>
 #include <aurora/identity_reauth_probe.h>
@@ -48,6 +49,11 @@ static bool creation_notice_active;
 static bool session_active_announced;
 static bool logout_in_progress;
 static bool unlock_failed_notice;
+/* Transitions are also input queue boundaries: events enqueued under an
+ * old desktop authority must never become credential keystrokes. */
+static enum aurora_identity_presentation_domain current_input_domain =
+    AURORA_IDENTITY_PRESENTATION_QUARANTINE;
+
 
 static void clear_credential(void) {
     for (size_t i = 0u; i < sizeof(credential_buffer); ++i) {
@@ -81,6 +87,20 @@ static void synchronize_identity_state(void) {
     enum aurora_identity_client_state identity_state =
         identity_client_state();
 
+    /* A lock, logout, service failure or replaced session can arrive via
+     * Session Manager independently of the keyboard shortcut. Retire the
+     * authenticated compositor owner before exposing a credential field.
+     * Never let a lingering Ring3 surface overlap the trusted unlock UI. */
+    if (session_state != AURORA_SESSION_CLIENT_ACTIVE &&
+        user_session_host_active()) {
+        if (!user_session_host_stop()) {
+            (void)session_manager_client_terminate();
+            log_line("[identity-presentation] old desktop host teardown failed; refusing credential presentation");
+            return;
+        }
+        log_line("[identity-presentation] revoked desktop host before trusted login/lock");
+    }
+
     if (session_state == AURORA_SESSION_CLIENT_ACTIVE) {
         if (!user_session_host_active()) {
             if (!user_session_host_start()) {
@@ -101,13 +121,16 @@ static void synchronize_identity_state(void) {
             log_line("[user-session] Ring 3 host and G5 IPC health operational");
         }
 
+        /* The compositor is already presenting the desktop here.
+         * Transfer visual ownership before clearing credential UI state:
+         * any intermediate text redraw must not overwrite Ring3 pixels. */
+        login_ui_set_state(AURORA_LOGIN_SESSION_ACTIVE);
         clear_credential();
         create_offer_active = false;
         create_entry_mode = false;
         creation_notice_active = false;
         logout_in_progress = false;
         unlock_failed_notice = false;
-        login_ui_set_state(AURORA_LOGIN_SESSION_ACTIVE);
         if (!session_active_announced) {
             session_active_announced = true;
             log_write("[session-manager] authenticated session active; generation ");
@@ -641,6 +664,11 @@ void login_input_init(void) {
      * builds used by CI.
      */
 #if AURORA_BOOT_VALIDATION
+    if (!identity_presentation_self_test())
+        kernel_panic("Identity pre-session/desktop input isolation policy failed");
+    log_line("[identity-presentation] trusted login/lock/desktop isolation policy passed");
+#endif
+#if AURORA_BOOT_VALIDATION
     if (!display_ring3_self_test()) {
         kernel_panic("Ring 3 Display Service acceptance probe failed");
     }
@@ -803,6 +831,10 @@ void login_input_init(void) {
         login_ui_set_state(AURORA_LOGIN_ERROR);
     }
 
+    current_input_domain = identity_presentation_decide(
+        session_manager_client_state(), user_session_host_active(),
+        session_manager_client_generation()).domain;
+
     log_write("[boot] Identity login ready at ");
     log_u64(clock_now_ns() / UINT64_C(1000000));
     log_line(" ms");
@@ -812,28 +844,55 @@ void login_input_pump(void) {
     synchronize_identity_state();
 
     struct aurora_input_event event;
+    const struct aurora_identity_presentation_decision initial =
+        identity_presentation_decide(
+            session_manager_client_state(), user_session_host_active(),
+            session_manager_client_generation());
+    if (initial.domain != current_input_domain) {
+        /* A queued desktop event must never be replayed as an Aurora Key.
+         * Drop the old epoch instead of guessing which process sent it. */
+        current_input_domain = initial.domain;
+        while (input_poll_event(&event)) { }
+        return;
+    }
 
     while (input_poll_event(&event)) {
-        /* Once logged in, pointer and ordinary keyboard input belong to
-         * G5's focused Ring3 window, never the credential/login editor.
-         * Enter and Escape remain trusted Shell lock/logout shortcuts. */
-        if (session_manager_client_state()==AURORA_SESSION_CLIENT_ACTIVE &&
-            user_session_host_active()) {
-            if (event.type==AURORA_INPUT_EVENT_KEY &&
-                event.pressed &&
-                (event.key==AURORA_KEY_ENTER ||
-                 event.key==AURORA_KEY_ESCAPE)) {
+        /* Only Session Manager state and the trusted host determine the
+         * input domain. No compositor window or client can choose a
+         * privileged pre-session/lock recipient. Recompute after every
+         * event: a lock key may revoke Ring3 authority mid-queue. */
+        const struct aurora_identity_presentation_decision presentation =
+            identity_presentation_decide(
+                session_manager_client_state(),
+                user_session_host_active(),
+                session_manager_client_generation());
+        if (presentation.allow_desktop_input) {
+            /* Trusted system shortcuts are consumed before client routing. */
+            if (event.type == AURORA_INPUT_EVENT_KEY && event.pressed &&
+                (event.key == AURORA_KEY_ENTER ||
+                 event.key == AURORA_KEY_ESCAPE)) {
                 handle_pressed_key(event.key);
+                /* The trusted shortcut may stop the desktop and switch to
+                 * the lock domain synchronously. Drain any old queued keys
+                 * before accepting a single credential character. */
+                const struct aurora_identity_presentation_decision after =
+                    identity_presentation_decide(
+                        session_manager_client_state(),
+                        user_session_host_active(),
+                        session_manager_client_generation());
+                if (after.domain != current_input_domain) {
+                    current_input_domain = after.domain;
+                    while (input_poll_event(&event)) { }
+                    return;
+                }
             } else {
                 (void)user_session_host_route_input(&event);
             }
             continue;
         }
-        if (event.type != AURORA_INPUT_EVENT_KEY ||
-            !event.pressed) {
+        if (!presentation.allow_credential_input ||
+            event.type != AURORA_INPUT_EVENT_KEY || !event.pressed)
             continue;
-        }
-
         handle_pressed_key(event.key);
     }
 }
