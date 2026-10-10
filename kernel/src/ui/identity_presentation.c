@@ -60,6 +60,21 @@ identity_presentation_decide(
     }
 }
 
+bool identity_presentation_same_input_epoch(
+    const struct aurora_identity_presentation_decision *previous,
+    uint64_t previous_generation,
+    const struct aurora_identity_presentation_decision *current,
+    uint64_t current_generation
+) {
+    if (previous == 0 || current == 0 ||
+        previous_generation != current_generation) return false;
+
+    return previous->domain == current->domain &&
+           previous->allow_desktop_input == current->allow_desktop_input &&
+           previous->allow_credential_input == current->allow_credential_input &&
+           previous->allow_login_framebuffer == current->allow_login_framebuffer;
+}
+
 bool identity_presentation_self_test(void) {
     struct aurora_identity_presentation_decision d;
     d = identity_presentation_decide(AURORA_SESSION_CLIENT_READY,false,0u);
