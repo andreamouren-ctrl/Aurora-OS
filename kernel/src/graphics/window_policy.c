@@ -97,8 +97,11 @@ bool window_policy_create_toplevel(
          i < AURORA_WINDOW_POLICY_MAX_TOPLEVELS;
          ++i) {
         if (policy->toplevels[i].used &&
-            policy->toplevels[i].surface == surface &&
-            surface_live(&policy->toplevels[i])) return false;
+            policy->toplevels[i].surface == surface) {
+            /* Refuse aliasing even if its old generation is stale:
+             * the owner must explicitly revoke it first. */
+            return false;
+        }
     }
 
     for (uint32_t i = 0u;
