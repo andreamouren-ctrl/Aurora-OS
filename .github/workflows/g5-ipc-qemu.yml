@@ -58,6 +58,7 @@ jobs:
           grep -F "[kernel] M1 user-space bootstrap reached successfully" build/g5-ipc-first.log
           grep -F "[g5-wp03] Ring3 Shell clean stop, fresh reauth, forced crash and capability revocation passed" build/g5-ipc-first.log
           grep -F "[g5-wp04] two independent Ring3 clients and two-client resize roundtrips passed" build/g5-ipc-first.log
+          grep -F "[g5-wp04-interaction] primary focus/input isolation passed" build/g5-ipc-first.log
           grep -F "[g5-wp04-interaction] secondary close and primary survival passed" build/g5-ipc-first.log
       - name: Cold reboot reusing SAME physical disk image
         run: |
@@ -79,6 +80,7 @@ jobs:
           grep -F "[kernel] M1 user-space bootstrap reached successfully" build/g5-ipc-second.log
           grep -F "[g5-wp03] Ring3 Shell clean stop, fresh reauth, forced crash and capability revocation passed" build/g5-ipc-second.log
           grep -F "[g5-wp04] two independent Ring3 clients and two-client resize roundtrips passed" build/g5-ipc-second.log
+          grep -F "[g5-wp04-interaction] primary focus/input isolation passed" build/g5-ipc-second.log
           grep -F "[g5-wp04-interaction] secondary close and primary survival passed" build/g5-ipc-second.log
       - name: Preserve G5 cold-boot artifacts
         if: always()
