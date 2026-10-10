@@ -3,19 +3,24 @@ name: Repository merged-branch maintenance
 on:
   push:
     branches: [main]
+  pull_request:
+    types: [closed]
+    branches: [main]
 
 permissions:
   contents: write
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   prune-fully-merged-branches:
-    # This is a one-shot, explicitly requested repository maintenance event.
-    if: startsWith(github.event.head_commit.message, '[repo-cleanup] Synchronize Aurora docs and prune merged branches')
+    # Strictly limited to a marked push, or merged one-time maintenance PR #187.
+    if: (github.event_name == 'push' && startsWith(github.event.head_commit.message, '[repo-cleanup] Synchronize Aurora docs and prune merged branches')) || (github.event_name == 'pull_request' && github.event.pull_request.number == 187 && github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - name: Delete only fully integrated and unprotected branches
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -27,3 +32,12 @@ jobs:
           name: repository-merged-branch-cleanup-report
           path: branch-cleanup-report.md
           if-no-files-found: warn
+      - name: Post exact deleted/preserved counts to maintenance PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if test -s branch-cleanup-report.md; then
+            printf '\\nWorkflow run: https://github.com/%s/actions/runs/%s\\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> branch-cleanup-report.md
+            gh pr comment 187 --body-file branch-cleanup-report.md
+          fi
