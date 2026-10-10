@@ -4,6 +4,14 @@
 #include <aurora/capability_abi.h>
 #include <stddef.h>
 
+/* This scene contains a large multi-target input event queue. Never
+ * initialize or reset it through an aggregate temporary on the small
+ * x86-64 kernel stack. Clear the static, owner-provided storage in place. */
+static void clear_scene_storage(struct g5_shell_scene *scene) {
+    uint8_t *bytes=(uint8_t *)scene;
+    for (size_t i=0u;i<sizeof(*scene);++i) bytes[i]=0u;
+}
+
 static uint32_t read_u32_le(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1]<<8u) |
            ((uint32_t)p[2]<<16u) | ((uint32_t)p[3]<<24u);
@@ -475,7 +483,7 @@ void g5_shell_scene_end(struct g5_shell_scene *scene) {
     if (scene->buffer!=NULL)
         (void)graphics_buffer_release_owner(
             scene->buffer,scene->buffer->generation);
-    *scene=(struct g5_shell_scene){0};
+    clear_scene_storage(scene);
 }
 
 bool g5_shell_scene_begin(struct g5_shell_scene *scene,
@@ -484,7 +492,7 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
         scene->active || scene->owner!=NULL) return false;
     const struct aurora_display_mode *mode=display_mode_at(0u,0u);
     if (mode==NULL || mode->format.bits_per_pixel!=32u) return false;
-    *scene=(struct g5_shell_scene){0};
+    clear_scene_storage(scene);
     scene->kernel_surface=AURORA_CAP_INVALID;
     scene->user_surface=AURORA_CAP_INVALID;
     scene->user_buffer=AURORA_CAP_INVALID;
