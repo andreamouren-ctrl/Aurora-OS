@@ -186,6 +186,7 @@ G0 changes only presentation. They must not change Aurora Key verification, IPC 
 
 - [x] Introduce a pure trusted decision engine for pre-session, lock, authenticated desktop and quarantine (unknown/inconsistent states fail closed).
 - [x] Gate production input dispatch on Session Manager state, live User Session Host and session generation; re-evaluate on every event so lock/logout revocation is immediate.
+- [x] Treat a change of trusted input domain as a queue epoch boundary: drain stale desktop keystrokes before unlock/credential entry, including after an in-queue lock shortcut.
 - [x] Ensure Identity framebuffer text updates no longer overwrite the active G5 compositor display during the session handoff.
 - [x] Revoke a lingering desktop host before trusted credential UI is shown following an externally initiated lock/logout.
 - [x] Add bounded host test matrix and a QEMU boot-validation policy test.
