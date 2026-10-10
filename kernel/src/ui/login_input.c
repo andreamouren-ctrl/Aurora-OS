@@ -82,6 +82,20 @@ static void synchronize_identity_state(void) {
     enum aurora_identity_client_state identity_state =
         identity_client_state();
 
+    /* A lock, logout, service failure or replaced session can arrive via
+     * Session Manager independently of the keyboard shortcut. Retire the
+     * authenticated compositor owner before exposing a credential field.
+     * Never let a lingering Ring3 surface overlap the trusted unlock UI. */
+    if (session_state != AURORA_SESSION_CLIENT_ACTIVE &&
+        user_session_host_active()) {
+        if (!user_session_host_stop()) {
+            (void)session_manager_client_terminate();
+            log_line("[identity-presentation] old desktop host teardown failed; refusing credential presentation");
+            return;
+        }
+        log_line("[identity-presentation] revoked desktop host before trusted login/lock");
+    }
+
     if (session_state == AURORA_SESSION_CLIENT_ACTIVE) {
         if (!user_session_host_active()) {
             if (!user_session_host_start()) {
