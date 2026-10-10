@@ -234,9 +234,11 @@ static bool shutdown_second_client(void) {
 }
 
 static void cleanup_finished_host(void) {
-    (void)shutdown_second_client();
+    /* Scene teardown uses extra.owner->capabilities. Revoke graphics
+     * while the second process object still exists; then reap it. */
     g5_shell_session_end(&shell_session);
     revoke_g5_receiver();
+    (void)shutdown_second_client();
     if (session_g5_dispatcher != NULL)
         g5_ipc_dispatch_revoke(session_g5_dispatcher);
     revoke_g5_sender();
