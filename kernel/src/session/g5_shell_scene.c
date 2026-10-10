@@ -124,6 +124,52 @@ failure:
     return false;
 }
 
+bool g5_shell_scene_move_second(
+    struct g5_shell_scene *scene,
+    struct aurora_process *sender,
+    int32_t x,
+    int32_t y
+) {
+    if (!scene || !scene->active || !scene->extra.active ||
+        !sender || sender != scene->extra.owner ||
+        scene->extra.slot >= G5_SURFACE_REGISTRY_CAPACITY ||
+        !g5_session_context_authorized(&scene->frame.registry.session,
+                                       scene->generation))
+        return false;
+    struct aurora_window_toplevel w;
+    if (!window_policy_read_toplevel(&scene->window_policy,
+                                     scene->extra.window_id,&w) ||
+        !window_policy_configure_ready(&scene->window_policy,
+                                        scene->extra.window_id,
+                                        G5_SHELL_SCENE_WIDTH,
+                                        G5_SHELL_SCENE_HEIGHT))
+        return false;
+    uint64_t node = scene->bridge.node_ids[scene->extra.slot];
+    if (!node || !window_policy_move(&scene->window_policy,
+                                     scene->extra.window_id,x,y,
+                                     G5_SHELL_SCENE_WIDTH,
+                                     G5_SHELL_SCENE_HEIGHT))
+        return false;
+    if (!software_compositor_set_node(&scene->compositor,node,x,y,
+                                      w.placement.z,255u,true)) {
+        (void)window_policy_move(&scene->window_policy,
+                                 scene->extra.window_id,
+                                 w.placement.x,w.placement.y,
+                                 G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT);
+        return false;
+    }
+    uint64_t serial = 0u;
+    if (!software_compositor_compose_present(&scene->compositor,&serial)) {
+        (void)software_compositor_set_node(&scene->compositor,node,
+                w.placement.x,w.placement.y,w.placement.z,255u,true);
+        (void)window_policy_move(&scene->window_policy,
+                scene->extra.window_id,w.placement.x,w.placement.y,
+                G5_SHELL_SCENE_WIDTH,G5_SHELL_SCENE_HEIGHT);
+        return false;
+    }
+    return true;
+}
+
 bool g5_shell_scene_publish_second(
     struct g5_shell_scene *scene,
     struct aurora_process *sender,
