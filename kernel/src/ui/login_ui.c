@@ -535,6 +535,12 @@ void login_ui_render(void) {
     if (!login_initialized) {
         return;
     }
+    /* The authenticated G5 compositor owns scanout. Neither a changed
+     * masked field nor an asynchronous status update may repaint the
+     * trusted login framebuffer on top of live Ring3 client pixels.
+     * The lock/logout path stops the Ring3 host before switching state. */
+    if (login_state == AURORA_LOGIN_SESSION_ACTIVE)
+        return;
 
     login_draw_background();
     login_draw_aurora_mark();
