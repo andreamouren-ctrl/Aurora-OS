@@ -1,0 +1,49 @@
+name: Identity Security Activity Controller Tests
+
+on:
+  pull_request:
+    paths:
+      - 'kernel/src/service/security_activity_controller.c'
+      - 'kernel/src/service/identity_client.c'
+      - 'kernel/tests/test_identity_client_ipc.c'
+      - 'kernel/src/service/security_activity_model.c'
+      - 'kernel/include/aurora/identity_client.h'
+      - 'kernel/include/aurora/security_activity_*.h'
+      - 'kernel/tests/test_security_activity_controller.c'
+      - '.github/workflows/identity-security-activity-controller.yml'
+  push:
+    paths:
+      - 'kernel/src/service/security_activity_controller.c'
+      - 'kernel/src/service/identity_client.c'
+      - 'kernel/tests/test_identity_client_ipc.c'
+      - 'kernel/src/service/security_activity_model.c'
+      - 'kernel/include/aurora/identity_client.h'
+      - 'kernel/include/aurora/security_activity_*.h'
+      - 'kernel/tests/test_security_activity_controller.c'
+      - '.github/workflows/identity-security-activity-controller.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  host-controller-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build activity controller regression with strict warnings
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -Ikernel/include \
+            kernel/src/service/security_activity_controller.c \
+            kernel/src/service/security_activity_model.c \
+            kernel/tests/test_security_activity_controller.c \
+            -o /tmp/aurora-security-activity-controller-test
+      - name: Exercise controller failure and cursor scenarios
+        run: /tmp/aurora-security-activity-controller-test
+      - name: Build production Identity client fault-injection regression
+        run: |
+          cc -std=c11 -O1 -Wall -Wextra -Werror -ffunction-sections -fdata-sections -Ikernel/include \
+            kernel/tests/test_identity_client_ipc.c -Wl,--gc-sections \
+            -o /tmp/aurora-identity-ipc-test
+      - name: Exercise production IPC parser error and ownership scenarios
+        run: /tmp/aurora-identity-ipc-test

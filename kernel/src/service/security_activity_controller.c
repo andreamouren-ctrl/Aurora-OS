@@ -20,15 +20,18 @@ static bool begin_read(
         return false;
     }
 
-    security_activity_page_init(&controller->page);
-    controller->cursor = before_sequence;
-    controller->reached_end = false;
-
+    /* A rejected request must not destroy a previously displayed page.
+     * The shared Identity client may be occupied by authentication. */
     if (!identity_client_begin_security_activity_read(before_sequence)) {
         controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
+        /* An IPC send failure may have left a reply outstanding.
+         * Never reopen the shared client by resetting a transport ERROR. */
         return false;
     }
 
+    security_activity_page_init(&controller->page);
+    controller->cursor = before_sequence;
+    controller->reached_end = false;
     controller->state = AURORA_SECURITY_ACTIVITY_VIEW_LOADING;
     return true;
 }
@@ -61,15 +64,17 @@ void security_activity_controller_pump(
                     ? AURORA_SECURITY_ACTIVITY_VIEW_EMPTY
                     : AURORA_SECURITY_ACTIVITY_VIEW_END)
                 : AURORA_SECURITY_ACTIVITY_VIEW_READY;
-        identity_client_reset_result();
+        (void)identity_client_discard_completed_security_activity();
         return;
     }
 
     if (state == AURORA_IDENTITY_CLIENT_ACTIVITY_RECORD) {
         struct aurora_security_activity_record record;
         if (!identity_client_take_security_activity_record(&record) ||
+            (controller->cursor != 0u && record.sequence >= controller->cursor) ||
             !security_activity_page_append(&controller->page, &record)) {
             controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
+            (void)identity_client_discard_completed_security_activity();
             return;
         }
 
@@ -82,6 +87,8 @@ void security_activity_controller_pump(
 
         if (!identity_client_begin_security_activity_read(controller->cursor)) {
             controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
+            /* A continuation send failure must remain fail-closed.
+             * Only the Identity supervisor may decide when to recover. */
         }
         return;
     }
@@ -89,10 +96,13 @@ void security_activity_controller_pump(
     if (state == AURORA_IDENTITY_CLIENT_UNAVAILABLE ||
         state == AURORA_IDENTITY_CLIENT_ERROR) {
         controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
-        identity_client_reset_result();
+        /* An IPC protocol error is not a completed activity result.
+         * Preserve fail-closed state for supervisor-level recovery. */
         return;
     }
 
+    /* The client is shared with login and re-authentication. Never consume
+     * an unexpected non-activity result: it may carry another caller's grant. */
     controller->state = AURORA_SECURITY_ACTIVITY_VIEW_ERROR;
 }
 

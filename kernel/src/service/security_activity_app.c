@@ -1,6 +1,7 @@
 #include <stddef.h>
 
 #include <aurora/security_activity_app.h>
+#include <aurora/identity_client.h>
 
 static void bump_revision(struct aurora_security_activity_app *app) {
     if (app == NULL) return;
@@ -22,7 +23,14 @@ bool security_activity_app_open(
     struct aurora_security_activity_app *app
 ) {
     if (app == NULL) return false;
+    /* Opening an already visible view must not discard its in-flight read. */
+    if (app->active) return true;
 
+    /* Only progress an abandoned activity response here.
+     * Avoid extra supervisor work or consuming unrelated auth responses. */
+    if (identity_client_has_abandoned_security_activity_read()) {
+        identity_client_pump();
+    }
     security_activity_controller_init(&app->controller);
     app->render.filter = AURORA_SECURITY_ACTIVITY_FILTER_ALL;
     app->render.focused_load_more = false;
@@ -41,8 +49,15 @@ bool security_activity_app_open(
 void security_activity_app_close(
     struct aurora_security_activity_app *app
 ) {
-    if (app == NULL) return;
+    if (app == NULL || !app->active) return;
 
+    /* An already closed view must not affect a later shared-client owner.
+     * Only this view's pending read may be abandoned. */
+    if (app->controller.state == AURORA_SECURITY_ACTIVITY_VIEW_LOADING) {
+        identity_client_abandon_security_activity_read();
+    }
+    /* Only discard completed activity replies; leave authentication untouched. */
+    (void)identity_client_discard_completed_security_activity();
     app->active = false;
     security_activity_controller_init(&app->controller);
     app->render.filter = AURORA_SECURITY_ACTIVITY_FILTER_ALL;
@@ -54,7 +69,15 @@ void security_activity_app_close(
 void security_activity_app_pump(
     struct aurora_security_activity_app *app
 ) {
-    if (app == NULL || !app->active) return;
+    if (app == NULL) return;
+    if (!app->active) {
+        /* Drain only an activity request explicitly abandoned by this view.
+         * Never pump an unrelated login or reauthentication operation here. */
+        if (identity_client_has_abandoned_security_activity_read()) {
+            identity_client_pump();
+        }
+        return;
+    }
 
     enum aurora_security_activity_view_state previous_state =
         app->controller.state;

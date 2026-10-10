@@ -17,10 +17,7 @@ static bool map_event(
             return true;
         case 2u:
             item->category = AURORA_SECURITY_ACTIVITY_CATEGORY_AUTH;
-            item->severity =
-                record->outcome == 4u
-                    ? AURORA_SECURITY_ACTIVITY_SEVERITY_WARNING
-                    : AURORA_SECURITY_ACTIVITY_SEVERITY_WARNING;
+            item->severity = AURORA_SECURITY_ACTIVITY_SEVERITY_WARNING;
             item->title_key = "identity.activity.auth.failure.title";
             item->detail_key = "identity.activity.auth.failure.detail";
             return true;

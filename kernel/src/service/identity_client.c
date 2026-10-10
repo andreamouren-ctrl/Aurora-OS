@@ -25,6 +25,7 @@ static uint64_t reauth_authority_object;
 static uint64_t manage_self_authority_object;
 static uint64_t audit_read_authority_object;
 static struct aurora_security_activity_record pending_activity_record;
+static bool abandoned_activity_read;
 static uint8_t pending_session_grant[AURORA_IDENTITY_SERVICE_GRANT_TOKEN_SIZE];
 static uint8_t pending_reauth_proof[AURORA_IDENTITY_SERVICE_REAUTH_PROOF_SIZE];
 static uint32_t pending_reauth_purpose;
@@ -276,6 +277,7 @@ bool identity_client_init(void) {
     pending_reauth_expires_at_ms = 0u;
     current_request_id = 0u;
     retry_after_ms = 0u;
+    abandoned_activity_read = false;
 
     if (!service_supervisor_init(
             &identity_supervisor,
@@ -654,14 +656,34 @@ bool identity_client_begin_security_activity_read(
         return false;
     }
 
+    abandoned_activity_read = false;
     client_state = AURORA_IDENTITY_CLIENT_READING_ACTIVITY;
     return true;
 }
 
 void identity_client_pump(void) {
     if (client_state == AURORA_IDENTITY_CLIENT_UNINITIALIZED) return;
+    /* A completed activity reply may be discarded, but a protocol ERROR
+     * must remain fail-closed even if the view was abandoned. */
+    if (abandoned_activity_read &&
+        (client_state == AURORA_IDENTITY_CLIENT_ACTIVITY_RECORD ||
+         client_state == AURORA_IDENTITY_CLIENT_ACTIVITY_END)) {
+        abandoned_activity_read = false;
+        (void)identity_client_discard_completed_security_activity();
+    } else if (abandoned_activity_read &&
+               (client_state == AURORA_IDENTITY_CLIENT_ERROR ||
+                client_state == AURORA_IDENTITY_CLIENT_UNAVAILABLE)) {
+        abandoned_activity_read = false;
+        current_request_id = 0u;
+    }
 
     if (!service_supervisor_step(&identity_supervisor)) {
+        /* A failed supervisor step is not a completed IPC reply.
+         * Retire abandoned activity ownership, but keep ERROR fail-closed. */
+        if (abandoned_activity_read) {
+            abandoned_activity_read = false;
+            current_request_id = 0u;
+        }
         clear_bytes(pending_session_grant, sizeof(pending_session_grant));
         clear_bytes(pending_reauth_proof, sizeof(pending_reauth_proof));
         pending_reauth_purpose = 0u;
@@ -672,6 +694,12 @@ void identity_client_pump(void) {
     }
 
     if (identity_supervisor.state != AURORA_SERVICE_SUPERVISOR_RUNNING) {
+        /* A service outage invalidates an abandoned activity request.
+         * Do not retain its ownership across supervisor generations. */
+        if (abandoned_activity_read) {
+            abandoned_activity_read = false;
+            current_request_id = 0u;
+        }
         clear_bytes(pending_session_grant, sizeof(pending_session_grant));
         clear_bytes(pending_reauth_proof, sizeof(pending_reauth_proof));
         pending_reauth_purpose = 0u;
@@ -704,6 +732,12 @@ void identity_client_pump(void) {
     if (received.capability_count != 0u) {
         client_state = AURORA_IDENTITY_CLIENT_ERROR;
         clear_bytes(&received, sizeof(received));
+        if (abandoned_activity_read) {
+            /* Unexpected capability or reply shape: remain fail-closed.
+             * Another response may still be queued for the old request. */
+            abandoned_activity_read = false;
+            current_request_id = 0u;
+        }
         return;
     }
 
@@ -815,6 +849,10 @@ void identity_client_pump(void) {
             clear_bytes(&result, sizeof(result));
             current_request_id = 0u;
             client_state = AURORA_IDENTITY_CLIENT_ERROR;
+            if (abandoned_activity_read) {
+                /* Request-id mismatch must not make the client READY. */
+                abandoned_activity_read = false;
+            }
             return;
         }
 
@@ -824,6 +862,10 @@ void identity_client_pump(void) {
             result.public_error == AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_NONE) {
             clear_bytes(&result, sizeof(result));
             client_state = AURORA_IDENTITY_CLIENT_ACTIVITY_END;
+            if (abandoned_activity_read) {
+                abandoned_activity_read = false;
+                (void)identity_client_discard_completed_security_activity();
+            }
             return;
         }
 
@@ -840,6 +882,10 @@ void identity_client_pump(void) {
             pending_activity_record.session_generation = result.session_generation;
             clear_bytes(&result, sizeof(result));
             client_state = AURORA_IDENTITY_CLIENT_ACTIVITY_RECORD;
+            if (abandoned_activity_read) {
+                abandoned_activity_read = false;
+                (void)identity_client_discard_completed_security_activity();
+            }
             return;
         }
 
@@ -849,11 +895,42 @@ void identity_client_pump(void) {
             public_error == AURORA_IDENTITY_SERVICE_PUBLIC_ERROR_SERVICE_UNAVAILABLE
                 ? AURORA_IDENTITY_CLIENT_UNAVAILABLE
                 : AURORA_IDENTITY_CLIENT_ERROR;
+        if (abandoned_activity_read) {
+            abandoned_activity_read = false;
+            if (client_state == AURORA_IDENTITY_CLIENT_ERROR) {
+                identity_client_reset_result();
+            }
+        }
         return;
     }
 
     clear_bytes(&received, sizeof(received));
     client_state = AURORA_IDENTITY_CLIENT_ERROR;
+    if (abandoned_activity_read) {
+        abandoned_activity_read = false;
+        current_request_id = 0u;
+    }
+}
+
+bool identity_client_has_abandoned_security_activity_read(void) {
+    return abandoned_activity_read;
+}
+
+void identity_client_abandon_security_activity_read(void) {
+    if (client_state == AURORA_IDENTITY_CLIENT_READING_ACTIVITY) {
+        abandoned_activity_read = true;
+    }
+}
+
+bool identity_client_discard_completed_security_activity(void) {
+    if (client_state != AURORA_IDENTITY_CLIENT_ACTIVITY_RECORD &&
+        client_state != AURORA_IDENTITY_CLIENT_ACTIVITY_END) return false;
+    clear_bytes(&pending_activity_record, sizeof(pending_activity_record));
+    current_request_id = 0u;
+    client_state = identity_supervisor.state == AURORA_SERVICE_SUPERVISOR_RUNNING
+        ? AURORA_IDENTITY_CLIENT_READY
+        : AURORA_IDENTITY_CLIENT_UNAVAILABLE;
+    return true;
 }
 
 void identity_client_reset_result(void) {
@@ -878,8 +955,6 @@ void identity_client_reset_result(void) {
         clear_bytes(&pending_activity_record, sizeof(pending_activity_record));
         retry_after_ms = 0u;
         current_request_id = 0u;
-        clear_bytes(&pending_activity_record, sizeof(pending_activity_record));
-        clear_bytes(pending_session_grant, sizeof(pending_session_grant));
         client_state = identity_supervisor.state == AURORA_SERVICE_SUPERVISOR_RUNNING
             ? AURORA_IDENTITY_CLIENT_READY
             : AURORA_IDENTITY_CLIENT_UNAVAILABLE;
