@@ -1,6 +1,6 @@
-# Aurora Celestia UI 1.0 — System Typeface Candidate
+# Aurora Celestia UI 1.0 — Official Aurora OS System Typeface
 
-Status: **release 1.0 binaries committed and byte-for-byte verified on `main`; runtime integration pending**.
+Status: **designated official Aurora OS UI typeface; initial native Identity renderer integrated in feature branch pending runtime validation**.
 
 Aurora Celestia UI is the original geometric, softly rounded, space-inspired proportional typeface selected for Aurora OS.
 
@@ -23,7 +23,7 @@ assets/fonts/aurora-celestia/ui/v1.0/
   AuroraCelestiaUI-{Regular,Medium,SemiBold,Bold}.woff2
 ```
 
-The original package is named `AURORA_CELESTIA_UI_Versione_1.0_COMPLETA.zip`. All 12 Git blob IDs were compared with `git hash-object` of the locally validated original release and matched. Typography is not automatically connected to the current bitmap bootstrap/recovery font or the compositor.
+The original package is named `AURORA_CELESTIA_UI_Versione_1.0_COMPLETA.zip`. All 12 Git blob IDs were compared with `git hash-object` of the locally validated original release and matched. The new host-only atlas generator connects the original Regular and Bold TTFs to the native Identity login renderer. **Early boot/recovery retains its independent bitmap font.** Broad G5 Shell/App text services and compositor-backed pre-session Identity remain follow-up integration tasks.
 
 ## Verified release SHA-256 manifest
 
@@ -55,3 +55,20 @@ Validation: 12/12 Git blobs match, all 12 parse with fontTools, 802 mapped Unico
 5. Keep kernel early-boot/recovery renderer independent of font parsing.
 
 Do not describe this candidate as a font already deployed in the OS or as universally Unicode-complete.
+
+## Official typography integration (2026-10-10)
+
+- **Aurora OS default UI family:** Aurora Celestia UI 1.0.
+- **UI styles:** Regular 400 for body/interface text; Medium 500 for emphasis; SemiBold 600 for labels; Bold 700 for headings.
+- **Binary source:** immutable hash-verified 12-file package in `assets/fonts/aurora-celestia/ui/v1.0/`.
+- **Native V1 deployment:** `scripts/generate-celestia-atlas.py` reads exactly the verified Regular/Bold TTF source and uses host FreeType to emit bounded 18px/30px grayscale glyph bitmaps to `kernel/include/aurora/celestia_atlas_generated.h` during `make -C kernel`. `kernel/src/ui/system_font.c` draws from that static atlas, never interpreting a font file in Ring 0. `kernel/src/ui/login_ui.c` uses the official font when the generated atlas is valid, with its original 5x7 login glyphs as a defensive fallback.
+- **API:** `<aurora/system_font.h>` exposes family identity, UTF-8 measurement and drawing. The first implementation supports printable ASCII, Latin-1 and selected EU currency/technical punctuation; unsupported glyphs fall back visibly to '?'.
+- **Not yet integrated:** full UTF-8 font shaping/kerning, ligatures, dynamic font loading, all 802 codepoints at runtime, font scaling above the current bounded sizes, Ring 3 font service, all System Apps and the G5 Shell. Further work should implement a capability-scoped Ring 3 font service and richer antialiasing/layout without putting arbitrary TTF parsers in the kernel.
+- **Security:** immutable source hash checking is mandatory at build time, and the kernel continues to boot using the independent bitmap boot font. The generated table is bounded at build time and contains no credential material.
+- **Release:** public redistribution still requires project-owner font license approval. Designation as the OS standard does not itself grant third-party redistribution rights.
+
+### Native acceptance gates
+
+1. Verify both exact TTF SHA-256 values before generating the atlas, and require FreeType family name `Aurora Celestia UI`.
+2. Build the kernel and QEMU ISO with the generated atlas. Ensure the native Identity UI renders correctly and normal login/lock/logout and crash recovery gates remain green.
+3. Exercise accented Italian/French samples, USD/EUR and unsupported glyphs in a dedicated typography snapshot; document differences before expanding system-wide use.
