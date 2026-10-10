@@ -231,7 +231,7 @@ The application lifecycle boundary is also explicit. The Security Activity Syste
 - a presentation revision counter;
 - rendering into a surface supplied by its host.
 
-It does **not** allocate a private display target, create a toplevel window, consume global input, acquire compositor/display authority, or read audit storage directly. G5 WP-04+ remains responsible for compositor-backed toplevel creation, focus, hit-testing, pointer/keyboard routing, resize/close/decorations and task/window lifecycle.
+It does **not** allocate a private display target, create a toplevel window, consume global input, acquire compositor/display authority, or read audit storage directly. G5 WP-04 (merged/runtime verified 2026-10-10) supplies ordinary session toplevel creation, focus, hit-testing, pointer/keyboard routing and resize/close for two native Ring 3 clients. Secure pre-session/lock Identity hosting, complete decorations, application/task lifecycle and the Living Canvas are **not** delivered by WP-04 and remain separate integration work.
 
 
 ## 7. Administrator Users & Access Mode
