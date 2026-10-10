@@ -801,6 +801,75 @@ bool user_session_host_active(void) {
         process_state(host.process) == AURORA_PROCESS_RUNNING;
 }
 
+/* Deliver only dequeued, policy-authorized events through the corresponding
+ * process's exclusive control IPC. No client can select the destination. */
+static bool send_client_input(struct aurora_ipc_endpoint *endpoint,
+                              const struct aurora_input_event *event) {
+    if (!endpoint || !event) return false;
+    struct aurora_user_session_host_input_message msg;
+    clear_bytes(&msg,sizeof(msg));
+    msg.header.version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION;
+    msg.header.type=AURORA_USER_SESSION_HOST_INPUT_EVENT;
+    msg.header.request_id=host.next_request_id++;
+    if (msg.header.request_id==0u)
+        msg.header.request_id=host.next_request_id++;
+    if (msg.header.request_id==0u) return false;
+    msg.event.type=event->type;
+    msg.event.source=event->source;
+    msg.event.device_id=event->device_id;
+    msg.event.sequence=event->sequence;
+    msg.event.synthetic=event->synthetic;
+    msg.event.key=event->key;
+    msg.event.button=event->button;
+    msg.event.pressed=event->pressed;
+    msg.event.delta_x=event->delta_x;
+    msg.event.delta_y=event->delta_y;
+    msg.event.absolute_x=event->absolute_x;
+    msg.event.absolute_y=event->absolute_y;
+    msg.event.scroll_x=event->scroll_x;
+    msg.event.scroll_y=event->scroll_y;
+    return ipc_send(endpoint,&host.kernel_caps,&msg,
+                    (uint32_t)sizeof(msg),NULL,0u);
+}
+
+bool user_session_host_route_input(const struct aurora_input_event *event) {
+    if (!event || !user_session_host_active() || !host.scene.active ||
+        !host.scene.input_router.initialized ||
+        !host.second_process || !host.second_kernel_endpoint ||
+        session_manager_client_state()!=AURORA_SESSION_CLIENT_ACTIVE)
+        return false;
+    if (!g5_shell_scene_route_input(&host.scene,event)) return false;
+    if (event->type==AURORA_INPUT_EVENT_POINTER_BUTTON &&
+        event->button==AURORA_POINTER_BUTTON_LEFT && event->pressed &&
+        !event->synthetic && event->sequence!=0u) {
+        struct aurora_graphics_input_router *r=&host.scene.input_router;
+        uint64_t clicked=0u, token=0u, focused=0u;
+        if (window_policy_hit_test_committed(
+                &host.scene.window_policy,r->pointer_x,r->pointer_y,&clicked) &&
+            window_policy_issue_activation_token(
+                &host.scene.window_policy,clicked,event->sequence,&token))
+            (void)graphics_input_focus_pointer(
+                r,token,event->sequence,&focused);
+    }
+    bool delivered=true;
+    struct aurora_input_event queued;
+    for (uint32_t i=0u;i<AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY;++i) {
+        if (!graphics_input_poll_target(&host.scene.input_router,
+                                         host.scene.window_id,&queued))
+            break;
+        if (!send_client_input(host.kernel_endpoint,&queued))
+            delivered=false;
+    }
+    for (uint32_t i=0u;i<AURORA_GRAPHICS_INPUT_QUEUE_CAPACITY;++i) {
+        if (!g5_shell_scene_poll_input_second(
+                 &host.scene,host.second_process,&queued))
+            break;
+        if (!send_client_input(host.second_kernel_endpoint,&queued))
+            delivered=false;
+    }
+    return delivered;
+}
+
 static uint64_t g5_session_test_generation=1u;
 static uint32_t g5_session_ready_events;
 static uint32_t g5_session_health_events;
