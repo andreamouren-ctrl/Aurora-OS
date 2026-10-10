@@ -353,7 +353,9 @@ Implemented and connected to the OS:
 - logout with capability revocation;
 - lock/unlock requiring fresh same-user authentication;
 - fail-closed abnormal session termination;
-- purpose-bound re-authentication proof core.
+- purpose-bound re-authentication proof core;
+- protected dual-slot audit event store, runtime audit emission, per-user scoped read protocol and Security Activity headless UI/renderer assets;
+- G1 fail-closed trusted presentation and input-domain handoff policy (normal login rendering still uses framebuffer).
 
 Important remaining work:
 
@@ -364,7 +366,7 @@ Important remaining work:
 - USB/xHCI/removable-media stack required by Aurora Identity Drive;
 - secure hardware authenticator transport;
 - hardware-backed secret sealing/TPM integration;
-- comprehensive security-event/audit pipeline;
+- interactive compositor-hosted Security Activity UI, audit-record cryptographic tamper authentication and trusted wall-clock/boot-epoch metadata;
 - broad fuzzing/security review and real-hardware certification.
 
 The framebuffer login path is retained as an independent recovery/fallback surface. It is no longer accurate to describe the live OS as having no persistent authentication or no Ring 3 Identity Service.
@@ -375,19 +377,18 @@ The original foundational dependency chain through persistent Identity and Sessi
 
 Current priority order is:
 
-1. complete M4 G4 focus/capture and modern input foundations;
-2. implement G5 window protocol/Desktop Shell;
-3. bootstrap compositor-backed pre-session Identity presentation while retaining framebuffer recovery;
-4. connect purpose-bound re-authentication proofs to sensitive account/security operations;
-5. add profile/settings and Security Activity services/UI;
-6. implement USB/xHCI + removable media;
-7. implement Aurora Identity Drive v1;
-8. implement recovery v1;
-9. add secure hardware authenticators;
-10. add hardware-backed machine-secret protection where supported;
-11. integrate Application Identity / Service Identity with the mature Permission Broker;
-12. add Data Seal and advanced session/data-protection capabilities only after their storage/crypto dependencies are independently reviewed;
-13. add Identity Migration/Capsule and optional multi-device federation after networking and recovery foundations are mature.
+1. stabilize the full `main` CI/QEMU matrix, including strict trusted-entropy boot validation on every storage smoke workflow;
+2. implement the compositor-backed **isolated pre-session and lock** Identity System App while retaining direct-framebuffer recovery;
+3. wire purpose-bound re-authentication into sensitive account/security management, with policy and audit checks;
+4. complete the account/profile settings and interactive Security Activity System Apps above their existing runtime/controller foundations;
+5. implement and security-test a usable local recovery credential and post-recovery Aurora Key rotation;
+6. add USB mass storage, removable-media authorization and Aurora Identity Drive v1;
+7. implement secure hardware authenticators and hardware-backed machine-secret sealing, without silently changing installed users' machine-root secrets;
+8. complete independent security audit, failure injection, real-hardware certification and visual/locale font acceptance;
+9. implement G5 WP-05+ spatial camera/Living Canvas and broader Shell UX independently of the Identity backend work;
+10. integrate Application Identity / Service Identity with the mature Permission Broker;
+11. add Data Seal and advanced session/data-protection capabilities only after storage/crypto dependencies are independently reviewed;
+12. add Identity Migration/Capsule and optional multi-device federation after networking and recovery foundations mature.
 
 ## 15. Canonical detailed documentation
 
