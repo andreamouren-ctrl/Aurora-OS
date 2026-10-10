@@ -629,7 +629,8 @@ static bool g5_session_test_authorize(void *ctx,uint32_t operation,uint64_t gene
     return (operation==G5_OP_SHELL_READY ||
             operation==G5_OP_SHELL_HEALTH ||
             operation==G5_OP_SCENE_PUBLISH ||
-            operation==G5_OP_WINDOW_PLACE) &&
+            operation==G5_OP_WINDOW_PLACE ||
+            operation==G5_OP_WINDOW_CLOSE) &&
            generation==g5_session_test_generation;
 }
 static bool g5_session_test_handle(void *ctx,const struct g5_ipc_header *header,
@@ -654,6 +655,8 @@ static bool g5_session_test_handle(void *ctx,const struct g5_ipc_header *header,
         ++g5_session_place_events;
         return true;
     }
+    if (header->operation==G5_OP_WINDOW_CLOSE)
+        return g5_shell_scene_close(&host.scene,header,payload);
     return false;
 }
 
