@@ -7,7 +7,7 @@ This roadmap orders M4 work by hard dependencies. A checkbox in the global roadm
 
 ## G5 WP-04 — Two independent Ring 3 window clients (2026-10-10)
 
-**Status: END-OF-PHASE ACCEPTANCE IN PROGRESS.** Implementation is on draft [PR #185](https://github.com/andreamouren-ctrl/Aurora-OS/pull/185) (branch `feature/g5-wp04-window-hit-test-20261010`). The narrower WP-04 scope is real multi-client window lifecycle and input, **not** the later Living Canvas/camera UX (WP-05+). No merge to `main` is authorized by this status entry.
+**Status: FROZEN / MERGED / RUNTIME ACCEPTED.** [PR #185](https://github.com/andreamouren-ctrl/Aurora-OS/pull/185) was merged to `main` on 2026-10-10 at merge commit `a45d3cab10544371d5f3535af0a768e6e0ea7e47` after five of five required workflows passed on accepted source HEAD `4886658a03eedd2a7895aa038eb2f015d7645068`. The bounded WP-04 scope is two native Ring 3 window clients and their verified window lifecycle/input; **spatial camera, Living Canvas and full Desktop Shell UX remain WP-05+**, not WP-04.
 
 **Implemented contracts and production paths:**
 
@@ -22,13 +22,13 @@ This roadmap orders M4 work by hard dependencies. A checkbox in the global roadm
 1. On commit `8c9bc12f15bba0ae98b16f71b259670f24f9e8b5`, all five PR workflows succeeded: x86-64 Bootstrap Build, G5 IPC QEMU Cold Boot Recovery, Ring 3 Identity Entropy Handoff, Entropy Source Policy and G5 WP-04 Window Policy Host Tests. Earlier failing QEMU diagnostics showed the ACK race directly (`commit_serial_at_ack == committed.commit_serial == 26`).
 2. `user_session_host_self_test()` runs two real process startups, two Ring 3 resize/ACK/buffer round-trips **per client**, post-resize window hit test, one-shot focus, per-owner pointer/keyboard input delivery, secondary move/close, primary survival, crash/reauth and capability revocation.
 3. `.github/workflows/g5-ipc-qemu.yml` now requires explicit `[g5-wp04]` dual-client and `[g5-wp04-interaction]` two-way input/move/close markers in **both** first boot and reboot against the same disk image, in addition to unchanged WP-03 gates.
-4. **Closure condition:** the latest commit (including the extended primary-focus/input oracle) must pass every required CI workflow, especially QEMU first boot and cold reboot. Do not mark accepted/frozen or merge until this latest-HEAD gate is green.
+4. **Closure recorded:** accepted HEAD `4886658a03eedd2a7895aa038eb2f015d7645068` passed all required workflows, including first boot and cold reboot with input/focus/move/close markers, before PR #185 was merged. The frozen acceptance scope is WP-04 only; any later changes require independent verification.
 
 ## G5 WP-03 — Frozen verified baseline (2026-10-09)
 
 **Status: FROZEN / ACCEPTED within the WP-03 Shell bootstrap and lifecycle scope.** GitHub Actions commit `096464c83aa76b3b4c91ddd4fddf5c1676f61c6f` completed four of four workflows successfully: Aurora OS Bootstrap Build, G5 IPC QEMU Cold Boot Recovery, Aurora Identity Entropy Handoff, and Aurora Entropy Source Policy. Bootstrap/Identity enforce the dedicated Ring3 Shell crash-and-reauthentication lifecycle marker, in addition to the real Ring3 G5 IPC-to-compositor/display marker. No test gate was weakened to declare acceptance.
 
-**Freeze policy:** preserve this commit as the last verified WP-03 baseline. Any further edits on the PR are outside the frozen baseline until independently revalidated; security-critical fixes can reopen WP-03 with explicit regression evidence. Work on Identity takes priority. **WP-04 has not started:** dynamic multi-client window policy, focus/hit-testing, window resize/close and the interactive Living Canvas remain future milestones. This freeze does not mean all of G5 or Identity is complete.
+**Historical WP-03 freeze record (2026-10-09):** preserve this WP-03 baseline as verified. The statement that WP-04 was not yet started applied **only on 2026-10-09**; WP-04 was subsequently completed and merged on 2026-10-10. WP-05+ (spatial camera/Living Canvas) and Identity System App remain outstanding; WP-03 acceptance does not imply all G5 or Identity is complete.
 
 ## G5 WP-03 — Formal closeout candidate (2026-10-09)
 

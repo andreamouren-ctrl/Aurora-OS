@@ -10,7 +10,7 @@ Architecture contracts remain authoritative even as the implementation evolves. 
 
 ## Current implementation status
 
-At the 2026-10-10 G5 WP-04 feature-branch acceptance candidate:
+At the 2026-10-10 accepted WP-04 merge on `main` (PR #185, merge `a45d3cab10544371d5f3535af0a768e6e0ea7e47`):
 
 - **G0 — Contracts:** complete;
 - **G1 — Display foundation:** complete/runtime verified;
@@ -18,7 +18,7 @@ At the 2026-10-10 G5 WP-04 feature-branch acceptance candidate:
 - **G3 — Software compositor + mastering color pipeline:** complete/runtime verified;
 - **G4 — Pointer and modern input:** complete/runtime verified for the V1 bounded-polling baseline;
 - **G5 WP-03 — Ring 3 Shell bootstrap and session lifecycle:** frozen/runtime accepted;
-- **G5 WP-04 — two independent Ring 3 window clients, focus, input, move/resize/close:** source implemented on draft PR #185; final per-HEAD native QEMU/host acceptance still required before freezing or merge;
+- **G5 WP-04 — two independent Ring 3 window clients, focus, input, move/resize/close:** merged and runtime accepted (`4886658a` feature HEAD; five of five required workflows successful);
 - **G5 WP-05+ — spatial camera, Living Canvas, full Shell UX:** pending; not part of WP-04 scope.
 
 The current graphics implementation therefore goes substantially beyond the original architecture-only state.
@@ -85,7 +85,7 @@ Current G1-G3 foundations include:
 
 G4 is complete for the current V1 bounded-polling baseline: secure hit testing, isolated pointer/keyboard focus, owned capture with lifecycle revocation, session/compositor teardown cleanup, bounded motion coalescing, live qemu-xhci keyboard and mouse, descriptor-driven wheel/five-button mouse handling, USB hot-unplug teardown and Event Ring quiescence are runtime verified. MSI-X interrupt delivery, touch/pen/gamepad, IME/layout/accessibility breadth and broader USB classes remain follow-on work rather than G4 V1 blockers.
 
-G5 WP-03 is frozen and runtime accepted. The authenticated Ring 3 Shell path is bound to the live session generation, receives least-authority IPC/graphics capabilities, publishes a committed scene through the compositor/display path, and is tested for clean stop, revocation, crash, stale-generation denial and fresh reauthentication. WP-04 and later phases remain responsible for the complete interactive window manager, focus/hit-testing integration across dynamic clients, resize/close semantics, decorations, launch/task management and the Living Canvas.
+G5 WP-03 and WP-04 are frozen and runtime accepted: the authenticated Ring 3 Shell/session generation and two independently running renderer clients are exercised through shared composition, trusted hit testing, focus/input, bounded move, resize/ACK and close plus stop/crash/reauthentication. WP-05 and later phases remain responsible for the spatial camera, Living Canvas, full decorations, launcher/task management, pre-session Identity System App integration and broader production desktop UX.
 
 ## Canonical documents
 

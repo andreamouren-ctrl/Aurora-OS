@@ -1,0 +1,29 @@
+name: Repository merged-branch maintenance
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  prune-fully-merged-branches:
+    # This is a one-shot, explicitly requested repository maintenance event.
+    if: startsWith(github.event.head_commit.message, '[repo-cleanup] Synchronize Aurora docs and prune merged branches')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Delete only fully integrated and unprotected branches
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/maintenance/prune_merged_branches.py --apply
+      - name: Archive deletion and preservation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repository-merged-branch-cleanup-report
+          path: branch-cleanup-report.md
+          if-no-files-found: warn

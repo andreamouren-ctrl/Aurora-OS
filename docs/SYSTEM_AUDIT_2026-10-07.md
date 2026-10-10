@@ -4,6 +4,10 @@ Status: **Canonical status audit**
 Audit date: **2026-10-07**
 Repository baseline: `main` at `f174b3e2476298c09d24ce6b5eaff306b660e6b3`
 
+## 2026-10-10 post-WP-04 synchronization
+
+This historical audit is a 2026-10-07 snapshot. The 2026-10-09 notes below are superseded for G5 WP-04 by [merged PR #185](https://github.com/andreamouren-ctrl/Aurora-OS/pull/185), merge `a45d3cab10544371d5f3535af0a768e6e0ea7e47`. The two-client Ring 3 window-policy/compositor, focus/input, move/resize/close and QEMU recovery gates are verified. WP-05+ camera/Living Canvas, full Desktop Shell UX and secure pre-session Identity System App remain open. Original audit comparisons below remain dated findings, not present-day implementation claims.
+
 ## 2026-10-09 status synchronization
 
 This file remains the canonical 2026-10-07 full-system audit, but the following later results supersede the corresponding implementation-status statements below:
@@ -11,8 +15,8 @@ This file remains the canonical 2026-10-07 full-system audit, but the following 
 - G4 pointer/modern input is complete/runtime verified for the current bounded-polling V1 baseline, including live qemu-xhci keyboard/mouse, descriptor-driven wheel/five-button handling, hot-unplug teardown and Event Ring quiescence;
 - G5 WP-03 Ring 3 Shell bootstrap/session lifecycle is frozen and accepted on `main`; the accepted path includes authenticated session-generation fencing, native Shell IPC, real committed scene publication through compositor/display, clean stop/revocation, forced crash and fresh-reauthentication QEMU gates;
 - the follow-up stale-session receiver hardening disconnects and clears receiver authority immediately when session validity is lost;
-- WP-04+ remains pending and owns the complete dynamic multi-client window manager, focus/hit-testing integration, resize/close/decorations, launch/task management and Living Canvas;
-- Aurora Identity backend/security development is not blocked by graphics foundations. The final compositor-backed Identity System App still waits on the later Shell/window-management layer;
+- **Historical as of 2026-10-09 only:** WP-04+ was pending at that time. WP-04 subsequently merged on 2026-10-10; WP-05+ retains camera/Living Canvas and full Shell UX.
+- Aurora Identity backend/security work can proceed using the accepted G5 WP-04 window lifecycle; the normal pre-session compositor Identity System App still requires distinct secure hosting and framebuffer fallback.
 - historical stacked PRs and divergent pre-freeze branches are not canonical integration targets. New work must branch from current `main` and port only reviewed changes needed from old experiments.
 
 The detailed 2026-10-07 comparison sections below are preserved as an audit snapshot rather than silently rewritten as if those later milestones had existed on the original audit date.

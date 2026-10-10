@@ -126,7 +126,7 @@ Remaining before calling Aurora Identity production-ready:
 
 ## Phase F — Session Manager and profile bootstrap
 
-Status: **Core lifecycle implemented; desktop bootstrap still pending**
+Status: **Core lifecycle implemented; G5 WP-03/WP-04 desktop window bootstrap verified; Identity management UX pending**
 
 Implemented:
 
@@ -156,7 +156,7 @@ Remaining:
 
 - production Ring 3 issuance/consumption of re-authentication proofs for each sensitive management operation;
 - profile/settings service above the profile capability;
-- complete desktop/window-manager services above the frozen WP-03 Shell bootstrap (WP-04+);
+- full app/launcher/task-management and spatial camera services beyond the merged G5 WP-04 window-policy baseline (WP-05+);
 - full desktop/service teardown once those higher-level session services exist.
 
 Repository hygiene rule: historical experimental Identity re-authentication branches are not canonical integration targets. New Phase F work must start from the current `main` baseline and port only the required reviewed changes, avoiding merges from branches that predate the frozen G5/session baseline.
@@ -169,9 +169,9 @@ Successful Identity authentication starts the correct persistent user profile wi
 
 ## Phase G — Aurora Identity System App
 
-Status: **Backend work may continue; final compositor System App waits on G5 WP-04+**
+Status: **Windowing prerequisite WP-04 satisfied; pre-session secure compositor Identity integration still pending**
 
-Graphics G1-G4 are complete for the current V1 baselines and G5 WP-03 Shell bootstrap/session lifecycle is frozen and accepted. This is sufficient to continue Identity backend/security work. The final interactive compositor-backed Identity System App still depends on the later Desktop Shell/window-management layer.
+Graphics G1-G4 and G5 WP-03/WP-04 are accepted on `main` (WP-04 merge PR #185, 2026-10-10). Two ordinary Ring 3 clients now have real compositor/window lifecycle and input routing. **This does not itself implement trusted pre-session/lock-screen Identity presentation**: the normal compositor Identity System App requires a dedicated secure pre-session mode, credential-input isolation, policy-driven handoff, and a tested framebuffer recovery fallback. Backend/security work can proceed independently.
 
 Remaining:
 

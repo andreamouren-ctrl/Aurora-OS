@@ -1,10 +1,10 @@
 # Aurora Identity Core
 
-Status: **isolated implementation foundation with persistent host store, crypto foundation, and machine-secret provisioning**
+Status: **Identity core + live Ring 3 service integrated; not yet production-certified**
 
-This directory contains the implementation layer of Aurora Identity that is intentionally **not yet wired into Aurora OS login/session startup**.
+This directory contains the security-sensitive core of Aurora Identity **and** its integrated live Ring 3 service foundation. The active OS login path uses the isolated Identity Service for credential verification and authenticated session grants, with protected AuroraFS system state, bounded IPC and a separate Session Manager/User Session Host. The compositor-backed secure pre-session Identity System App, recovery/authenticator breadth and production-security certification are **not yet complete**.
 
-The goal is to build and verify the security-sensitive identity logic behind explicit platform interfaces before binding it to the real Ring 3 service lifecycle, protected AuroraFS system state, IPC transport, compositor UI, or Session Manager.
+The platform continues to separate privileged Identity policy and credential state from kernel mechanisms and untrusted UI; framebuffer login remains an independent bootstrap/recovery path.
 
 ## Implemented foundations
 
