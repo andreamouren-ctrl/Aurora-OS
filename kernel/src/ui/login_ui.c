@@ -3,6 +3,7 @@
 
 #include <aurora/framebuffer.h>
 #include <aurora/identity_graphics.h>
+#include <aurora/identity_secure_compositor.h>
 #include <aurora/login_ui.h>
 #include <aurora/identity_presentation.h>
 #include <aurora/session_manager_client.h>
@@ -64,6 +65,7 @@ static const struct login_glyph5x7 login_glyphs[] = {
 };
 
 static struct aurora_framebuffer login_fb;
+static struct aurora_framebuffer native_login_fb;
 static bool login_initialized;
 static enum aurora_login_state login_state;
 static size_t masked_key_length;
@@ -234,7 +236,7 @@ static void login_draw_frame(
 
 static void login_draw_background(void) {
     if (identity_graphics_ready()) {
-        identity_graphics_draw_base();
+        identity_graphics_draw_base_to(&login_fb);
         return;
     }
 
@@ -534,23 +536,7 @@ static void login_draw_unknown_identity_dialog(void) {
     );
 }
 
-void login_ui_render(void) {
-    if (!login_initialized) {
-        return;
-    }
-    /* The authenticated G5 compositor owns scanout. Neither a changed
-     * masked field nor an asynchronous status update may repaint the
-     * trusted login framebuffer on top of live Ring3 client pixels.
-     * The lock/logout path stops the Ring3 host before switching state. */
-    if (login_state == AURORA_LOGIN_SESSION_ACTIVE)
-        return;
-    const struct aurora_identity_presentation_decision presentation =
-        identity_presentation_decide(
-            session_manager_client_state(), user_session_host_active(),
-            session_manager_client_generation());
-    if (!presentation.allow_login_framebuffer)
-        return; /* A live desktop or quarantine can never be overpainted. */
-
+static void login_ui_draw_contents(void) {
     login_draw_background();
     login_draw_aurora_mark();
 
@@ -679,6 +665,38 @@ void login_ui_render(void) {
     login_draw_unknown_identity_dialog();
 }
 
+void login_ui_render(void) {
+    if (!login_initialized || login_state == AURORA_LOGIN_SESSION_ACTIVE)
+        return;
+
+    const struct aurora_identity_presentation_decision presentation =
+        identity_presentation_decide(
+            session_manager_client_state(), user_session_host_active(),
+            session_manager_client_generation());
+    if (!presentation.allow_login_framebuffer) return;
+
+    /* V1: the trusted kernel renders existing PNG artwork and Celestia
+     * glyph bitmaps to a private full-screen PRE_SESSION compositor surface.
+     * No credential bytes are transferred to an untrusted Ring 3 client. */
+    if (identity_secure_compositor_begin(&native_login_fb)) {
+        const struct aurora_framebuffer *target =
+            identity_secure_compositor_target();
+        if (target != NULL) {
+            login_fb = *target;
+            login_ui_draw_contents();
+            if (identity_secure_compositor_present()) {
+                login_fb = native_login_fb;
+                return;
+            }
+        }
+        identity_secure_compositor_end();
+    }
+
+    /* Independent fallback: same existing UI, direct framebuffer output. */
+    login_fb = native_login_fb;
+    login_ui_draw_contents();
+}
+
 void login_ui_init(
     const struct aurora_framebuffer *framebuffer
 ) {
@@ -691,6 +709,7 @@ void login_ui_init(
     }
 
     login_fb = *framebuffer;
+    native_login_fb = *framebuffer;
     login_initialized = true;
     login_state = AURORA_LOGIN_IDLE;
     masked_key_length = 0u;
@@ -730,6 +749,8 @@ void login_ui_set_state(
         state = AURORA_LOGIN_ERROR;
     }
 
+    if (state == AURORA_LOGIN_SESSION_ACTIVE)
+        identity_secure_compositor_end();
     login_state = state;
     login_ui_render();
 }

@@ -93,3 +93,32 @@ Fallback must not weaken credential-verification policy. Presentation can degrad
 Image assets are presentation resources only. Security state, field contents, focus, prompts and decisions must be rendered dynamically and must not be encoded into static artwork.
 
 Assets must be treated as untrusted file content until decoded by a bounded image loader.
+
+## 2026-10-11 — G2 kernel-owned secure compositor presentation slice
+
+The normal login/lock drawing path can now use an authorized full-screen
+`PRE_SESSION` surface in the existing software compositor. The source pixels
+are produced by the existing native Identity renderer (canonical PNG artwork,
+Aurora Celestia bitmaps, dynamically masked field and status text), staged into
+a private bounded framebuffer and copied into a capability-owned graphics
+buffer. Scene membership, visibility and hit testing are enforced by the
+compositor. The temporary host only owns a READ graphics buffer, a READ/WRITE
+graphics surface and DISPLAY CONTROL; no profile/file or authenticated-session
+authority is delegated.
+
+The verified V1 display backend is synchronous boot-framebuffer scanout. The
+bridge does **not** use the single-buffer policy with asynchronous GPU backends.
+On init/present failure the compositor resources are revoked and rendering
+returns to the existing independent direct-framebuffer recovery UI without
+weakening credential verification. Session activation tears the secure scene
+down before the authenticated User Session Host/G5 renderer can publish.
+
+The bootstrap QEMU acceptance requires an actual first `PRE_SESSION` frame
+through software composition and display; compile success alone is insufficient.
+
+**Security scope:** this is a *transitional kernel-owned renderer bridge*, not
+the final independent Ring 3 Identity System App/secure input service. Aurora
+Key handling and credential-field input remain in the trusted kernel controller,
+and Identity Service remains the sole authentication authority. The remaining
+G2 completion gate is isolated process hosting, secure input ownership and
+handoff, lock/unlock and crash/recovery validation, followed by hardware checks.

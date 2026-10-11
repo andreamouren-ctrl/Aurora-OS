@@ -9,6 +9,7 @@
 #include <aurora/identity_auth_probe.h>
 #include <aurora/identity_client.h>
 #include <aurora/identity_presentation.h>
+#include <aurora/identity_secure_compositor.h>
 #include <aurora/identity_create_probe.h>
 #include <aurora/identity_session_grant_probe.h>
 #include <aurora/identity_reauth_probe.h>
@@ -104,6 +105,9 @@ static void synchronize_identity_state(void) {
     }
 
     if (session_state == AURORA_SESSION_CLIENT_ACTIVE) {
+        /* End trusted pre-session scanout before the G5 Ring 3 Shell starts.
+         * A stale credential prompt must never race desktop publication. */
+        identity_secure_compositor_end();
         if (!user_session_host_active()) {
             if (!user_session_host_start()) {
                 (void)session_manager_client_terminate();
@@ -829,6 +833,12 @@ void login_input_init(void) {
     } else {
         log_line("[identity-gui] native artwork unavailable; procedural fallback active");
         login_ui_render();
+    }
+
+    if (identity_secure_compositor_active()) {
+        log_line("[identity-g2] privileged PRE_SESSION compositor login frame presented");
+    } else {
+        log_line("[identity-g2] compositor unavailable; direct framebuffer recovery active");
     }
 
     log_write("[boot-perf] Identity artwork ready at ");
