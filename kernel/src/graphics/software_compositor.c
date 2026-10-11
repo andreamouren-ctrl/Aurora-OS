@@ -273,6 +273,20 @@ static bool node_allowed_in_scene(
         node->surface_class == AURORA_COMPOSITOR_SURFACE_CURSOR;
 }
 
+bool software_compositor_node_in_active_scene(
+    const struct aurora_software_compositor *compositor,
+    uint64_t node_id
+) {
+    if (compositor == NULL || !compositor->initialized || node_id == 0u)
+        return false;
+    for (uint32_t i = 0u; i < AURORA_COMPOSITOR_MAX_NODES; ++i) {
+        const struct aurora_compositor_node *node = &compositor->nodes[i];
+        if (node->node_id == node_id)
+            return node_allowed_in_scene(compositor, node);
+    }
+    return false;
+}
+
 static bool rect_fully_covers(
     int64_t ax,
     int64_t ay,

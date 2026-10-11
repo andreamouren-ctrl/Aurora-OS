@@ -105,27 +105,10 @@ static bool target_node_still_hittable(
     struct aurora_graphics_input_router *router,
     uint64_t target_id
 ) {
-    struct aurora_graphics_input_target *target =
-        find_target(router, target_id);
-
-    if (target == NULL) return false;
-
-    for (uint32_t i = 0u; i < AURORA_COMPOSITOR_MAX_NODES; ++i) {
-        const struct aurora_compositor_node *node =
-            &router->compositor->nodes[i];
-
-        if (node->used &&
-            node->visible &&
-            node->node_id == target->node_id) {
-            if (router->compositor->secure_scene_active &&
-                node->surface_class == AURORA_COMPOSITOR_SURFACE_NORMAL) {
-                return false;
-            }
-            return true;
-        }
-    }
-
-    return false;
+    struct aurora_graphics_input_target *target = find_target(router, target_id);
+    return target != NULL && router->compositor != NULL &&
+        software_compositor_node_in_active_scene(
+            router->compositor, target->node_id);
 }
 
 static void graphics_input_scene_event(
@@ -185,30 +168,24 @@ static void graphics_input_scene_event(
         if (router->capture_target == target_id) {
             router->capture_target = 0u;
         }
+        /* Invisibility invalidates pending events as well as focus. */
+        struct aurora_graphics_input_target *target =
+            find_target(router, target_id);
+        if (target != NULL) {
+            target->head = 0u;
+            target->tail = 0u;
+        }
 
         return;
     }
 
     if (event == AURORA_COMPOSITOR_SCENE_SECURITY_POLICY_CHANGED) {
-        if (router->pointer_focus_target != 0u &&
-            !target_node_still_hittable(
-                router,
-                router->pointer_focus_target)) {
-            router->pointer_focus_target = 0u;
-        }
-
-        if (router->keyboard_focus_target != 0u &&
-            !target_node_still_hittable(
-                router,
-                router->keyboard_focus_target)) {
-            router->keyboard_focus_target = 0u;
-        }
-
-        if (router->capture_target != 0u &&
-            !target_node_still_hittable(
-                router,
-                router->capture_target)) {
-            router->capture_target = 0u;
+        /* A scene transition is an input-queue epoch boundary, even if a
+         * target remains eligible in the new scene. No stale key crosses. */
+        graphics_input_revoke_all_focus(router);
+        for (uint32_t i = 0u; i < AURORA_GRAPHICS_INPUT_MAX_TARGETS; ++i) {
+            router->targets[i].head = 0u;
+            router->targets[i].tail = 0u;
         }
     }
 }
@@ -764,6 +741,20 @@ bool graphics_input_poll_target(
         return false;
     }
 
+    /* All targets, including legacy non-window targets, must still belong
+     * to the currently visible secure/ordinary compositor scene. */
+    if (!target_node_still_hittable(router, target_id)) {
+        target->head = 0u;
+        target->tail = 0u;
+        if (router->pointer_focus_target == target_id)
+            router->pointer_focus_target = 0u;
+        if (router->keyboard_focus_target == target_id)
+            router->keyboard_focus_target = 0u;
+        if (router->capture_target == target_id)
+            router->capture_target = 0u;
+        return false;
+    }
+
     /* Even previously queued input loses delivery authority when the
      * window is revoked, resized, minimized, or superseded. */
     if (router->window_policy != NULL) {
@@ -1132,22 +1123,62 @@ bool graphics_input_router_selftest(void) {
         return false;
     }
 
-    if (!software_compositor_set_secure_scene(
-            &compositor,
-            &authority_caps,
-            display_control,
-            true) ||
-        router.pointer_focus_target != 0u ||
-        router.keyboard_focus_target != 0u ||
-        router.capture_target != 0u) {
+    /* G2 regression: a privileged PRE_SESSION node remains registered
+     * across both transitions; it may never accept desktop-era input. */
+    uint64_t secure_node = 0u;
+    if (!software_compositor_add_privileged_surface(
+            &compositor, &authority_caps, display_control, b_surface,
+            AURORA_COMPOSITOR_SURFACE_PRE_SESSION,
+            48, 4, 100, 255u, &secure_node) ||
+        !graphics_input_register_target(&router, 303u, secure_node) ||
+        software_compositor_node_in_active_scene(&compositor, secure_node) ||
+        graphics_input_set_keyboard_focus(&router, 303u) ||
+        !graphics_input_route_event(&router, &key)) {
         return false;
     }
+    struct aurora_graphics_input_target *desktop_target =
+        find_target(&router, 101u);
+    if (desktop_target == NULL ||
+        desktop_target->head == desktop_target->tail) return false;
 
     if (!software_compositor_set_secure_scene(
-            &compositor,
-            &authority_caps,
-            display_control,
-            false) ||
+            &compositor, &authority_caps, display_control, true) ||
+        router.pointer_focus_target != 0u ||
+        router.keyboard_focus_target != 0u ||
+        router.capture_target != 0u ||
+        desktop_target->head != desktop_target->tail ||
+        software_compositor_node_in_active_scene(&compositor, an) ||
+        !software_compositor_node_in_active_scene(&compositor, secure_node) ||
+        graphics_input_poll_target(&router, 101u, &event)) {
+        return false;
+    }
+    const struct aurora_input_event to_secure = {
+        .type = AURORA_INPUT_EVENT_POINTER_ABSOLUTE,
+        .source = AURORA_INPUT_SOURCE_SYNTHETIC,
+        .synthetic = true,
+        .absolute_x = 50, .absolute_y = 8
+    };
+    if (!graphics_input_route_event(&router, &to_secure) ||
+        router.pointer_focus_target != 303u ||
+        !graphics_input_set_keyboard_focus(&router, 303u) ||
+        !graphics_input_request_capture(&router, 303u) ||
+        !graphics_input_route_event(&router, &key)) {
+        return false;
+    }
+    struct aurora_graphics_input_target *secure_target =
+        find_target(&router, 303u);
+    if (secure_target == NULL ||
+        secure_target->head == secure_target->tail) return false;
+
+    if (!software_compositor_set_secure_scene(
+            &compositor, &authority_caps, display_control, false) ||
+        router.pointer_focus_target != 0u ||
+        router.keyboard_focus_target != 0u ||
+        router.capture_target != 0u ||
+        secure_target->head != secure_target->tail ||
+        software_compositor_node_in_active_scene(&compositor, secure_node) ||
+        graphics_input_poll_target(&router, 303u, &event) ||
+        graphics_input_set_keyboard_focus(&router, 303u) ||
         !graphics_input_route_event(&router, &to_b) ||
         router.pointer_focus_target != 202u ||
         !graphics_input_set_keyboard_focus(&router, 202u) ||
@@ -1155,7 +1186,9 @@ bool graphics_input_router_selftest(void) {
         return false;
     }
 
-    if (!software_compositor_remove_surface(&compositor, bn) ||
+    if (!software_compositor_remove_surface(&compositor, secure_node) ||
+        find_target(&router, 303u) != NULL ||
+        !software_compositor_remove_surface(&compositor, bn) ||
         find_target(&router, 202u) != NULL ||
         router.pointer_focus_target != 0u ||
         router.keyboard_focus_target != 0u ||

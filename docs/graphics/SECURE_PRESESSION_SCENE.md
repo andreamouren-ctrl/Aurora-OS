@@ -21,6 +21,10 @@ The logic in `kernel/src/graphics/software_compositor.c` uses the same `node_all
 
 The QEMU kernel boot-validation build exercises this compositor self-test via existing graphics gates; do not mark it accepted until the exact-commit QEMU CI passes.
 
+## G2 input-routing consistency (2026-10-11)
+
+The graphics input router now asks the compositor's shared scene eligibility predicate whether a target belongs to the currently active scene, instead of treating every visible registered node as interactive. This closes the discrepancy where a stale PRE_SESSION target could retain focus or queued events after returning to the desktop. A scene-domain transition revokes pointer and keyboard focus, capture, and **all** pending per-target events; polling in the legacy non-window path re-checks eligibility and fails closed. Visibility revocation drains the affected target queue. The boot-validation router self-test checks transitions in both directions with a persistent privileged PRE_SESSION node and attempted stale key delivery. This is G2 hardening only, not an implementation of a compositor-backed Identity login host.
+
 ## Remaining Phase G2 work
 
 This security boundary **does not** create a trusted pre-login/lock compositor client, transfer credential input out of the kernel, make an Aurora Identity System App, or certify real-hardware fallback. Those tasks require independent pre-session host capabilities with zero profile delegation, trusted input ownership, session-generation fences, failure/restart tests and framebuffer recovery. Authentication authority remains solely in Identity Service.

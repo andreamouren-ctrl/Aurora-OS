@@ -143,6 +143,13 @@ bool software_compositor_set_scene_observer(
     void *context
 );
 
+/* Shared scene-membership predicate for rendering and input routing.
+ * Node eligibility does not itself grant ownership or event delivery. */
+bool software_compositor_node_in_active_scene(
+    const struct aurora_software_compositor *compositor,
+    uint64_t node_id
+);
+
 bool software_compositor_hit_test(
     struct aurora_software_compositor *compositor,
     int32_t x,
