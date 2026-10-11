@@ -251,17 +251,30 @@ bool identity_graphics_ready(void) {
     return identity_ready;
 }
 
-void identity_graphics_draw_base(void) {
-    if (!identity_ready || identity_surface == NULL || identity_fb.address == NULL) {
+void identity_graphics_draw_base_to(const struct aurora_framebuffer *target) {
+    if (!identity_ready || identity_surface == NULL || target == NULL ||
+        target->address == NULL || target->width != identity_fb.width ||
+        target->height != identity_fb.height || target->bpp != 32u ||
+        target->pitch < target->width * 4u ||
+        target->red_mask_size != identity_fb.red_mask_size ||
+        target->red_mask_shift != identity_fb.red_mask_shift ||
+        target->green_mask_size != identity_fb.green_mask_size ||
+        target->green_mask_shift != identity_fb.green_mask_shift ||
+        target->blue_mask_size != identity_fb.blue_mask_size ||
+        target->blue_mask_shift != identity_fb.blue_mask_shift) {
         return;
     }
-    volatile uint8_t *base = (volatile uint8_t *)identity_fb.address;
+    volatile uint8_t *base = (volatile uint8_t *)target->address;
     for (uint64_t y = 0u; y < identity_fb.height; ++y) {
         volatile uint32_t *line =
-            (volatile uint32_t *)(base + y * identity_fb.pitch);
+            (volatile uint32_t *)(base + y * target->pitch);
         const uint32_t *source = identity_surface + y * identity_fb.width;
         for (uint64_t x = 0u; x < identity_fb.width; ++x) {
             line[x] = source[x];
         }
     }
+}
+
+void identity_graphics_draw_base(void) {
+    identity_graphics_draw_base_to(&identity_fb);
 }

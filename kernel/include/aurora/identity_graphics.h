@@ -8,6 +8,7 @@
 bool identity_graphics_init(const struct aurora_framebuffer *framebuffer);
 bool identity_graphics_ready(void);
 void identity_graphics_draw_base(void);
+void identity_graphics_draw_base_to(const struct aurora_framebuffer *target);
 void identity_graphics_release(void);
 
 #endif
