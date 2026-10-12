@@ -62,12 +62,20 @@ bool pmm_init(void) {
         uint64_t end = region.base + region.length;
         if (end < region.base) continue;
 
+        /* Round the base without overflowing UINT64_MAX; a malformed
+         * firmware map must not wrap the physical free-list to address 0. */
+        if (region.base > UINT64_MAX - (AURORA_PAGE_SIZE - 1u))
+            continue;
         uint64_t start = align_up(region.base, AURORA_PAGE_SIZE);
         end = align_down(end, AURORA_PAGE_SIZE);
         if (start < region.base || start >= end) continue;
 
-        for (uint64_t page = start; page < end; page += AURORA_PAGE_SIZE)
+        /* Do not let a final page near UINT64_MAX wrap the loop counter. */
+        for (uint64_t page = start; page < end;) {
             add_free_page_init(page);
+            if (end - page <= AURORA_PAGE_SIZE) break;
+            page += AURORA_PAGE_SIZE;
+        }
     }
 
     return free_pages != 0u;
