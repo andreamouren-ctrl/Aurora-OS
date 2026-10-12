@@ -272,6 +272,13 @@ void kmain(void) {
         kernel_panic("Physical memory manager initialization failed");
     }
 
+#if AURORA_BOOT_VALIDATION
+    if (!pmm_self_test()) {
+        kernel_panic("Physical memory manager allocation/integrity self-test failed");
+    }
+    log_line("[pmm] allocation/zero/reuse/accounting self-test passed");
+#endif
+
     struct pmm_stats memory = pmm_get_stats();
 
     log_write("[pmm] usable pages: ");

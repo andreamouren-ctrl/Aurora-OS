@@ -122,3 +122,78 @@ struct pmm_stats pmm_get_stats(void) {
     spinlock_unlock_irqrestore(&pmm_lock, irq);
     return result;
 }
+
+/* Boot-validation-only caller, before AP startup and independent of heap.
+ * Exercise distinct allocation, zero-on-allocation, invalid free rejection,
+ * precise accounting and reuse scrubbing without changing PMM policy. */
+bool pmm_self_test(void) {
+    struct pmm_stats initial = pmm_get_stats();
+    if (initial.free_pages < 5u ||
+        initial.total_pages != initial.free_pages + initial.allocated_pages)
+        return false;
+
+    uint64_t pages[4] = {0u,0u,0u,0u};
+    uint32_t count = 0u;
+    bool ok = true;
+    for (uint32_t i = 0u; i < 4u; ++i) {
+        uint64_t physical = pmm_alloc_page();
+        if (physical == 0u ||
+            (physical & (AURORA_PAGE_SIZE - 1u)) != 0u) {
+            ok = false;
+            break;
+        }
+        bool distinct = true;
+        for (uint32_t j = 0u; j < count; ++j)
+            if (pages[j] == physical) distinct = false;
+        if (!distinct) { ok = false; break; }
+        pages[count++] = physical;
+        uint8_t *bytes = (uint8_t *)pmm_phys_to_virt(physical);
+        if (bytes == NULL) { ok = false; break; }
+        for (uint64_t j = 0u; j < AURORA_PAGE_SIZE; ++j)
+            if (bytes[j] != 0u) { ok = false; break; }
+        bytes[0] = 0xa5u;
+        bytes[AURORA_PAGE_SIZE-1u] = 0x5au;
+        if (!ok) break;
+    }
+    struct pmm_stats middle = pmm_get_stats();
+    if (middle.total_pages != initial.total_pages ||
+        middle.free_pages != initial.free_pages-count ||
+        middle.allocated_pages != initial.allocated_pages+count)
+        ok = false;
+    /* Zero and misaligned frees are invalid; they must not inflate stats
+     * or corrupt the free list. Only call this with a known owned page. */
+    if (count != 0u) {
+        pmm_free_page(0u);
+        pmm_free_page(pages[0]+1u);
+        struct pmm_stats invalid = pmm_get_stats();
+        if (invalid.free_pages != middle.free_pages ||
+            invalid.allocated_pages != middle.allocated_pages)
+            ok = false;
+    }
+    for (uint32_t i = count; i > 0u; --i)
+        pmm_free_page(pages[i-1u]);
+
+    struct pmm_stats restored = pmm_get_stats();
+    if (restored.total_pages != initial.total_pages ||
+        restored.free_pages != initial.free_pages ||
+        restored.allocated_pages != initial.allocated_pages)
+        ok = false;
+    if (!ok || count != 4u) return false;
+
+    /* Last returned page is first on the free list. Its prior 0xa5/0x5a
+     * sentinel must be cleared by pmm_alloc_page() before re-exposure. */
+    uint64_t reused = pmm_alloc_page();
+    if (reused == 0u) return false;
+    bool reused_ok = reused == pages[0];
+    const uint8_t *bytes = (const uint8_t *)pmm_phys_to_virt(reused);
+    if (bytes == NULL) reused_ok = false;
+    if (bytes != NULL)
+        for (uint64_t i = 0u; i < AURORA_PAGE_SIZE; ++i)
+            if (bytes[i] != 0u) { reused_ok = false; break; }
+    pmm_free_page(reused);
+    struct pmm_stats final_stats = pmm_get_stats();
+    return reused_ok &&
+        final_stats.total_pages == initial.total_pages &&
+        final_stats.free_pages == initial.free_pages &&
+        final_stats.allocated_pages == initial.allocated_pages;
+}
