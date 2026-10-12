@@ -13,6 +13,8 @@ struct pmm_stats {
 };
 
 bool pmm_init(void);
+/* Deterministic early-boot zero/reuse/accounting regression gate. */
+bool pmm_self_test(void);
 
 uint64_t pmm_alloc_page(void);
 void pmm_free_page(uint64_t physical_address);

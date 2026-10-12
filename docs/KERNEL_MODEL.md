@@ -188,3 +188,18 @@ Ring 3:
 ```
 
 Migration is performed only after a Ring 3 replacement has a measured, capability-safe and recoverable path.
+
+
+### 2026-10-12 — PMM boot-validation integrity probe
+
+Before secondary CPUs start, `AURORA_BOOT_VALIDATION` now runs a small,
+deterministic physical memory manager regression on four real pages:
+allocation addresses must be aligned and distinct, every byte of every new
+page must be zero, invalid zero/misaligned frees must not change counters,
+and returning then reallocating a page must clear test sentinels.
+Before/mid/after statistics must account exactly for all owned pages.
+A failed invariant panics the validation kernel; normal production boot
+does not incur this probe. The BIOS/QEMU CI explicitly requires the marker
+`[pmm] allocation/zero/reuse/accounting self-test passed`.
+The probe is not a complete verification against arbitrary double-free or
+malicious memory-map aliasing; further ownership tracking remains separate.
