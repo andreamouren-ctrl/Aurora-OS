@@ -277,6 +277,7 @@ void kmain(void) {
         kernel_panic("Physical memory manager allocation/integrity self-test failed");
     }
     log_line("[pmm] allocation/zero/reuse/accounting self-test passed");
+    log_line("[pmm] ownership/double-free/foreign-page self-test passed");
 #endif
 
     struct pmm_stats memory = pmm_get_stats();

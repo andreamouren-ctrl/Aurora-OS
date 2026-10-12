@@ -203,3 +203,28 @@ does not incur this probe. The BIOS/QEMU CI explicitly requires the marker
 `[pmm] allocation/zero/reuse/accounting self-test passed`.
 The probe is not a complete verification against arbitrary double-free or
 malicious memory-map aliasing; further ownership tracking remains separate.
+
+### 2026-10-12 — PMM page ownership hardening (allocation bitmap)
+
+The physical memory manager now reserves a small amount of memory at the
+beginning of each usable physical region for an allocation bitmap:
+one bit per managed 4 KiB page (about one metadata page per 128 MiB of RAM).
+The descriptor array is static, metadata frames are excluded from the
+free-list and accounting, and no kernel heap allocation is required.
+The firmware memory map is validated for overlaps between usable and other
+memory types **before** metadata or free-list nodes are written.
+
+Under an interrupt-safe PMM lock, allocation pops a known-free page, validates
+the next free-list pointer, sets its owned bit and zeroes all bytes before
+returning it. Release requires a managed, aligned, presently allocated page:
+`pmm_try_free_page()` returns false without touching metadata, counters or
+the target memory for a double free, foreign PFN, unaligned address or
+reserved bitmap page. The existing `pmm_free_page()` remains a compatible
+void wrapper. Internal free-list corruption fails closed with a kernel panic,
+rather than silently returning duplicate physical frames.
+
+BOOT_VALIDATION extends the real-QEMU four-page PMM probe with a double-free,
+foreign-page and reserved-metadata free attempt and asserts exact before/after
+accounting. The BIOS smoke test requires the ownership marker. This protects
+the allocator's own bookkeeping; it is **not** a replacement for higher-level
+lifetime, shared-reference, VMM mapping or DMA ownership checks.
