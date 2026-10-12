@@ -17,6 +17,9 @@ typedef void (*kernel_thread_entry)(
 
 bool scheduler_init(void);
 
+/* Runs bounded near-overflow checks on local synthetic counters only. */
+bool scheduler_thread_id_exhaustion_self_test(void);
+
 /* Prepare a dedicated idle thread pinned to one application processor. */
 bool scheduler_prepare_ap(uint32_t logical_id);
 

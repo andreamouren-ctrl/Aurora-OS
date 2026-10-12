@@ -71,6 +71,36 @@ static void clear_bytes(void *address, size_t length) {
 }
 
 /* scheduler_lock must be held by every helper suffixed with _locked. */
+/* Zero is the permanently exhausted sentinel. IPC wake/reap IDs may
+ * outlive threads; silently wrapping to one would allow stale references
+ * to target a wholly different process. */
+static bool claim_thread_id(aurora_thread_id *next,
+                            aurora_thread_id *out_id) {
+    if (next == NULL || out_id == NULL || *next == 0u) return false;
+    *out_id = *next;
+    ++*next; /* unsigned wrap to 0 disables all subsequent claims */
+    return true;
+}
+
+bool scheduler_thread_id_exhaustion_self_test(void) {
+    aurora_thread_id seq = 1u;
+    aurora_thread_id id = 0u;
+    if (!claim_thread_id(&seq,&id) || id != 1u || seq != 2u)
+        return false;
+    seq=UINT32_MAX-1u;
+    if (!claim_thread_id(&seq,&id) ||
+        id != UINT32_MAX-1u || seq != UINT32_MAX)
+        return false;
+    if (!claim_thread_id(&seq,&id) ||
+        id != UINT32_MAX || seq != 0u)
+        return false;
+    id=0u;
+    return !claim_thread_id(&seq,&id) &&
+        id==0u && seq==0u &&
+        !claim_thread_id(NULL,&id) &&
+        !claim_thread_id(&seq,NULL);
+}
+
 static struct scheduler_thread *find_thread_locked(aurora_thread_id id) {
     if (id == 0u) return NULL;
     for (uint32_t i = 0u; i < SCHEDULER_MAX_THREADS; ++i) {
@@ -303,7 +333,7 @@ static aurora_thread_id create_kernel_thread_locked(
     void *argument,
     bool idle
 ) {
-    if (entry == NULL) return 0u;
+    if (entry == NULL || next_id == 0u) return 0u;
     uint32_t slot = find_free_slot_locked();
     if (slot == SCHEDULER_MAX_THREADS) return 0u;
 
@@ -314,7 +344,8 @@ static aurora_thread_id create_kernel_thread_locked(
     clear_bytes(thread, sizeof(*thread));
     if (!allocate_thread_stack(thread)) return 0u;
 
-    thread->id = next_id++;
+    if (!claim_thread_id(&next_id,&thread->id))
+        kernel_panic("Kernel scheduler thread ID allocation failure");
     thread->state = THREAD_RUNNABLE;
     thread->idle = idle;
     thread->user = false;
@@ -335,7 +366,8 @@ static aurora_thread_id create_user_thread_locked(
     const char *name,
     struct aurora_process *process
 ) {
-    if (process == NULL || process_state(process) != AURORA_PROCESS_RUNNING) return 0u;
+    if (next_id == 0u || process == NULL ||
+        process_state(process) != AURORA_PROCESS_RUNNING) return 0u;
     uint32_t slot = find_free_slot_locked();
     if (slot == SCHEDULER_MAX_THREADS) return 0u;
 
@@ -351,7 +383,8 @@ static aurora_thread_id create_user_thread_locked(
         return 0u;
     }
 
-    thread->id = next_id++;
+    if (!claim_thread_id(&next_id,&thread->id))
+        kernel_panic("Ring3 scheduler thread ID allocation failure");
     thread->state = THREAD_RUNNABLE;
     thread->idle = false;
     thread->user = true;
@@ -526,7 +559,8 @@ bool scheduler_init(void) {
     started = false;
 
     struct scheduler_thread *bootstrap = &threads[0];
-    bootstrap->id = next_id++;
+    if (!claim_thread_id(&next_id,&bootstrap->id))
+        kernel_panic("Bootstrap scheduler thread ID allocation failure");
     bootstrap->state = THREAD_RUNNING;
     bootstrap->idle = false;
     bootstrap->user = false;
