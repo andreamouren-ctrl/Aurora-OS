@@ -5,6 +5,14 @@
 #include <aurora/syscall_abi.h>
 #include <aurora/identity_ring3_abi.h>
 
+/* Explicit freestanding memory primitive. Clang may lower aggregate
+ * zero-initialization into a memset even with -fno-builtin and -nostdlib. */
+void *memset(void *destination,int value,size_t length) {
+    volatile unsigned char *out=(volatile unsigned char *)destination;
+    for (size_t i=0u;i<length;++i) out[i]=(unsigned char)value;
+    return destination;
+}
+
 /* Minimal independent Ring3 pre-session host. Only IPC lifecycle is
  * admitted in this first slice: no secrets, no graphics, no profile grants. */
 static uint64_t sys1(uint64_t n, uint64_t a) {
