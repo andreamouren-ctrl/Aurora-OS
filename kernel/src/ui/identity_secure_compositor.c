@@ -192,8 +192,18 @@ bool identity_secure_compositor_present(void) {
     uint64_t serial = 0u;
     if (!graphics_surface_damage(&host.caps, host.surface_cap, &full) ||
         !graphics_surface_commit(&host.caps, host.surface_cap, &commit) ||
-        commit == 0u ||
-        !software_compositor_compose_present(&host.compositor, &serial) ||
+        commit == 0u) goto failure;
+
+    /* Only now has the primary trusted login acquired committed pixels.
+     * The Ring3 layer is still visible but must not intercept hit tests. */
+    if (identity_ring3_host_badge_active()) {
+        uint64_t hit=0u;
+        const int32_t cx=(int32_t)(host.staging_fb.width/2u);
+        const int32_t cy=(int32_t)(host.staging_fb.height*82u/100u+5u);
+        if (!software_compositor_hit_test(&host.compositor,cx,cy,&hit) ||
+            hit!=host.node) goto failure;
+    }
+    if (!software_compositor_compose_present(&host.compositor, &serial) ||
         serial == 0u) goto failure;
 
     host.last_present = serial;

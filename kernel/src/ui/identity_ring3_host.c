@@ -249,7 +249,7 @@ bool identity_ring3_host_attach_badge(
     if (!identity_ring3_host_alive() || ring3.badge_buffer ||
         !compositor || !compositor->initialized ||
         !compositor->secure_scene_active || !authority ||
-        output_width<320u || output_height<200u ||
+        output_width<480u || output_height<400u ||
         ring3.next_id==UINT64_MAX) return false;
     const struct aurora_display_mode *mode=display_mode_at(0u,0u);
     if (!mode || mode->format.bits_per_pixel!=32u ||
@@ -301,22 +301,31 @@ bool identity_ring3_host_attach_badge(
     if (!pixel || pixel[0]!=AURORA_IDENTITY_RING3_BADGE_FIRST_PIXEL)
         goto failed;
 
-    /* One explicitly privileged PRE_SESSION visual decoration, outside
-     * the credential field and with no input target or capture rights. */
-    const int32_t x=(int32_t)(output_width-
-        AURORA_IDENTITY_RING3_BADGE_WIDTH-20u);
-    const int32_t y=(int32_t)(output_height-
-        AURORA_IDENTITY_RING3_BADGE_HEIGHT-20u);
+    /* First genuine Ring3-owned non-secret layout: a centered thin
+     * divider in the lower decorative region, safely below Aurora Key,
+     * prompt, status and authorization text. Never covers trusted fields. */
+    const int32_t x=(int32_t)((output_width-
+        AURORA_IDENTITY_RING3_BADGE_WIDTH)/2u);
+    const int32_t y=(int32_t)(output_height*82u/100u);
     ring3.badge_compositor=compositor;
     if (!software_compositor_add_privileged_surface(
           compositor,authority,display_control,ring3.badge_surface,
           AURORA_COMPOSITOR_SURFACE_PRE_SESSION,
           x,y,200,255u,&ring3.badge_node) ||
+        !software_compositor_set_input_transparent(
+          compositor,authority,display_control,ring3.badge_node,true) ||
         !software_compositor_node_in_active_scene(
           compositor,ring3.badge_node)) goto failed;
+    /* The kernel's main PRE_SESSION surface has not yet committed its
+     * first frame here. Until then there may legitimately be NO hit target.
+     * It must NEVER be this passive Ring3 node. After main commit, the
+     * compositor checks that the underlying trusted node wins instead. */
+    uint64_t hit=0u;
+    if (software_compositor_hit_test(compositor,x+5,y+5,&hit) &&
+        hit==ring3.badge_node) goto failed;
     ring3.badge_commit=ack_serial;
     ring3.badge_epoch=ring3.instance_epoch;
-    log_line("[identity-g2-ring3] Ring3 badge pixels committed and trusted scene admitted");
+    log_line("[identity-g2-ring3] Ring3 passive layout pixels committed, click-through verified");
     return true;
 failed:
     identity_ring3_host_detach_badge();

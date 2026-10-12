@@ -59,6 +59,8 @@ struct aurora_compositor_node {
     bool visible;
     bool used;
     bool fully_opaque;
+    /* Render normally, but allow underlying trusted surface to take input. */
+    bool input_transparent;
     uint64_t last_commit_serial;
 };
 
@@ -121,6 +123,16 @@ bool software_compositor_set_node(
     int32_t z,
     uint8_t opacity,
     bool visible
+);
+
+/* Privileged kernel-only scene decision: noninteractive PRE_SESSION
+ * decorations must never intercept cursor hit-testing or focus. */
+bool software_compositor_set_input_transparent(
+    struct aurora_software_compositor *compositor,
+    struct aurora_cap_table *authority_caps,
+    aurora_cap_handle display_control_handle,
+    uint64_t node_id,
+    bool transparent
 );
 
 bool software_compositor_set_transform(
