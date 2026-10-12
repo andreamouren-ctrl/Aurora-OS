@@ -779,6 +779,7 @@ static uint64_t production_g5_ready_count;
 static uint64_t production_g5_health_count;
 static uint64_t production_g5_present_count;
 static uint64_t production_g5_place_count;
+static uint64_t production_g5_pan_count;
 
 static bool production_g5_authorize(void *ctx,uint32_t operation,uint64_t generation) {
     (void)ctx;
@@ -790,7 +791,8 @@ static bool production_g5_authorize(void *ctx,uint32_t operation,uint64_t genera
         (operation==G5_OP_SHELL_READY || operation==G5_OP_SHELL_HEALTH ||
          ((operation==G5_OP_SCENE_PUBLISH ||
            operation==G5_OP_WINDOW_PLACE ||
-           operation==G5_OP_WINDOW_CLOSE) && host.scene.active));
+           operation==G5_OP_WINDOW_CLOSE ||
+           operation==G5_OP_CANVAS_PAN) && host.scene.active));
 }
 
 static bool production_g5_handle(void *ctx,const struct g5_ipc_header *header,
@@ -820,6 +822,11 @@ static bool production_g5_handle(void *ctx,const struct g5_ipc_header *header,
     }
     if (header->operation==G5_OP_WINDOW_CLOSE)
         return g5_shell_scene_close(&host.scene,header,payload);
+    if (header->operation==G5_OP_CANVAS_PAN &&
+        g5_shell_scene_pan(&host.scene,header,payload)) {
+        ++production_g5_pan_count;
+        return true;
+    }
     return false;
 }
 
@@ -850,6 +857,7 @@ bool user_session_host_start(void) {
     production_g5_health_count=0u;
     production_g5_present_count=0u;
     production_g5_place_count=0u;
+    production_g5_pan_count=0u;
     bool started=start_with_context(
         session_manager_client_user_id(),
         production_shell_generation);
@@ -1186,13 +1194,15 @@ static uint32_t g5_session_ready_events;
 static uint32_t g5_session_health_events;
 static uint32_t g5_session_present_events;
 static uint32_t g5_session_place_events;
+static uint32_t g5_session_pan_events;
 static bool g5_session_test_authorize(void *ctx,uint32_t operation,uint64_t generation) {
     (void)ctx;
     return (operation==G5_OP_SHELL_READY ||
             operation==G5_OP_SHELL_HEALTH ||
             operation==G5_OP_SCENE_PUBLISH ||
             operation==G5_OP_WINDOW_PLACE ||
-            operation==G5_OP_WINDOW_CLOSE) &&
+            operation==G5_OP_WINDOW_CLOSE ||
+            operation==G5_OP_CANVAS_PAN) &&
            generation==g5_session_test_generation;
 }
 static bool g5_session_test_handle(void *ctx,const struct g5_ipc_header *header,
@@ -1219,7 +1229,98 @@ static bool g5_session_test_handle(void *ctx,const struct g5_ipc_header *header,
     }
     if (header->operation==G5_OP_WINDOW_CLOSE)
         return g5_shell_scene_close(&host.scene,header,payload);
+    if (header->operation==G5_OP_CANVAS_PAN &&
+        g5_shell_scene_pan(&host.scene,header,payload)) {
+        ++g5_session_pan_events;
+        return true;
+    }
     return false;
+}
+
+
+/* A real primary Ring 3 process receives a control request and emits the
+ * G5 wire command through its exclusive nontransferable sender endpoint.
+ * The test then verifies the authenticated compositor transaction. */
+static bool g5_wp05_pan_step(
+    int32_t dx,int32_t dy,uint64_t camera_revision,bool should_accept) {
+    if (!host.scene.active || !host.scene.extra.active ||
+        !host.kernel_endpoint || !host.g5_binding.receiver ||
+        !host.process || !host.second_process ||
+        host.next_request_id <= 4u ||
+        host.next_request_id == UINT64_MAX) return false;
+    struct aurora_window_toplevel first={0},second={0};
+    if (!window_policy_read_toplevel(&host.scene.window_policy,
+            host.scene.window_id,&first) ||
+        !window_policy_read_toplevel(&host.scene.window_policy,
+            host.scene.extra.window_id,&second))
+        return false;
+    uint64_t old_serial=host.scene.last_display_serial;
+    uint64_t old_revision=host.scene.camera_revision;
+    uint64_t old_pan_count=g5_session_pan_events;
+    struct aurora_user_session_host_camera_message request={0};
+    request.header.version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION;
+    request.header.type=AURORA_USER_SESSION_HOST_CANVAS_PAN_REQUEST;
+    request.header.request_id=host.next_request_id++;
+    request.delta_x_px=dx;
+    request.delta_y_px=dy;
+    request.expected_camera_revision=camera_revision;
+    request.expected_scene_revision=host.scene.canvas_scene_revision;
+    uint64_t ack=0u;
+    enum g5_ipc_status status=G5_IPC_DENIED;
+    if (!ipc_send(host.kernel_endpoint,&host.kernel_caps,
+                  &request,(uint32_t)sizeof(request),NULL,0u) ||
+        !receive_primary_event(AURORA_USER_SESSION_HOST_CANVAS_PAN_ACK,&ack) ||
+        ack!=request.header.request_id ||
+        !g5_ipc_endpoint_poll(&host.g5_binding,&status))
+        return false;
+    if ((status==G5_IPC_OK)!=should_accept) return false;
+    struct aurora_window_toplevel after_first={0},after_second={0};
+    if (!window_policy_read_toplevel(&host.scene.window_policy,
+            host.scene.window_id,&after_first) ||
+        !window_policy_read_toplevel(&host.scene.window_policy,
+            host.scene.extra.window_id,&after_second))
+        return false;
+    const int64_t effective_x=should_accept?(int64_t)dx:0;
+    const int64_t effective_y=should_accept?(int64_t)dy:0;
+    return after_first.placement.x==(int64_t)first.placement.x+effective_x &&
+        after_first.placement.y==(int64_t)first.placement.y+effective_y &&
+        after_second.placement.x==(int64_t)second.placement.x+effective_x &&
+        after_second.placement.y==(int64_t)second.placement.y+effective_y &&
+        host.scene.x==after_first.placement.x &&
+        host.scene.y==after_first.placement.y &&
+        host.scene.camera_revision==old_revision+(should_accept?1u:0u) &&
+        g5_session_pan_events==old_pan_count+(should_accept?1u:0u) &&
+        (should_accept ? host.scene.last_display_serial>old_serial :
+                         host.scene.last_display_serial==old_serial);
+}
+static bool g5_wp05_pan_roundtrip_probe(void) {
+    struct aurora_window_toplevel first={0},second={0};
+    if (!host.scene.active || !host.scene.extra.active ||
+        !window_policy_read_toplevel(&host.scene.window_policy,
+            host.scene.window_id,&first) ||
+        !window_policy_read_toplevel(&host.scene.window_policy,
+            host.scene.extra.window_id,&second) ||
+        host.scene.camera_revision!=1u ||
+        host.scene.canvas_scene_revision!=1u)
+        return false;
+    if (!g5_wp05_pan_step(8,8,1u,true) ||
+        !g5_wp05_pan_step(-8,-8,2u,true) ||
+        !g5_wp05_pan_step(8,8,1u,false))
+        return false;
+    struct aurora_window_toplevel last_first={0},last_second={0};
+    if (!window_policy_read_toplevel(&host.scene.window_policy,
+            host.scene.window_id,&last_first) ||
+        !window_policy_read_toplevel(&host.scene.window_policy,
+            host.scene.extra.window_id,&last_second) ||
+        last_first.placement.x!=first.placement.x ||
+        last_first.placement.y!=first.placement.y ||
+        last_second.placement.x!=second.placement.x ||
+        last_second.placement.y!=second.placement.y ||
+        host.scene.camera_revision!=3u ||
+        g5_session_pan_events!=2u)
+        return false;
+    log_line("[g5-wp05] Ring3 authorized dual-client camera pan and rollback passed");
+    return true;
 }
 
 /* Phase-end WP-04 interaction oracle. The surface was committed by
@@ -1448,6 +1549,7 @@ bool user_session_host_self_test(void) {
     g5_session_health_events=0u;
     g5_session_present_events=0u;
     g5_session_place_events=0u;
+    g5_session_pan_events=0u;
     if (!user_session_host_register_g5_dispatcher(&g5_test_dispatcher)) {
         session_profile_lease_end();
         (void)cap_revoke(&bridge.capabilities,profile);
@@ -1575,11 +1677,15 @@ bool user_session_host_self_test(void) {
             status==G5_IPC_DENIED && host.scene.active &&
             g5_session_place_events==1u && g5_session_present_events==1u;
     }
+    /* WP-05 proof: two real Ring 3 windows move together in one frame.
+     * Restore the original placement to preserve frozen WP-04 probes. */
+    bool wp05_verified=close_opcode_denied && g5_wp05_pan_roundtrip_probe();
     /* Exercise the post-bootstrap Ring3 control loop and its kernel G5
      * dispatch, rather than just proving startup SHELL_READY/HEALTH. */
     bool live_health=running && replay_denied &&
         wrong_generation_denied && foreign_object_denied &&
-        close_opcode_denied && user_session_host_health_check() &&
+        close_opcode_denied && wp05_verified &&
+        user_session_host_health_check() &&
         g5_session_health_events==2u &&
         user_session_host_health_check() &&
         g5_session_health_events==3u;
@@ -1637,6 +1743,7 @@ bool user_session_host_self_test(void) {
             g5_session_health_events=0u;
             g5_session_present_events=0u;
             g5_session_place_events=0u;
+    g5_session_pan_events=0u;
             reauthenticated=start_with_context(user_id,UINT64_C(2)) &&
                 user_session_host_active() && host.g5_ready &&
                 g5_session_ready_events==1u &&
@@ -1685,7 +1792,7 @@ bool user_session_host_self_test(void) {
 
     bool accepted=started &&
         running && stopped && live_health &&
-        resized_roundtrip && interaction_verified &&
+        resized_roundtrip && interaction_verified && wp05_verified &&
         post_stop_denied && receiver_revoked &&
         reauthenticated && crashed && crash_revoked &&
         source_revoked && root_revoked &&
@@ -1703,6 +1810,7 @@ bool user_session_host_self_test(void) {
         log_u64(wrong_generation_denied);log_write("/");
         log_u64(foreign_object_denied);log_write("/");
         log_u64(close_opcode_denied);log_write("/");
+        log_u64(wp05_verified);log_write("/");
         log_u64(resized_roundtrip);log_write("/");
         log_u64(interaction_verified);log_write("/");
         log_u64(live_health);log_write("/");

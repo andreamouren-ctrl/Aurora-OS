@@ -37,6 +37,21 @@ int main(void) {
  assert(g5_ipc_validate_semantics(&h,NULL)==G5_IPC_OK);
  h.object_generation=1;
  assert(g5_ipc_validate_semantics(&h,NULL)==G5_IPC_BAD_FORMAT);
+ h.kind=G5_IPC_REQUEST;h.operation=G5_OP_CANVAS_PAN;
+ h.payload_bytes=24;h.object_generation=2;
+ for(unsigned i=0;i<24u;++i)bytes[i]=0u;
+ bytes[0]=8;bytes[8]=1;bytes[16]=1;
+ assert(g5_ipc_validate_semantics(&h,bytes)==G5_IPC_OK);
+ bytes[0]=33;
+ assert(g5_ipc_validate_semantics(&h,bytes)==G5_IPC_BAD_FORMAT);
+ bytes[0]=8;bytes[8]=0;
+ assert(g5_ipc_validate_semantics(&h,bytes)==G5_IPC_BAD_FORMAT);
+ bytes[8]=1;bytes[0]=0;
+ assert(g5_ipc_validate_semantics(&h,bytes)==G5_IPC_BAD_FORMAT);
+ bytes[0]=255;bytes[1]=255;bytes[2]=255;bytes[3]=255;
+ assert(g5_ipc_validate_semantics(&h,bytes)==G5_IPC_OK);
+ assert(g5_ipc_opcode_required_rights(G5_OP_CANVAS_PAN)==
+   (AURORA_RIGHT_CONTROL|AURORA_RIGHT_WRITE));
  assert(g5_ipc_opcode_required_rights(G5_OP_WINDOW_CLOSE)==AURORA_RIGHT_CONTROL);
  assert(g5_ipc_opcode_required_rights(G5_OP_SCENE_PUBLISH)==
    (AURORA_RIGHT_CONTROL|AURORA_RIGHT_WRITE));

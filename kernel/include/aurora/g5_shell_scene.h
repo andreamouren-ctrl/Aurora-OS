@@ -57,6 +57,8 @@ struct g5_shell_scene {
     uint64_t configure_serial;
     uint64_t last_display_serial;
     uint64_t last_commit_serial;
+    uint64_t camera_revision;
+    uint64_t canvas_scene_revision;
     uint32_t width;
     uint32_t height;
     uint32_t slot;
@@ -87,6 +89,11 @@ bool g5_shell_scene_move_primary(struct g5_shell_scene *scene,
 bool g5_shell_scene_place(struct g5_shell_scene *scene,
                           const struct g5_ipc_header *header,
                           const uint8_t *payload);
+/* Translation-only reference viewport: two Ring 3 panels share ONE
+ * compositor present, with strict session/object/revision fencing. */
+bool g5_shell_scene_pan(struct g5_shell_scene *scene,
+                        const struct g5_ipc_header *header,
+                        const uint8_t *payload);
 bool g5_shell_scene_attach_second(
     struct g5_shell_scene *scene,
     struct aurora_process *second_owner
