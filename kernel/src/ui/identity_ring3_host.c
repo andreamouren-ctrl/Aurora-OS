@@ -316,8 +316,12 @@ bool identity_ring3_host_attach_badge(
           compositor,authority,display_control,ring3.badge_node,true) ||
         !software_compositor_node_in_active_scene(
           compositor,ring3.badge_node)) goto failed;
+    /* The kernel's main PRE_SESSION surface has not yet committed its
+     * first frame here. Until then there may legitimately be NO hit target.
+     * It must NEVER be this passive Ring3 node. After main commit, the
+     * compositor checks that the underlying trusted node wins instead. */
     uint64_t hit=0u;
-    if (!software_compositor_hit_test(compositor,x+5,y+5,&hit) ||
+    if (software_compositor_hit_test(compositor,x+5,y+5,&hit) &&
         hit==ring3.badge_node) goto failed;
     ring3.badge_commit=ack_serial;
     ring3.badge_epoch=ring3.instance_epoch;
