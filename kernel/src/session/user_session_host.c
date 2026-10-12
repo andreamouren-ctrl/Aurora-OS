@@ -1401,17 +1401,23 @@ static bool g5_wp05_pan_roundtrip_probe(void) {
  * The test positions the cursor synthetically only; synthesized wheel
  * input must never invoke the authorized pan.  A background gesture
  * crosses the real Ring3 control IPC and compositor, then roundtrips. */
+static bool g5_wp05_input_diagnostic(uint64_t stage) {
+    log_write("[g5-wp05-input-diagnostic] failed stage ");
+    log_u64(stage);
+    log_line("");
+    return false;
+}
 static bool g5_wp05_background_scroll_probe(void) {
     if (!host.scene.active || !host.scene.extra.active ||
         !host.scene.input_router.initialized ||
         host.scene.camera_revision!=3u || g5_session_pan_events!=2u)
-        return false;
+        return g5_wp05_input_diagnostic(1u);
     struct aurora_window_toplevel primary={0},second={0};
     if (!window_policy_read_toplevel(&host.scene.window_policy,
           host.scene.window_id,&primary) ||
         !window_policy_read_toplevel(&host.scene.window_policy,
           host.scene.extra.window_id,&second))
-        return false;
+        return g5_wp05_input_diagnostic(2u);
     struct aurora_input_event pointer={0};
     pointer.type=AURORA_INPUT_EVENT_POINTER_ABSOLUTE;
     pointer.source=AURORA_INPUT_SOURCE_SYNTHETIC;
@@ -1419,7 +1425,7 @@ static bool g5_wp05_background_scroll_probe(void) {
     pointer.absolute_x=2;pointer.absolute_y=2;
     if (!user_session_host_route_input(&pointer) ||
         host.scene.input_router.pointer_focus_target!=0u)
-        return false;
+        return g5_wp05_input_diagnostic(3u);
     struct aurora_input_event wheel={0};
     wheel.type=AURORA_INPUT_EVENT_SCROLL;
     wheel.source=AURORA_INPUT_SOURCE_SYNTHETIC;
@@ -1430,7 +1436,7 @@ static bool g5_wp05_background_scroll_probe(void) {
     if (!user_session_host_route_input(&wheel) ||
         host.scene.camera_revision!=3u ||
         host.scene.last_display_serial!=old_serial)
-        return false;
+        return g5_wp05_input_diagnostic(4u);
     /* A claimed PS/2 wheel is deliberately ignored: current PS/2
      * hardware decoder has no wheel reports. */
     wheel.source=AURORA_INPUT_SOURCE_PS2_MOUSE;
@@ -1439,7 +1445,7 @@ static bool g5_wp05_background_scroll_probe(void) {
     if (!user_session_host_route_input(&wheel) ||
         host.scene.camera_revision!=3u ||
         host.scene.last_display_serial!=old_serial)
-        return false;
+        return g5_wp05_input_diagnostic(5u);
     wheel.source=AURORA_INPUT_SOURCE_USB_HID;
     wheel.device_id=AURORA_INPUT_DEVICE_USB_BASE+1u;
     wheel.sequence=9002u;
@@ -1447,19 +1453,19 @@ static bool g5_wp05_background_scroll_probe(void) {
         host.scene.camera_revision!=4u ||
         g5_session_pan_events!=3u ||
         host.scene.last_display_serial<=old_serial)
-        return false;
+        return g5_wp05_input_diagnostic(6u);
     uint64_t after_first=host.scene.last_display_serial;
     if (!user_session_host_route_input(&wheel) ||
         host.scene.camera_revision!=4u ||
         host.scene.last_display_serial!=after_first)
-        return false; /* repeated event cannot pan twice */
+        return g5_wp05_input_diagnostic(7u); /* repeated event cannot pan twice */
     wheel.sequence=9003u;
     wheel.scroll_y=-1;
     if (!user_session_host_route_input(&wheel) ||
         host.scene.camera_revision!=5u ||
         g5_session_pan_events!=4u ||
         host.scene.last_display_serial<=after_first)
-        return false;
+        return g5_wp05_input_diagnostic(8u);
     struct aurora_window_toplevel final_primary={0},final_second={0};
     if (!window_policy_read_toplevel(&host.scene.window_policy,
            host.scene.window_id,&final_primary) ||
@@ -1469,7 +1475,7 @@ static bool g5_wp05_background_scroll_probe(void) {
         final_primary.placement.y!=primary.placement.y ||
         final_second.placement.x!=second.placement.x ||
         final_second.placement.y!=second.placement.y)
-        return false;
+        return g5_wp05_input_diagnostic(9u);
     /* Over a committed app window, USB wheel remains app-owned. */
     struct aurora_input_event over_window={0};
     over_window.type=AURORA_INPUT_EVENT_POINTER_ABSOLUTE;
@@ -1479,13 +1485,13 @@ static bool g5_wp05_background_scroll_probe(void) {
     over_window.absolute_y=primary.placement.y+10;
     if (!user_session_host_route_input(&over_window) ||
         host.scene.input_router.pointer_focus_target==0u)
-        return false;
+        return g5_wp05_input_diagnostic(10u);
     wheel.sequence=9004u;
     uint64_t after_return=host.scene.last_display_serial;
     if (!user_session_host_route_input(&wheel) ||
         host.scene.camera_revision!=5u ||
         host.scene.last_display_serial!=after_return)
-        return false;
+        return g5_wp05_input_diagnostic(11u);
     log_line("[g5-wp05-input] USB HID background wheel uses authorized Ring3 pan");
     return true;
 }
