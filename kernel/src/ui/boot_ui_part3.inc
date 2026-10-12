@@ -6,8 +6,8 @@ static void render_progress(void) {
     }
 
     /*
-     * Restore only the lower status area between milestones. The expensive
-     * bilinear fullscreen artwork is drawn once during boot_ui_init().
+     * Emergency-only status renderer. The image is first drawn in the fatal
+     * recovery path; it is never published during a healthy bootstrap.
      */
     redraw_status_background();
 
@@ -28,8 +28,12 @@ void boot_ui_init(
     if (framebuffer == NULL ||
         framebuffer->address == NULL ||
         framebuffer->bpp != 32u ||
-        framebuffer->width == 0 ||
-        framebuffer->height == 0) {
+        framebuffer->width == 0u ||
+        framebuffer->height == 0u ||
+        framebuffer->width > 8192u ||
+        framebuffer->height > 8192u ||
+        framebuffer->pitch < framebuffer->width * 4u ||
+        framebuffer->pitch == 0u) {
         return;
     }
 
@@ -38,11 +42,15 @@ void boot_ui_init(
     current_percent = 0;
     current_phrase = 0;
 
-    image_asset_ready =
-        prepare_image_asset();
-
-    draw_scene();
-    render_progress();
+    /*
+     * Normal boot stays visually quiet until the complete trusted Identity
+     * presentation becomes available. The primitive embedded splash is a
+     * fallback for fatal boot failures, NOT the official Aurora boot logo.
+     * Clear any firmware/bootloader residue once and keep its early code,
+     * glyph atlas and artwork decoder dormant on the healthy path.
+     */
+    image_asset_ready = false;
+    framebuffer_clear(&active_fb, rgb(2u, 7u, 18u));
 }
 
 bool boot_ui_is_initialized(void) {
@@ -61,9 +69,8 @@ void boot_ui_stage(enum aurora_boot_stage stage) {
     current_phrase =
         stage_visuals[stage].phrase_index;
 
-    /* Milestones are real in normal boots too, not only validation builds.
-     * No sleeps, timers or simulated percentage-based delays. */
-    render_progress();
+    /* Track real milestones for serial diagnostics and, if required,
+     * the emergency renderer. Do not paint the provisional splash. */
 }
 
 void boot_ui_complete(void) {
@@ -79,9 +86,8 @@ void boot_ui_complete(void) {
             1u
         );
 
-    /* Keep the last fully rendered milestone on-screen until Identity
-     * has rendered its first complete compositor frame. No black clear. */
-    render_progress();
+    /* Preserve the quiet framebuffer until Identity commits its entire
+     * first frame; do not expose the primitive emergency artwork. */
 
     /*
      * Bootstrap hand-off: until Aurora has its compositor/session service,
@@ -93,45 +99,38 @@ void boot_ui_complete(void) {
 }
 
 void boot_ui_panic(const char *reason) {
-    if (!initialized) {
-        return;
-    }
+    if (!initialized) return;
 
-    framebuffer_clear(
-        &active_fb,
-        rgb(13, 3, 12)
-    );
+    /*
+     * Fatal path only: activate the independent early framebuffer renderer.
+     * No filesystem, service, heap, compositor or user-profile capability is
+     * needed. Embedded artwork can fail independently; its simple geometric
+     * fallback is still readable in recovery mode.
+     */
+    image_asset_ready = prepare_image_asset();
+    draw_scene();
+    redraw_status_background();
 
-    uint64_t top =
-        active_fb.height / 4u;
-
-    draw_text_centered(
-        top,
-        "AURORA KERNEL PANIC",
-        active_fb.width >= 1000u ? 3u : 2u,
-        rgb(255, 103, 170)
-    );
-
-    draw_text_centered(
-        top + 70u,
-        "THE SYSTEM HAS BEEN HALTED SAFELY",
+    draw_text_shadowed_centered(
+        active_fb.height * 68u / 100u,
+        "AVVIO DI EMERGENZA",
         active_fb.width >= 1200u ? 2u : 1u,
-        rgb(220, 188, 208)
+        rgb(255u, 175u, 202u)
     );
+
+    /* Retain the actual last completed initialization milestone. */
+    draw_bar(current_percent);
 
     if (reason != NULL) {
         draw_text_centered(
-            top + 120u,
-            reason,
-            1u,
-            rgb(255, 200, 224)
+            active_fb.height * 85u / 100u,
+            reason, 1u, rgb(255u, 205u, 224u)
         );
     }
 
     draw_text_centered(
-        top + 180u,
-        "TECHNICAL DETAILS REMAIN AVAILABLE ON SERIAL",
-        1u,
-        rgb(120, 105, 132)
+        active_fb.height * 89u / 100u,
+        "DETTAGLI TECNICI SULLA PORTA SERIALE",
+        1u, rgb(169u, 201u, 217u)
     );
 }

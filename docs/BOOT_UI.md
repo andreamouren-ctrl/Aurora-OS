@@ -1,11 +1,11 @@
 # Aurora OS Native Boot UI
 
-Status: **Implemented prototype**
-Version: **0.1**
+Status: **Recovery-only early framebuffer renderer**
+Version: **0.2**
 
-Aurora OS renders its boot experience directly from the kernel framebuffer.
+The lightweight early framebuffer UI is reserved for **fatal boot recovery**. In a healthy boot Aurora does not render the provisional early logo, text, status panel or bar. It clears firmware residue to deep navy and publishes only the completed native Aurora Identity presentation when the renderer is ready. The full-quality Identity artwork/font are the normal boot destination.
 
-The loading bar is **milestone-driven**, not time-driven. Aurora never sleeps merely to make the animation appear longer. A faster computer should complete the sequence faster.
+The early boot system **tracks** real milestones without painting them on the healthy path. If the kernel panics, the embedded recovery scene is drawn and the last reached milestone is shown. The bar is milestone-driven rather than time-driven.
 
 ## Visual direction
 
@@ -45,7 +45,7 @@ This is intentional: the screen must work extremely early in boot.
 
 ## Panic behavior
 
-Once the framebuffer boot UI has initialized, a kernel panic replaces the loading screen with a visible Aurora panic screen.
+Once the usable framebuffer is acquired, the kernel registers the low-level emergency renderer **before** display-bootstrap initialization. A kernel panic makes the provisional emergency artwork visible, with an explicit `AVVIO DI EMERGENZA` headline, last reached boot milestone and brief failure reason.
 
 Serial output remains the authoritative technical diagnostic channel.
 
@@ -53,24 +53,46 @@ A panic that occurs before a usable framebuffer exists can only be reported thro
 
 ## Future evolution
 
-When Aurora has a filesystem, image loader and compositor, the same boot-state API can drive a richer image-backed or animated boot experience without changing the milestone semantics.
+Identity's full-quality compositor scene remains independent of the emergency renderer. Future animated/graphical boot presentation must never depend on the emergency surface, and recovery must remain usable even when the compositor or artwork loader fails.
 
-## 2026-10-12 — Fix layout e avanzamento visivo
+## 2026-10-12 — Formal decision: emergency splash only
 
-La prima registrazione QEMU ha mostrato una fascia scura troppo alta
-(47%-94%) che copriva l'emblema e la grafica di avvio. Adesso solo il
-pannello di stato inferiore (x 12%-88%, y 65%-93%) viene aggiornato.
-Il titolo, la barra e una sola frase corrente rimangono separati dal
-marchio centrale; non vengono piu' disegnate sette frasi sovrapposte.
-I passaggi di stato aggiornano la UI sia con `BOOT_VALIDATION=0` sia
-con `BOOT_VALIDATION=1`, senza attendere artificialmente tra le fasi.
-L'ultimo frame del bootstrap non viene mai cancellato deliberatamente
-prima della pubblicazione del primo frame di Identity.
+The project owner confirmed that the original early bitmap/primitive
+splash, including its alternate mark, is **not** the final branded splash.
+It must remain hidden on all successful boot paths and may become visible
+only after a fatal bootstrap error.
 
-Attenzione: la build di validazione contiene test che presentano veri
-buffer sul display e possono cancellare temporaneamente la splash e
-mostrare campioni colorati. Questi non sono effetti desiderati nel
-normale boot, percio' la validazione funzionale e la verifica visuale
-`BOOT_VALIDATION=0` hanno finalita' distinte. I test non vanno rimossi
-per nascondere il problema; per una sequenza pulita va registrata la
-build normale e vanno mantenute le verifiche QEMU separate.
+### Runtime invariants
+
+1. `boot_ui_init()` validates/caches framebuffer geometry and performs a
+   single dark clear; it **never decodes or paints** early splash assets.
+2. `boot_ui_stage()` updates only the in-memory real milestone. Even in
+   validation builds, it does not reveal the provisional splash.
+3. `boot_ui_complete()` initializes the official Identity renderer but
+   still does not paint the provisional splash. Identity is responsible for
+   publishing the final secure pre-session compositor frame.
+4. `boot_ui_panic()` activates the independent embedded image/bitmap
+   renderer on fatal boot failures, with the actual milestone and
+   serial-backed diagnostics. The fallback requires no filesystem, heap,
+   service, font parser or compositor.
+5. Failed Identity artwork decoding remains a nonfatal degraded presentation
+   path: the existing credential UI retains the authority policy and its
+   procedural fallback. Authentication never succeeds because of missing art.
+6. Panics before any usable framebuffer exists can only report via serial.
+   Firmware/bootloader imagery before kernel entry is outside this policy.
+
+The prior lower-panel occlusion/layout fix is retained for the **emergency**
+presentation only. Validation/QEMU graphics probes may independently paint
+diagnostic buffers; those tests remain intact and should not be mistaken for
+normal startup UX. Test normal visuals with `BOOT_VALIDATION=0` while still
+running the separate boot-validation and cold-boot test suites.
+
+### QEMU recovery-path acceptance
+
+The visual CI workflow checks both normal production boot and the emergency
+path. A separate, disposable CI checkout inserts a synthetic kernel panic
+just after the early framebuffer is registered, builds a **test-only ISO**,
+then verifies through QEMU serial and framebuffer capture that the emergency
+scene is visible and the login is not reached. This synthetic panic is never
+committed to the actual Aurora kernel. The normal workflow uses unmodified
+candidate source and must reach the final Identity login.

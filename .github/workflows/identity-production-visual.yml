@@ -1,9 +1,9 @@
-name: Aurora Production Identity Boot Visual Acceptance
+name: Aurora Silent Boot Identity Visual Acceptance
 
 on:
   push:
     branches:
-      - 'fix/boot-identity-visual-handoff-*'
+      - 'fix/boot-recovery-only-*'
   workflow_dispatch:
 
 permissions:
@@ -141,7 +141,7 @@ jobs:
                   time.sleep(.5)
               (root/'output'/'capture-metadata.json').write_text(
                   json.dumps({
-                      'iso_source_commit': '98c2d29614f48175832cd8cc53142393745eedae',
+                      'iso_source_commit': os.environ.get('GITHUB_SHA', 'unknown'),
                       'build_validation': False,
                       'actual_qemu_frames': total_frames,
                       'sample_interval_seconds': .5,
@@ -196,9 +196,117 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Aurora-Identity-Production-Boot-Visual-After-Fix
+          name: Aurora-Identity-Silent-Boot-Visual-Evidence
           path: |
             capture/output/
             capture/iso-sha256.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+  fatal-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact production candidate
+        uses: actions/checkout@v4
+      - name: Install recovery-probe dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld make xorriso curl git binutils python3 qemu-system-x86 ffmpeg
+      - name: Inject controlled fatal error in isolated CI checkout only
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("kernel/src/main.c")
+          c=p.read_text()
+          needle="    if (!display_init_bootstrap(&framebuffer)) {"
+          assert c.count(needle)==1
+          c=c.replace(needle,'    kernel_panic("CI EMERGENCY BOOT PROBE");\n\n'+needle,1)
+          p.write_text(c)
+          PY
+          make BOOT_VALIDATION=0 iso
+      - name: Verify actual panic recovery frame in QEMU
+        run: |
+          mkdir -p capture/emergency
+          cat >/tmp/record_emergency.py <<'PY'
+          import json, os, pathlib, socket, subprocess, time
+          root=pathlib.Path("capture/emergency")
+          serial=root/"qemu-fatal-boot.log"
+          monitor="/tmp/aurora-emergency-qmp.sock"
+          try: os.unlink(monitor)
+          except FileNotFoundError: pass
+          proc=subprocess.Popen([
+              "qemu-system-x86_64","-M","q35","-cpu","max","-m","512M",
+              "-smp","4,sockets=1,cores=2,threads=2","-vga","std",
+              "-display","none","-boot","order=d",
+              "-cdrom","build/AuroraOS-x86_64.iso",
+              "-serial","file:"+str(serial),
+              "-qmp","unix:"+monitor+",server=on,wait=off",
+              "-no-reboot","-no-shutdown"],
+              stdout=subprocess.DEVNULL,
+              stderr=(root/"qemu-stderr.log").open("wb"))
+          sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
+          for attempt in range(100):
+              try:
+                  sock.connect(monitor)
+                  break
+              except OSError:time.sleep(.1)
+          else:raise RuntimeError("QMP socket unavailable")
+          buf=bytearray()
+          def msg():
+              global buf
+              while b"\n" not in buf:
+                  data=sock.recv(65536)
+                  if not data:raise RuntimeError("QMP closed")
+                  buf.extend(data)
+              raw,_,tail=buf.partition(b"\n")
+              buf=bytearray(tail)
+              return json.loads(raw)
+          def qmp(name,args=None,ident="test"):
+              payload={"execute":name,"id":ident}
+              if args is not None:payload["arguments"]=args
+              sock.sendall(json.dumps(payload).encode()+b"\n")
+              while True:
+                  r=msg()
+                  if r.get("id")==ident:
+                      if "error" in r:raise RuntimeError(str(r["error"]))
+                      return r["return"]
+          try:
+              assert "QMP" in msg()
+              qmp("qmp_capabilities",ident="enable")
+              seen=False
+              for attempt in range(150):
+                  if serial.exists() and "Reason: CI EMERGENCY BOOT PROBE" in serial.read_text(errors="replace"):
+                      seen=True
+                      break
+                  if proc.poll() is not None:break
+                  time.sleep(.2)
+              assert seen,"Kernel panic not executed"
+              time.sleep(3)
+              image=root/"aurora_emergency_boot.ppm"
+              qmp("screendump",{"filename":str(image)},ident="capture")
+              data=image.read_bytes()
+              marker=data.find(b"\n255\n")
+              assert data.startswith(b"P6\n") and marker>0
+              pixels=data[marker+5:]
+              assert len(pixels)>800*600*3,"Guest framebuffer is invalid"
+              assert len(set(pixels[::257]))>=32,"Emergency scene was blank"
+              assert "[boot] Identity login ready at" not in serial.read_text(errors="replace")
+              print("QEMU fatal error and visible independent recovery art verified",flush=True)
+          finally:
+              try:qmp("quit",ident="quit")
+              except Exception:proc.terminate()
+              try:proc.wait(timeout=8)
+              except subprocess.TimeoutExpired:proc.kill()
+              sock.close()
+          PY
+          python3 /tmp/record_emergency.py
+          ffmpeg -hide_banner -loglevel error -y -i capture/emergency/aurora_emergency_boot.ppm -frames:v 1 capture/emergency/aurora_emergency_boot.png
+      - name: Save emergency recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aurora-Fatal-Boot-Recovery-Visual-Evidence
+          path: capture/emergency/
           if-no-files-found: warn
           retention-days: 7
