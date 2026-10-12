@@ -266,6 +266,39 @@ static bool send_g5_window_place(
         (uint64_t)(uintptr_t)wire,sizeof(wire),0u,0u)==0u;
 }
 
+
+/* Primary Ring 3 Shell sends a native authenticated control request.
+ * Wire layout is little-endian, no C struct cast or capability transfer. */
+static bool send_g5_canvas_pan(uint64_t endpoint,uint64_t generation,
+    uint64_t object_generation,uint64_t request_id,
+    int32_t dx,int32_t dy,uint64_t camera_revision,uint64_t scene_revision) {
+    if (!endpoint || !generation || !object_generation || request_id<=4u ||
+        !camera_revision || !scene_revision ||
+        ((dx==0)&&(dy==0)) || dx>32 || dx< -32 || dy>32 || dy< -32)
+        return false;
+    uint8_t wire[G5_IPC_WIRE_HEADER_BYTES+24u]={0};
+    wire[0]='G';wire[1]='5';wire[2]='I';wire[3]='P';
+    wire[4]=G5_IPC_WIRE_MAJOR;wire[8]=G5_IPC_WIRE_HEADER_BYTES;
+    wire[10]=G5_IPC_REQUEST;
+    const uint32_t op=G5_OP_CANVAS_PAN;
+    for(unsigned i=0u;i<4u;++i) wire[12u+i]=(uint8_t)(op>>(8u*i));
+    wire[20]=24u;
+    for(unsigned i=0u;i<8u;++i) {
+        wire[24u+i]=(uint8_t)(request_id>>(8u*i));
+        wire[32u+i]=(uint8_t)(generation>>(8u*i));
+        wire[40u+i]=(uint8_t)(object_generation>>(8u*i));
+        wire[56u+i]=(uint8_t)(camera_revision>>(8u*i));
+        wire[64u+i]=(uint8_t)(scene_revision>>(8u*i));
+    }
+    const uint32_t ux=(uint32_t)dx,uy=(uint32_t)dy;
+    for(unsigned i=0u;i<4u;++i) {
+        wire[48u+i]=(uint8_t)(ux>>(8u*i));
+        wire[52u+i]=(uint8_t)(uy>>(8u*i));
+    }
+    return syscall5(AURORA_SYS_IPC_SEND,endpoint,
+        (uint64_t)(uintptr_t)wire,sizeof(wire),0u,0u)==0u;
+}
+
 static bool wait_message(uint64_t endpoint) {
     return syscall2(AURORA_SYS_IPC_WAIT, endpoint, 0u) == 0u;
 }
@@ -401,6 +434,31 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
             received.capability_count != 0u) {
             clear_bytes(&received, sizeof(received));
             return 1;
+        }
+        /* Resize and camera control messages happen to have the same size.
+         * Identify the type before treating the bytes as resize metadata. */
+        if (!secondary && startup->g5_endpoint != 0u &&
+            received.length == sizeof(struct aurora_user_session_host_camera_message)) {
+            struct aurora_user_session_host_camera_message pan;
+            clear_bytes(&pan,sizeof(pan));
+            copy_bytes(&pan,received.data,sizeof(pan));
+            if (pan.header.type == AURORA_USER_SESSION_HOST_CANVAS_PAN_REQUEST) {
+                clear_bytes(&received,sizeof(received));
+                if (pan.header.version != AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
+                    pan.header.request_id<=4u ||
+                    !send_g5_canvas_pan(startup->g5_endpoint,
+                                        startup->session_generation,
+                                        startup->graphics_object_generation,
+                                        pan.header.request_id,
+                                        pan.delta_x_px,pan.delta_y_px,
+                                        pan.expected_camera_revision,
+                                        pan.expected_scene_revision) ||
+                    !send_message(startup->control_endpoint,
+                                  AURORA_USER_SESSION_HOST_CANVAS_PAN_ACK,
+                                  pan.header.request_id))
+                    return 1;
+                continue;
+            }
         }
         if ((secondary || startup->g5_endpoint != 0u) &&
             received.length ==

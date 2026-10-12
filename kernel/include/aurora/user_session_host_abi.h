@@ -23,6 +23,8 @@
 #define AURORA_USER_SESSION_HOST_RESIZE_ACK 9u
 /* Kernel admits resize commit only after trusted ACK is recorded. */
 #define AURORA_USER_SESSION_HOST_RESIZE_COMMIT_GRANT 10u
+#define AURORA_USER_SESSION_HOST_CANVAS_PAN_REQUEST 11u
+#define AURORA_USER_SESSION_HOST_CANVAS_PAN_ACK 12u
 
 #define AURORA_USER_SESSION_HOST_READY_MAGIC UINT64_C(0x4155525345535348)
 
@@ -66,4 +68,12 @@ struct aurora_user_session_host_resize_message {
     uint32_t height;
 };
 
+/* Authoritative kernel-to-primary Shell control message. Fields are
+ * copied across a process IPC boundary; no capability is transferable. */
+struct aurora_user_session_host_camera_message {
+    struct aurora_user_session_host_message header;
+    int32_t delta_x_px, delta_y_px;
+    uint64_t expected_camera_revision;
+    uint64_t expected_scene_revision;
+};
 #endif

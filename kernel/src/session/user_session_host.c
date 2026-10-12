@@ -779,6 +779,7 @@ static uint64_t production_g5_ready_count;
 static uint64_t production_g5_health_count;
 static uint64_t production_g5_present_count;
 static uint64_t production_g5_place_count;
+static uint64_t production_g5_pan_count;
 
 static bool production_g5_authorize(void *ctx,uint32_t operation,uint64_t generation) {
     (void)ctx;
@@ -790,7 +791,8 @@ static bool production_g5_authorize(void *ctx,uint32_t operation,uint64_t genera
         (operation==G5_OP_SHELL_READY || operation==G5_OP_SHELL_HEALTH ||
          ((operation==G5_OP_SCENE_PUBLISH ||
            operation==G5_OP_WINDOW_PLACE ||
-           operation==G5_OP_WINDOW_CLOSE) && host.scene.active));
+           operation==G5_OP_WINDOW_CLOSE ||
+           operation==G5_OP_CANVAS_PAN) && host.scene.active));
 }
 
 static bool production_g5_handle(void *ctx,const struct g5_ipc_header *header,
@@ -820,6 +822,11 @@ static bool production_g5_handle(void *ctx,const struct g5_ipc_header *header,
     }
     if (header->operation==G5_OP_WINDOW_CLOSE)
         return g5_shell_scene_close(&host.scene,header,payload);
+    if (header->operation==G5_OP_CANVAS_PAN &&
+        g5_shell_scene_pan(&host.scene,header,payload)) {
+        ++production_g5_pan_count;
+        return true;
+    }
     return false;
 }
 
@@ -850,6 +857,7 @@ bool user_session_host_start(void) {
     production_g5_health_count=0u;
     production_g5_present_count=0u;
     production_g5_place_count=0u;
+    production_g5_pan_count=0u;
     bool started=start_with_context(
         session_manager_client_user_id(),
         production_shell_generation);
@@ -1186,13 +1194,15 @@ static uint32_t g5_session_ready_events;
 static uint32_t g5_session_health_events;
 static uint32_t g5_session_present_events;
 static uint32_t g5_session_place_events;
+static uint32_t g5_session_pan_events;
 static bool g5_session_test_authorize(void *ctx,uint32_t operation,uint64_t generation) {
     (void)ctx;
     return (operation==G5_OP_SHELL_READY ||
             operation==G5_OP_SHELL_HEALTH ||
             operation==G5_OP_SCENE_PUBLISH ||
             operation==G5_OP_WINDOW_PLACE ||
-            operation==G5_OP_WINDOW_CLOSE) &&
+            operation==G5_OP_WINDOW_CLOSE ||
+            operation==G5_OP_CANVAS_PAN) &&
            generation==g5_session_test_generation;
 }
 static bool g5_session_test_handle(void *ctx,const struct g5_ipc_header *header,
@@ -1219,6 +1229,11 @@ static bool g5_session_test_handle(void *ctx,const struct g5_ipc_header *header,
     }
     if (header->operation==G5_OP_WINDOW_CLOSE)
         return g5_shell_scene_close(&host.scene,header,payload);
+    if (header->operation==G5_OP_CANVAS_PAN &&
+        g5_shell_scene_pan(&host.scene,header,payload)) {
+        ++g5_session_pan_events;
+        return true;
+    }
     return false;
 }
 
@@ -1448,6 +1463,7 @@ bool user_session_host_self_test(void) {
     g5_session_health_events=0u;
     g5_session_present_events=0u;
     g5_session_place_events=0u;
+    g5_session_pan_events=0u;
     if (!user_session_host_register_g5_dispatcher(&g5_test_dispatcher)) {
         session_profile_lease_end();
         (void)cap_revoke(&bridge.capabilities,profile);
@@ -1637,6 +1653,7 @@ bool user_session_host_self_test(void) {
             g5_session_health_events=0u;
             g5_session_present_events=0u;
             g5_session_place_events=0u;
+    g5_session_pan_events=0u;
             reauthenticated=start_with_context(user_id,UINT64_C(2)) &&
                 user_session_host_active() && host.g5_ready &&
                 g5_session_ready_events==1u &&
