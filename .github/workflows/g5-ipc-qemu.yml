@@ -62,7 +62,7 @@ jobs:
           grep -F "[g5-wp04-interaction] primary focus/input isolation passed" build/g5-ipc-first.log
           grep -F "[g5-wp04-interaction] secondary close and primary survival passed" build/g5-ipc-first.log
           grep -F "[g5-wp05] Ring3 authorized dual-client camera pan and rollback passed" build/g5-ipc-first.log
-          grep -F "[g5-wp05-input] hardware wheel on empty Canvas uses authorized Ring3 pan" build/g5-ipc-first.log
+          grep -F "[g5-wp05-input] USB HID background wheel uses authorized Ring3 pan" build/g5-ipc-first.log
       - name: Cold reboot reusing SAME physical disk image
         run: |
           set -eu
@@ -87,7 +87,7 @@ jobs:
           grep -F "[g5-wp04-interaction] primary focus/input isolation passed" build/g5-ipc-second.log
           grep -F "[g5-wp04-interaction] secondary close and primary survival passed" build/g5-ipc-second.log
           grep -F "[g5-wp05] Ring3 authorized dual-client camera pan and rollback passed" build/g5-ipc-second.log
-          grep -F "[g5-wp05-input] hardware wheel on empty Canvas uses authorized Ring3 pan" build/g5-ipc-second.log
+          grep -F "[g5-wp05-input] USB HID background wheel uses authorized Ring3 pan" build/g5-ipc-second.log
       - name: Preserve G5 cold-boot artifacts
         if: always()
         uses: actions/upload-artifact@v4
