@@ -49,29 +49,18 @@ static void draw_scene(void) {
 }
 
 static void redraw_status_background(void) {
-    uint64_t y_begin =
-        active_fb.height * 47u / 100u;
-
-    uint64_t y_end =
-        active_fb.height * 94u / 100u;
-
-    if (y_end <= y_begin) {
-        return;
-    }
-
-    /*
-     * The full boot artwork is scaled exactly once in boot_ui_init(). Progress
-     * updates use a dedicated dark status band instead of re-sampling almost
-     * half of the image at every milestone.
-     */
-    framebuffer_fill_rect(
-        &active_fb,
-        0u,
-        y_begin,
-        active_fb.width,
-        y_end - y_begin,
-        rgb(2, 9, 22)
-    );
+    /* The old 47%-94% full-width opaque strip hid the central Aurora mark.
+     * Constrain the refreshed region to a compact lower status panel.
+     * Repainting only this rectangle keeps milestone updates inexpensive. */
+    const uint64_t x = active_fb.width * 12u / 100u;
+    const uint64_t y = active_fb.height * 65u / 100u;
+    const uint64_t width = active_fb.width - x * 2u;
+    const uint64_t height = active_fb.height * 28u / 100u;
+    framebuffer_fill_rect(&active_fb, x, y, width, height,
+                          rgb(2, 9, 22));
+    /* Quiet cyan top border ties the status card to the Aurora palette. */
+    framebuffer_fill_rect(&active_fb, x, y, width, 2u,
+                          rgb(34, 99, 138));
 }
 
 static void draw_bar(uint8_t percent) {
@@ -101,7 +90,7 @@ static void draw_bar(uint8_t percent) {
         (active_fb.width - bar_width) / 2u;
 
     uint64_t y =
-        active_fb.height * 55u / 100u;
+        active_fb.height * 76u / 100u;
 
     framebuffer_fill_rect(
         &active_fb,
@@ -188,70 +177,16 @@ static void draw_bar(uint8_t percent) {
 }
 
 static void draw_phrases(uint8_t active_phrase) {
-    const uint64_t count =
-        sizeof(phrases) / sizeof(phrases[0]);
+    const uint64_t count = sizeof(phrases) / sizeof(phrases[0]);
+    if (count == 0u) return;
+    if (active_phrase >= count) active_phrase = (uint8_t)(count - 1u);
 
-    uint32_t scale =
-        active_fb.width >= 1200u ? 2u : 1u;
-
-    uint64_t line_height =
-        FONT_HEIGHT * scale + 8u;
-
-    uint64_t start_y =
-        active_fb.height * 62u / 100u;
-
-    for (uint64_t i = 0;
-         i < count;
-         ++i) {
-        uint32_t color;
-
-        if (i < active_phrase) {
-            color = rgb(90, 164, 195);
-        } else if (i == active_phrase) {
-            color = rgb(179, 245, 255);
-        } else {
-            color = rgb(45, 78, 104);
-        }
-
-        uint64_t width =
-            text_width(phrases[i], scale);
-
-        uint64_t x =
-            active_fb.width > width
-                ? (active_fb.width - width) / 2u
-                : 0u;
-
-        uint64_t y =
-            start_y + i * line_height;
-
-        uint64_t marker_x =
-            x > 18u ? x - 18u : 2u;
-
-        framebuffer_fill_rect(
-            &active_fb,
-            marker_x,
-            y + 1u,
-            6u,
-            6u,
-            i <= active_phrase
-                ? rgb(61, 222, 255)
-                : rgb(34, 65, 91)
-        );
-
-        draw_text(
-            x + scale,
-            y + scale,
-            phrases[i],
-            scale,
-            rgb(1, 7, 17)
-        );
-
-        draw_text(
-            x,
-            y,
-            phrases[i],
-            scale,
-            color
-        );
-    }
+    /* One live milestone, not seven stacked lines and markers that
+     * obscure the artwork and overrun short displays. */
+    draw_text_shadowed_centered(
+        active_fb.height * 85u / 100u,
+        phrases[active_phrase],
+        active_fb.width >= 1200u ? 2u : 1u,
+        rgb(169, 230, 246)
+    );
 }

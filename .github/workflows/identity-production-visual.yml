@@ -1,0 +1,204 @@
+name: Aurora Production Identity Boot Visual Acceptance
+
+on:
+  push:
+    branches:
+      - 'fix/boot-identity-visual-handoff-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  record-boot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout production candidate
+        uses: actions/checkout@v4
+
+      - name: Install QEMU, kernel build and recording dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld make xorriso curl git binutils python3 qemu-system-x86 ffmpeg
+
+      - name: Build genuine production ISO, without invasive validation graphics
+        run: |
+          make BOOT_VALIDATION=0 iso
+          mkdir -p capture/iso capture/output
+          cp build/AuroraOS-x86_64.iso capture/iso/AuroraOS-x86_64.iso
+          sha256sum capture/iso/AuroraOS-x86_64.iso > capture/iso-sha256.txt
+
+      - name: Capture actual boot framebuffer through QEMU screendump
+        run: |
+          mkdir -p capture/frames capture/output
+          cat > /tmp/record_aurora.py <<'PY'
+          import json
+          import os
+          import pathlib
+          import shutil
+          import socket
+          import subprocess
+          import time
+
+          root = pathlib.Path('capture')
+          frames = root / 'frames'
+          image = root / 'aurora-test-disk.img'
+          iso = root / 'iso' / 'AuroraOS-x86_64.iso'
+          serial = root / 'output' / 'qemu-boot.log'
+          monitor = '/tmp/aurora-qmp.sock'
+          image.write_bytes(b'')  # Sparse file, then bounded signature.
+          with image.open('r+b') as disk:
+              disk.truncate(16 * 1024 * 1024)
+              disk.seek(-512, 2)
+              signature = b'AURORA-AHCI-RW-TEST-V1'
+              disk.write(signature + bytes(512 - len(signature)))
+          try:
+              os.unlink(monitor)
+          except FileNotFoundError:
+              pass
+
+          cmd = [
+              'qemu-system-x86_64', '-M', 'q35', '-cpu', 'max',
+              '-m', '512M', '-smp', '4,sockets=1,cores=2,threads=2',
+              '-vga', 'std', '-display', 'none', '-boot', 'order=d',
+              '-cdrom', str(iso),
+              '-drive', 'file=' + str(image) + ',format=raw,if=none,id=aurora_disk',
+              '-device', 'ide-hd,drive=aurora_disk',
+              '-serial', 'file:' + str(serial),
+              '-qmp', 'unix:' + monitor + ',server=on,wait=off',
+              '-no-reboot', '-no-shutdown',
+          ]
+          process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                     stderr=(root/'output'/'qemu-stderr.log').open('wb'))
+          print('QEMU PID', process.pid, flush=True)
+          sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+          for attempt in range(100):
+              if pathlib.Path(monitor).exists():
+                  try:
+                      sock.connect(monitor)
+                      break
+                  except OSError:
+                      pass
+              time.sleep(.1)
+          else:
+              process.kill()
+              raise RuntimeError('QMP socket not created')
+
+          buffer = bytearray()
+          def message():
+              global buffer
+              while b'\n' not in buffer:
+                  data = sock.recv(65536)
+                  if not data:
+                      raise RuntimeError('QMP disconnected')
+                  buffer.extend(data)
+              raw, _, rest = buffer.partition(b'\n')
+              buffer = bytearray(rest)
+              return json.loads(raw)
+
+          def qmp(command, arguments=None, ident='capture'):
+              payload = {'execute': command, 'id': ident}
+              if arguments is not None:
+                  payload['arguments'] = arguments
+              sock.sendall(json.dumps(payload).encode() + b'\n')
+              while True:
+                  resp = message()
+                  if resp.get('id') != ident:
+                      continue
+                  if 'error' in resp:
+                      raise RuntimeError(str(resp['error']))
+                  return resp['return']
+
+          try:
+              greeted = message()
+              if 'QMP' not in greeted:
+                  raise RuntimeError('Unexpected QMP greeting: ' + repr(greeted))
+              qmp('qmp_capabilities', ident='enable')
+              boot_seen = False
+              g2_secure_seen = False
+              login_frames = 0
+              total_frames = 0
+              for i in range(125):  # <=62.5 s, captured from the first QEMU BIOS frame
+                  path = frames / f'frame_{i:03}.ppm'
+                  qmp('screendump', {'filename': str(path)}, ident=i)
+                  if not path.is_file() or path.stat().st_size < 2048:
+                      raise RuntimeError('Missing real QEMU frame ' + str(i))
+                  total_frames = i + 1
+                  if serial.exists():
+                      log = serial.read_text(errors='replace')
+                      if '[boot] Identity login ready at' in log:
+                          boot_seen = True
+                      if '[identity-g2] privileged PRE_SESSION compositor login frame presented' in log:
+                          g2_secure_seen = True
+                      if boot_seen:
+                          login_frames += 1
+                  if boot_seen and login_frames >= 12:
+                      break
+                  if process.poll() is not None:
+                      break
+                  time.sleep(.5)
+              (root/'output'/'capture-metadata.json').write_text(
+                  json.dumps({
+                      'iso_source_commit': '98c2d29614f48175832cd8cc53142393745eedae',
+                      'build_validation': False,
+                      'actual_qemu_frames': total_frames,
+                      'sample_interval_seconds': .5,
+                      'boot_ready_serial_marker_observed': boot_seen,
+                      'g2_secure_scene_presented': g2_secure_seen,
+                      'qemu_returncode_before_shutdown': process.poll(),
+                      'captured_frame_dimensions_from_guest': 'read from actual PPM',
+                  }, indent=2))
+              print('Frames captured:', total_frames, 'login ready:', boot_seen, flush=True)
+              if total_frames < 4 or not boot_seen or not g2_secure_seen:
+                  raise RuntimeError('QEMU boot did not reach Identity login; check serial log')
+          finally:
+              try:
+                  qmp('quit', ident='shutdown')
+              except Exception:
+                  process.terminate()
+              try:
+                  process.wait(timeout=10)
+              except subprocess.TimeoutExpired:
+                  process.kill()
+              sock.close()
+          PY
+          python3 /tmp/record_aurora.py
+
+      - name: Build authentic screenshots and mini video
+        run: |
+          python3 - <<'PY'
+          import glob, pathlib, subprocess
+          frames=sorted(glob.glob('capture/frames/frame_*.ppm'))
+          if len(frames) < 4: raise SystemExit('Not enough QEMU frames')
+          output=pathlib.Path('capture/output')
+          indices={
+            '01_avvio_bios.png': 0,
+            '02_avvio_aurora.png': min(8,len(frames)-1),
+            '03_caricamento.png': max(0,(len(frames)*2)//3),
+            '04_login_aurora_identity.png':len(frames)-1
+          }
+          for name,index in indices.items():
+            subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-y',
+                            '-i',frames[index],'-frames:v','1',str(output/name)],
+                           check=True)
+          print('Selected frames:', indices)
+          PY
+          ffmpeg -hide_banner -loglevel error -y \
+            -framerate 4 -i capture/frames/frame_%03d.ppm \
+            -vf "scale=1024:-2:flags=lanczos,format=yuv420p" \
+            -c:v libx264 -preset veryfast -crf 20 -movflags +faststart \
+            capture/output/aurora_identity_production_boot.mp4
+          ls -lh capture/output
+
+      - name: Publish QEMU screenshot and mini-video evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aurora-Identity-Production-Boot-Visual-After-Fix
+          path: |
+            capture/output/
+            capture/iso-sha256.txt
+          if-no-files-found: warn
+          retention-days: 7

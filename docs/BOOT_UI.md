@@ -54,3 +54,23 @@ A panic that occurs before a usable framebuffer exists can only be reported thro
 ## Future evolution
 
 When Aurora has a filesystem, image loader and compositor, the same boot-state API can drive a richer image-backed or animated boot experience without changing the milestone semantics.
+
+## 2026-10-12 — Fix layout e avanzamento visivo
+
+La prima registrazione QEMU ha mostrato una fascia scura troppo alta
+(47%-94%) che copriva l'emblema e la grafica di avvio. Adesso solo il
+pannello di stato inferiore (x 12%-88%, y 65%-93%) viene aggiornato.
+Il titolo, la barra e una sola frase corrente rimangono separati dal
+marchio centrale; non vengono piu' disegnate sette frasi sovrapposte.
+I passaggi di stato aggiornano la UI sia con `BOOT_VALIDATION=0` sia
+con `BOOT_VALIDATION=1`, senza attendere artificialmente tra le fasi.
+L'ultimo frame del bootstrap non viene mai cancellato deliberatamente
+prima della pubblicazione del primo frame di Identity.
+
+Attenzione: la build di validazione contiene test che presentano veri
+buffer sul display e possono cancellare temporaneamente la splash e
+mostrare campioni colorati. Questi non sono effetti desiderati nel
+normale boot, percio' la validazione funzionale e la verifica visuale
+`BOOT_VALIDATION=0` hanno finalita' distinte. I test non vanno rimossi
+per nascondere il problema; per una sequenza pulita va registrata la
+build normale e vanno mantenute le verifiche QEMU separate.

@@ -369,118 +369,118 @@ static void login_build_mask(char *buffer, size_t capacity) {
 static const char *login_status_text(void) {
     switch (login_state) {
         case AURORA_LOGIN_AUTHENTICATING:
-            return "VERIFYING AURORA KEY...";
+            return "VERIFICA AURORA KEY...";
 
         case AURORA_LOGIN_UNKNOWN_IDENTITY:
-            return "AURORA KEY NOT ACCEPTED";
+            return "AURORA KEY NON ACCETTATA";
 
         case AURORA_LOGIN_CREATE_ENTRY:
-            return "FIRST-USER CREATION";
+            return "CREAZIONE PRIMO UTENTE";
 
         case AURORA_LOGIN_CREATING:
-            return "CREATING AURORA IDENTITY...";
+            return "CREAZIONE IDENTITA AURORA...";
 
         case AURORA_LOGIN_CREATED:
-            return "IDENTITY CREATED - SIGN IN WITH YOUR KEY";
+            return "IDENTITA CREATA - ACCEDI CON LA TUA KEY";
 
         case AURORA_LOGIN_CREATE_DENIED:
-            return "PROFILE CREATION IS NOT AVAILABLE";
+            return "CREAZIONE PROFILO NON DISPONIBILE";
 
         case AURORA_LOGIN_ERROR:
-            return "AURORA KEY NOT ACCEPTED";
+            return "AURORA KEY NON ACCETTATA";
 
         case AURORA_LOGIN_THROTTLED:
-            return "TOO MANY ATTEMPTS - TRY AGAIN LATER";
+            return "TROPPI TENTATIVI - RIPROVA PIU TARDI";
 
         case AURORA_LOGIN_LOCKING:
-            return "LOCKING SESSION...";
+            return "BLOCCO DELLA SESSIONE...";
 
         case AURORA_LOGIN_LOCKED:
-            return "SESSION LOCKED";
+            return "SESSIONE BLOCCATA";
 
         case AURORA_LOGIN_UNLOCKING:
-            return "VERIFYING TO UNLOCK...";
+            return "VERIFICA PER SBLOCCO...";
 
         case AURORA_LOGIN_LOGGING_OUT:
-            return "LOGGING OUT...";
+            return "DISCONNESSIONE...";
 
         case AURORA_LOGIN_TERMINATING:
-            return "TERMINATING FAILED SESSION...";
+            return "TERMINAZIONE SESSIONE...";
 
         case AURORA_LOGIN_TERMINATED:
-            return "SESSION TERMINATED SAFELY";
+            return "SESSIONE TERMINATA IN SICUREZZA";
 
         case AURORA_LOGIN_SESSION_ACTIVE:
-            return "AUTHENTICATED SESSION ACTIVE";
+            return "SESSIONE AUTENTICATA ATTIVA";
 
         case AURORA_LOGIN_IDLE:
         default:
-            return "LOCAL OFFLINE ACCESS";
+            return "ACCESSO LOCALE OFFLINE";
     }
 }
 
 static const char *login_prompt_text(void) {
     if (login_state == AURORA_LOGIN_SESSION_ACTIVE) {
-        return "AURORA IDENTITY VERIFIED";
+        return "IDENTITA AURORA VERIFICATA";
     }
     if (login_state == AURORA_LOGIN_LOCKED ||
         login_state == AURORA_LOGIN_UNLOCKING) {
-        return "ENTER YOUR AURORA KEY TO UNLOCK";
+        return "INSERISCI AURORA KEY PER SBLOCCARE";
     }
     if (login_state == AURORA_LOGIN_LOCKING) {
-        return "SECURING LOCAL SESSION";
+        return "PROTEZIONE SESSIONE LOCALE";
     }
     if (login_state == AURORA_LOGIN_LOGGING_OUT) {
-        return "ENDING LOCAL SESSION";
+        return "CHIUSURA SESSIONE LOCALE";
     }
     if (login_state == AURORA_LOGIN_TERMINATING) {
-        return "REVOKING FAILED SESSION";
+        return "REVOCA DELLA SESSIONE";
     }
     if (login_state == AURORA_LOGIN_TERMINATED) {
-        return "SESSION ACCESS HAS BEEN REVOKED";
+        return "ACCESSO ALLA SESSIONE REVOCATO";
     }
 
     return login_state == AURORA_LOGIN_CREATE_ENTRY ||
            login_state == AURORA_LOGIN_CREATING
-        ? "ENTER A NEW AURORA KEY"
-        : "ENTER YOUR AURORA KEY";
+        ? "INSERISCI UNA NUOVA AURORA KEY"
+        : "INSERISCI LA TUA AURORA KEY";
 }
 
 static const char *login_instruction_text(void) {
     switch (login_state) {
         case AURORA_LOGIN_CREATE_ENTRY:
-            return "PRESS ENTER TO CREATE - ESC TO CANCEL";
+            return "INVIO CREA - ESC ANNULLA";
 
         case AURORA_LOGIN_CREATED:
         case AURORA_LOGIN_CREATE_DENIED:
-            return "PRESS ENTER TO RETURN TO SIGN IN";
+            return "INVIO TORNA ALL'ACCESSO";
 
         case AURORA_LOGIN_UNKNOWN_IDENTITY:
             return "";
 
         case AURORA_LOGIN_LOCKING:
-            return "REVOKING INTERACTIVE PROFILE ACCESS";
+            return "REVOCA ACCESSO AL PROFILO";
 
         case AURORA_LOGIN_LOCKED:
-            return "ENTER UNLOCK     ESC LOG OUT";
+            return "INVIO SBLOCCA     ESC ESCI";
 
         case AURORA_LOGIN_UNLOCKING:
-            return "FRESH IDENTITY AUTHENTICATION REQUIRED";
+            return "RICHIESTA NUOVA AUTENTICAZIONE";
 
         case AURORA_LOGIN_LOGGING_OUT:
-            return "REVOKING SESSION ACCESS";
+            return "REVOCA ACCESSO ALLA SESSIONE";
 
         case AURORA_LOGIN_TERMINATING:
-            return "REVOKING ALL SESSION CAPABILITIES";
+            return "REVOCA TUTTI I PERMESSI DI SESSIONE";
 
         case AURORA_LOGIN_TERMINATED:
-            return "PRESS ENTER TO RETURN TO SIGN IN";
+            return "INVIO TORNA ALL'ACCESSO";
 
         case AURORA_LOGIN_SESSION_ACTIVE:
-            return "ENTER LOCK     ESC LOG OUT";
+            return "INVIO BLOCCA     ESC ESCI";
 
         default:
-            return "PRESS ENTER TO CONTINUE";
+            return "PREMI INVIO PER CONTINUARE";
     }
 }
 
@@ -516,21 +516,21 @@ static void login_draw_unknown_identity_dialog(void) {
 
     login_draw_text_centered(
         y + height * 20u / 100u,
-        "AURORA KEY NOT ACCEPTED",
+        "AURORA KEY NON ACCETTATA",
         normal_scale,
         text
     );
 
     login_draw_text_centered(
         y + height * 44u / 100u,
-        "CREATE A NEW AURORA PROFILE?",
+        "CREARE UN NUOVO PROFILO AURORA?",
         normal_scale,
         dim
     );
 
     login_draw_text_centered(
         y + height * 69u / 100u,
-        "ENTER CREATE     ESC CANCEL",
+        "INVIO CREA     ESC ANNULLA",
         normal_scale,
         border
     );
@@ -563,7 +563,7 @@ static void login_ui_draw_contents(void) {
 
     login_draw_text_centered(
         login_fb.height * 33u / 100u,
-        "IDENTITY",
+        "IDENTITA",
         text_scale,
         accent
     );
@@ -657,7 +657,7 @@ static void login_ui_draw_contents(void) {
 
     login_draw_text_centered(
         login_fb.height * 92u / 100u,
-        "AURORA OS - IDENTITY",
+        "AURORA OS - IDENTITA",
         1u,
         login_rgb(67, 94, 112)
     );

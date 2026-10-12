@@ -122,3 +122,14 @@ Key handling and credential-field input remain in the trusted kernel controller,
 and Identity Service remains the sole authentication authority. The remaining
 G2 completion gate is isolated process hosting, secure input ownership and
 handoff, lock/unlock and crash/recovery validation, followed by hardware checks.
+
+## 2026-10-12 — Localizzazione coerente del login early stage
+
+Il renderer nativo di Identity usa ora messaggi italiani, in coerenza
+con le frasi cosmiche della schermata di boot: prompt Aurora Key,
+stati di autenticazione/blocco, invio/ESC, dialogo di creazione.
+La chiave `Aurora Key` resta un nome di prodotto, e non viene modificata
+la logica di normalizzazione del segreto ne' il protocollo Ring 3.
+La localizzazione completa e il cambio lingua con sistema di cataloghi
+rimangono obiettivi della successiva Identity System App; il renderer
+di recupero supporta intenzionalmente una serie ridotta di caratteri.
