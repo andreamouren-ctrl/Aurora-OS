@@ -85,12 +85,14 @@ bool identity_ring3_host_start(void) {
     if (identity_ring3_host_alive()) return true;
     if (!reap_finished() || last_instance_epoch==UINT64_MAX)
         return false;
+    uint32_t startup_step=1u;
     ring3.instance_epoch=++last_instance_epoch;
     ring3.next_id=1u;
     ring3.process=process_create_image(
         "identity-pre-session",
         identity_ring3_host_image(),identity_ring3_host_image_size());
     if (!ring3.process) return false;
+    startup_step=2u;
     ipc_channel_init(&ring3.channel);
     cap_table_init(&ring3.kernel_caps);
     ring3.kernel_endpoint=ipc_channel_endpoint(&ring3.channel,0u);
@@ -100,6 +102,7 @@ bool identity_ring3_host_start(void) {
         &ring3.process->capabilities,user,AURORA_CAP_IPC_ENDPOINT,
         AURORA_RIGHT_READ|AURORA_RIGHT_WRITE);
     if (handle==AURORA_CAP_INVALID) goto failure;
+    startup_step=3u;
     /* The whole granted authority is one non-transferable IPC endpoint.
      * No DISPLAY, FILE, PROFILE, INPUT or Identity authentication grants. */
     const struct aurora_identity_ring3_startup startup={
@@ -111,17 +114,33 @@ bool identity_ring3_host_start(void) {
         !copy_to_user(ring3.process,
            ring3.process->user_stack_top-sizeof(startup),
            &startup,sizeof(startup))) goto failure;
+    startup_step=4u;
     ring3.thread=scheduler_create_user_thread(
         "identity-pre-session",ring3.process);
     if (!ring3.thread) goto failure;
+    startup_step=5u;
     if (!receive(AURORA_IDENTITY_RING3_READY,ring3.instance_epoch) ||
         process_bootstrap_signal(ring3.process)!=
             AURORA_IDENTITY_RING3_READY_MAGIC) goto failure;
+    startup_step=6u;
     ring3.started=true;
     if (!identity_ring3_host_health_check()) goto failure;
     log_line("[identity-g2-ring3] isolated IPC-only pre-session process READY and healthy");
     return true;
 failure:
+    log_write("[identity-g2-ring3] startup failure step: ");
+    log_u64(startup_step);
+    if (ring3.process) {
+        log_write(" process-state/exit/fault/proof: ");
+        log_u64(process_state(ring3.process));
+        log_write("/");
+        log_u64((uint64_t)ring3.process->exit_code);
+        log_write("/");
+        log_u64(ring3.process->fault_vector);
+        log_write("/");
+        log_u64(process_bootstrap_signal(ring3.process));
+    }
+    log_line("");
     ring3.started=false;
     /* Fail closed: no authority is given to the failed worker, and the
      * kernel compositor/input path remains independent and operational.
