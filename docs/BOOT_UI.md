@@ -86,3 +86,13 @@ presentation only. Validation/QEMU graphics probes may independently paint
 diagnostic buffers; those tests remain intact and should not be mistaken for
 normal startup UX. Test normal visuals with `BOOT_VALIDATION=0` while still
 running the separate boot-validation and cold-boot test suites.
+
+### QEMU recovery-path acceptance
+
+The visual CI workflow checks both normal production boot and the emergency
+path. A separate, disposable CI checkout inserts a synthetic kernel panic
+just after the early framebuffer is registered, builds a **test-only ISO**,
+then verifies through QEMU serial and framebuffer capture that the emergency
+scene is visible and the login is not reached. This synthetic panic is never
+committed to the actual Aurora kernel. The normal workflow uses unmodified
+candidate source and must reach the final Identity login.
