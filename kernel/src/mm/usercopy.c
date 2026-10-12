@@ -63,7 +63,8 @@ static bool copy_user_common(
     uint64_t user_address,
     void *kernel_buffer,
     size_t length,
-    bool write_user
+    bool write_user,
+    bool perform_copy
 ) {
     if (process == NULL ||
         kernel_buffer == NULL ||
@@ -89,8 +90,11 @@ static bool copy_user_common(
             return false;
         }
 
-        if ((mapping.flags &
-             VMM_FLAG_USER) == 0) {
+        /* Reject malformed VMM results before using page_size for
+         * division, offset or copy length. Huge-page mappings are valid. */
+        if (mapping.page_size == 0u ||
+            (mapping.page_size & (mapping.page_size - 1u)) != 0u ||
+            (mapping.flags & VMM_FLAG_USER) == 0u) {
             return false;
         }
 
@@ -125,22 +129,20 @@ static bool copy_user_common(
             return false;
         }
 
-        if (write_user) {
-            copy_bytes(
-                physical_alias,
-                (const uint8_t *)
-                    kernel_buffer +
-                    completed,
-                chunk
-            );
-        } else {
-            copy_bytes(
-                (uint8_t *)
-                    kernel_buffer +
-                    completed,
-                physical_alias,
-                chunk
-            );
+        if (perform_copy) {
+            if (write_user) {
+                copy_bytes(
+                    physical_alias,
+                    (const uint8_t *)kernel_buffer + completed,
+                    chunk
+                );
+            } else {
+                copy_bytes(
+                    (uint8_t *)kernel_buffer + completed,
+                    physical_alias,
+                    chunk
+                );
+            }
         }
 
         completed += chunk;
@@ -159,12 +161,12 @@ bool copy_from_user(
         return true;
     }
 
+    /* An invalid *later* page must not partially mutate the kernel
+     * destination. Preflight the complete user span before copying. */
     return copy_user_common(
-        process,
-        user_source,
-        kernel_destination,
-        length,
-        false
+        process, user_source, kernel_destination, length, false, false
+    ) && copy_user_common(
+        process, user_source, kernel_destination, length, false, true
     );
 }
 
@@ -178,11 +180,13 @@ bool copy_to_user(
         return true;
     }
 
+    /* Likewise, a partially valid destination must remain untouched
+     * if any later page is absent or lacks user-write permission. */
     return copy_user_common(
-        process,
-        user_destination,
-        (void *)kernel_source,
-        length,
-        true
+        process, user_destination, (void *)kernel_source,
+        length, true, false
+    ) && copy_user_common(
+        process, user_destination, (void *)kernel_source,
+        length, true, true
     );
 }

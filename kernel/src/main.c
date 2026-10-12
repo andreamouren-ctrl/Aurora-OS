@@ -2604,7 +2604,55 @@ void kmain(void) {
         );
     }
 
+    /* The top stack page ends at user_stack_top and the following page
+     * is unmapped. A failing cross-page copy MUST NOT touch the valid
+     * eight bytes before the boundary or a kernel destination buffer.
+     * The legacy one-pass walker partially wrote both before failure. */
+    uint8_t edge_before[8] = {
+        0x31u,0x42u,0x53u,0x64u,0x75u,0x86u,0x97u,0xa8u
+    };
+    uint8_t edge_source[16] = {
+        0x01u,0x02u,0x03u,0x04u,0x05u,0x06u,0x07u,0x08u,
+        0x09u,0x0au,0x0bu,0x0cu,0x0du,0x0eu,0x0fu,0x10u
+    };
+    uint8_t edge_after[8] = {0};
+    uint8_t kernel_destination[16];
+    for (size_t index = 0u; index < sizeof(kernel_destination); ++index)
+        kernel_destination[index] = 0xc3u;
+
+    const uint64_t stack_edge = user_process->user_stack_top - 8u;
+    if (!copy_to_user(user_process,stack_edge,
+                      edge_before,sizeof(edge_before)) ||
+        copy_to_user(user_process,stack_edge,
+                     edge_source,sizeof(edge_source)) ||
+        !copy_from_user(user_process,edge_after,
+                        stack_edge,sizeof(edge_after))) {
+        kernel_panic("Usercopy partial write guard test failed");
+    }
+    for (size_t index=0u;index<sizeof(edge_after);++index) {
+        if (edge_after[index]!=edge_before[index])
+            kernel_panic("Usercopy rejected write modified valid prefix");
+    }
+
+    if (copy_from_user(user_process,kernel_destination,
+                       stack_edge,sizeof(kernel_destination)))
+        kernel_panic("Usercopy partial read guard test failed");
+    for (size_t index=0u;index<sizeof(kernel_destination);++index) {
+        if (kernel_destination[index]!=0xc3u)
+            kernel_panic("Usercopy rejected read modified kernel output");
+    }
+
+    /* Executable image mapping is USER but not WRITE. Also reject an
+     * address overflow, independent of page-table lookup. */
+    uint64_t read_only_image=AURORA_USER_IMAGE_BASE;
+    if (copy_to_user(user_process,read_only_image,
+                     edge_source,sizeof(edge_source)) ||
+        copy_from_user(user_process,kernel_destination,
+                       UINT64_MAX-3u,sizeof(kernel_destination))) {
+        kernel_panic("Usercopy page rights/overflow test failed");
+    }
     log_line("[usercopy] checked user memory copy passed");
+    log_line("[usercopy] cross-page partial read/write denied without mutation");
 
     aurora_thread_id user_thread =
         scheduler_create_user_thread(

@@ -94,3 +94,26 @@ The shared-memory foundation uses explicit reference accounting:
 - private anonymous reap still scrubs and frees its process-owned frames.
 
 Boot validation maps one object into two independent Ring 3 address spaces, verifies both virtual mappings resolve to the same physical pages, verifies shared visibility, explicitly unmaps one side, reaps the other, and finally releases the owner reference.
+
+## 2026-10-12 — All-or-nothing rejection of invalid usercopy spans
+
+`copy_from_user()` and `copy_to_user()` now walk the **entire** requested
+user address interval and check its mappings, user-access permissions,
+write permissions when applicable, valid page geometry and physical alias
+*before* copying a single byte. They then perform the bounded copy in a
+second pass. Unlike the previous per-page check-and-copy behaviour, an
+unmapped/forbidden later page cannot leave a partially updated kernel
+output buffer or user destination under stable mappings.
+
+The BOOT_VALIDATION QEMU test exercises an 8+8 byte span across the top of
+the allocated user stack into an unmapped guard page; checks that failed
+writes leave the first eight bytes unchanged, failed reads preserve all
+16 sentinel bytes of the kernel output, rejects writes to the executable
+read-only image, and rejects noncanonical/overflowing address ranges.
+The CI kernel boot must emit a dedicated acceptance marker.
+
+This is **invalid-range failure atomicity**, not concurrency transaction
+atomicity. Aurora's current process model has one main user thread; future
+multithreaded address-space mutation will need a stronger stable mapping
+lease/pinning boundary across both passes. No credentials or service
+protocols were changed.
