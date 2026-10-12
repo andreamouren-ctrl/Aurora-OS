@@ -907,6 +907,7 @@ static bool software_compositor_add_surface_class(
         .visible = true,
         .used = true,
         .fully_opaque = false,
+        .input_transparent = false,
         .last_commit_serial = 0u
     };
 
@@ -1151,6 +1152,25 @@ bool software_compositor_set_node(
         );
     }
 
+    return true;
+}
+
+bool software_compositor_set_input_transparent(
+    struct aurora_software_compositor *compositor,
+    struct aurora_cap_table *authority_caps,
+    aurora_cap_handle display_control_handle,
+    uint64_t node_id,
+    bool transparent
+) {
+    if (compositor == NULL || !compositor->initialized ||
+        !display_control_authorized(
+            authority_caps,display_control_handle,compositor->output_index))
+        return false;
+    struct aurora_compositor_node *node=find_node(compositor,node_id);
+    if (node == NULL ||
+        node->surface_class!=AURORA_COMPOSITOR_SURFACE_PRE_SESSION)
+        return false;
+    node->input_transparent=transparent;
     return true;
 }
 
@@ -1442,7 +1462,8 @@ bool software_compositor_hit_test(
         struct aurora_compositor_node *node =
             &compositor->nodes[i];
 
-        if (!node_allowed_in_scene(compositor, node)) {
+        if (!node_allowed_in_scene(compositor, node) ||
+            node->input_transparent) {
             continue;
         }
 
@@ -2390,6 +2411,7 @@ static bool software_compositor_advanced_selftest(void) {
     uint64_t secure_node = 0u;
     uint64_t overlay_node = 0u;
     uint64_t cursor_node = 0u;
+    uint64_t passive_node = 0u;
 
     if (!software_compositor_add_surface(
             &compositor,
@@ -2475,7 +2497,11 @@ static bool software_compositor_advanced_selftest(void) {
         !software_compositor_add_privileged_surface(
             &compositor, &authority_caps, display_control,
             secure_surface, AURORA_COMPOSITOR_SURFACE_CURSOR,
-            60, 2, 1000, 255u, &cursor_node)) {
+            60, 2, 1000, 255u, &cursor_node) ||
+        !software_compositor_add_privileged_surface(
+            &compositor, &authority_caps, display_control,
+            secure_surface, AURORA_COMPOSITOR_SURFACE_PRE_SESSION,
+            40, 2, 200, 255u, &passive_node)) {
         return false;
     }
 
@@ -2491,6 +2517,18 @@ static bool software_compositor_advanced_selftest(void) {
         return false;
     }
 
+    /* Display control, not a generic overlay or unprivileged client,
+     * owns the choice to make passive PRE_SESSION art click-through. */
+    if (software_compositor_set_input_transparent(
+            &compositor,&authority_caps,AURORA_CAP_INVALID,
+            passive_node,true) ||
+        software_compositor_set_input_transparent(
+            &compositor,&authority_caps,display_control,
+            overlay_node,true) ||
+        !software_compositor_set_input_transparent(
+            &compositor,&authority_caps,display_control,
+            passive_node,true)) return false;
+
     /* A trusted PRE_SESSION node must not enter hit-testing or the ordinary
      * desktop before the privileged scene activation is authorized. */
     uint64_t secure_hit = 0u;
@@ -2503,6 +2541,7 @@ static bool software_compositor_advanced_selftest(void) {
             true) ||
         !software_compositor_hit_test(&compositor, 40, 2, &secure_hit) ||
         secure_hit != secure_node ||
+        !software_compositor_node_in_active_scene(&compositor,passive_node) ||
         software_compositor_node_in_active_scene(&compositor, overlay_node) ||
         software_compositor_node_in_active_scene(&compositor, cursor_node) ||
         software_compositor_hit_test(&compositor, 51, 3, &foreign_hit) ||
@@ -2569,7 +2608,8 @@ static bool software_compositor_advanced_selftest(void) {
     }
 
     if (!software_compositor_remove_surface(&compositor, overlay_node) ||
-        !software_compositor_remove_surface(&compositor, cursor_node)) {
+        !software_compositor_remove_surface(&compositor, cursor_node) ||
+        !software_compositor_remove_surface(&compositor, passive_node)) {
         return false;
     }
 

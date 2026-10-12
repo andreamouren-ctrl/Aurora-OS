@@ -14,8 +14,8 @@
 /* Visual-only, noninteractive and deliberately small Ring3 accent. */
 #define AURORA_IDENTITY_RING3_DRAW_BADGE 6u
 #define AURORA_IDENTITY_RING3_DRAW_ACK 7u
-#define AURORA_IDENTITY_RING3_BADGE_WIDTH 128u
-#define AURORA_IDENTITY_RING3_BADGE_HEIGHT 16u
+#define AURORA_IDENTITY_RING3_BADGE_WIDTH 384u
+#define AURORA_IDENTITY_RING3_BADGE_HEIGHT 24u
 #define AURORA_IDENTITY_RING3_BADGE_FIRST_PIXEL UINT32_C(0xff4dcce8)
 
 struct aurora_identity_ring3_startup {

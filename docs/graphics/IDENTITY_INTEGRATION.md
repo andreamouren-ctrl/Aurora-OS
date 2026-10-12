@@ -202,3 +202,23 @@ composing the Ring 3-owned pixels into the protected scene. This is an
 incremental **real rendering ownership** proof, not yet the full Ring 3
 Identity System App; moving the main artwork, Celestia typography, and
 trusted interactive field will require separate controlled handoffs.
+
+## 2026-10-12 — Passive Ring 3 layout divider and pointer non-interference
+
+The isolated Ring 3 visual buffer now produces a centered 384x24 non-secret
+layout divider at 82% screen height. It contains only cyan/gold geometry,
+not a security badge, username, key, input field, text, or trusted-status
+claim. The kernel refuses it on displays too small to place it safely;
+the full login continues without it.
+
+The compositor now supports an explicit per-node `input_transparent` setting
+for privileged PRE_SESSION nodes, with a DISPLAY CONTROL authority check.
+Only rendering and occlusion see the node; pointer hit-testing passes
+through the decorative Ring 3 layer to the underlying trusted login node.
+Kernel verifies this in the live identity scene before admission, and
+compositor selftests assert that setting it without display control fails,
+generic overlays cannot use this PRE_SESSION policy, and a high-z decorative
+PRE_SESSION node never becomes the hit target even while its pixels render.
+This closes a mouse-routing interference hazard without moving credentials
+or keyboard input to Ring 3. Scene teardown/reaping still removes graphics
+nodes before releasing their process-owned capabilities.

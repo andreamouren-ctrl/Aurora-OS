@@ -78,15 +78,21 @@ static bool draw_badge(
     volatile uint32_t *pixels=(volatile uint32_t *)(uintptr_t)ptr;
     for (uint32_t y=0u;y<draw->height;++y)
         for (uint32_t x=0u;x<draw->width;++x) {
-            /* Small Aurora cyan/gold footer detail. No credential pixels,
-             * key lengths, user identifiers or even state strings appear. */
+            /* Pure decorative footer divider, no title, trusted-status
+             * claims, credential pixels, personal details or input. */
             uint32_t pixel=UINT32_C(0xff071a33);
-            if (y==0u || y==draw->height-1u)
+            uint32_t center=draw->width/2u;
+            uint32_t distance=x>center ? x-center : center-x;
+            if (y==0u)
                 pixel=AURORA_IDENTITY_RING3_BADGE_FIRST_PIXEL;
-            else if (x>3u && x<12u && y>3u && y<12u)
-                pixel=UINT32_C(0xffdfbb66);
-            else if (x>=20u && x<124u && y>=6u && y<=9u)
+            else if (y==draw->height-1u)
                 pixel=UINT32_C(0xff197c9e);
+            else if (distance<8u && y>4u && y<19u)
+                pixel=UINT32_C(0xffdfbb66);
+            else if (y==11u && distance>14u && distance<170u)
+                pixel=UINT32_C(0xff197c9e);
+            else if (x<2u || x>=draw->width-2u)
+                pixel=UINT32_C(0xff144660);
             pixels[(size_t)y*draw->width+x]=pixel;
         }
     if (sys1(AURORA_SYS_GRAPHICS_BUFFER_UNMAP,ptr)!=0u ||
