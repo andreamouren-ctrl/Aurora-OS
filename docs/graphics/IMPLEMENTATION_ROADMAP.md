@@ -6,6 +6,21 @@ Version: **0.2**
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
 
+## G5 WP-05 — Background wheel → authorized Ring 3 pan pilot (2026-10-12)
+
+**Candidate / pending CI:** consume supported USB HID mouse-wheel scroll over empty
+Canvas desktop space and route an 8 px bounded world-view translation
+via primary Shell Ring3 G5 IPC. A wheel event above an app window remains
+client-owned. Reject synthesized scroll, lack of session readiness, capture,
+active window drag, invalid sequence or repeated physical sequence. QEMU
+first boot and cold reboot must prove a **source-tagged, kernel-injected USB HID**
+scroll round-trip via actual Ring3 Shell process and compositor, rejection of
+synthetic scroll, PS/2-tagged scroll (not supported by the present driver),
+duplicate sequences and app-targeted scroll. This test does not inject a physical
+USB report; HID wheel decoding is covered by the separate xHCI input gate, and full unchanged WP-03/WP-04
+acceptance. Does **not** add arbitrary zoom, complete infinite Canvas, or
+new visual assets; do not freeze WP-05 from this gesture alone.
+
 ## G5 WP-05 — First Ring 3 camera translation pilot (2026-10-12)
 
 **Status: MERGED / BOUNDED RUNTIME GATE ACCEPTED, WP-05 NOT FROZEN.**
