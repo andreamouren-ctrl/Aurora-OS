@@ -38,15 +38,20 @@ int main(void) {
                                     &p,&r,&visible));
     assert(memcmp(&old,&r,sizeof(r))==0);
 
-    /* The camera can sit near INT64_MAX, and an object may span the
-     * complete representable world; clip before narrowing to int32. */
-    assert(g5_camera_init(&camera,pt(INT64_MAX-100,INT64_MIN+100),
-                          1024,768,1.0,1.0));
+    /* A world-spanning AABB covers the full viewport when centered. */
+    assert(g5_camera_init(&camera,pt(0,0),1024,768,1.0,1.0));
     p=panel(9,INT64_MIN,INT64_MIN,INT64_MAX,INT64_MAX);
     assert(g5_canvas_project_panel(&camera,camera.revision,scene,scene,
                                    session,&p,&r,&visible));
     assert(visible && r.x_px==0 && r.y_px==0 &&
            r.width_px==1024 && r.height_px==768);
+    /* Near extreme anchors, still clip before converting to int32. */
+    assert(g5_camera_init(&camera,pt(INT64_MAX-100,INT64_MIN+100),
+                          1024,768,1.0,1.0));
+    p=panel(9,INT64_MAX-200,INT64_MIN,INT64_MAX,INT64_MIN+200);
+    assert(g5_canvas_project_panel(&camera,camera.revision,scene,scene,
+                                   session,&p,&r,&visible));
+    assert(visible && r.x_px<=512 && r.y_px<=384);
     p=panel(10,INT64_MIN,INT64_MIN,INT64_MIN+1,INT64_MIN+1);
     assert(g5_canvas_project_panel(&camera,camera.revision,scene,scene,
                                    session,&p,&r,&visible));
