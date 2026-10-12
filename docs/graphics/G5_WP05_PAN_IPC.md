@@ -1,6 +1,6 @@
 # G5 WP-05 — Bounded camera pan IPC v1
 
-**State:** candidate runtime two-window translation/presentation path and QEMU acceptance gate; pending exact-head CI verification.
+**State:** limited runtime gate accepted (PR #214 merged, 8/8 exact-head checks succeeded, including QEMU two cold boots). WP-05 overall remains incomplete.
 This is a component of #213, not acceptance of the full WP-05 gate.
 
 `G5_OP_CANVAS_PAN = 0x04000001` uses the existing little-endian
