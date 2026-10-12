@@ -12,8 +12,8 @@ static void render_progress(void) {
     redraw_status_background();
 
     draw_text_shadowed_centered(
-        active_fb.height * 50u / 100u,
-        "SYSTEM INITIALIZATION",
+        active_fb.height * 68u / 100u,
+        "INIZIALIZZAZIONE SISTEMA",
         active_fb.width >= 1200u ? 2u : 1u,
         rgb(146, 218, 242)
     );
@@ -61,9 +61,9 @@ void boot_ui_stage(enum aurora_boot_stage stage) {
     current_phrase =
         stage_visuals[stage].phrase_index;
 
-#if AURORA_BOOT_VALIDATION
+    /* Milestones are real in normal boots too, not only validation builds.
+     * No sleeps, timers or simulated percentage-based delays. */
     render_progress();
-#endif
 }
 
 void boot_ui_complete(void) {
@@ -79,16 +79,9 @@ void boot_ui_complete(void) {
             1u
         );
 
-#if AURORA_BOOT_VALIDATION
+    /* Keep the last fully rendered milestone on-screen until Identity
+     * has rendered its first complete compositor frame. No black clear. */
     render_progress();
-
-    draw_text_shadowed_centered(
-        active_fb.height * 88u / 100u,
-        "AURORA IS READY",
-        active_fb.width >= 1200u ? 2u : 1u,
-        rgb(169, 244, 255)
-    );
-#endif
 
     /*
      * Bootstrap hand-off: until Aurora has its compositor/session service,
