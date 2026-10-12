@@ -228,3 +228,15 @@ foreign-page and reserved-metadata free attempt and asserts exact before/after
 accounting. The BIOS smoke test requires the ownership marker. This protects
 the allocator's own bookkeeping; it is **not** a replacement for higher-level
 lifetime, shared-reference, VMM mapping or DMA ownership checks.
+
+### 2026-10-12 — Scheduler monotonic thread ID exhaustion
+
+All kernel/idle, bootstrap, and Ring 3 thread paths use a common bounded
+32-bit ID issuer. When `UINT32_MAX` has been issued, the next counter value
+is 0 (an invalid permanent exhaustion sentinel). Further thread creation is
+rejected before stack allocation or process attach; no old ID is recycled
+during that boot. This protects scheduler wake/reap and IPC references from
+ID-reuse confusion during extreme long uptime. Boot-validation QEMU checks
+first issuance and the last two IDs using a synthetic local counter, without
+changing the live scheduler epoch. A wider 64-bit ID namespace remains future
+architecture work.

@@ -2431,6 +2431,11 @@ void kmain(void) {
         kernel_panic("Scheduler initialization failed");
     }
     boot_perf_log("scheduler initialized");
+#if AURORA_BOOT_VALIDATION
+    if (!scheduler_thread_id_exhaustion_self_test())
+        kernel_panic("Scheduler thread ID exhaustion self-test failed");
+    log_line("[sched] thread ID wrap/reuse protection self-test passed");
+#endif
 
     for (uint32_t i = 0u; i < smp_cpu_count(); ++i) {
         const struct aurora_cpu_runtime *cpu = smp_cpu_at(i);
