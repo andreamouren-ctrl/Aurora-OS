@@ -17,6 +17,9 @@ bool pmm_init(void);
 bool pmm_self_test(void);
 
 uint64_t pmm_alloc_page(void);
+/* True only if an address belongs to a currently allocated managed page.
+ * False leaves the freelist and counters unchanged, including double-free. */
+bool pmm_try_free_page(uint64_t physical_address);
 void pmm_free_page(uint64_t physical_address);
 
 void *pmm_phys_to_virt(uint64_t physical_address);

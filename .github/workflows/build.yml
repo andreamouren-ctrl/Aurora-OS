@@ -349,6 +349,7 @@ jobs:
           grep -F "[graphics-ring3] two-client syscall isolation + frame callback acceptance gate passed" "$SERIAL_LOG"
           grep -F "[color-management] ST2084/ICC/calibration/perceptual-tone-map self-test passed" "$SERIAL_LOG"
           grep -F "[pmm] allocation/zero/reuse/accounting self-test passed" "$SERIAL_LOG"
+          grep -F "[pmm] ownership/double-free/foreign-page self-test passed" "$SERIAL_LOG"
           grep -F "[compositor] scene/z-order/clipping/alpha/damage self-test passed" "$SERIAL_LOG"
           grep -F "[window-policy] configure-ack/activation/placement self-test passed" "$SERIAL_LOG"
           grep -F "[graphics-input] normalized mouse + hit-test focus isolation self-test passed" "$SERIAL_LOG"
