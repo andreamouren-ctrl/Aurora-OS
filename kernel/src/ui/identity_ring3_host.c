@@ -38,6 +38,7 @@ struct identity_ring3_runtime {
     uint64_t badge_node;
     uint64_t badge_commit;
     uint64_t badge_epoch;
+    bool badge_sealed;
 };
 static struct identity_ring3_runtime ring3;
 static uint64_t last_instance_epoch;
@@ -80,6 +81,7 @@ void identity_ring3_host_detach_badge(void) {
     ring3.badge_compositor=NULL;
     ring3.badge_epoch=0u;
     ring3.badge_commit=0u;
+    ring3.badge_sealed=false;
     if (ring3.process && ring3.badge_surface_cap)
         (void)graphics_surface_detach_buffers(
             &ring3.process->capabilities,ring3.badge_surface_cap);
@@ -99,7 +101,7 @@ void identity_ring3_host_detach_badge(void) {
     ring3.badge_buffer=NULL;
 }
 bool identity_ring3_host_badge_active(void) {
-    return identity_ring3_host_alive() &&
+    return identity_ring3_host_alive() && ring3.badge_sealed &&
         ring3.badge_compositor && ring3.badge_node &&
         ring3.badge_commit && ring3.badge_epoch==ring3.instance_epoch &&
         software_compositor_node_in_active_scene(
@@ -300,6 +302,22 @@ bool identity_ring3_host_attach_badge(
     const uint32_t *pixel=(const uint32_t *)pmm_phys_to_virt(physical);
     if (!pixel || pixel[0]!=AURORA_IDENTITY_RING3_BADGE_FIRST_PIXEL)
         goto failed;
+
+    /* The untrusted process must relinquish all writable access BEFORE
+     * privileged scene admission. Its signed runtime has already unmapped
+     * the buffer before sending the draw ACK. Revoking both handles also
+     * prevents further MAP, DAMAGE, ATTACH and COMMIT syscalls. */
+    if (ring3.badge_buffer->memory->mapping_refs!=0u ||
+        !cap_revoke(&ring3.process->capabilities,ring3.badge_surface_cap))
+        goto failed;
+    ring3.badge_surface_cap=AURORA_CAP_INVALID;
+    if (!cap_revoke(&ring3.process->capabilities,ring3.badge_buffer_cap))
+        goto failed;
+    ring3.badge_buffer_cap=AURORA_CAP_INVALID;
+    if (ring3.badge_buffer->memory->mapping_refs!=0u)
+        goto failed;
+    ring3.badge_sealed=true;
+    log_line("[identity-g2-ring3] visual buffer sealed; Ring3 graphics caps revoked and mappings zero");
 
     /* First genuine Ring3-owned non-secret layout: a centered thin
      * divider in the lower decorative region, safely below Aurora Key,

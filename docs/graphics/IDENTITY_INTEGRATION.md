@@ -222,3 +222,22 @@ PRE_SESSION node never becomes the hit target even while its pixels render.
 This closes a mouse-routing interference hazard without moving credentials
 or keyboard input to Ring 3. Scene teardown/reaping still removes graphics
 nodes before releasing their process-owned capabilities.
+
+## 2026-10-12 — Sealed Ring 3 graphics before trusted scene admission
+
+Ring 3 is now a **one-shot producer** of the 384x24 decorative layout
+buffer. Kernel validates the IPC request ID, committed serial and real
+first pixel, then requires zero live shared-buffer mapping references
+(after the runtime's explicit UNMAP). It revokes the process's entire
+buffer and surface graphics capability handles *before* admitting
+this buffer to the privileged secure compositor. All future Ring 3
+MAP/ATTACH/DAMAGE/COMMIT attempts with the old handles fail due to
+generation-based revocation. The compositor retains a separate
+kernel READ capability and the immutable committed surface remains
+presentable while the process runs. The scene's input transparency
+and original kernel-owned Aurora Key UI remain unchanged.
+
+If mappings remain or a revocation fails, no Ring 3 surface is admitted:
+the caller preserves the trusted kernel login without the decoration.
+The QEMU bootstrap gate additionally requires the serial marker
+proving graphics handles were revoked and mapping count reached zero.
