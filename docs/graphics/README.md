@@ -19,7 +19,7 @@ At the 2026-10-10 accepted WP-04 merge on `main` (PR #185, merge `a45d3cab105443
 - **G4 — Pointer and modern input:** complete/runtime verified for the V1 bounded-polling baseline;
 - **G5 WP-03 — Ring 3 Shell bootstrap and session lifecycle:** frozen/runtime accepted;
 - **G5 WP-04 — two independent Ring 3 window clients, focus, input, move/resize/close:** merged and runtime accepted (`4886658a` feature HEAD; five of five required workflows successful);
-- **G5 WP-05+ — spatial camera, Living Canvas, full Shell UX:** pending; not part of WP-04 scope.
+- **G5 WP-05 — spatial camera:** reference numeric camera and conservative viewport projection merged (PRs #210/#211), GCC/Clang UBSan host-tested; Ring 3 Canvas host, compositor integration and QEMU acceptance pending. WP-05 is not frozen/complete.
 
 The current graphics implementation therefore goes substantially beyond the original architecture-only state.
 
@@ -85,7 +85,7 @@ Current G1-G3 foundations include:
 
 G4 is complete for the current V1 bounded-polling baseline: secure hit testing, isolated pointer/keyboard focus, owned capture with lifecycle revocation, session/compositor teardown cleanup, bounded motion coalescing, live qemu-xhci keyboard and mouse, descriptor-driven wheel/five-button mouse handling, USB hot-unplug teardown and Event Ring quiescence are runtime verified. MSI-X interrupt delivery, touch/pen/gamepad, IME/layout/accessibility breadth and broader USB classes remain follow-on work rather than G4 V1 blockers.
 
-G5 WP-03 and WP-04 are frozen and runtime accepted: the authenticated Ring 3 Shell/session generation and two independently running renderer clients are exercised through shared composition, trusted hit testing, focus/input, bounded move, resize/ACK and close plus stop/crash/reauthentication. WP-05 and later phases remain responsible for the spatial camera, Living Canvas, full decorations, launcher/task management, pre-session Identity System App integration and broader production desktop UX.
+G5 WP-03 and WP-04 are frozen and runtime accepted: the authenticated Ring 3 Shell/session generation and two independently running renderer clients are exercised through shared composition, trusted hit testing, focus/input, bounded move, resize/ACK and close plus stop/crash/reauthentication. WP-05 reference arithmetic/viewport projection has been merged but is not a live Ring 3 camera. WP-05 and later phases remain responsible for runtime spatial camera, Living Canvas, full decorations, launcher/task management, pre-session Identity System App integration and broader production desktop UX.
 
 ## Canonical documents
 
