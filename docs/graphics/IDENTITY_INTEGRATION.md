@@ -133,3 +133,12 @@ la logica di normalizzazione del segreto ne' il protocollo Ring 3.
 La localizzazione completa e il cambio lingua con sistema di cataloghi
 rimangono obiettivi della successiva Identity System App; il renderer
 di recupero supporta intenzionalmente una serie ridotta di caratteri.
+
+## 2026-10-12 — Overlay/cursor suppression on trusted login
+
+While the secure PRE_SESSION compositor scene is active, only the
+privileged PRE_SESSION class can contribute output or input hit targets.
+Normal windows and even generic SYSTEM_OVERLAY/CURSOR elements are hidden.
+This is the first G2 visual non-interference gate; secure Ring 3 hosting,
+exclusive physical credential input and lifecycle-negative probes are still
+outstanding. The ordinary desktop's overlays and cursors are unchanged.
