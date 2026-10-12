@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /* Wide subtraction is intentional in this host numeric oracle. */
 __extension__ typedef __int128 g5_test_wide_t;
@@ -142,12 +143,40 @@ static void test_visibility_and_stale(void) {
                                             ids,b,5,out,0,&count));
     assert(count==88);
 }
+static void test_roundtrip_scales(void) {
+    const double zooms[5]={G5_CAMERA_MIN_ZOOM,0.25,1.0,4.0,
+                           G5_CAMERA_MAX_ZOOM};
+    const double scales[3]={G5_CAMERA_MIN_DEVICE_SCALE,1.0,
+                            G5_CAMERA_MAX_DEVICE_SCALE};
+    for (size_t z=0;z<5;++z) for (size_t d=0;d<3;++d) {
+        struct g5_camera c;
+        const struct g5_world_point anchor=pt(-9876543210LL,8765432109LL);
+        assert(g5_camera_init(&c,anchor,1200,900,zooms[z],scales[d]));
+        for (int k=-20;k<=20;++k) {
+            struct g5_world_point p=pt(anchor.x+(int64_t)k*1024,
+                anchor.y-(int64_t)k*1024);
+            int32_t x,y;
+            assert(g5_camera_world_to_screen(&c,p,&x,&y));
+            struct g5_world_point inverse;
+            assert(g5_camera_screen_to_world(&c,c.revision,x,y,&inverse));
+            const double error_limit=
+                0.5/(c.zoom*c.device_scale)*1024.0+2.0;
+            assert(fabs((double)(inverse.x-p.x))<=error_limit);
+            assert(fabs((double)(inverse.y-p.y))<=error_limit);
+            int32_t reproj_x=0,reproj_y=0;
+            assert(g5_camera_world_to_screen(&c,inverse,
+                                             &reproj_x,&reproj_y));
+            assert(abs(reproj_x-x)<=1 && abs(reproj_y-y)<=1);
+        }
+    }
+}
 int main(void) {
     test_checked_world();
     test_camera_validation();
     test_distant_coordinates();
     test_pointer_zoom();
     test_many_movements();
+    test_roundtrip_scales();
     test_visibility_and_stale();
     puts("[g5-wp05] reference camera numeric and visibility tests passed");
     return 0;
