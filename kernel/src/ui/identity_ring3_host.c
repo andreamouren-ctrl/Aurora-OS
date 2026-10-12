@@ -4,6 +4,12 @@
 #include <aurora/capability.h>
 #include <aurora/clock.h>
 #include <aurora/identity_ring3_abi.h>
+#include <aurora/display.h>
+#include <aurora/graphics_buffer.h>
+#include <aurora/graphics_surface.h>
+#include <aurora/memory_object.h>
+#include <aurora/pmm.h>
+#include <aurora/software_compositor.h>
 #include <aurora/identity_ring3_host.h>
 #include <aurora/ipc.h>
 #include <aurora/log.h>
@@ -24,6 +30,14 @@ struct identity_ring3_runtime {
     uint64_t next_id;
     bool started;
     bool fault_logged;
+    struct aurora_software_compositor *badge_compositor;
+    struct aurora_graphics_buffer *badge_buffer;
+    struct aurora_graphics_surface *badge_surface;
+    aurora_cap_handle badge_buffer_cap;
+    aurora_cap_handle badge_surface_cap;
+    uint64_t badge_node;
+    uint64_t badge_commit;
+    uint64_t badge_epoch;
 };
 static struct identity_ring3_runtime ring3;
 static uint64_t last_instance_epoch;
@@ -56,7 +70,43 @@ static bool receive(uint32_t type,uint64_t id) {
     }
     return false;
 }
+void identity_ring3_host_detach_badge(void) {
+    /* The compositor's scene membership is revoked BEFORE capability and
+     * graphic object teardown. No privileged surface survives its owner. */
+    if (ring3.badge_compositor && ring3.badge_node)
+        (void)software_compositor_remove_surface(
+            ring3.badge_compositor,ring3.badge_node);
+    ring3.badge_node=0u;
+    ring3.badge_compositor=NULL;
+    ring3.badge_epoch=0u;
+    ring3.badge_commit=0u;
+    if (ring3.process && ring3.badge_surface_cap)
+        (void)graphics_surface_detach_buffers(
+            &ring3.process->capabilities,ring3.badge_surface_cap);
+    if (ring3.process && ring3.badge_surface_cap)
+        (void)cap_revoke(&ring3.process->capabilities,ring3.badge_surface_cap);
+    if (ring3.process && ring3.badge_buffer_cap)
+        (void)cap_revoke(&ring3.process->capabilities,ring3.badge_buffer_cap);
+    ring3.badge_surface_cap=AURORA_CAP_INVALID;
+    ring3.badge_buffer_cap=AURORA_CAP_INVALID;
+    if (ring3.badge_surface)
+        (void)graphics_surface_release_owner(
+            ring3.badge_surface,ring3.badge_surface->generation);
+    if (ring3.badge_buffer)
+        (void)graphics_buffer_release_owner(
+            ring3.badge_buffer,ring3.badge_buffer->generation);
+    ring3.badge_surface=NULL;
+    ring3.badge_buffer=NULL;
+}
+bool identity_ring3_host_badge_active(void) {
+    return identity_ring3_host_alive() &&
+        ring3.badge_compositor && ring3.badge_node &&
+        ring3.badge_commit && ring3.badge_epoch==ring3.instance_epoch &&
+        software_compositor_node_in_active_scene(
+            ring3.badge_compositor,ring3.badge_node);
+}
 static bool reap_finished(void) {
+    identity_ring3_host_detach_badge();
     if (ring3.thread && !scheduler_thread_finished(ring3.thread))
         return false;
     if (ring3.thread) {
@@ -161,7 +211,121 @@ bool identity_ring3_host_health_check(void) {
         receive(AURORA_IDENTITY_RING3_HEALTH_ACK,m.request_id) &&
         identity_ring3_host_alive();
 }
+static bool receive_badge_ack(uint64_t id,uint64_t *out_serial) {
+    if (out_serial) *out_serial=0u;
+    uint64_t deadline=clock_now_ns()+AURORA_IDENTITY_RING3_TIMEOUT_NS;
+    while (clock_now_ns()<deadline) {
+        struct aurora_ipc_received response={0};
+        if (ring3.kernel_endpoint &&
+            ipc_receive(ring3.kernel_endpoint,&ring3.kernel_caps,&response)) {
+            struct aurora_identity_ring3_draw_ack ack={0};
+            bool valid=response.capability_count==0u &&
+                response.length==sizeof(ack);
+            if (valid) {
+                uint8_t *dst=(uint8_t *)&ack;
+                for (size_t i=0;i<sizeof(ack);++i) dst[i]=response.data[i];
+                valid=ack.header.abi_version==AURORA_IDENTITY_RING3_ABI_VERSION &&
+                      ack.header.type==AURORA_IDENTITY_RING3_DRAW_ACK &&
+                      ack.header.request_id==id &&
+                      ack.commit_serial!=0u;
+                if (valid && out_serial) *out_serial=ack.commit_serial;
+            }
+            scrub(&ack,sizeof(ack));
+            scrub(&response,sizeof(response));
+            return valid;
+        }
+        if (!ring3.thread || scheduler_thread_finished(ring3.thread))
+            return false;
+        arch_idle();
+    }
+    return false;
+}
+bool identity_ring3_host_attach_badge(
+    struct aurora_software_compositor *compositor,
+    struct aurora_cap_table *authority,
+    aurora_cap_handle display_control,
+    uint32_t output_width,uint32_t output_height
+) {
+    if (!identity_ring3_host_alive() || ring3.badge_buffer ||
+        !compositor || !compositor->initialized ||
+        !compositor->secure_scene_active || !authority ||
+        output_width<320u || output_height<200u ||
+        ring3.next_id==UINT64_MAX) return false;
+    const struct aurora_display_mode *mode=display_mode_at(0u,0u);
+    if (!mode || mode->format.bits_per_pixel!=32u ||
+        mode->format.alpha_mask_size!=0u ||
+        mode->format.red_mask_shift!=16u ||
+        mode->format.green_mask_shift!=8u ||
+        mode->format.blue_mask_shift!=0u) return false;
+    ring3.badge_buffer=graphics_buffer_create(
+        AURORA_IDENTITY_RING3_BADGE_WIDTH,
+        AURORA_IDENTITY_RING3_BADGE_HEIGHT,&mode->format);
+    ring3.badge_surface=graphics_surface_create();
+    if (!ring3.badge_buffer || !ring3.badge_surface) goto failed;
+    /* Ring3 can only map/commit its tiny private visual surface. Neither
+     * DISPLAY CONTROL nor profile/credential input is delegated. */
+    ring3.badge_buffer_cap=graphics_buffer_grant(
+        &ring3.process->capabilities,ring3.badge_buffer,
+        AURORA_RIGHT_READ|AURORA_RIGHT_WRITE|AURORA_RIGHT_MAP);
+    ring3.badge_surface_cap=graphics_surface_grant(
+        &ring3.process->capabilities,ring3.badge_surface,
+        AURORA_RIGHT_READ|AURORA_RIGHT_WRITE);
+    if (!ring3.badge_buffer_cap || !ring3.badge_surface_cap) goto failed;
+    struct aurora_identity_ring3_draw_message draw={0};
+    draw.header.abi_version=AURORA_IDENTITY_RING3_ABI_VERSION;
+    draw.header.type=AURORA_IDENTITY_RING3_DRAW_BADGE;
+    draw.header.request_id=ring3.next_id++;
+    draw.graphics_buffer=ring3.badge_buffer_cap;
+    draw.graphics_surface=ring3.badge_surface_cap;
+    draw.width=AURORA_IDENTITY_RING3_BADGE_WIDTH;
+    draw.height=AURORA_IDENTITY_RING3_BADGE_HEIGHT;
+    uint64_t ack_serial=0u;
+    if (!ipc_send(ring3.kernel_endpoint,&ring3.kernel_caps,
+                  &draw,sizeof(draw),NULL,0u) ||
+        !receive_badge_ack(draw.header.request_id,&ack_serial)) goto failed;
+    /* Cross-check the real committed buffer + first written pixel, not
+     * just an ACK sent by the Ring3 worker. */
+    struct aurora_graphics_surface_snapshot snapshot={0};
+    if (!graphics_surface_read_committed(
+          &ring3.process->capabilities,ring3.badge_surface_cap,&snapshot))
+        goto failed;
+    bool valid=snapshot.buffer==ring3.badge_buffer &&
+        snapshot.commit_serial==ack_serial &&
+        snapshot.buffer->width==AURORA_IDENTITY_RING3_BADGE_WIDTH &&
+        snapshot.buffer->height==AURORA_IDENTITY_RING3_BADGE_HEIGHT;
+    graphics_surface_snapshot_release(&snapshot);
+    uint64_t physical=0u;
+    if (!valid || !memory_object_page_at(
+            ring3.badge_buffer->memory,0u,&physical)) goto failed;
+    const uint32_t *pixel=(const uint32_t *)pmm_phys_to_virt(physical);
+    if (!pixel || pixel[0]!=AURORA_IDENTITY_RING3_BADGE_FIRST_PIXEL)
+        goto failed;
+
+    /* One explicitly privileged PRE_SESSION visual decoration, outside
+     * the credential field and with no input target or capture rights. */
+    const int32_t x=(int32_t)(output_width-
+        AURORA_IDENTITY_RING3_BADGE_WIDTH-20u);
+    const int32_t y=(int32_t)(output_height-
+        AURORA_IDENTITY_RING3_BADGE_HEIGHT-20u);
+    ring3.badge_compositor=compositor;
+    if (!software_compositor_add_privileged_surface(
+          compositor,authority,display_control,ring3.badge_surface,
+          AURORA_COMPOSITOR_SURFACE_PRE_SESSION,
+          x,y,200,255u,&ring3.badge_node) ||
+        !software_compositor_node_in_active_scene(
+          compositor,ring3.badge_node)) goto failed;
+    ring3.badge_commit=ack_serial;
+    ring3.badge_epoch=ring3.instance_epoch;
+    log_line("[identity-g2-ring3] Ring3 badge pixels committed and trusted scene admitted");
+    return true;
+failed:
+    identity_ring3_host_detach_badge();
+    log_line("[identity-g2-ring3] Ring3 badge unavailable; kernel login remains active");
+    return false;
+}
+
 bool identity_ring3_host_stop(void) {
+    identity_ring3_host_detach_badge();
     if (!ring3.process) return true;
     if (!identity_ring3_host_alive()) return reap_finished();
     struct aurora_identity_ring3_message m={
@@ -182,6 +346,7 @@ void identity_ring3_host_poll(void) {
         !ring3.fault_logged) {
         ring3.fault_logged=true;
         ring3.started=false;
+        identity_ring3_host_detach_badge();
         log_line("[identity-g2-ring3] process exited/faulted; trusted kernel login stays authoritative");
     }
 }
