@@ -8,12 +8,17 @@ This roadmap orders M4 work by hard dependencies. A checkbox in the global roadm
 
 ## G5 WP-05 — Background wheel → authorized Ring 3 pan pilot (2026-10-12)
 
-**Candidate / pending CI:** consume supported USB HID mouse-wheel scroll over empty
+**Status: MERGED / BOUNDED GESTURE GATE ACCEPTED, WP-05 NOT FROZEN.**
+[PR #216](https://github.com/andreamouren-ctrl/Aurora-OS/pull/216) was
+merged at `76507d9fbef725cef65c13acd6fa99be0245370f` after 7/7
+required workflows passed on exact accepted source
+`aaf798e8261a41867300d290509d061dff05ec4d`.
+Consume supported USB HID mouse-wheel scroll over empty
 Canvas desktop space and route an 8 px bounded world-view translation
 via primary Shell Ring3 G5 IPC. A wheel event above an app window remains
 client-owned. Reject synthesized scroll, lack of session readiness, capture,
 active window drag, invalid sequence or repeated physical sequence. QEMU
-first boot and cold reboot must prove a **source-tagged, kernel-injected USB HID**
+first boot and cold reboot both proved a **source-tagged, kernel-injected USB HID**
 scroll round-trip via actual Ring3 Shell process and compositor, rejection of
 synthetic scroll, PS/2-tagged scroll (not supported by the present driver),
 duplicate sequences and app-targeted scroll. This test does not inject a physical
