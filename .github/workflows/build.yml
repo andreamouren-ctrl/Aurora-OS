@@ -341,6 +341,7 @@ jobs:
           grep -F "[identity-service] long-lived blocking IPC request loop passed" "$SERIAL_LOG"
           grep -F "[identity-g2-ring3] rejected IPC crashed worker; fresh epoch recovery and health passed" "$SERIAL_LOG"
           grep -F "[identity-g2] privileged PRE_SESSION compositor login frame presented" "$SERIAL_LOG"
+          grep -F "[identity-g2-ring3] Ring3-owned pixels composed on trusted PRE_SESSION framebuffer" "$SERIAL_LOG"
           grep -F "[service-supervisor] bounded Identity restart + fresh capability bootstrap passed" "$SERIAL_LOG"
           grep -F "[display-ring3] capability-gated repeated present acceptance gate passed" "$SERIAL_LOG"
           grep -F "[graphics-ring3] two-client syscall isolation + frame callback acceptance gate passed" "$SERIAL_LOG"

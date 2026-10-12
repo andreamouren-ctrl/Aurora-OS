@@ -7,6 +7,8 @@
 #include <aurora/graphics_surface.h>
 #include <aurora/heap.h>
 #include <aurora/identity_secure_compositor.h>
+#include <aurora/identity_ring3_host.h>
+#include <aurora/log.h>
 #include <aurora/pmm.h>
 #include <aurora/software_compositor.h>
 
@@ -30,6 +32,7 @@ struct identity_secure_host {
     uint64_t last_present;
     bool caps_ready;
     bool active;
+    bool ring3_present_logged;
 };
 
 static struct identity_secure_host host;
@@ -41,6 +44,9 @@ static void clear_host(void) {
 }
 
 void identity_secure_compositor_end(void) {
+    /* Revoke Ring3 node/handles first while the compositor and process are
+     * both valid. The kernel-owned login stays fully independently usable. */
+    identity_ring3_host_detach_badge();
     if (host.compositor.initialized) {
         if (host.node != 0u)
             (void)software_compositor_remove_surface(&host.compositor, host.node);
@@ -131,6 +137,11 @@ bool identity_secure_compositor_begin(const struct aurora_framebuffer *native) {
     host.staging_fb.address = host.staging_pixels;
     host.staging_fb.pitch = native->width * 4u;
     host.active = true;
+    /* Optional bounded Ring3-owned visual accent; if the isolated worker is
+     * unavailable the complete kernel-rendered login remains unchanged. */
+    (void)identity_ring3_host_attach_badge(
+        &host.compositor,&host.caps,host.display_control,
+        (uint32_t)native->width,(uint32_t)native->height);
     return true;
 
 failure:
@@ -186,6 +197,10 @@ bool identity_secure_compositor_present(void) {
         serial == 0u) goto failure;
 
     host.last_present = serial;
+    if (!host.ring3_present_logged && identity_ring3_host_badge_active()) {
+        host.ring3_present_logged = true;
+        log_line("[identity-g2-ring3] Ring3-owned pixels composed on trusted PRE_SESSION framebuffer");
+    }
     return true;
 
 failure:
