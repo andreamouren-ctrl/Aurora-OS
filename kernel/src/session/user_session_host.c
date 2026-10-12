@@ -42,6 +42,8 @@ struct user_session_host_runtime {
     struct g5_pending_queue g5_pending;
     struct g5_shell_scene scene;
     uint64_t drag_window_id;
+    /* Last accepted physical background-scroll sequence, scoped to session. */
+    uint64_t last_camera_scroll_sequence;
     int32_t drag_offset_x;
     int32_t drag_offset_y;
     aurora_cap_handle g5_receiver_handle;
@@ -1039,12 +1041,81 @@ static bool resize_second_client(uint32_t width,uint32_t height) {
     return true;
 }
 
+
+/* WP-05 user-facing pilot gesture: wheel while pointing at truly empty
+ * Canvas background.  Never steal a wheel event targeting an application,
+ * capture owner, drag or secure/nonwindow compositor surface.  Every accepted
+ * gesture uses the same exclusive primary Ring 3 Shell IPC proof as #214.
+ * The kernel remains free of floating point; this is a bounded v1 translation,
+ * not yet a full world-space camera or arbitrary zoom. */
+static bool g5_wp05_route_background_scroll(
+    const struct aurora_input_event *event,bool *out_consumed) {
+    if (!event || !out_consumed || !host.scene.active ||
+        !host.scene.input_router.initialized) return false;
+    *out_consumed=false;
+    struct aurora_graphics_input_router *router=&host.scene.input_router;
+    if (event->type!=AURORA_INPUT_EVENT_SCROLL ||
+        event->synthetic ||
+        (event->source!=AURORA_INPUT_SOURCE_PS2_MOUSE &&
+         event->source!=AURORA_INPUT_SOURCE_USB_HID) ||
+        event->sequence==0u ||
+        (event->scroll_x==0 && event->scroll_y==0) ||
+        router->capture_target!=0u || host.drag_window_id!=0u ||
+        router->pointer_focus_target!=0u)
+        return true;
+    uint64_t hit=0u;
+    if (window_policy_hit_test_committed(&host.scene.window_policy,
+          router->pointer_x,router->pointer_y,&hit))
+        return true;
+    /* This physical event is on the background. Never enqueue it to a
+     * client even when its sequence is a duplicate. */
+    *out_consumed=true;
+    if (event->sequence<=host.last_camera_scroll_sequence)
+        return true;
+    if (!host.g5_ready || !host.kernel_endpoint ||
+        !host.g5_binding.receiver ||
+        !host.scene.extra.active || !host.scene.surface ||
+        host.scene.camera_revision==UINT64_MAX ||
+        host.scene.canvas_scene_revision==0u ||
+        host.next_request_id<=4u || host.next_request_id==UINT64_MAX)
+        return false;
+    const int32_t dx=event->scroll_x>0?8:event->scroll_x<0?-8:0;
+    const int32_t dy=event->scroll_y>0?8:event->scroll_y<0?-8:0;
+    struct aurora_user_session_host_camera_message request={0};
+    request.header.version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION;
+    request.header.type=AURORA_USER_SESSION_HOST_CANVAS_PAN_REQUEST;
+    request.header.request_id=host.next_request_id++;
+    request.delta_x_px=dx;
+    request.delta_y_px=dy;
+    request.expected_camera_revision=host.scene.camera_revision;
+    request.expected_scene_revision=host.scene.canvas_scene_revision;
+    uint64_t ack=0u;
+    enum g5_ipc_status status=G5_IPC_DENIED;
+    if (!ipc_send(host.kernel_endpoint,&host.kernel_caps,
+                  &request,(uint32_t)sizeof(request),NULL,0u) ||
+        !receive_primary_event(AURORA_USER_SESSION_HOST_CANVAS_PAN_ACK,
+                               &ack) ||
+        ack!=request.header.request_id ||
+        !g5_ipc_endpoint_poll(&host.g5_binding,&status) ||
+        status!=G5_IPC_OK)
+        return false;
+    host.last_camera_scroll_sequence=event->sequence;
+    return true;
+}
+
 bool user_session_host_route_input(const struct aurora_input_event *event) {
     if (!event || !user_session_host_active() || !host.scene.active ||
         !host.scene.input_router.initialized ||
         session_manager_client_state()!=AURORA_SESSION_CLIENT_ACTIVE)
         return false;
     if (!g5_shell_scene_route_input(&host.scene,event)) return false;
+    /* Route in the trusted Shell after the normalized router has updated
+     * its committed hit-test/pointer focus.  Empty-space wheel events
+     * generate Ring3 IPC, never direct untrusted compositor mutations. */
+    bool camera_consumed=false;
+    if (!g5_wp05_route_background_scroll(event,&camera_consumed))
+        return false;
+    if (camera_consumed) return true;
     struct aurora_graphics_input_router *r=&host.scene.input_router;
     if (event->type==AURORA_INPUT_EVENT_POINTER_BUTTON &&
         event->button==AURORA_POINTER_BUTTON_LEFT && !event->pressed) {
@@ -1320,6 +1391,76 @@ static bool g5_wp05_pan_roundtrip_probe(void) {
         g5_session_pan_events!=2u)
         return false;
     log_line("[g5-wp05] Ring3 authorized dual-client camera pan and rollback passed");
+    return true;
+}
+
+
+/* Use the same real input entry point as a physical PS/2 or HID wheel.
+ * The test positions the cursor synthetically only; synthesized wheel
+ * input must never invoke the authorized pan.  A background gesture
+ * crosses the real Ring3 control IPC and compositor, then roundtrips. */
+static bool g5_wp05_background_scroll_probe(void) {
+    if (!host.scene.active || !host.scene.extra.active ||
+        !host.scene.input_router.initialized ||
+        host.scene.camera_revision!=3u || g5_session_pan_events!=2u)
+        return false;
+    struct aurora_window_toplevel primary={0},second={0};
+    if (!window_policy_read_toplevel(&host.scene.window_policy,
+          host.scene.window_id,&primary) ||
+        !window_policy_read_toplevel(&host.scene.window_policy,
+          host.scene.extra.window_id,&second))
+        return false;
+    struct aurora_input_event pointer={0};
+    pointer.type=AURORA_INPUT_EVENT_POINTER_ABSOLUTE;
+    pointer.source=AURORA_INPUT_SOURCE_SYNTHETIC;
+    pointer.synthetic=true;
+    pointer.absolute_x=2;pointer.absolute_y=2;
+    if (!user_session_host_route_input(&pointer) ||
+        host.scene.input_router.pointer_focus_target!=0u)
+        return false;
+    struct aurora_input_event wheel={0};
+    wheel.type=AURORA_INPUT_EVENT_SCROLL;
+    wheel.source=AURORA_INPUT_SOURCE_SYNTHETIC;
+    wheel.synthetic=true;
+    wheel.sequence=9000u;
+    wheel.scroll_y=1;
+    uint64_t old_serial=host.scene.last_display_serial;
+    if (!user_session_host_route_input(&wheel) ||
+        host.scene.camera_revision!=3u ||
+        host.scene.last_display_serial!=old_serial)
+        return false;
+    wheel.source=AURORA_INPUT_SOURCE_PS2_MOUSE;
+    wheel.synthetic=false;
+    wheel.sequence=9001u;
+    if (!user_session_host_route_input(&wheel) ||
+        host.scene.camera_revision!=4u ||
+        g5_session_pan_events!=3u ||
+        host.scene.last_display_serial<=old_serial)
+        return false;
+    uint64_t after_first=host.scene.last_display_serial;
+    if (!user_session_host_route_input(&wheel) ||
+        host.scene.camera_revision!=4u ||
+        host.scene.last_display_serial!=after_first)
+        return false; /* repeated event cannot pan twice */
+    wheel.source=AURORA_INPUT_SOURCE_USB_HID;
+    wheel.sequence=9002u;
+    wheel.scroll_y=-1;
+    if (!user_session_host_route_input(&wheel) ||
+        host.scene.camera_revision!=5u ||
+        g5_session_pan_events!=4u ||
+        host.scene.last_display_serial<=after_first)
+        return false;
+    struct aurora_window_toplevel final_primary={0},final_second={0};
+    if (!window_policy_read_toplevel(&host.scene.window_policy,
+           host.scene.window_id,&final_primary) ||
+        !window_policy_read_toplevel(&host.scene.window_policy,
+           host.scene.extra.window_id,&final_second) ||
+        final_primary.placement.x!=primary.placement.x ||
+        final_primary.placement.y!=primary.placement.y ||
+        final_second.placement.x!=second.placement.x ||
+        final_second.placement.y!=second.placement.y)
+        return false;
+    log_line("[g5-wp05-input] hardware wheel on empty Canvas uses authorized Ring3 pan");
     return true;
 }
 
@@ -1680,11 +1821,12 @@ bool user_session_host_self_test(void) {
     /* WP-05 proof: two real Ring 3 windows move together in one frame.
      * Restore the original placement to preserve frozen WP-04 probes. */
     bool wp05_verified=close_opcode_denied && g5_wp05_pan_roundtrip_probe();
+    bool wp05_input_verified=wp05_verified && g5_wp05_background_scroll_probe();
     /* Exercise the post-bootstrap Ring3 control loop and its kernel G5
      * dispatch, rather than just proving startup SHELL_READY/HEALTH. */
     bool live_health=running && replay_denied &&
         wrong_generation_denied && foreign_object_denied &&
-        close_opcode_denied && wp05_verified &&
+        close_opcode_denied && wp05_verified && wp05_input_verified &&
         user_session_host_health_check() &&
         g5_session_health_events==2u &&
         user_session_host_health_check() &&
@@ -1792,7 +1934,8 @@ bool user_session_host_self_test(void) {
 
     bool accepted=started &&
         running && stopped && live_health &&
-        resized_roundtrip && interaction_verified && wp05_verified &&
+        resized_roundtrip && interaction_verified &&
+        wp05_verified && wp05_input_verified &&
         post_stop_denied && receiver_revoked &&
         reauthenticated && crashed && crash_revoked &&
         source_revoked && root_revoked &&
@@ -1811,6 +1954,7 @@ bool user_session_host_self_test(void) {
         log_u64(foreign_object_denied);log_write("/");
         log_u64(close_opcode_denied);log_write("/");
         log_u64(wp05_verified);log_write("/");
+        log_u64(wp05_input_verified);log_write("/");
         log_u64(resized_roundtrip);log_write("/");
         log_u64(interaction_verified);log_write("/");
         log_u64(live_health);log_write("/");
