@@ -11,6 +11,12 @@
 #define AURORA_IDENTITY_RING3_HEALTH_ACK 3u
 #define AURORA_IDENTITY_RING3_SHUTDOWN 4u
 #define AURORA_IDENTITY_RING3_SHUTDOWN_ACK 5u
+/* Visual-only, noninteractive and deliberately small Ring3 accent. */
+#define AURORA_IDENTITY_RING3_DRAW_BADGE 6u
+#define AURORA_IDENTITY_RING3_DRAW_ACK 7u
+#define AURORA_IDENTITY_RING3_BADGE_WIDTH 128u
+#define AURORA_IDENTITY_RING3_BADGE_HEIGHT 16u
+#define AURORA_IDENTITY_RING3_BADGE_FIRST_PIXEL UINT32_C(0xff4dcce8)
 
 struct aurora_identity_ring3_startup {
     uint64_t control_endpoint;
@@ -21,5 +27,18 @@ struct aurora_identity_ring3_message {
     uint32_t abi_version;
     uint32_t type;
     uint64_t request_id;
+};
+/* These handles are scoped to the host's own process cap table. No
+ * transfer or display authority is provided with the request. */
+struct aurora_identity_ring3_draw_message {
+    struct aurora_identity_ring3_message header;
+    uint64_t graphics_buffer;
+    uint64_t graphics_surface;
+    uint32_t width;
+    uint32_t height;
+};
+struct aurora_identity_ring3_draw_ack {
+    struct aurora_identity_ring3_message header;
+    uint64_t commit_serial;
 };
 #endif
