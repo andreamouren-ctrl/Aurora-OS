@@ -1,0 +1,37 @@
+name: G5 WP-05 Camera Reference
+on:
+  pull_request:
+    paths:
+      - 'services/canvas/**'
+      - 'tests/g5/canvas_camera_test.c'
+      - '.github/workflows/g5-wp05-camera.yml'
+  push:
+    paths:
+      - 'services/canvas/**'
+      - 'tests/g5/canvas_camera_test.c'
+      - '.github/workflows/g5-wp05-camera.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  camera-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: GCC strict and UBSan
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Werror -pedantic \
+            -fsanitize=undefined -fno-sanitize-recover=all \
+            -Iservices/canvas/include \
+            services/canvas/src/g5_canvas_camera.c \
+            tests/g5/canvas_camera_test.c -lm -o /tmp/g5-camera-gcc
+          /tmp/g5-camera-gcc
+      - name: Clang strict and UBSan
+        run: |
+          clang -std=c11 -O2 -Wall -Wextra -Werror -pedantic \
+            -fsanitize=undefined -fno-sanitize-recover=all \
+            -Iservices/canvas/include \
+            services/canvas/src/g5_canvas_camera.c \
+            tests/g5/canvas_camera_test.c -lm -o /tmp/g5-camera-clang
+          /tmp/g5-camera-clang
