@@ -10,6 +10,7 @@
 #include <aurora/identity_client.h>
 #include <aurora/identity_presentation.h>
 #include <aurora/identity_secure_compositor.h>
+#include <aurora/identity_ring3_host.h>
 #include <aurora/identity_create_probe.h>
 #include <aurora/identity_session_grant_probe.h>
 #include <aurora/identity_reauth_probe.h>
@@ -815,6 +816,16 @@ void login_input_init(void) {
     bool session_manager_ready =
         identity_ready && session_manager_client_init();
 
+#if AURORA_BOOT_VALIDATION
+    if (!identity_ring3_host_self_test())
+        kernel_panic("G2 isolated Ring3 pre-session host lifecycle failed");
+    log_line("[identity-g2-ring3] real process boot/restart and IPC-only isolation probe passed");
+#else
+    /* Presenter lifecycle runs independently of authentication and graphics.
+     * Losing it cannot expose secrets or bypass the protected login path. */
+    (void)identity_ring3_host_start();
+#endif
+
     log_write("[boot-perf] Identity client ready at ");
     log_u64(clock_now_ns() / UINT64_C(1000000));
     log_line(" ms");
@@ -865,6 +876,7 @@ void login_input_init(void) {
 }
 
 void login_input_pump(void) {
+    identity_ring3_host_poll();
     synchronize_identity_state();
 
     struct aurora_input_event event;
