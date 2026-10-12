@@ -1056,8 +1056,10 @@ static bool g5_wp05_route_background_scroll(
     struct aurora_graphics_input_router *router=&host.scene.input_router;
     if (event->type!=AURORA_INPUT_EVENT_SCROLL ||
         event->synthetic ||
-        (event->source!=AURORA_INPUT_SOURCE_PS2_MOUSE &&
-         event->source!=AURORA_INPUT_SOURCE_USB_HID) ||
+        /* The current PS/2 driver only decodes three-byte packets and
+         * emits no wheel event. Use the proven USB HID scroll path. */
+        event->source!=AURORA_INPUT_SOURCE_USB_HID ||
+        event->device_id<AURORA_INPUT_DEVICE_USB_BASE ||
         event->sequence==0u ||
         (event->scroll_x==0 && event->scroll_y==0) ||
         router->capture_target!=0u || host.drag_window_id!=0u ||
@@ -1429,9 +1431,18 @@ static bool g5_wp05_background_scroll_probe(void) {
         host.scene.camera_revision!=3u ||
         host.scene.last_display_serial!=old_serial)
         return false;
+    /* A claimed PS/2 wheel is deliberately ignored: current PS/2
+     * hardware decoder has no wheel reports. */
     wheel.source=AURORA_INPUT_SOURCE_PS2_MOUSE;
     wheel.synthetic=false;
     wheel.sequence=9001u;
+    if (!user_session_host_route_input(&wheel) ||
+        host.scene.camera_revision!=3u ||
+        host.scene.last_display_serial!=old_serial)
+        return false;
+    wheel.source=AURORA_INPUT_SOURCE_USB_HID;
+    wheel.device_id=AURORA_INPUT_DEVICE_USB_BASE+1u;
+    wheel.sequence=9002u;
     if (!user_session_host_route_input(&wheel) ||
         host.scene.camera_revision!=4u ||
         g5_session_pan_events!=3u ||
@@ -1442,8 +1453,7 @@ static bool g5_wp05_background_scroll_probe(void) {
         host.scene.camera_revision!=4u ||
         host.scene.last_display_serial!=after_first)
         return false; /* repeated event cannot pan twice */
-    wheel.source=AURORA_INPUT_SOURCE_USB_HID;
-    wheel.sequence=9002u;
+    wheel.sequence=9003u;
     wheel.scroll_y=-1;
     if (!user_session_host_route_input(&wheel) ||
         host.scene.camera_revision!=5u ||
@@ -1460,7 +1470,23 @@ static bool g5_wp05_background_scroll_probe(void) {
         final_second.placement.x!=second.placement.x ||
         final_second.placement.y!=second.placement.y)
         return false;
-    log_line("[g5-wp05-input] hardware wheel on empty Canvas uses authorized Ring3 pan");
+    /* Over a committed app window, USB wheel remains app-owned. */
+    struct aurora_input_event over_window={0};
+    over_window.type=AURORA_INPUT_EVENT_POINTER_ABSOLUTE;
+    over_window.source=AURORA_INPUT_SOURCE_SYNTHETIC;
+    over_window.synthetic=true;
+    over_window.absolute_x=primary.placement.x+10;
+    over_window.absolute_y=primary.placement.y+10;
+    if (!user_session_host_route_input(&over_window) ||
+        host.scene.input_router.pointer_focus_target==0u)
+        return false;
+    wheel.sequence=9004u;
+    uint64_t after_return=host.scene.last_display_serial;
+    if (!user_session_host_route_input(&wheel) ||
+        host.scene.camera_revision!=5u ||
+        host.scene.last_display_serial!=after_return)
+        return false;
+    log_line("[g5-wp05-input] USB HID background wheel uses authorized Ring3 pan");
     return true;
 }
 
