@@ -1,0 +1,39 @@
+name: G5 WP-05 Viewport Projection
+on:
+  pull_request:
+    paths:
+      - 'services/canvas/**'
+      - 'tests/g5/canvas_projection_test.c'
+      - '.github/workflows/g5-wp05-projection.yml'
+  push:
+    paths:
+      - 'services/canvas/**'
+      - 'tests/g5/canvas_projection_test.c'
+      - '.github/workflows/g5-wp05-projection.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  projection-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: GCC strict UBSan and viewport projection
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Werror -pedantic \
+            -fsanitize=undefined -fno-sanitize-recover=all \
+            -Iservices/canvas/include \
+            services/canvas/src/g5_canvas_camera.c \
+            services/canvas/src/g5_canvas_projection.c \
+            tests/g5/canvas_projection_test.c -lm -o /tmp/g5-projection-gcc
+          /tmp/g5-projection-gcc
+      - name: Clang strict UBSan and viewport projection
+        run: |
+          clang -std=c11 -O2 -Wall -Wextra -Werror -pedantic \
+            -fsanitize=undefined -fno-sanitize-recover=all \
+            -Iservices/canvas/include \
+            services/canvas/src/g5_canvas_camera.c \
+            services/canvas/src/g5_canvas_projection.c \
+            tests/g5/canvas_projection_test.c -lm -o /tmp/g5-projection-clang
+          /tmp/g5-projection-clang
