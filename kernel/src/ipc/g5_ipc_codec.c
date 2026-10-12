@@ -112,6 +112,7 @@ bool g5_ipc_opcode_known(uint32_t operation) {
         case G5_OP_WINDOW_CLOSE:
         case G5_OP_SCENE_PREPARE:
         case G5_OP_SCENE_PUBLISH:
+        case G5_OP_CANVAS_PAN:
             return true;
         default: return false;
     }
@@ -158,6 +159,7 @@ enum g5_ipc_status g5_ipc_validate_schema(const struct g5_ipc_header *h, uint32_
  case G5_OP_WINDOW_CONFIGURE:case G5_OP_WINDOW_CONFIGURE_ACK:case G5_OP_SCENE_PREPARE:case G5_OP_SCENE_PUBLISH:n=16;break;
  case G5_OP_WINDOW_PLACE:n=24;break;
  case G5_OP_WINDOW_CLOSE:n=8;break;
+ case G5_OP_CANVAS_PAN:n=24;break;
  default:return G5_IPC_UNSUPPORTED_OPERATION;
  }
  return (h->payload_bytes==n && h->kind==k)?G5_IPC_OK:G5_IPC_BAD_FORMAT;
@@ -205,6 +207,17 @@ enum g5_ipc_status g5_ipc_validate_semantics(
   if(h->object_generation==0 || get64(p)==0 || get64(p+8)==0)
    return G5_IPC_BAD_FORMAT;
   break;
+ case G5_OP_CANVAS_PAN: {
+  /* Signed +/-32 pixel step, checked in unsigned domain; no FP in Ring 0.
+   * Payload: int32 dx/dy, uint64 camera_revision, uint64 scene_revision. */
+  uint32_t ux=get32(p),uy=get32(p+4);
+  if(h->object_generation==0 ||
+     !(ux<=32u || ux>=UINT32_MAX-31u) ||
+     !(uy<=32u || uy>=UINT32_MAX-31u) ||
+     (ux==0u && uy==0u) || get64(p+8)==0 || get64(p+16)==0)
+   return G5_IPC_BAD_FORMAT;
+  break;
+ }
  default:
   return G5_IPC_UNSUPPORTED_OPERATION;
  }
@@ -223,6 +236,7 @@ uint64_t g5_ipc_opcode_required_rights(uint32_t operation) {
   return AURORA_RIGHT_CONTROL;
  case G5_OP_SCENE_PREPARE:
  case G5_OP_SCENE_PUBLISH:
+ case G5_OP_CANVAS_PAN:
   return AURORA_RIGHT_CONTROL|AURORA_RIGHT_WRITE;
  default:
   return 0;

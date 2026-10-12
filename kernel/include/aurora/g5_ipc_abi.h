@@ -25,7 +25,9 @@ enum g5_ipc_opcode {
     G5_OP_WINDOW_PLACE = 0x02000003u,
     G5_OP_WINDOW_CLOSE = 0x02000004u,
     G5_OP_SCENE_PREPARE = 0x03000001u,
-    G5_OP_SCENE_PUBLISH = 0x03000002u
+    G5_OP_SCENE_PUBLISH = 0x03000002u,
+    /* WP-05: signed pixel delta, camera/scene revision (24-byte LE). */
+    G5_OP_CANVAS_PAN = 0x04000001u
 };
 
 enum g5_ipc_kind {

@@ -8,6 +8,8 @@ int main(void) {
  assert(g5_ipc_validate_schema(&h,0)==G5_IPC_BAD_FORMAT);
  h.operation=G5_OP_WINDOW_CLOSE; h.payload_bytes=8;
  assert(g5_ipc_validate_schema(&h,0)==G5_IPC_OK);
+ h.operation=G5_OP_CANVAS_PAN;h.payload_bytes=24;
+ assert(g5_ipc_validate_schema(&h,0)==G5_IPC_OK);
  h.operation=0xffffffffu;
  assert(g5_ipc_validate_schema(&h,0)==G5_IPC_UNSUPPORTED_OPERATION);
  return 0;
