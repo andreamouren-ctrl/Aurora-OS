@@ -580,6 +580,8 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
     log_line("[g5-wp04-gate] scene input router registered");
     scene->x=48;
     scene->y=48;
+    scene->camera_revision=1u;
+    scene->canvas_scene_revision=1u;
     scene->active=true;
     return true;
 failure:
@@ -853,4 +855,114 @@ bool g5_shell_scene_place(struct g5_shell_scene *scene,
     scene->y=y;
     scene->last_display_serial=serial;
     return true;
+}
+
+/* WP-05 first runtime visual slice. This uses integer pixel offsets only:
+ * no floating point or math library in Ring 0. Authorization is performed
+ * by the *exclusive* G5 Ring3 Shell endpoint before calling this routine;
+ * repeat the critical live/session/surface/revision checks here. This is
+ * intentionally restricted to two fully on-screen windows, not an infinite
+ * scene graph or arbitrary zoom composition. */
+bool g5_shell_scene_pan(struct g5_shell_scene *scene,
+                         const struct g5_ipc_header *header,
+                         const uint8_t *payload) {
+    if (!scene || !header || !payload || !scene->active ||
+        !scene->extra.active || !scene->surface || !scene->extra.surface ||
+        !scene->last_display_serial || !scene->extra.last_display_serial ||
+        header->operation != G5_OP_CANVAS_PAN ||
+        header->kind != G5_IPC_REQUEST || header->payload_bytes != 24u ||
+        header->session_generation != scene->generation ||
+        header->object_generation != scene->surface->generation ||
+        scene->camera_revision == UINT64_MAX ||
+        scene->canvas_scene_revision == 0u ||
+        scene->slot >= G5_SURFACE_REGISTRY_CAPACITY ||
+        scene->extra.slot >= G5_SURFACE_REGISTRY_CAPACITY ||
+        !g5_session_context_authorized(&scene->frame.registry.session,
+                                        scene->generation))
+        return false;
+    if (read_u64_le(payload+8u) != scene->camera_revision ||
+        read_u64_le(payload+16u) != scene->canvas_scene_revision)
+        return false;
+    const uint32_t raw_x=read_u32_le(payload),raw_y=read_u32_le(payload+4u);
+    if (!(raw_x <= 32u || raw_x >= UINT32_MAX-31u) ||
+        !(raw_y <= 32u || raw_y >= UINT32_MAX-31u) ||
+        (raw_x==0u && raw_y==0u))
+        return false;
+    const int64_t dx=raw_x<=32u?(int64_t)raw_x:(int64_t)raw_x-4294967296LL;
+    const int64_t dy=raw_y<=32u?(int64_t)raw_y:(int64_t)raw_y-4294967296LL;
+    struct aurora_window_toplevel first={0},second={0};
+    if (scene->window_id == scene->extra.window_id ||
+        !window_policy_read_toplevel(&scene->window_policy,
+                                     scene->window_id,&first) ||
+        !window_policy_read_toplevel(&scene->window_policy,
+                                     scene->extra.window_id,&second) ||
+        first.surface != scene->surface ||
+        second.surface != scene->extra.surface ||
+        !window_policy_configure_ready(&scene->window_policy,
+                                      scene->window_id,
+                                      scene->width,scene->height) ||
+        !window_policy_configure_ready(&scene->window_policy,
+                                      scene->extra.window_id,
+                                      scene->extra.width,scene->extra.height))
+        return false;
+    uint64_t n1=scene->bridge.node_ids[scene->slot];
+    uint64_t n2=scene->bridge.node_ids[scene->extra.slot];
+    if (!n1 || !n2 || n1==n2) return false;
+    const int64_t x1=(int64_t)first.placement.x+dx;
+    const int64_t y1=(int64_t)first.placement.y+dy;
+    const int64_t x2=(int64_t)second.placement.x+dx;
+    const int64_t y2=(int64_t)second.placement.y+dy;
+    const int64_t max1x=(int64_t)scene->window_policy.output_width-scene->width;
+    const int64_t max1y=(int64_t)scene->window_policy.output_height-scene->height;
+    const int64_t max2x=(int64_t)scene->window_policy.output_width-scene->extra.width;
+    const int64_t max2y=(int64_t)scene->window_policy.output_height-scene->extra.height;
+    if (x1<0 || y1<0 || x2<0 || y2<0 ||
+        x1>max1x || y1>max1y || x2>max2x || y2>max2y)
+        return false;
+
+    bool moved_first=false,moved_second=false;
+    if (!window_policy_move(&scene->window_policy,scene->window_id,
+                            (int32_t)x1,(int32_t)y1,
+                            scene->width,scene->height))
+        return false;
+    moved_first=true;
+    if (!window_policy_move(&scene->window_policy,scene->extra.window_id,
+                            (int32_t)x2,(int32_t)y2,
+                            scene->extra.width,scene->extra.height))
+        goto rollback;
+    moved_second=true;
+    if (!software_compositor_set_node(&scene->compositor,n1,
+                                      (int32_t)x1,(int32_t)y1,
+                                      first.placement.z,255u,true) ||
+        !software_compositor_set_node(&scene->compositor,n2,
+                                      (int32_t)x2,(int32_t)y2,
+                                      second.placement.z,255u,true))
+        goto rollback;
+    uint64_t serial=0u;
+    if (!software_compositor_compose_present(&scene->compositor,&serial) ||
+        serial<=scene->last_display_serial ||
+        serial<=scene->extra.last_display_serial)
+        goto rollback;
+    scene->x=(int32_t)x1; scene->y=(int32_t)y1;
+    scene->last_display_serial=serial;
+    scene->extra.last_display_serial=serial;
+    ++scene->camera_revision;
+    return true;
+rollback:
+    (void)software_compositor_set_node(&scene->compositor,n1,
+             first.placement.x,first.placement.y,
+             first.placement.z,255u,true);
+    (void)software_compositor_set_node(&scene->compositor,n2,
+             second.placement.x,second.placement.y,
+             second.placement.z,255u,true);
+    if (moved_second)
+        (void)window_policy_move(&scene->window_policy,
+                                 scene->extra.window_id,
+                                 second.placement.x,second.placement.y,
+                                 scene->extra.width,scene->extra.height);
+    if (moved_first)
+        (void)window_policy_move(&scene->window_policy,scene->window_id,
+                                 first.placement.x,first.placement.y,
+                                 scene->width,scene->height);
+    return false;
 }
