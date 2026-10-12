@@ -5,6 +5,27 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+
+## G5 WP-05 — Reference camera/coordinate source slice (2026-10-12)
+
+**Status: IMPLEMENTED USER-SPACE REFERENCE / HOST TEST VERIFIED, NOT WP-05 COMPLETE.**
+[PR #210](https://github.com/andreamouren-ctrl/Aurora-OS/pull/210)
+adds the independent `services/canvas` camera math module, a bounded
+reference visible-set scan and strictly compiled numeric regression tests.
+It uses D36 signed int64 world ticks, double transient camera state, checked
+wide differences, pointer-anchored zoom, range-checked int32 projection,
+revision-fenced inverse mapping and fail-atomic mutation. The module is not
+linked to Ring 0; all existing WP-03/WP-04 QEMU runtime gates remain unchanged.
+
+**Not yet accepted as G5 WP-05 runtime completion:** Ring 3 Canvas Engine
+bootstrap, camera IPC/scene revision ownership, compositor-authorized pan/zoom
+of two true app surfaces, QEMU presentation and cold-reboot markers,
+performance/visual tolerance measurements, and later WP-06 scene persistence.
+The new host workflow can verify the reference arithmetic, not live OS
+integration. No claim that arbitrary zoom is supported by the compositor.
+
+See [G5_WP05_CAMERA_IMPLEMENTATION.md](G5_WP05_CAMERA_IMPLEMENTATION.md).
+
 ## G5 WP-04 — Two independent Ring 3 window clients (2026-10-10)
 
 **Status: FROZEN / MERGED / RUNTIME ACCEPTED.** [PR #185](https://github.com/andreamouren-ctrl/Aurora-OS/pull/185) was merged to `main` on 2026-10-10 at merge commit `a45d3cab10544371d5f3535af0a768e6e0ea7e47` after five of five required workflows passed on accepted source HEAD `4886658a03eedd2a7895aa038eb2f015d7645068`. The bounded WP-04 scope is two native Ring 3 window clients and their verified window lifecycle/input; **spatial camera, Living Canvas and full Desktop Shell UX remain WP-05+**, not WP-04.
