@@ -85,7 +85,7 @@ M4 graphics is now active implementation, not design-only.
 - **G2 Surface/buffer core — complete/runtime verified**
 - **G3 Software compositor + mastering color pipeline — complete/runtime verified**
 - **G4 Pointer/modern input — complete/runtime verified (V1 bounded polling)**
-- **G5 Window protocol/Desktop Shell — WP-03 and WP-04 frozen/runtime verified on `main`; WP-05+ (spatial camera/Living Canvas) pending**
+- **G5 Window protocol/Desktop Shell — WP-03 and WP-04 frozen/runtime verified on `main`; WP-05 user-space camera/projection reference modules merged and host-tested; Ring 3 spatial Canvas and Living Canvas UX still pending**
 
 G1-G3 currently include capability-gated Ring 3 display/surface paths, cross-client buffer isolation, software composition, damage/clipping/z-order, transforms/scaling, occlusion, secure-scene rules, RGB10A2/RGB12/RGBA16F paths, direct ST.2084, BT.2100 HLG, ICC matrix-shaper import, monitor calibration and perceptual tone mapping.
 
@@ -93,7 +93,7 @@ Display-link foundations include EDID/CTA/DisplayID parsing, HDMI/DisplayPort ca
 
 G4 includes PS/2 and live qemu-xhci USB HID keyboard/mouse input, descriptor-driven mouse wheel and five-button support, normalized routing and focus/capture policy. QEMU hot-unplug teardown and event-ring quiescence were runtime gated. MSI-X interrupt delivery and further HID device classes remain deferred; G4 V1 uses bounded polling.
 
-G5 WP-03 and WP-04 are merged and runtime accepted. The User Session Host runs two independent Ring 3 renderer processes into one compositor, with generation-scoped IPC/graphics capability ownership, post-ACK committed-frame hit testing, target-bound focus and input, drag/move, process-mediated resize and independent close. QEMU acceptance covers both clients and crash/reauthentication. This is **not** the complete Desktop Shell: WP-05+ still owns spatial coordinates/camera, Living Canvas, full decorations, launcher/task-management UX and wider app integration. The compositor-backed pre-session Identity System App also remains to be implemented.
+G5 WP-03 and WP-04 are merged and runtime accepted. The User Session Host runs two independent Ring 3 renderer processes into one compositor, with generation-scoped IPC/graphics capability ownership, post-ACK committed-frame hit testing, target-bound focus and input, drag/move, process-mediated resize and independent close. QEMU acceptance covers both clients and crash/reauthentication. This is **not** the complete Desktop Shell: WP-05 now has a pure user-space reference camera and bounded viewport projector (PRs #210/#211, host-tested), but camera-to-Shell IPC, live pan/zoom over Ring 3 app windows, QEMU presentation and Living Canvas remain unimplemented. WP-05+ also owns full decorations, launcher/task-management UX and wider app integration. The compositor-backed pre-session Identity System App also remains to be implemented.
 
 ## What Aurora is not yet
 

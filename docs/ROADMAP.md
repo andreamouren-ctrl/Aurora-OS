@@ -291,7 +291,9 @@ Architecture contracts: [`graphics/README.md`](graphics/README.md).
 - [x] second-device HID enumeration + live mouse path + actual port-disconnect trigger (G4 V1 bounded-polling baseline)
 - [x] G5 WP-03 authenticated Ring 3 Shell bootstrap/session lifecycle (runtime verified)
 - [x] G5 WP-04 bounded two-client toplevel/window policy, focus, input, move/resize/close (PR #185; QEMU accepted)
-- [ ] G5 WP-05+ spatial camera, Living Canvas, full Desktop Shell launcher/decorations/task management
+- [x] G5 WP-05 user-space reference camera and bounded viewport projector with strict host tests (PRs #210/#211; no Ring 3/QEMU camera runtime yet)
+- [ ] G5 WP-05 Ring 3 spatial camera integration, live pan/zoom in compositor and QEMU acceptance
+- [ ] G5 WP-06+ scene registry, Living Canvas, full Desktop Shell launcher/decorations/task management
 - [ ] Activity Space prototype
 - [ ] persistent activity state
 - [ ] customization framework
