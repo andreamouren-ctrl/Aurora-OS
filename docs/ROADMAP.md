@@ -292,7 +292,8 @@ Architecture contracts: [`graphics/README.md`](graphics/README.md).
 - [x] G5 WP-03 authenticated Ring 3 Shell bootstrap/session lifecycle (runtime verified)
 - [x] G5 WP-04 bounded two-client toplevel/window policy, focus, input, move/resize/close (PR #185; QEMU accepted)
 - [x] G5 WP-05 user-space reference camera and bounded viewport projector with strict host tests (PRs #210/#211; no Ring 3/QEMU camera runtime yet)
-- [ ] G5 WP-05 Ring 3 spatial camera integration, live pan/zoom in compositor and QEMU acceptance
+- [x] G5 WP-05 bounded Ring3 dual-client translation-only pan via typed IPC, first-boot/cold-reboot QEMU accepted (PR #214)
+- [ ] G5 WP-05 complete Ring 3 spatial camera, actual interactive pan/zoom, revision-fenced hit-testing and QEMU acceptance
 - [ ] G5 WP-06+ scene registry, Living Canvas, full Desktop Shell launcher/decorations/task management
 - [ ] Activity Space prototype
 - [ ] persistent activity state

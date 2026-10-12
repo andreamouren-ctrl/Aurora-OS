@@ -6,6 +6,33 @@ Version: **0.2**
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
 
+## G5 WP-05 — First Ring 3 camera translation pilot (2026-10-12)
+
+**Status: MERGED / BOUNDED RUNTIME GATE ACCEPTED, WP-05 NOT FROZEN.**
+[PR #214](https://github.com/andreamouren-ctrl/Aurora-OS/pull/214),
+accepted source HEAD `5cca78179cdbab308027d40037487cdec22d8e93`,
+merge `53c0dae64aa1f059b2c446dcabc7e00452dab25d`.
+
+- Shell primary process sends typed `G5_OP_CANVAS_PAN` through its existing
+  exclusive Ring 3 G5 endpoint. Receiver checks live authenticated session,
+  surface generation, camera/scene revision, +/-32px bound and rights policy.
+- Two independently owned Ring3 surfaces move together by integer translation,
+  with a single compositor presentation and restore-on-failure geometry.
+- Boot-validation QEMU asserts two accepted movements, restoration to original
+  placement, rejection of a stale camera revision and monotonic frame serials.
+  First boot and second cold boot on the same disk both passed.
+- Eight applicable exact-head workflows passed: bootstrap, G5 QEMU,
+  G5 IPC wire, Identity entropy, entropy policy, AHCI E2E, NVMe E2E, NVMe probe.
+- Frozen WP-03/WP-04 QEMU acceptance remained mandatory and passed.
+
+**Not complete:** interactive user pan/zoom, offscreen/infinite placements,
+camera-relative world transforms and revision-fenced real input, full isolated
+Canvas Engine process, durable Scene Graph, fault/latency qualification and
+general-purpose GPU support. All remain tracked by
+[issue #213](https://github.com/andreamouren-ctrl/Aurora-OS/issues/213).
+No FP in kernel and no claim that the current compositor implements
+arbitrary fractional zoom.
+
 ## G5 WP-05 — Reference camera/coordinate source slice (2026-10-12)
 
 **Status: IMPLEMENTED USER-SPACE REFERENCE / HOST TEST VERIFIED, NOT WP-05 COMPLETE.**
