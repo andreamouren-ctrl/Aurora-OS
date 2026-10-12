@@ -186,11 +186,44 @@ void identity_ring3_host_poll(void) {
     }
 }
 bool identity_ring3_host_self_test(void) {
-    /* Real Ring3 READY/HEALTH/SHUTDOWN/REAP then fresh epoch restart.
-     * This test issues no privilege transfer and never touches a key. */
-    return identity_ring3_host_start() &&
-           identity_ring3_host_health_check() &&
-           identity_ring3_host_stop() &&
-           identity_ring3_host_start() &&
-           identity_ring3_host_health_check();
+    /* Actual Ring3 process lifecycle: start, health, cooperative shutdown,
+     * reap, restart; followed by a malformed IPC request that must terminate
+     * the worker without leaking or reusing the old endpoint/epoch. */
+    if (!identity_ring3_host_start() ||
+        !identity_ring3_host_health_check() ||
+        !identity_ring3_host_stop() ||
+        !identity_ring3_host_start() ||
+        !identity_ring3_host_health_check()) return false;
+
+    const uint64_t abandoned_epoch=ring3.instance_epoch;
+    if (!ring3.kernel_endpoint || !ring3.thread) return false;
+    const struct aurora_identity_ring3_message rejected={
+        .abi_version=AURORA_IDENTITY_RING3_ABI_VERSION,
+        .type=UINT32_MAX, /* Neither credentials nor graphics are accepted. */
+        .request_id=ring3.next_id++
+    };
+    if (rejected.request_id==0u ||
+        !ipc_send(ring3.kernel_endpoint,&ring3.kernel_caps,
+                  &rejected,sizeof(rejected),NULL,0u)) return false;
+
+    const uint64_t deadline=clock_now_ns()+AURORA_IDENTITY_RING3_TIMEOUT_NS;
+    while (!scheduler_thread_finished(ring3.thread) &&
+           clock_now_ns()<deadline) arch_idle();
+
+    if (!scheduler_thread_finished(ring3.thread) ||
+        identity_ring3_host_alive() ||
+        process_state(ring3.process)!=AURORA_PROCESS_EXITED ||
+        ring3.process->exit_code!=20) return false;
+
+    /* An untrusted host's demise cannot upgrade presentation authority.
+     * The kernel's independent secure scene and Identity Service still
+     * exclusively determine login and credential verification. */
+    identity_ring3_host_poll();
+    if (ring3.started || !ring3.fault_logged ||
+        !identity_ring3_host_start() ||
+        ring3.instance_epoch<=abandoned_epoch ||
+        !identity_ring3_host_health_check()) return false;
+
+    log_line("[identity-g2-ring3] rejected IPC crashed worker; fresh epoch recovery and health passed");
+    return true;
 }

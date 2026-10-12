@@ -163,3 +163,16 @@ transfer presentation or input into Ring 3**: the host currently implements
 only isolated process lifecycle and IPC foundation. Next work: constrained
 scene/buffer handoff, Ring 3 native layout and fonts, trusted input broker,
 lock/unlock crash/epoch recovery, and real-hardware qualification.
+
+## 2026-10-12 — G2 invalid-IPC crash and same-boot reauthentication of host epoch
+
+Boot validation intentionally sends an undefined IPC operation through the
+exclusive kernel endpoint after a graceful stop/reap/restart. The Ring 3
+runtime must reject it and exit with its fixed protocol-error code; the
+kernel verifies the actual exited state, clears the old host lifecycle,
+reaps its thread/process/capabilities, and starts a **new process in a strictly
+new instance epoch** with a successful health roundtrip. QEMU bootstrap CI
+checks the dedicated marker. This test passes no Aurora Key or sensitive
+credential buffer to Ring 3, and no profile/file/display authority is
+involved. It is not yet a fault-injection test of a real graphical Ring 3
+renderer, which still needs a later G2 work package.
