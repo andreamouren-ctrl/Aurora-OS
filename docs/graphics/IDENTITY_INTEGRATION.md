@@ -176,3 +176,29 @@ checks the dedicated marker. This test passes no Aurora Key or sensitive
 credential buffer to Ring 3, and no profile/file/display authority is
 involved. It is not yet a fault-injection test of a real graphical Ring 3
 renderer, which still needs a later G2 work package.
+
+## 2026-10-12 — G2 first real Ring 3 pixel-producing PRE_SESSION surface
+
+The isolated `identity-pre-session` Ring 3 process now receives a **small
+128x16 visual-only graphics buffer** and its own surface via per-process
+non-transferable capabilities. It can map/write only that buffer, attach,
+damage and commit its surface through existing graphics syscalls; it does
+not receive a display-control capability or direct framebuffer access.
+A dedicated IPC draw request is bound to the process instance and must
+return an exact request-ID and nonzero commit serial. The kernel
+independently verifies the COMMITTED surface snapshot and a known actual
+Ring 3-written framebuffer pixel before admitting the surface as a
+privileged PRE_SESSION node. Only the compositor's kernel authority may
+mark it PRE_SESSION and perform the final scanout.
+
+The small cyan/gold footer accent is positioned outside the password field,
+receives no input focus, and contains no personal data. The existing
+kernel-owned full-quality login UI remains the sole credential renderer;
+loss of the worker or badge only removes a decoration, not login access.
+Scene teardown removes the Ring 3 node before revoking buffer/surface
+capabilities and releasing graphics objects. The normal compositor
+present path emits a serial acceptance marker only after actually
+composing the Ring 3-owned pixels into the protected scene. This is an
+incremental **real rendering ownership** proof, not yet the full Ring 3
+Identity System App; moving the main artwork, Celestia typography, and
+trusted interactive field will require separate controlled handoffs.
