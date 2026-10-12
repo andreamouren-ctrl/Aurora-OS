@@ -6,6 +6,9 @@
 #include <string.h>
 #include <stdio.h>
 
+/* Wide subtraction is intentional in this host numeric oracle. */
+__extension__ typedef __int128 g5_test_wide_t;
+
 static struct g5_world_point pt(int64_t x,int64_t y) {
     return (struct g5_world_point){x,y};
 }
@@ -85,11 +88,11 @@ static void test_pointer_zoom(void) {
     double initial_x=(x-960.0)/(c.zoom*c.device_scale)+c.offset_x_units;
     double initial_y=(y-540.0)/(c.zoom*c.device_scale)+c.offset_y_units;
     assert(g5_camera_zoom_at(&c,2.0,x,y));
-    double later_x=(double)((__int128)c.anchor.x-
-                        (__int128)9000000000000000000LL)/1024.0+
+    double later_x=(double)((g5_test_wide_t)c.anchor.x-
+                        (g5_test_wide_t)9000000000000000000LL)/1024.0+
                       (x-960.0)/(c.zoom*c.device_scale)+c.offset_x_units;
-    double later_y=(double)((__int128)c.anchor.y+
-                        (__int128)9000000000000000000LL)/1024.0+
+    double later_y=(double)((g5_test_wide_t)c.anchor.y+
+                        (g5_test_wide_t)9000000000000000000LL)/1024.0+
                       (y-540.0)/(c.zoom*c.device_scale)+c.offset_y_units;
     assert(fabs(later_x-initial_x)<1e-8);
     assert(fabs(later_y-initial_y)<1e-8);
