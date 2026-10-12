@@ -246,14 +246,9 @@ static bool display_control_authorized(
     return view.object == (void *)display_output_at(output_index);
 }
 
-static bool node_is_secure(
-    const struct aurora_compositor_node *node
-) {
-    return node != NULL &&
-        (node->surface_class == AURORA_COMPOSITOR_SURFACE_SYSTEM_OVERLAY ||
-         node->surface_class == AURORA_COMPOSITOR_SURFACE_PRE_SESSION);
-}
-
+/* This is a strict scene ownership check, not merely a z-order rule.
+ * Even privileged generic overlays/cursors belong to the ordinary scene:
+ * neither may obscure nor receive events above the credential prompt. */
 static bool node_allowed_in_scene(
     const struct aurora_software_compositor *compositor,
     const struct aurora_compositor_node *node
@@ -269,8 +264,7 @@ static bool node_allowed_in_scene(
     if (!compositor->secure_scene_active)
         return node->surface_class != AURORA_COMPOSITOR_SURFACE_PRE_SESSION;
 
-    return node_is_secure(node) ||
-        node->surface_class == AURORA_COMPOSITOR_SURFACE_CURSOR;
+    return node->surface_class == AURORA_COMPOSITOR_SURFACE_PRE_SESSION;
 }
 
 bool software_compositor_node_in_active_scene(
@@ -2394,6 +2388,8 @@ static bool software_compositor_advanced_selftest(void) {
     uint64_t upper_node = 0u;
     uint64_t transform_node = 0u;
     uint64_t secure_node = 0u;
+    uint64_t overlay_node = 0u;
+    uint64_t cursor_node = 0u;
 
     if (!software_compositor_add_surface(
             &compositor,
@@ -2469,6 +2465,32 @@ static bool software_compositor_advanced_selftest(void) {
             &secure_node)) {
         return false;
     }
+    /* Two authorized generic graphics classes still must NOT cover the
+     * credential UI. Reuse a yellow committed test surface and deliberately
+     * give these nodes higher z than the real PRE_SESSION test node. */
+    if (!software_compositor_add_privileged_surface(
+            &compositor, &authority_caps, display_control,
+            secure_surface, AURORA_COMPOSITOR_SURFACE_SYSTEM_OVERLAY,
+            50, 2, 900, 255u, &overlay_node) ||
+        !software_compositor_add_privileged_surface(
+            &compositor, &authority_caps, display_control,
+            secure_surface, AURORA_COMPOSITOR_SURFACE_CURSOR,
+            60, 2, 1000, 255u, &cursor_node)) {
+        return false;
+    }
+
+    /* Generic overlay and cursor are legitimate in the ordinary scene;
+     * PRE_SESSION is not, until secure-scene activation is authorized. */
+    uint64_t foreign_hit = 0u;
+    if (!software_compositor_node_in_active_scene(&compositor, overlay_node) ||
+        !software_compositor_node_in_active_scene(&compositor, cursor_node) ||
+        !software_compositor_hit_test(&compositor, 51, 3, &foreign_hit) ||
+        foreign_hit != overlay_node ||
+        !software_compositor_hit_test(&compositor, 61, 3, &foreign_hit) ||
+        foreign_hit != cursor_node) {
+        return false;
+    }
+
     /* A trusted PRE_SESSION node must not enter hit-testing or the ordinary
      * desktop before the privileged scene activation is authorized. */
     uint64_t secure_hit = 0u;
@@ -2480,7 +2502,11 @@ static bool software_compositor_advanced_selftest(void) {
             display_control,
             true) ||
         !software_compositor_hit_test(&compositor, 40, 2, &secure_hit) ||
-        secure_hit != secure_node) {
+        secure_hit != secure_node ||
+        software_compositor_node_in_active_scene(&compositor, overlay_node) ||
+        software_compositor_node_in_active_scene(&compositor, cursor_node) ||
+        software_compositor_hit_test(&compositor, 51, 3, &foreign_hit) ||
+        software_compositor_hit_test(&compositor, 61, 3, &foreign_hit)) {
         return false;
     }
 
@@ -2496,7 +2522,15 @@ static bool software_compositor_advanced_selftest(void) {
         !pixel_rgb_equals(
             backbuffer_pixel(&compositor.backbuffer, 40u, 2u),
             &mode->format,
-            255u, 255u, 0u)) {
+            255u, 255u, 0u) ||
+        !pixel_rgb_equals(
+            backbuffer_pixel(&compositor.backbuffer, 51u, 3u),
+            &mode->format,
+            0u, 0u, 0u) ||
+        !pixel_rgb_equals(
+            backbuffer_pixel(&compositor.backbuffer, 61u, 3u),
+            &mode->format,
+            0u, 0u, 0u)) {
         return false;
     }
 
@@ -2522,9 +2556,20 @@ static bool software_compositor_advanced_selftest(void) {
             &mode->format,
             0u, 0u, 0u) ||
         software_compositor_hit_test(&compositor, 40, 2, &secure_hit) ||
-        secure_hit != 0u) {
+        secure_hit != 0u ||
+        !software_compositor_node_in_active_scene(&compositor, overlay_node) ||
+        !software_compositor_node_in_active_scene(&compositor, cursor_node) ||
+        !software_compositor_hit_test(&compositor, 51, 3, &foreign_hit) ||
+        foreign_hit != overlay_node ||
+        !software_compositor_hit_test(&compositor, 61, 3, &foreign_hit) ||
+        foreign_hit != cursor_node) {
         /* PRE_SESSION content must not leave stale pixels or retain input
          * hit-test access after returning to the ordinary desktop. */
+        return false;
+    }
+
+    if (!software_compositor_remove_surface(&compositor, overlay_node) ||
+        !software_compositor_remove_surface(&compositor, cursor_node)) {
         return false;
     }
 

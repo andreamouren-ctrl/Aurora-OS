@@ -28,3 +28,23 @@ The graphics input router now asks the compositor's shared scene eligibility pre
 ## Remaining Phase G2 work
 
 This security boundary **does not** create a trusted pre-login/lock compositor client, transfer credential input out of the kernel, make an Aurora Identity System App, or certify real-hardware fallback. Those tasks require independent pre-session host capabilities with zero profile delegation, trusted input ownership, session-generation fences, failure/restart tests and framebuffer recovery. Authentication authority remains solely in Identity Service.
+
+## 2026-10-12 — Strict exclusive secure-scene membership
+
+The trusted credential scene now admits **only**
+`AURORA_COMPOSITOR_SURFACE_PRE_SESSION` nodes. Even authorized generic
+`SYSTEM_OVERLAY` and `CURSOR` surfaces cannot render, participate in
+occlusion, receive focus, or be hit-tested during secure login/lock.
+Their existing desktop-scene behaviour is retained, and the full-output
+scene flip clears stale pixels. Future secure cursor/assistive UI must be
+part of the same explicitly authorized trusted PRE_SESSION host, not a
+normal generic overlay with inherited privileges.
+
+The compositor boot-validation regression now creates a high-z overlay
+and cursor over the secure scene and verifies nonmembership, denied
+hit-testing and exact black framebuffer pixels while protected; both
+classes become available again after authorized return to desktop.
+Because the graphics input router uses this same scene predicate,
+non-PRE_SESSION input targets are also excluded. These tests do **not**
+constitute Ring 3 exclusive device input routing or credential-broker
+isolation; those remain Phase G2 work.
