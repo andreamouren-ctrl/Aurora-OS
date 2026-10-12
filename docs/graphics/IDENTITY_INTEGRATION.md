@@ -142,3 +142,24 @@ Normal windows and even generic SYSTEM_OVERLAY/CURSOR elements are hidden.
 This is the first G2 visual non-interference gate; secure Ring 3 hosting,
 exclusive physical credential input and lifecycle-negative probes are still
 outstanding. The ordinary desktop's overlays and cursors are unchanged.
+
+## 2026-10-12 — G2 isolated Ring 3 host lifecycle (first slice)
+
+An independent `identity-pre-session` Ring 3 binary is now embedded in the
+ISO and started after the live Identity/Session Manager bootstrap, before the
+first login render. It has its own address space, **one** process-exclusive
+READ/WRITE IPC endpoint without TRANSFER, and no access to credentials,
+filesystem/profile handles, authenticated sessions, graphics buffers, display
+control or raw physical inputs. Kernel launches the process with a bounded
+startup ABI (version 1, nonce-like monotonic instance epoch, magic), checks a
+Ring 3 bootstrap proof and IPC READY, performs a real IPC health roundtrip,
+then can request an acknowledged shutdown and scheduler/process reap.
+
+Boot-validation exercises stop/reap/restart with a fresh epoch, plus a second
+health roundtrip. Unexpected process exit is detected without allowing it to
+influence authentication. The existing trusted kernel compositor remains
+the sole login pixel owner and falls back independently. This **does not yet
+transfer presentation or input into Ring 3**: the host currently implements
+only isolated process lifecycle and IPC foundation. Next work: constrained
+scene/buffer handoff, Ring 3 native layout and fonts, trusted input broker,
+lock/unlock crash/epoch recovery, and real-hardware qualification.
