@@ -125,6 +125,11 @@ void kmain(void) {
         kernel_panic("No supported 32-bit RGB framebuffer");
     }
 
+    /* Register the framebuffer-based emergency UI before display
+     * initialization: errors in display discovery can still use the
+     * original bitmap recovery renderer. Healthy boot remains blank. */
+    boot_ui_init(&framebuffer);
+
     if (!display_init_bootstrap(&framebuffer)) {
         kernel_panic("Display bootstrap initialization failed");
     }
@@ -259,7 +264,6 @@ void kmain(void) {
     log_line("[display] native GPU candidate/fallback policy passed");
 #endif
 
-    boot_ui_init(&framebuffer);
     boot_ui_stage(
         AURORA_BOOT_STAGE_FRAMEBUFFER
     );

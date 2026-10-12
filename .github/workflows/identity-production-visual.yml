@@ -1,9 +1,9 @@
-name: Aurora Production Identity Boot Visual Acceptance
+name: Aurora Silent Boot Identity Visual Acceptance
 
 on:
   push:
     branches:
-      - 'fix/boot-identity-visual-handoff-*'
+      - 'fix/boot-recovery-only-*'
   workflow_dispatch:
 
 permissions:
@@ -141,7 +141,7 @@ jobs:
                   time.sleep(.5)
               (root/'output'/'capture-metadata.json').write_text(
                   json.dumps({
-                      'iso_source_commit': '98c2d29614f48175832cd8cc53142393745eedae',
+                      'iso_source_commit': os.environ.get('GITHUB_SHA', 'unknown'),
                       'build_validation': False,
                       'actual_qemu_frames': total_frames,
                       'sample_interval_seconds': .5,
@@ -196,7 +196,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Aurora-Identity-Production-Boot-Visual-After-Fix
+          name: Aurora-Identity-Silent-Boot-Visual-Evidence
           path: |
             capture/output/
             capture/iso-sha256.txt
