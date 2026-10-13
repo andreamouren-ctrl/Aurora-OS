@@ -70,3 +70,15 @@ The accepted `docs/KERNEL_MODEL.md`, `docs/adr/ADR-0006-graphics-compositor-spli
 `g5_icam_prepare_submission` stages a bounded set of world-space rectangles into one complete immutable projected frame, tagged with session generation, scene revision, camera revision and request ID. `g5_icam_match_presented` requires matching identity/revisions plus an advancing display serial. `g5_icam_hit_projected_scene` uses the same clipped projected frame for focus as presentation. Host tests include atomic rejection, offscreen culling, overlapping focus, stale revisions and replayed ACKs.
 
 **Boundary:** these are pure Ring 3 data/validation helpers. They are not a new IPC wire format, do not authenticate the compositor, and do not yet send transactions to the production compositor. The kernel's old two-window physical translation remains a bring-up compatibility path until the compositor and input router can consume the new scene submission together. Never treat a helper-level ACK match as proof of authorization without a trusted IPC sender and verified capabilities.
+
+## IPC integration gate — bounded transport (2026-10-13)
+
+Source audit: `kernel/include/aurora/g5_ipc_abi.h`, `services/user_session/runtime/main.c`, `kernel/src/session/g5_shell_scene.c`.
+
+- The existing G5 message envelope is 48 bytes, with at most `AURORA_SYS_IPC_PAYLOAD_MAX - 48` bytes of inline body. The existing `G5_OP_CANVAS_PAN` request carries only 24 bytes: signed x/y pixel deltas and expected camera/scene revisions.
+- The kernel's `g5_shell_scene_pan` currently validates an exclusive Shell sender and physically translates two window placements. This must remain a **compatibility path**, not become the new infinite-canvas rendering protocol.
+- A full `g5_icam_scene_submission` (up to 16 projected objects) **must not be sent as a native C struct in one G5 inline message**: it exceeds the inline envelope, is not a stable LE wire format, and raw surface IDs are not capabilities.
+- Integration sequence: (1) define a versioned bounded little-endian scene-batch wire schema with explicit count, generation, camera/scene revision, and request ID; (2) implement receiver-side surface capability and generation checks; (3) stage scene and transform in compositor; (4) atomically present and return an authenticated display serial; (5) only then publish the camera in Shell and use that same presented scene for hit-testing.
+- For larger scenes, design capability-validated shared scene buffers or chunked batches with an atomic commit barrier. Never partially display a batch or silently truncate it to fit IPC. Preserve the legacy boot/QEMU path until the new transport passes end-to-end tests.
+
+**Gate is OPEN.** The existing Ring 3 projection, submission, ACK matching, and hit-test helpers do not yet constitute an actual compositor IPC implementation. CI runs observed for the current PR remain queued; no passing result is claimed here.
