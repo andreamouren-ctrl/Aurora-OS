@@ -432,6 +432,7 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                                     shell_commit))
         return 32;
 
+    uint64_t last_canvas_pan_request=4u;
     uint64_t last_resize_serial=0u;
     uint64_t current_graphics_buffer=startup->graphics_buffer;
     for (;;) {
@@ -457,7 +458,7 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                  * the control ACK only acknowledges forwarding, not acceptance. */
                 struct g5_integer_camera proposed_camera=canvas_camera;
                 if (pan.header.version != AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
-                    pan.header.request_id<=4u ||
+                    pan.header.request_id<=last_canvas_pan_request ||
                     pan.expected_camera_revision==0u ||
                     pan.expected_scene_revision==0u ||
                     pan.delta_x_px>32 || pan.delta_x_px< -32 ||
@@ -475,6 +476,7 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                                   AURORA_USER_SESSION_HOST_CANVAS_PAN_ACK,
                                   pan.header.request_id))
                     return 1;
+                last_canvas_pan_request=pan.header.request_id;
                 continue;
             }
         }
