@@ -568,13 +568,22 @@ bool g5_icam_decode_batch(
              (int64_t)fields[4]+fields[6]>staged.camera.width_px ||
              (int64_t)fields[5]+fields[7]>staged.camera.height_px))
             return false;
-        if (!item->visible &&
-            (fields[4]!=0 || fields[5]!=0 || fields[6]!=0 ||
-             fields[7]!=0 || fields[8]!=0 || fields[9]!=0 ||
-             ((int64_t)fields[0]<staged.camera.width_px &&
-              (int64_t)fields[1]<staged.camera.height_px &&
-              (int64_t)fields[0]+fields[2]>0 &&
-              (int64_t)fields[1]+fields[3]>0)))
+        /* A sender must not shrink the clip to hide a visible portion.
+         * Recompute the unique viewport intersection from geometry. */
+        struct g5_icam_clip_rect expected_clip={0};
+        const bool expected_visible=g5_icam_clip_to_viewport(
+            &staged.camera,&item->projected,&expected_clip);
+        if (item->visible!=expected_visible ||
+            (expected_visible &&
+             (item->clip.x_px!=expected_clip.x_px ||
+              item->clip.y_px!=expected_clip.y_px ||
+              item->clip.width_px!=expected_clip.width_px ||
+              item->clip.height_px!=expected_clip.height_px ||
+              item->clip.source_x_px!=expected_clip.source_x_px ||
+              item->clip.source_y_px!=expected_clip.source_y_px)) ||
+            (!expected_visible &&
+             (fields[4]!=0 || fields[5]!=0 || fields[6]!=0 ||
+              fields[7]!=0 || fields[8]!=0 || fields[9]!=0)))
             return false;
     }
     g5_batch_copy(out,&staged,sizeof(staged));
