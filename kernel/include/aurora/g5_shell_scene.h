@@ -35,6 +35,9 @@ struct g5_shell_extra_client {
     bool active;
 };
 
+/* The camera is kernel-owned; Ring3 may only propose transactions. */
+#include <aurora/g5_canvas_integer_camera.h>
+
 struct g5_shell_scene {
     struct aurora_process *owner;
     struct aurora_graphics_buffer *buffer;
@@ -58,6 +61,7 @@ struct g5_shell_scene {
     uint64_t last_display_serial;
     uint64_t last_commit_serial;
     uint64_t camera_revision;
+    struct g5_integer_camera world_camera;
     uint64_t canvas_scene_revision;
     uint32_t width;
     uint32_t height;
