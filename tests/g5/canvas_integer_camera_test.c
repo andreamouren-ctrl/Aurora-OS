@@ -380,9 +380,12 @@ int main(void) {
         packet,packet_size,7u,12u,admit_surface,&denied_surface,&received));
     assert(received.request_id==999u);
     denied_surface=0u;
-    assert(!g5_icam_receive_authorized_batch(
+    /* The request ID comes from the authenticated IPC envelope, not
+     * the G5SB payload; a different valid envelope request is allowed. */
+    assert(g5_icam_receive_authorized_batch(
         packet,packet_size,7u,13u,admit_surface,&denied_surface,&received));
-    assert(received.request_id==999u);
+    assert(received.request_id==13u);
+    received.request_id=999u;
     assert(g5_icam_receive_authorized_batch(
         packet,packet_size,7u,12u,admit_surface,&denied_surface,&received));
     assert(received.request_id==12u && received.count==2u);
