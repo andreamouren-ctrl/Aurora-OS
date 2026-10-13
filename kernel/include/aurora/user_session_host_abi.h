@@ -71,7 +71,7 @@ struct aurora_user_session_host_resize_message {
     uint32_t height;
 };
 
-/* Authoritative kernel-to-primary Shell control message. Fields are
+/* Legacy bounded-pan kernel-to-primary Shell control message. Fields are
  * copied across a process IPC boundary; no capability is transferable. */
 struct aurora_user_session_host_camera_message {
     struct aurora_user_session_host_message header;
@@ -80,7 +80,7 @@ struct aurora_user_session_host_camera_message {
     uint64_t expected_scene_revision;
 };
 
-/* Kernel-authoritative completion, never an acknowledgement of forwarding.
+/* Legacy compositor presentation completion, never an acknowledgement of forwarding.
  * Request identity and scene revision bind this receipt to the pan request. */
 struct aurora_user_session_host_camera_committed {
     struct aurora_user_session_host_message header;
