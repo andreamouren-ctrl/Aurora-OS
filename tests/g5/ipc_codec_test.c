@@ -142,6 +142,17 @@ int main(void) {
     batch[64]=0u;batch[65]=0u;batch[66]=0u;batch[67]=0u;
     batch[88]=20u;batch[92]=20u;
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    /* Vertical clipping follows the same canonical source mapping. */
+    batch[68]=0xf9u;batch[69]=0xffu;batch[70]=0xffu;batch[71]=0xffu;
+    batch[84]=0u;batch[92]=13u;batch[100]=7u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    batch[100]=6u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[100]=7u;batch[92]=12u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[68]=0u;batch[69]=0u;batch[70]=0u;batch[71]=0u;
+    batch[92]=20u;batch[100]=0u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
     batch[56]=0u;
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
     batch[56]=7u;batch[72]=0u;
