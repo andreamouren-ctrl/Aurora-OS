@@ -506,7 +506,12 @@ bool g5_icam_decode_batch(
     const uint8_t *source,uint32_t length,
     uint64_t authenticated_session_generation,uint64_t authenticated_request_id,
     struct g5_icam_scene_submission *out) {
-    if (!source || !out || !authenticated_session_generation ||
+    if (!source || !out ||
+        ((uintptr_t)source>=(uintptr_t)out &&
+         (uintptr_t)source-(uintptr_t)out<sizeof(*out)) ||
+        ((uintptr_t)source<(uintptr_t)out &&
+         (uintptr_t)out-(uintptr_t)source<length) ||
+        !authenticated_session_generation ||
         !authenticated_request_id || length<G5_ICAM_WIRE_BATCH_HEADER ||
         source[0]!='G' || source[1]!='5' || source[2]!='S' ||
         source[3]!='B' || g5_batch_get(source+4u,2u)!=1u ||
