@@ -78,8 +78,7 @@ OBJ := $(patsubst %.c,$(BUILD_DIR)/%.o,$(C_SRC)) \
        $(IDENTITY_RUNTIME_OBJ) \
        $(SESSION_RUNTIME_OBJ) \
        $(USER_SESSION_RUNTIME_OBJ) \
-       $(IDENTITY_PRESENTATION_RUNTIME_OBJ) \
-       $(BUILD_DIR)/g5_canvas_integer_camera.o
+       $(IDENTITY_PRESENTATION_RUNTIME_OBJ)
 
 DEP := $(patsubst %.c,$(BUILD_DIR)/%.d,$(C_SRC))
 
@@ -108,7 +107,6 @@ CFLAGS := \
     -mno-sse2 \
     -mcmodel=kernel \
     -Iinclude \
-    -I$(ROOT)/services/canvas/include \
     -I$(LIMINE_PROTOCOL)/include \
     -MMD \
     -MP
@@ -129,10 +127,6 @@ LDFLAGS := \
 .DEFAULT_GOAL := all
 
 all: $(OUTPUT)
-
-$(BUILD_DIR)/g5_canvas_integer_camera.o: $(ROOT)/services/canvas/src/g5_canvas_integer_camera.c $(ROOT)/services/canvas/include/aurora/g5_canvas_integer_camera.h
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
 
 
 $(COLOR_LUT_HEADER): $(COLOR_LUT_TOOL)
