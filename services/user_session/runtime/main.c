@@ -452,8 +452,13 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
             copy_bytes(&pan,received.data,sizeof(pan));
             if (pan.header.type == AURORA_USER_SESSION_HOST_CANVAS_PAN_REQUEST) {
                 clear_bytes(&received,sizeof(received));
+                /* Preflight the integer camera transaction without committing
+                 * speculative state. Kernel scene policy remains authoritative:
+                 * the control ACK only acknowledges forwarding, not acceptance. */
+                struct g5_integer_camera proposed_camera=canvas_camera;
                 if (pan.header.version != AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
                     pan.header.request_id<=4u ||
+                    !g5_icam_pan(&proposed_camera,pan.delta_x_px,pan.delta_y_px) ||
                     !send_g5_canvas_pan(startup->g5_endpoint,
                                         startup->session_generation,
                                         startup->graphics_object_generation,
