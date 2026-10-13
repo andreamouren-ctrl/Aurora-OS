@@ -165,6 +165,18 @@ int main(void) {
     partial.x_px=0;partial.width_px=0;
     assert(!g5_icam_clip_to_viewport(&projection,&partial,&clipped));
     assert(!g5_icam_clip_to_viewport(&projection,&partial,NULL));
+    /* Pointer focus follows world geometry under zoom, not stale screen
+     * coordinates; stale camera revisions cannot authorize a hit. */
+    assert(g5_icam_hit_world_rect(&projection,projection.revision,
+                                  410,310,0,0,102400u,51200u));
+    assert(!g5_icam_hit_world_rect(&projection,projection.revision,
+                                   399,310,0,0,102400u,51200u));
+    assert(!g5_icam_hit_world_rect(&projection,projection.revision-1u,
+                                   410,310,0,0,102400u,51200u));
+    assert(!g5_icam_hit_world_rect(&projection,projection.revision,
+                                   -1,310,0,0,102400u,51200u));
+    assert(!g5_icam_hit_world_rect(&projection,projection.revision,
+                                   410,310,0,0,0u,51200u));
     puts("G5 contextual input resolver and staged zoom: PASS");
     return 0;
 }
