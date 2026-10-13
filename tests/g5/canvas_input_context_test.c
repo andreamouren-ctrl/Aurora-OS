@@ -5,6 +5,9 @@
 int main(void) {
     struct g5_canvas_input_context c={0};
     assert(g5_canvas_resolve_wheel(&c,1)==G5_CANVAS_INPUT_APP);
+    assert(g5_canvas_zoom_factor(G5_CANVAS_INPUT_APP)==0u);
+    assert(g5_canvas_zoom_factor(G5_CANVAS_INPUT_ZOOM_IN)==81920u);
+    assert(g5_canvas_zoom_factor(G5_CANVAS_INPUT_ZOOM_OUT)==52429u);
     c.canvas_navigation=1;
     assert(g5_canvas_resolve_wheel(&c,1)==G5_CANVAS_INPUT_ZOOM_IN);
     assert(g5_canvas_resolve_wheel(&c,-1)==G5_CANVAS_INPUT_ZOOM_OUT);
