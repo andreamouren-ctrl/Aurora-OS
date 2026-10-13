@@ -146,3 +146,27 @@ bool g5_icam_project_rect(const struct g5_integer_camera *c,
     *out=result;
     return true;
 }
+
+bool g5_icam_clip_to_viewport(
+    const struct g5_integer_camera *c,
+    const struct g5_icam_screen_rect *r,
+    struct g5_icam_clip_rect *out) {
+    if (!valid(c) || !r || !out ||
+        r->width_px<=0 || r->height_px<=0) return false;
+    const int64_t right=(int64_t)r->x_px+r->width_px;
+    const int64_t bottom=(int64_t)r->y_px+r->height_px;
+    const int64_t left=r->x_px>0?r->x_px:0;
+    const int64_t top=r->y_px>0?r->y_px:0;
+    const int64_t clipped_right=right<(int64_t)c->width_px ?
+                                right:(int64_t)c->width_px;
+    const int64_t clipped_bottom=bottom<(int64_t)c->height_px ?
+                                 bottom:(int64_t)c->height_px;
+    if (clipped_right<=left || clipped_bottom<=top) return false;
+    const struct g5_icam_clip_rect clipped={
+        (int32_t)left,(int32_t)top,
+        (int32_t)(clipped_right-left),(int32_t)(clipped_bottom-top),
+        (int32_t)(left-r->x_px),(int32_t)(top-r->y_px)
+    };
+    *out=clipped;
+    return true;
+}
