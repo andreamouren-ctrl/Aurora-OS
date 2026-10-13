@@ -50,6 +50,15 @@ bool g5_icam_clip_to_viewport(
     const struct g5_integer_camera *camera,
     const struct g5_icam_screen_rect *projected,
     struct g5_icam_clip_rect *out);
+/* Resolve pointer focus against immutable world-space rectangles.
+ * The caller must provide rectangles in front-to-back stacking order;
+ * hidden/offscreen objects can be skipped before calling. The pointer
+ * coordinate is viewport-local and never alters the camera. */
+bool g5_icam_hit_world_rect(const struct g5_integer_camera *camera,
+                             uint64_t camera_revision,
+                             int32_t pointer_x_px,int32_t pointer_y_px,
+                             int64_t world_x_ticks,int64_t world_y_ticks,
+                             uint32_t width_ticks,uint32_t height_ticks);
 /* A rejected transaction never publishes speculative position or zoom.
  * The kernel's authoritative revision may be newer than the request's.
  * A backwards revision or overflow sentinel is not a valid resync. */
