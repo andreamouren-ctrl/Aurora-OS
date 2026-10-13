@@ -258,3 +258,36 @@ bool g5_icam_project_scene(
     for (uint32_t i=0;i<count;++i) out[i]=staged[i];
     return true;
 }
+
+/* Input routing uses exactly the clipped rectangles submitted to the
+ * compositor, not a separately rounded world-space hit-test path. */
+bool g5_icam_hit_projected_scene(
+    const struct g5_integer_camera *camera,uint64_t expected_revision,
+    const struct g5_icam_projected_item *items,uint32_t count,
+    int32_t pointer_x_px,int32_t pointer_y_px,
+    uint64_t *out_surface_id) {
+    if (!valid(camera) || camera->revision!=expected_revision ||
+        !items || !out_surface_id || count>G5_ICAM_SCENE_MAX_RECTS ||
+        pointer_x_px<0 || pointer_y_px<0 ||
+        (uint32_t)pointer_x_px>=camera->width_px ||
+        (uint32_t)pointer_y_px>=camera->height_px)
+        return false;
+    uint64_t hit=0u;
+    for (uint32_t i=count;i>0;--i) {
+        const struct g5_icam_projected_item *item=&items[i-1u];
+        if (!item->surface_id) return false;
+        if (!item->visible) continue;
+        const struct g5_icam_clip_rect *r=&item->clip;
+        if (r->width_px<=0 || r->height_px<=0 ||
+            r->x_px<0 || r->y_px<0 ||
+            (int64_t)r->x_px+r->width_px>camera->width_px ||
+            (int64_t)r->y_px+r->height_px>camera->height_px)
+            return false;
+        if (!hit && pointer_x_px>=r->x_px && pointer_y_px>=r->y_px &&
+            (int64_t)pointer_x_px<(int64_t)r->x_px+r->width_px &&
+            (int64_t)pointer_y_px<(int64_t)r->y_px+r->height_px)
+            hit=item->surface_id;
+    }
+    *out_surface_id=hit;
+    return true;
+}
