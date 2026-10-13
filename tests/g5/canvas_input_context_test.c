@@ -32,6 +32,21 @@ int main(void) {
     assert(g5_canvas_resolve_drag(&c)==G5_CANVAS_INPUT_PAN_DRAG);
     assert(g5_canvas_resolve_keys(&c,1)==G5_CANVAS_INPUT_PAN_KEYS);
     assert(g5_canvas_resolve_keys(&c,0)==G5_CANVAS_INPUT_APP);
-    puts("G5 contextual input resolver: PASS");
+    struct g5_integer_camera live={0},staged={0};
+    assert(g5_icam_init(&live,0,0,G5_ICAM_ONE,800,600));
+    const uint64_t rev=live.revision;
+    assert(g5_canvas_stage_wheel_zoom(&live,G5_CANVAS_INPUT_ZOOM_IN,
+                                      400,300,&staged));
+    assert(live.zoom_q16==G5_ICAM_ONE && live.revision==rev);
+    assert(staged.zoom_q16==81920u && staged.revision==rev+1u);
+    assert(!g5_canvas_accept_zoom_commit(&live,&staged,rev,false));
+    assert(live.zoom_q16==G5_ICAM_ONE);
+    assert(!g5_canvas_accept_zoom_commit(&live,&staged,rev+1u,true));
+    assert(g5_canvas_accept_zoom_commit(&live,&staged,rev,true));
+    assert(live.zoom_q16==81920u);
+    assert(!g5_canvas_accept_zoom_commit(&live,&staged,rev,true));
+    assert(!g5_canvas_stage_wheel_zoom(&live,G5_CANVAS_INPUT_APP,
+                                       400,300,&staged));
+    puts("G5 contextual input resolver and staged zoom: PASS");
     return 0;
 }
