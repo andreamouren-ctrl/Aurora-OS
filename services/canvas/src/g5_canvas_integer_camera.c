@@ -381,3 +381,57 @@ bool g5_icam_commit_presented_camera(
     *last_display_serial=display_serial;
     return true;
 }
+
+static void g5_batch_put(uint8_t *p,uint64_t value,uint32_t bytes) {
+    for (uint32_t i=0;i<bytes;++i) p[i]=(uint8_t)(value>>(8u*i));
+}
+static uint64_t g5_batch_get(const uint8_t *p,uint32_t bytes) {
+    uint64_t value=0u;
+    for (uint32_t i=0;i<bytes;++i) value|=(uint64_t)p[i]<<(8u*i);
+    return value;
+}
+/* Explicit little-endian serialization; never copy native structs onto
+ * the wire. The G5 envelope authenticates request/session separately. */
+bool g5_icam_encode_batch(
+    const struct g5_icam_scene_submission *submitted,
+    uint8_t *destination,uint32_t capacity,uint32_t *written) {
+    if (!submitted || !destination || !written ||
+        !submitted->session_generation || !submitted->request_id ||
+        !submitted->scene_revision || !valid(&submitted->camera) ||
+        !submitted->count || submitted->count>G5_ICAM_WIRE_BATCH_MAX)
+        return false;
+    const uint32_t bytes=G5_ICAM_WIRE_BATCH_HEADER+
+        submitted->count*G5_ICAM_WIRE_BATCH_ITEM;
+    if (capacity<bytes) return false;
+    uint8_t staged[G5_ICAM_WIRE_BATCH_CAPACITY]={0};
+    staged[0]='G';staged[1]='5';staged[2]='S';staged[3]='B';
+    g5_batch_put(staged+4u,1u,2u);
+    g5_batch_put(staged+6u,submitted->count,2u);
+    g5_batch_put(staged+8u,submitted->camera.revision,8u);
+    g5_batch_put(staged+16u,submitted->scene_revision,8u);
+    g5_batch_put(staged+24u,submitted->camera.width_px,4u);
+    g5_batch_put(staged+28u,submitted->camera.height_px,4u);
+    g5_batch_put(staged+32u,submitted->camera.zoom_q16,4u);
+    g5_batch_put(staged+40u,(uint64_t)submitted->camera.center_x_ticks,8u);
+    g5_batch_put(staged+48u,(uint64_t)submitted->camera.center_y_ticks,8u);
+    for (uint32_t i=0;i<submitted->count;++i) {
+        const struct g5_icam_projected_item *item=&submitted->items[i];
+        if (!item->surface_id) return false;
+        for(uint32_t j=0;j<i;++j)
+            if(submitted->items[j].surface_id==item->surface_id) return false;
+        uint8_t *p=staged+G5_ICAM_WIRE_BATCH_HEADER+
+            i*G5_ICAM_WIRE_BATCH_ITEM;
+        g5_batch_put(p,item->surface_id,8u);
+        const int32_t fields[10]={
+            item->projected.x_px,item->projected.y_px,
+            item->projected.width_px,item->projected.height_px,
+            item->clip.x_px,item->clip.y_px,
+            item->clip.width_px,item->clip.height_px,
+            item->clip.source_x_px,item->clip.source_y_px};
+        for(uint32_t j=0;j<10u;++j)
+            g5_batch_put(p+8u+4u*j,(uint32_t)fields[j],4u);
+    }
+    for(uint32_t i=0;i<bytes;++i)destination[i]=staged[i];
+    *written=bytes;
+    return true;
+}
