@@ -456,16 +456,26 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
             struct aurora_user_session_host_camera_committed committed={0};
             copy_bytes(&committed,received.data,sizeof(committed));
             if (committed.header.type ==
-                    AURORA_USER_SESSION_HOST_CANVAS_PAN_COMMITTED) {
+                    AURORA_USER_SESSION_HOST_CANVAS_PAN_COMMITTED ||
+                committed.header.type ==
+                    AURORA_USER_SESSION_HOST_CANVAS_PAN_REJECTED) {
                 clear_bytes(&received,sizeof(received));
                 if (committed.header.version !=
                         AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
                     pending_canvas_pan_request==0u ||
                     committed.header.request_id!=pending_canvas_pan_request ||
-                    committed.camera_revision!=pending_canvas_camera_revision+1u ||
                     committed.scene_revision!=pending_canvas_scene_revision)
                     return 1;
-                canvas_camera=pending_canvas_camera;
+                if (committed.header.type ==
+                        AURORA_USER_SESSION_HOST_CANVAS_PAN_COMMITTED) {
+                    if (committed.camera_revision!=pending_canvas_camera_revision+1u)
+                        return 1;
+                    canvas_camera=pending_canvas_camera;
+                } else if (committed.camera_revision!=pending_canvas_camera_revision) {
+                    /* An unexpected revision requires a full authoritative
+                     * resynchronization, not a speculative local update. */
+                    return 1;
+                }
                 pending_canvas_pan_request=0u;
                 continue;
             }
