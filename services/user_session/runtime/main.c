@@ -458,6 +458,11 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                 struct g5_integer_camera proposed_camera=canvas_camera;
                 if (pan.header.version != AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
                     pan.header.request_id<=4u ||
+                    pan.expected_camera_revision==0u ||
+                    pan.expected_scene_revision==0u ||
+                    pan.delta_x_px>32 || pan.delta_x_px< -32 ||
+                    pan.delta_y_px>32 || pan.delta_y_px< -32 ||
+                    (pan.delta_x_px==0 && pan.delta_y_px==0) ||
                     !g5_icam_pan(&proposed_camera,pan.delta_x_px,pan.delta_y_px) ||
                     !send_g5_canvas_pan(startup->g5_endpoint,
                                         startup->session_generation,
