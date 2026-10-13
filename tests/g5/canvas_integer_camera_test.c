@@ -130,6 +130,33 @@ int main(void) {
     invalid.revision=UINT64_MAX;
     assert(!g5_icam_accept_snapshot(&c,c.revision,&invalid));
     assert(c.zoom_q16==staged.zoom_q16 && c.revision==staged.revision);
+    /* A world scene is projected as one transaction; pan never changes
+     * world rectangles, and a rejected batch leaves outputs untouched. */
+    assert(g5_icam_init(&c,0,0,G5_ICAM_ONE,800,600));
+    const struct g5_icam_scene_item scene[2]={
+        {{0,0,102400u,51200u},11u},
+        {{1024000,0,102400u,51200u},12u}
+    };
+    struct g5_icam_projected_item frame[2]={0};
+    assert(g5_icam_project_scene(&c,c.revision,scene,2u,frame));
+    assert(frame[0].visible && frame[0].projected.x_px==400);
+    assert(!frame[1].visible && frame[1].clip.width_px==0);
+    const int32_t initial_x=frame[0].projected.x_px;
+    assert(g5_icam_pan(&c,10,0));
+    assert(g5_icam_project_scene(&c,c.revision,scene,2u,frame));
+    assert(frame[0].projected.x_px==initial_x+10);
+    assert(scene[0].world.x_ticks==0 && scene[1].world.x_ticks==1024000);
+    const struct g5_icam_projected_item prior=frame[0];
+    struct g5_icam_scene_item bad_scene[2]={scene[0],scene[1]};
+    bad_scene[1].surface_id=11u;
+    assert(!g5_icam_project_scene(&c,c.revision,bad_scene,2u,frame));
+    assert(frame[0].projected.x_px==prior.projected.x_px);
+    bad_scene[1].surface_id=12u;
+    bad_scene[1].world.x_ticks=INT64_MAX;
+    assert(!g5_icam_project_scene(&c,c.revision,bad_scene,2u,frame));
+    assert(frame[0].projected.x_px==prior.projected.x_px);
+    assert(!g5_icam_project_scene(&c,c.revision-1u,scene,2u,frame));
+    assert(!g5_icam_project_scene(&c,c.revision,scene,17u,frame));
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
