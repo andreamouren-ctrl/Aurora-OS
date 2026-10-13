@@ -102,6 +102,29 @@ bool g5_icam_hit_projected_scene(
     int32_t pointer_x_px,int32_t pointer_y_px,
     uint64_t *out_surface_id);
 
+/* Compositor handoff: a Ring 3-owned immutable frame transaction.
+ * The compositor must verify surface capabilities and session generation
+ * before accepting it; this structure alone grants no display rights.
+ * A presentation ACK is matched to both camera and scene revisions. */
+struct g5_icam_scene_submission {
+    uint64_t session_generation;
+    uint64_t scene_revision;
+    uint64_t request_id;
+    struct g5_integer_camera camera;
+    uint32_t count;
+    struct g5_icam_projected_item items[G5_ICAM_SCENE_MAX_RECTS];
+};
+bool g5_icam_prepare_submission(
+    const struct g5_integer_camera *camera,uint64_t expected_camera_revision,
+    uint64_t session_generation,uint64_t scene_revision,uint64_t request_id,
+    const struct g5_icam_scene_item *items,uint32_t count,
+    struct g5_icam_scene_submission *out);
+bool g5_icam_match_presented(
+    const struct g5_icam_scene_submission *submitted,
+    uint64_t session_generation,uint64_t scene_revision,
+    uint64_t request_id,uint64_t camera_revision,uint64_t display_serial,
+    uint64_t previous_display_serial);
+
 /* Shell-owned camera state must be synchronized as a complete snapshot.
  * A revision alone does not prove center, zoom or viewport equivalence.
  * expected_revision fences out-of-order acknowledgements. The caller
