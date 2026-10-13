@@ -221,6 +221,26 @@ int main(void) {
     moved_camera.center_x_ticks+=1024;
     assert(!g5_icam_hit_presented_submission(
         &submitted,&moved_camera,9u,101u,410,300,&focus));
+    /* Presenting a staged camera advances the Shell camera and frame
+     * serial together. Replays and failed acknowledgements are inert. */
+    struct g5_integer_camera next_camera=c;
+    assert(g5_icam_pan(&next_camera,8,0));
+    struct g5_icam_scene_submission next_frame={0};
+    assert(g5_icam_prepare_submission(&next_camera,next_camera.revision,
+                                      7u,10u,12u,scene,2u,&next_frame));
+    uint64_t last_serial=101u;
+    assert(!g5_icam_commit_presented_camera(&c,&last_serial,&next_frame,
+                                             7u,10u,12u,next_camera.revision,
+                                             101u));
+    assert(c.revision+1u==next_camera.revision && last_serial==101u);
+    assert(g5_icam_commit_presented_camera(&c,&last_serial,&next_frame,
+                                            7u,10u,12u,next_camera.revision,
+                                            102u));
+    assert(c.revision==next_camera.revision && last_serial==102u);
+    assert(!g5_icam_commit_presented_camera(&c,&last_serial,&next_frame,
+                                             7u,10u,12u,next_camera.revision,
+                                             103u));
+    assert(c.revision==next_camera.revision && last_serial==102u);
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
