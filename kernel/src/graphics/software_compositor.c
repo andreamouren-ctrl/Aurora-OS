@@ -162,6 +162,16 @@ static bool transformed_extent(
     return true;
 }
 
+static bool point_in_node_clip(
+    const struct aurora_compositor_node *node,int64_t x,int64_t y
+) {
+    if (!node || !node->clip.enabled) return node!=NULL;
+    const struct aurora_compositor_clip *c=&node->clip;
+    return x>=(int64_t)c->x && y>=(int64_t)c->y &&
+           x<(int64_t)c->x+c->width &&
+           y<(int64_t)c->y+c->height;
+}
+
 static bool destination_to_source(
     const struct aurora_compositor_node *node,
     const struct aurora_graphics_buffer *buffer,
@@ -178,6 +188,8 @@ static bool destination_to_source(
         node->scale > AURORA_COMPOSITOR_MAX_SCALE) {
         return false;
     }
+
+    if (!point_in_node_clip(node,dx,dy)) return false;
 
     int64_t lx = (int64_t)dx - (int64_t)node->x;
     int64_t ly = (int64_t)dy - (int64_t)node->y;
@@ -1174,6 +1186,39 @@ bool software_compositor_set_input_transparent(
     return true;
 }
 
+bool software_compositor_set_clip(
+    struct aurora_software_compositor *compositor,
+    uint64_t node_id,
+    const struct aurora_compositor_clip *clip
+) {
+    if (!compositor || !compositor->initialized || !clip ||
+        (clip->enabled &&
+         (!clip->width || !clip->height ||
+          (uint64_t)clip->x+clip->width>UINT32_MAX ||
+          (uint64_t)clip->y+clip->height>UINT32_MAX)))
+        return false;
+    struct aurora_compositor_node *node=find_node(compositor,node_id);
+    if (!node) return false;
+    const struct aurora_display_mode *mode=
+        display_mode_at(compositor->output_index,0u);
+    if (!mode) return false;
+    struct aurora_graphics_surface_snapshot snapshot={0};
+    if (!graphics_surface_read_committed(&compositor->surface_caps,
+                                         node->surface_handle,&snapshot))
+        return false;
+    uint64_t w=0u,h=0u;
+    bool ok=transformed_extent(node,snapshot.buffer->width,
+                               snapshot.buffer->height,&w,&h);
+    graphics_surface_snapshot_release(&snapshot);
+    if (!ok) return false;
+    (void)damage_union(&compositor->pending_damage,node->x,node->y,
+                       w,h,mode->width,mode->height);
+    node->clip=*clip;
+    (void)damage_union(&compositor->pending_damage,node->x,node->y,
+                       w,h,mode->width,mode->height);
+    return true;
+}
+
 bool software_compositor_set_transform(
     struct aurora_software_compositor *compositor,
     uint64_t node_id,
@@ -1500,7 +1545,8 @@ bool software_compositor_hit_test(
         int64_t right = left + (int64_t)width;
         int64_t bottom = top + (int64_t)height;
 
-        if ((int64_t)x < left ||
+        if (!point_in_node_clip(node,x,y) ||
+            (int64_t)x < left ||
             (int64_t)x >= right ||
             (int64_t)y < top ||
             (int64_t)y >= bottom) {
