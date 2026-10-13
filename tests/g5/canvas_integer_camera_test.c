@@ -386,6 +386,16 @@ int main(void) {
     assert(g5_icam_receive_authorized_batch(
         packet,packet_size,7u,12u,admit_surface,&denied_surface,&received));
     assert(received.request_id==12u && received.count==2u);
+    /* A receive buffer must not overlap the frame it would publish. */
+    struct g5_icam_scene_submission aliased_receive={0};
+    uint8_t *aliased_bytes=(uint8_t *)&aliased_receive;
+    for(uint32_t k=0u;k<packet_size;++k)aliased_bytes[k]=packet[k];
+    assert(!g5_icam_receive_authorized_batch(
+        aliased_bytes,packet_size,7u,12u,admit_surface,
+        &denied_surface,&aliased_receive));
+    assert(!g5_icam_receive_authorized_batch(
+        aliased_bytes+8u,packet_size,7u,12u,admit_surface,
+        &denied_surface,&aliased_receive));
     /* The length out-parameter must not overwrite the encoded payload. */
     uint8_t length_alias[G5_ICAM_WIRE_BATCH_CAPACITY]={0};
     uint32_t clean_length=0;
