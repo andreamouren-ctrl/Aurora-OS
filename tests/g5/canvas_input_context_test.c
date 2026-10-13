@@ -33,6 +33,9 @@ int main(void) {
     assert(!g5_canvas_wheel_zoom_request(&c,1,&wheel_factor));
     assert(g5_canvas_resolve_right_release(&c)==G5_CANVAS_INPUT_SWITCH_COMMIT);
     c.right_held=0;
+    /* Once the Shell commits a switch, clear the chord latch before
+     * interpreting a subsequent independent right-button release. */
+    c.right_wheel_used=0;
     assert(g5_canvas_resolve_wheel(&c,1)==G5_CANVAS_INPUT_APP);
     assert(g5_canvas_resolve_keys(&c,1)==G5_CANVAS_INPUT_APP);
     assert(g5_canvas_resolve_right_release(&c)==G5_CANVAS_INPUT_APP);
