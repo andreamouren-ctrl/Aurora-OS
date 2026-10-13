@@ -10,9 +10,29 @@ static bool fit(wide v, int64_t *out) {
     if (!out || v<INT64_MIN || v>INT64_MAX) return false;
     *out=(int64_t)v; return true;
 }
-static wide round_div(wide n, wide d) {
-    /* d strictly positive. Round nearest, ties away from zero. */
-    return n>=0 ? (n+d/2)/d : -((-n+d/2)/d);
+__extension__ typedef unsigned __int128 uwide;
+/* Compiler-independent 128/128 unsigned division. This deliberately avoids
+ * GCC/Clang __divti3 and __udivti3 in the freestanding Ring 3 object.
+ * Precondition: denominator != 0; all camera callers enforce this. */
+static uwide divide_unsigned(uwide numerator,uwide denominator) {
+    uwide quotient=0, remainder=0;
+    for (unsigned bit=128;bit>0;--bit) {
+        remainder=(remainder<<1)|((numerator>>(bit-1))&1u);
+        if (remainder>=denominator) {
+            remainder-=denominator;
+            quotient|=((uwide)1<<(bit-1));
+        }
+    }
+    return quotient;
+}
+static wide round_div(wide n,wide d) {
+    /* All current operands are well inside signed 128-bit range.
+     * Round nearest, ties away from zero, without a compiler runtime. */
+    const bool negative=n<0;
+    const uwide magnitude=negative?(uwide)(-n):(uwide)n;
+    const uwide divisor=(uwide)d;
+    const uwide rounded=divide_unsigned(magnitude+divisor/2u,divisor);
+    return negative?-(wide)rounded:(wide)rounded;
 }
 bool g5_icam_init(struct g5_integer_camera *c,int64_t x,int64_t y,
                    uint32_t zoom,uint32_t w,uint32_t h) {
