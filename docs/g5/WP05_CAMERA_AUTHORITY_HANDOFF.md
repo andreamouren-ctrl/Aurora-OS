@@ -82,3 +82,13 @@ Source audit: `kernel/include/aurora/g5_ipc_abi.h`, `services/user_session/runti
 - For larger scenes, design capability-validated shared scene buffers or chunked batches with an atomic commit barrier. Never partially display a batch or silently truncate it to fit IPC. Preserve the legacy boot/QEMU path until the new transport passes end-to-end tests.
 
 **Gate is OPEN.** The existing Ring 3 projection, submission, ACK matching, and hit-test helpers do not yet constitute an actual compositor IPC implementation. CI runs observed for the current PR remain queued; no passing result is claimed here.
+
+## Integration boundary audit (2026-10-13)
+
+The currently green host camera tests do not establish a production scene IPC route. Before enabling one, update the G5 opcode schema and receiver authorization together: the existing `G5_OP_SCENE_PREPARE`/`G5_OP_SCENE_PUBLISH` are control-plane operations, and `G5_OP_CANVAS_PAN` is the legacy 24-byte kernel-owned pilot. Never silently reinterpret any of those payloads as the new 56+48*N camera batch.
+
+A valid camera batch occupies 104, 152, or 200 bytes of G5 inline payload for 1–3 items. The receiver must verify the *authenticated* envelope session generation/request ID and enforce capability type, rights, ownership, live object generation and per-surface authorization before staging any surface. An inline numeric `surface_id` is not a capability. Reject a frame with more than three items until an atomic multi-batch/shared-buffer transaction is implemented; never display the first three and silently drop the rest.
+
+The compositor must acknowledge a specific submitted camera snapshot and scene revision with a monotonic display serial; Shell must not commit a speculative camera until a matching authenticated presentation response arrives. Failed validation, timeout, restart, or rejection must leave the last committed camera and presented scene unchanged. Replace the legacy physical window-translation path only after QEMU exercises the new route end-to-end, including replay/reorder and restart cases.
+
+**Gate remains OPEN:** this is an implementation contract, not evidence that the transport is connected.
