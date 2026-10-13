@@ -151,7 +151,7 @@ bool g5_icam_commit_presented_camera(
  * a future authenticated shared-buffer protocol, never truncate.
  * This is serialization only: raw surface IDs are not capabilities. */
 #define G5_ICAM_WIRE_BATCH_MAX 3u
-#define G5_ICAM_WIRE_BATCH_HEADER 32u
+#define G5_ICAM_WIRE_BATCH_HEADER 40u
 #define G5_ICAM_WIRE_BATCH_ITEM 48u
 #define G5_ICAM_WIRE_BATCH_CAPACITY (G5_ICAM_WIRE_BATCH_HEADER + \
                                     G5_ICAM_WIRE_BATCH_MAX * G5_ICAM_WIRE_BATCH_ITEM)
