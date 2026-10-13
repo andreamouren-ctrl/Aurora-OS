@@ -2,28 +2,44 @@
 
 Status: **OPEN — NOT FROZEN**.
 
-## Current verified path
+## Implemented protocol
 
-1. The trusted kernel input router detects an eligible empty-background scroll and allocates a monotonic request ID.
-2. The primary Ring 3 user-session process receives a `CANVAS_PAN_REQUEST` with expected kernel camera and scene revisions.
-3. Ring 3 validates bounded nonzero deltas and stages `g5_icam_pan()` on a **temporary copy**; it does not commit local camera state.
-4. Ring 3 sends `G5_OP_CANVAS_PAN` to the G5 endpoint and acknowledges **forwarding** through `CANVAS_PAN_ACK`.
-5. The trusted kernel waits for that ACK, polls the G5 IPC completion, requires `G5_IPC_OK`, and verifies that its camera revision advanced exactly once while the scene revision remained stable.
+1. The trusted kernel input router recognizes eligible USB HID background scroll input and allocates a monotonic request ID. **This is the old experimental scroll-to-pan mapping, not the newly approved Aurora OS interaction design.**
+2. Ring 3 receives `CANVAS_PAN_REQUEST` with expected kernel camera/scene revisions and stages `g5_icam_pan()` on a temporary camera.
+3. Ring 3 forwards `G5_OP_CANVAS_PAN` and sends `CANVAS_PAN_ACK`. This ACK means *forwarded*, not *committed*.
+4. Kernel polls G5 IPC, checks successful compositor transaction and revision advancement, then sends `CANVAS_PAN_COMMITTED` with authoritative revisions. On failure it sends `CANVAS_PAN_REJECTED`.
+5. Ring 3 commits its staged camera only on matching `COMMITTED`; it discards it on matching `REJECTED`. Mismatched request IDs/revisions fail closed.
 
-## Important semantic distinction
+## Approved interaction direction — contextual controls
 
-`CANVAS_PAN_ACK` means *forwarded*, **not** *accepted by the kernel*. The Ring 3 process cannot infer acceptance from the ACK and must not update its local authoritative revision on that basis. Kernel camera revisions and integer-camera revisions are different representations until an explicit synchronization contract exists.
+The user-approved navigation design **supersedes the experimental wheel-to-pan mapping**:
 
-## Remaining implementation gate
+| Context / gesture | Intended behavior |
+| --- | --- |
+| Canvas navigation, wheel up/down | Zoom in/out, anchored at pointer |
+| Canvas navigation, held W/A/S/D or arrow keys | Continuous camera movement |
+| Empty canvas, left-button drag | Smooth camera pan; release ends drag |
+| Right button held + wheel | Cycle open applications, previous/next |
+| Release right button after cycling | Confirm application and navigate camera to its window |
+| Text editor / menu / application-owned controls | Preserve application input; do not hijack typing, text selection or app scrolling |
 
-- Define a kernel-to-Ring3 authoritative camera-state message carrying the **committed** revision and center/zoom or an equivalent deterministic snapshot. Decide whether to transmit a snapshot or an acknowledged delta; do not assume a forwarded delta was applied.
-- Deliver that message only after a successful kernel commit and validate the session, process, request ID, and monotonic revision. Specify recovery for dropped/reordered messages and restart/resize.
-- Reconcile the Ring 3 integer camera from the authoritative state, not from speculative requests. Cover rejection, stale revision, duplicate request, overflow, and failed compositor present.
-- Add end-to-end tests and a QEMU boot/input trace before WP-05.A freeze. No graphics asset is required for this protocol stage.
+The context resolver must prioritize focused application controls and explicit modal operations, with a clearly defined canvas-navigation mode. Right-button + wheel is a chord, not an ordinary right-click: do not open the context menu after the chord has been consumed. A plain right-click remains available to applications. Direction and precise wheel-step mapping must be verified with real devices and accessibility settings.
 
-## Existing guards
+## Quick-switch camera policy
 
-- Pan deltas are bounded to 32 pixels per axis; zero motion is rejected.
-- Ring 3 rejects repeated or out-of-order request IDs.
-- Kernel owns placement, compositor transaction, and camera revision.
-- CI builds and inspects the real freestanding Ring 3 ELF.
+Default proposal: keep each window at its world position, select an application while the right button is held, then move the camera to the selected window on release. Use a short optional animation (target 150–250 ms) with reduced-motion and performance-sensitive immediate-jump fallback. Do **not** reposition windows as a shortcut for navigating the camera.
+
+This is a **target architecture**, not a current implementation. The present G5 prototype physically translates two windows during pan; a compositor camera transform, app enumeration, thumbnail preview, contextual input dispatch, keyboard repeat and drag capture are still to be designed/implemented. An animated camera is generally more work than a simple z-order switch; any resource-saving claim requires benchmarks.
+
+## Outstanding engineering gates
+
+- Replace the legacy scroll-to-pan input route and its QEMU oracle with context-aware wheel-to-zoom, keyboard pan, drag pan, and right-button-wheel switch tests.
+- Define a kernel-authoritative camera snapshot (center, zoom, viewport, revision) and reconcile it across resize, rejection, restart and out-of-order messages; do not confuse a committed delta with an entire camera snapshot.
+- Make rendering camera-relative rather than moving world-space windows. Specify clipping, hit testing, focus, accessibility, frame pacing and offscreen culling.
+- Preserve existing capability/security checks, input provenance, and IPC revision validation.
+- Measure CPU, GPU, latency and memory against z-order-only switching on representative hardware.
+- Run end-to-end CI/QEMU; do not freeze WP-05.A while the bootstrap smoke gate is red.
+
+## CI status at last review
+
+The integer-camera host workflow passed at commit `8f446985`. The QEMU BIOS four-CPU bootstrap failed at WP-05 input probe stage 6 (first USB HID wheel-to-pan) on that commit. Commit `d3d9b498` added detailed diagnostics; results are not yet established in this document.
