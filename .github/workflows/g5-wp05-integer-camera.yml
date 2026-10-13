@@ -40,3 +40,20 @@ jobs:
               -lm -o "/tmp/g5-icam-diff-$cc"
             "/tmp/g5-icam-diff-$cc"
           done
+      - name: Freestanding x86-64 code generation audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror -pedantic -O2 \
+            -ffreestanding -fno-builtin -mno-sse -mno-sse2 \
+            -Iservices/canvas/include -c \
+            services/canvas/src/g5_canvas_integer_camera.c \
+            -o /tmp/g5-icam-freestanding.o
+          echo "Undefined symbols (must be resolved before Ring 3 linking):"
+          nm -u /tmp/g5-icam-freestanding.o || true
+          if objdump -d /tmp/g5-icam-freestanding.o | \
+             grep -E '\\b(xmm[0-9]+|ymm[0-9]+|zmm[0-9]+)\\b'; then
+            echo "Unexpected SIMD register use in freestanding camera"
+            exit 1
+          fi
+          echo "Freestanding compile and SIMD register audit passed"
