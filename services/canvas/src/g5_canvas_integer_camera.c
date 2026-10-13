@@ -531,7 +531,12 @@ bool g5_icam_receive_authorized_batch(
     uint64_t authenticated_request_id,
     g5_icam_surface_authorize_fn authorize,void *context,
     struct g5_icam_scene_submission *out) {
-    if (!wire || !out || !authorize) return false;
+    if (!wire || !out || !authorize ||
+        ((uintptr_t)wire>=(uintptr_t)out &&
+         (uintptr_t)wire-(uintptr_t)out<sizeof(*out)) ||
+        ((uintptr_t)wire<(uintptr_t)out &&
+         (uintptr_t)out-(uintptr_t)wire<wire_length))
+        return false;
     struct g5_icam_scene_submission staged;
     if (!g5_icam_decode_batch(wire,wire_length,
                               authenticated_session_generation,
