@@ -186,3 +186,23 @@ bool g5_icam_hit_world_rect(const struct g5_integer_camera *c,
            (wide)world_x<(wide)x+w &&
            (wide)world_y<(wide)y+h;
 }
+
+bool g5_icam_project_pair(
+    const struct g5_integer_camera *camera,uint64_t expected_revision,
+    const struct g5_icam_world_rect *first,
+    const struct g5_icam_world_rect *second,
+    struct g5_icam_screen_rect *first_out,
+    struct g5_icam_screen_rect *second_out) {
+    if (!camera || !first || !second || !first_out || !second_out ||
+        first_out==second_out || camera->revision!=expected_revision)
+        return false;
+    struct g5_icam_screen_rect a,b;
+    if (!g5_icam_project_rect(camera,first->x_ticks,first->y_ticks,
+                              first->width_ticks,first->height_ticks,&a) ||
+        !g5_icam_project_rect(camera,second->x_ticks,second->y_ticks,
+                              second->width_ticks,second->height_ticks,&b))
+        return false;
+    *first_out=a;
+    *second_out=b;
+    return true;
+}
