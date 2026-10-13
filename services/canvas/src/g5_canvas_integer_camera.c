@@ -358,3 +358,26 @@ bool g5_icam_hit_presented_submission(
         submitted->items,submitted->count,
         pointer_x_px,pointer_y_px,out_surface_id);
 }
+
+/* All checks precede both writes. In particular a speculative camera
+ * cannot be published on forwarded, replayed or out-of-order ACKs. */
+bool g5_icam_commit_presented_camera(
+    struct g5_integer_camera *live_camera,
+    uint64_t *last_display_serial,
+    const struct g5_icam_scene_submission *submitted,
+    uint64_t session_generation,uint64_t scene_revision,
+    uint64_t request_id,uint64_t camera_revision,
+    uint64_t display_serial) {
+    if (!live_camera || !last_display_serial || !submitted ||
+        !valid(live_camera) || live_camera->revision==UINT64_MAX ||
+        !g5_icam_match_presented(submitted,session_generation,
+                                  scene_revision,request_id,camera_revision,
+                                  display_serial,*last_display_serial) ||
+        submitted->camera.revision!=live_camera->revision+1u ||
+        submitted->camera.width_px!=live_camera->width_px ||
+        submitted->camera.height_px!=live_camera->height_px)
+        return false;
+    *live_camera=submitted->camera;
+    *last_display_serial=display_serial;
+    return true;
+}
