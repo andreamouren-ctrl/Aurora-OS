@@ -170,3 +170,19 @@ bool g5_icam_clip_to_viewport(
     *out=clipped;
     return true;
 }
+
+bool g5_icam_hit_world_rect(const struct g5_integer_camera *c,
+                             uint64_t revision,int32_t px,int32_t py,
+                             int64_t x,int64_t y,uint32_t w,uint32_t h) {
+    if (!valid(c) || revision!=c->revision ||
+        px<0 || py<0 || (uint32_t)px>=c->width_px ||
+        (uint32_t)py>=c->height_px || !w || !h)
+        return false;
+    int64_t world_x,world_y;
+    if (!g5_icam_unproject(c,revision,px,py,&world_x,&world_y))
+        return false;
+    return (wide)world_x>=(wide)x &&
+           (wide)world_y>=(wide)y &&
+           (wide)world_x<(wide)x+w &&
+           (wide)world_y<(wide)y+h;
+}
