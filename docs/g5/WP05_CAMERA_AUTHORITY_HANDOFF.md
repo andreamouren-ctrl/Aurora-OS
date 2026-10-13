@@ -43,3 +43,24 @@ This is a **target architecture**, not a current implementation. The present G5 
 ## CI status at last review
 
 The integer-camera host workflow passed at commit `8f446985`. The QEMU BIOS four-CPU bootstrap failed at WP-05 input probe stage 6 (first USB HID wheel-to-pan) on that commit. Commit `d3d9b498` added detailed diagnostics; results are not yet established in this document.
+
+## Architecture correction — Shell-owned camera (2026-10-13)
+
+The accepted `docs/KERNEL_MODEL.md`, `docs/adr/ADR-0006-graphics-compositor-split.md`, `docs/graphics/DESKTOP_SHELL_CONTRACT.md`, and `G5_DESIGN_SPEC.md` require the final spatial camera to be owned by the trusted **Ring 3 Desktop Shell / Canvas Engine**, not by Ring 0. Canvas Engine may initially be an in-process Shell module; it does not require a dedicated always-awake process.
+
+- **Ring 3 Shell/Canvas:** sole mutable camera center, zoom, viewport, scene/world positions, input-context policy and task switching. World rectangles are immutable under camera pan/zoom.
+- **Compositor:** consumes a generation- and revision-fenced projected scene transaction, performs clipping, transforms, hit-test correspondence and atomic presentation. It must not independently advance a second camera.
+- **Kernel:** enforces capabilities, IPC endpoint identity, session/object generations and trusted input provenance; no persistent camera/navigation policy in Ring 0. Existing kernel compositor/window-policy code is a temporary bring-up bridge, not the final ownership model.
+- **Acknowledgements:** include complete accepted camera state (center, zoom, viewport, revision) or a reference to the exact submitted snapshot. A revision-only rejection/commit cannot reconcile divergent camera state. `g5_icam_accept_snapshot` is a pure Ring 3 staging primitive; it does not authenticate the sender and must only be called after IPC authorization.
+- **Atomicity:** Shell stages a camera and visible scene, compositor validates all authorized surfaces before presentation, and Shell publishes its new committed camera only on the matching accepted transaction. Failure leaves the previous camera and frame intact.
+- **Performance:** event-driven input, bounded coalesced scene submissions per frame, no per-pixel IPC, no unconditional background polling. Measure frame latency and wakeups before claiming improvements.
+
+### Migration sequence and current limitation
+
+1. Introduce complete Ring 3 snapshot acceptance and host negative tests (first code slice; **not yet wired into production IPC**).
+2. Add typed camera/scene transaction IPC with generation and monotonic revision fencing; make Ring 3 the owner of the committed camera and compositor the validator/presenter.
+3. Replace kernel-owned pan/scroll policy and physical window translation with immutable world coordinates, camera-relative projection and consistent input hit testing. Keep the existing QEMU pilot as a regression gate until replacement is proven.
+4. Implement contextual wheel zoom, keyboard/drag pan, right-held-wheel application switching, fractional composition, and compositor crash/restart/revocation tests.
+5. Verify QEMU first/cold boot and p50/p95 latency, CPU wakeups and memory; only then propose WP-05 freeze.
+
+**This section records the target architecture, not a claim that Ring 0 graphics policy has already been migrated.**
