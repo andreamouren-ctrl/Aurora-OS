@@ -1082,22 +1082,18 @@ static bool g5_wp05_route_background_scroll(
         host.scene.canvas_scene_revision==0u ||
         host.next_request_id<=4u || host.next_request_id==UINT64_MAX)
         return false;
-    /* Transitional gate: consult the contextual resolver before routing
-     * any legacy pan. The final wheel gesture is zoom, not pan. Until
-     * kernel-authoritative zoom exists, never reinterpret zoom as motion. */
+    /* Until zoom IPC and compositor projection are integrated, consume
+     * physical wheel input without mutating the camera. */
     const struct g5_canvas_input_context input_context={
         .canvas_navigation=1u,
         .pointer_over_window=0u
     };
     const enum g5_canvas_input_action action=
         g5_canvas_resolve_wheel(&input_context,event->scroll_y);
-    if (action==G5_CANVAS_INPUT_ZOOM_IN ||
-        action==G5_CANVAS_INPUT_ZOOM_OUT) {
-        host.last_camera_scroll_sequence=event->sequence;
-        return true; /* Consumed: zoom dispatch pending, no accidental pan. */
-    }
+    if (g5_canvas_zoom_factor(action)==0u)
+        return true;
+    host.last_camera_scroll_sequence=event->sequence;
     return true;
-
 }
 
 /* Isolated routing stage shared with the privileged boot self-test.
