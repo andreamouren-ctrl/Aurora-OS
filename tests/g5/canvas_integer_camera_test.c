@@ -299,6 +299,20 @@ int main(void) {
                                  &overlap_frame));
     assert(!g5_icam_decode_batch(overlap_bytes+8u,packet_size,7u,12u,
                                  &overlap_frame));
+    /* Wire header integrity: reserved bits, protocol version, and camera
+     * revision must fail closed without publishing a partial scene. */
+    assert(g5_icam_encode_batch(&next_frame,packet,sizeof(packet),&packet_size));
+    const uint32_t header_offsets[]={4u,8u,36u};
+    const uint8_t header_values[]={2u,0u,1u};
+    for(unsigned k=0;k<3u;++k) {
+        const uint32_t off=header_offsets[k];
+        const uint8_t saved=packet[off];
+        packet[off]=header_values[k];
+        assert(!g5_icam_decode_batch(packet,packet_size,7u,12u,&decoded));
+        assert(decoded.count==2u && decoded.request_id==12u);
+        packet[off]=saved;
+    }
+    assert(g5_icam_decode_batch(packet,packet_size,7u,12u,&decoded));
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
