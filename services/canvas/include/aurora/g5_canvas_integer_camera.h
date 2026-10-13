@@ -126,6 +126,15 @@ bool g5_icam_prepare_submission(
  * validates admission; it does not publish or acknowledge a frame. */
 typedef bool (*g5_icam_surface_authorize_fn)(
     void *context,uint64_t surface_id,uint64_t session_generation);
+/* One-shot receiver entry: decode untrusted bytes using envelope identity,
+ * then check every surface before copying any frame to caller storage.
+ * No partial publication on decode or authorization failure. */
+bool g5_icam_receive_authorized_batch(
+    const uint8_t *wire,uint32_t wire_length,
+    uint64_t authenticated_session_generation,
+    uint64_t authenticated_request_id,
+    g5_icam_surface_authorize_fn authorize,void *context,
+    struct g5_icam_scene_submission *out);
 bool g5_icam_authorize_decoded_batch(
     const struct g5_icam_scene_submission *batch,
     uint64_t authenticated_session_generation,
