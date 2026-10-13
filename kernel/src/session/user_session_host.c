@@ -1499,6 +1499,18 @@ static bool g5_wp05_background_scroll_probe(void) {
         final_second.placement.x!=second.placement.x ||
         final_second.placement.y!=second.placement.y)
         return g5_wp05_input_diagnostic(9u);
+    /* Horizontal-only scrolling is not a Canvas zoom gesture and must
+     * remain available to the focused application/input router. */
+    wheel.sequence=9004u;
+    wheel.scroll_y=0;
+    wheel.scroll_x=1;
+    consumed=true;
+    if (!g5_wp05_route_normalized_input(&wheel,&consumed) ||
+        consumed || host.last_camera_scroll_sequence!=9003u ||
+        host.scene.camera_revision!=3u ||
+        host.scene.last_display_serial!=old_serial)
+        return g5_wp05_input_diagnostic(11u);
+    wheel.scroll_x=0;
     /* Over a committed app window, USB wheel remains app-owned. */
     struct aurora_input_event over_window={0};
     over_window.type=AURORA_INPUT_EVENT_POINTER_ABSOLUTE;
