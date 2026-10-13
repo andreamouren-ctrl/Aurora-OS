@@ -28,10 +28,16 @@ int main(void) {
     c.right_wheel_used=1;
     assert(g5_canvas_resolve_right_release(&c)==G5_CANVAS_INPUT_SWITCH_COMMIT);
     c.app_control_active=1;
+    assert(g5_canvas_resolve_wheel(&c,1)==G5_CANVAS_INPUT_SWITCH_PREVIOUS);
+    assert(g5_canvas_resolve_wheel(&c,-1)==G5_CANVAS_INPUT_SWITCH_NEXT);
+    assert(!g5_canvas_wheel_zoom_request(&c,1,&wheel_factor));
+    c.right_held=0;
     assert(g5_canvas_resolve_wheel(&c,1)==G5_CANVAS_INPUT_APP);
     assert(g5_canvas_resolve_keys(&c,1)==G5_CANVAS_INPUT_APP);
     assert(g5_canvas_resolve_right_release(&c)==G5_CANVAS_INPUT_APP);
     c.app_control_active=0;c.modal_active=1;
+    c.right_held=1;
+    assert(g5_canvas_resolve_wheel(&c,1)==G5_CANVAS_INPUT_APP);
     assert(g5_canvas_resolve_wheel(&c,-1)==G5_CANVAS_INPUT_APP);
     c.modal_active=0;c.right_held=0;
     c.pointer_over_window=1;
