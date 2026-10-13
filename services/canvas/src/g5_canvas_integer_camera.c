@@ -1,4 +1,24 @@
 #include <aurora/g5_canvas_integer_camera.h>
+#include <stddef.h>
+
+/* Clang may lower ordinary structure copies/zero initialization into
+ * compiler runtime calls even with -ffreestanding -fno-builtin.
+ * Weak fallback definitions keep this standalone Ring 3 object linkable
+ * without libc; a platform implementation can override both symbols.
+ * Volatile byte writes prevent recursive loop-idiom recognition. */
+__attribute__((weak)) void *memset(void *destination,int value,size_t length) {
+    volatile unsigned char *p=(volatile unsigned char *)destination;
+    for(size_t i=0;i<length;++i)p[i]=(unsigned char)value;
+    return destination;
+}
+__attribute__((weak)) void *memcpy(void *destination,const void *source,
+                                    size_t length) {
+    volatile unsigned char *d=(volatile unsigned char *)destination;
+    const volatile unsigned char *s=(const volatile unsigned char *)source;
+    for(size_t i=0;i<length;++i)d[i]=s[i];
+    return destination;
+}
+
 #include <limits.h>
 __extension__ typedef __int128 wide;
 static bool valid(const struct g5_integer_camera *c) {
