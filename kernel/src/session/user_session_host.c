@@ -1884,6 +1884,16 @@ bool user_session_host_self_test(void) {
             host.scene.y==72 && host.scene.last_display_serial==display_before &&
             g5_session_place_events==1u;
     }
+    if (!foreign_object_denied) {
+        log_write("[g5-foreign-diagnostic] running/replay/wrong/scene-x/y/place/present: ");
+        log_u64(running);log_write("/");
+        log_u64(replay_denied);log_write("/");
+        log_u64(wrong_generation_denied);log_write("/");
+        log_u64((uint64_t)host.scene.x);log_write("/");
+        log_u64((uint64_t)host.scene.y);log_write("/");
+        log_u64(g5_session_place_events);log_write("/");
+        log_u64(g5_session_present_events);log_line("");
+    }
     bool close_opcode_denied=false;
     if (foreign_object_denied) {
         uint8_t wire[G5_IPC_WIRE_HEADER_BYTES+8u]={0},args[8]={0};
