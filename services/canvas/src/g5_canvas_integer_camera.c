@@ -529,11 +529,14 @@ bool g5_icam_decode_batch(
             fields[0],fields[1],fields[2],fields[3]};
         item->clip=(struct g5_icam_clip_rect){
             fields[4],fields[5],fields[6],fields[7],fields[8],fields[9]};
-        if (fields[2]<=0 || fields[3]<=0 || fields[6]<0 || fields[7]<0)
+        if (fields[2]<=0 || fields[3]<=0 || fields[6]<0 || fields[7]<0 ||
+            fields[8]<0 || fields[9]<0)
             return false;
         item->visible=fields[6]>0 && fields[7]>0;
         if (item->visible &&
             (fields[4]<0 || fields[5]<0 ||
+             (int64_t)fields[8]+fields[6]>fields[2] ||
+             (int64_t)fields[9]+fields[7]>fields[3] ||
              (int64_t)fields[4]+fields[6]>staged.camera.width_px ||
              (int64_t)fields[5]+fields[7]>staged.camera.height_px))
             return false;
