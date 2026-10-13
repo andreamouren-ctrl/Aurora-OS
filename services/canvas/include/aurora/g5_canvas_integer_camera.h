@@ -59,6 +59,19 @@ bool g5_icam_hit_world_rect(const struct g5_integer_camera *camera,
                              int32_t pointer_x_px,int32_t pointer_y_px,
                              int64_t world_x_ticks,int64_t world_y_ticks,
                              uint32_t width_ticks,uint32_t height_ticks);
+/* Atomic two-window camera layout. World rectangles are never modified.
+ * If either window cannot be projected, neither output is published.
+ * The renderer can consume both results in one compositor transaction. */
+struct g5_icam_world_rect {
+    int64_t x_ticks,y_ticks;
+    uint32_t width_ticks,height_ticks;
+};
+bool g5_icam_project_pair(
+    const struct g5_integer_camera *camera,uint64_t expected_revision,
+    const struct g5_icam_world_rect *first,
+    const struct g5_icam_world_rect *second,
+    struct g5_icam_screen_rect *first_out,
+    struct g5_icam_screen_rect *second_out);
 /* A rejected transaction never publishes speculative position or zoom.
  * The kernel's authoritative revision may be newer than the request's.
  * A backwards revision or overflow sentinel is not a valid resync. */
