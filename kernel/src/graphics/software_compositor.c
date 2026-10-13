@@ -1403,8 +1403,11 @@ static bool node_fully_occluded(
         struct aurora_compositor_node *upper =
             &compositor->nodes[i];
 
+        /* A cropped opaque surface does not cover its full node extent.
+         * Do not cull lower surfaces using the uncropped rectangle. */
         if (!node_allowed_in_scene(compositor, upper) ||
             !upper->fully_opaque ||
+            upper->clip.enabled ||
             (upper->z < node->z) ||
             (upper->z == node->z &&
              upper->node_id <= node->node_id)) {
