@@ -1904,6 +1904,13 @@ bool user_session_host_self_test(void) {
             g5_ipc_endpoint_poll(&host.g5_binding,&status) &&
             status==G5_IPC_DENIED && host.scene.active &&
             g5_session_place_events==1u && g5_session_present_events==1u;
+        if (!close_opcode_denied) {
+            log_write("[g5-close-diagnostic] status/active/place/present: ");
+            log_u64((uint64_t)status);log_write("/");
+            log_u64(host.scene.active);log_write("/");
+            log_u64(g5_session_place_events);log_write("/");
+            log_u64(g5_session_present_events);log_line("");
+        }
     }
     /* WP-05 proof: two real Ring 3 windows move together in one frame.
      * Restore the original placement to preserve frozen WP-04 probes. */
