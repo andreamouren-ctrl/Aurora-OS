@@ -228,8 +228,8 @@ enum g5_ipc_status g5_ipc_validate_semantics(
      p[2]!='S' || p[3]!='B' || get16(p+4)!=1u ||
      get16(p+6)!=count || get32(p+36)!=0u ||
      get64(p+8)==0 || get64(p+16)==0 ||
-     get32(p+24)==0 || get32(p+24)>8192u ||
-     get32(p+28)==0 || get32(p+28)>8192u ||
+     get32(p+24)==0 || get32(p+24)>16384u ||
+     get32(p+28)==0 || get32(p+28)>16384u ||
      get32(p+32)==0)
    return G5_IPC_BAD_FORMAT;
   /* Reject malformed object identifiers and duplicate surfaces at the
