@@ -58,7 +58,13 @@ static inline bool g5_canvas_accept_zoom_commit(
         !kernel_committed || !expected_local_revision ||
         expected_local_revision==UINT64_MAX ||
         committed->revision!=expected_local_revision ||
-        staged->revision!=expected_local_revision+1u)
+        staged->revision!=expected_local_revision+1u ||
+        staged->width_px!=committed->width_px ||
+        staged->height_px!=committed->height_px ||
+        staged->zoom_q16<G5_ICAM_MIN_ZOOM ||
+        staged->zoom_q16>G5_ICAM_MAX_ZOOM ||
+        staged->width_px==0u || staged->height_px==0u ||
+        staged->width_px>16384u || staged->height_px>16384u)
         return false;
     *committed=*staged;
     return true;
