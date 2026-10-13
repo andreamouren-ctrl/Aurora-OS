@@ -2152,6 +2152,20 @@ static bool software_compositor_basic_selftest(void) {
         clipped_hit!=green_node) {
         return false;
     }
+    /* Invalid geometry must leave the previously accepted crop intact. */
+    const struct aurora_compositor_clip overflow_clip={
+        .x=UINT32_MAX-1u,.y=2u,.width=4u,.height=3u,.enabled=true
+    };
+    const struct aurora_compositor_clip empty_clip={
+        .x=2u,.y=2u,.width=0u,.height=3u,.enabled=true
+    };
+    if (software_compositor_set_clip(&compositor,green_node,&overflow_clip) ||
+        software_compositor_set_clip(&compositor,green_node,&empty_clip) ||
+        !software_compositor_hit_test(&compositor,1,1,&clipped_hit) ||
+        clipped_hit!=red_node ||
+        !software_compositor_hit_test(&compositor,2,2,&clipped_hit) ||
+        clipped_hit!=green_node)
+        return false;
     /* Render must agree with hit testing: green pixels outside the
      * destination crop must not cover the red surface underneath. */
     uint64_t clipped_present=0u;
