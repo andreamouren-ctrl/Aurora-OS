@@ -478,6 +478,12 @@ bool g5_icam_encode_batch(
         for(uint32_t j=0;j<10u;++j)
             g5_batch_put(p+8u+4u*j,(uint32_t)fields[j],4u);
     }
+    /* A packet is an untrusted boundary: reject invalid source crops
+     * before publishing any bytes to the caller. */
+    struct g5_icam_scene_submission checked;
+    if (!g5_icam_decode_batch(staged,bytes,submitted->session_generation,
+                               submitted->request_id,&checked))
+        return false;
     g5_batch_copy(destination,staged,bytes);
     *written=bytes;
     return true;
