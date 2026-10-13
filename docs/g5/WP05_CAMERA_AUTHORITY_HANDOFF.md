@@ -92,3 +92,7 @@ A valid camera batch occupies 104, 152, or 200 bytes of G5 inline payload for 1â
 The compositor must acknowledge a specific submitted camera snapshot and scene revision with a monotonic display serial; Shell must not commit a speculative camera until a matching authenticated presentation response arrives. Failed validation, timeout, restart, or rejection must leave the last committed camera and presented scene unchanged. Replace the legacy physical window-translation path only after QEMU exercises the new route end-to-end, including replay/reorder and restart cases.
 
 **Gate remains OPEN:** this is an implementation contract, not evidence that the transport is connected.
+
+### Build isolation regression and follow-up (2026-10-13)
+
+A direct include of `aurora/g5_ipc_abi.h` in the standalone Canvas camera header broke the host test compile: the camera gate intentionally supplies only `-Iservices/canvas/include`. The include was reverted. The camera header now mirrors the current 48-byte envelope / 256-byte message bound and statically verifies the 200-byte batch fits the resulting 208-byte inline capacity. **Before production IPC wiring**, add an integration-only compile-time equivalence check against `G5_IPC_WIRE_INLINE_MAX` in a translation unit that already has both include roots; do not force a kernel include dependency into the standalone arithmetic module. This is a pending integration requirement, not a claim of runtime interoperability.
