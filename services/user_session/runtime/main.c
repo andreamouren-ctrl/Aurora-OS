@@ -503,7 +503,7 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                 if (pan.header.version != AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
                     pan.header.request_id<=last_canvas_pan_request ||
                     pending_canvas_pan_request!=0u ||
-                    pan.expected_camera_revision!=canvas_camera.revision ||
+                    pan.expected_camera_revision==0u ||
                     pan.expected_scene_revision==0u ||
                     pan.delta_x_px>32 || pan.delta_x_px< -32 ||
                     pan.delta_y_px>32 || pan.delta_y_px< -32 ||
