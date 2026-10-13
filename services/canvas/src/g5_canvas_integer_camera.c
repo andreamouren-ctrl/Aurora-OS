@@ -544,7 +544,9 @@ bool g5_icam_decode_batch(
             return false;
         item->visible=fields[6]>0 && fields[7]>0;
         if (item->visible &&
-            (fields[4]<0 || fields[5]<0 ||
+            ((int64_t)fields[0]+fields[8]!=fields[4] ||
+             (int64_t)fields[1]+fields[9]!=fields[5] ||
+             fields[4]<0 || fields[5]<0 ||
              (int64_t)fields[8]+fields[6]>fields[2] ||
              (int64_t)fields[9]+fields[7]>fields[3] ||
              (int64_t)fields[4]+fields[6]>staged.camera.width_px ||
