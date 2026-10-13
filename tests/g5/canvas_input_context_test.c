@@ -128,6 +128,23 @@ int main(void) {
     assert(!g5_icam_reconcile_rejected(&rejected,rejected_rev+1u));
     assert(g5_icam_reconcile_rejected(&rejected,rejected_rev+2u));
     assert(!g5_icam_reconcile_rejected(NULL,rejected_rev+2u));
+    /* A world-space window stays fixed while the camera zooms. */
+    struct g5_integer_camera projection={0};
+    struct g5_icam_screen_rect original={0},enlarged={0};
+    assert(g5_icam_init(&projection,0,0,G5_ICAM_ONE,800,600));
+    assert(g5_icam_project_rect(&projection,0,0,102400u,51200u,&original));
+    assert(original.x_px==400 && original.y_px==300);
+    assert(original.width_px==100 && original.height_px==50);
+    assert(g5_icam_zoom_at(&projection,G5_CANVAS_WHEEL_ZOOM_IN_Q16,400,300));
+    assert(g5_icam_project_rect(&projection,0,0,102400u,51200u,&enlarged));
+    assert(enlarged.x_px==400 && enlarged.y_px==300);
+    assert(enlarged.width_px==125);
+    assert(enlarged.height_px>=62 && enlarged.height_px<=63);
+    assert(!g5_icam_project_rect(&projection,INT64_MAX,0,1024u,1024u,
+                                 &enlarged));
+    assert(!g5_icam_project_rect(&projection,0,0,0u,1024u,&enlarged));
+    assert(!g5_icam_project_rect(&projection,0,0,1024u,0u,&enlarged));
+    assert(!g5_icam_project_rect(&projection,0,0,1024u,1024u,NULL));
     puts("G5 contextual input resolver and staged zoom: PASS");
     return 0;
 }
