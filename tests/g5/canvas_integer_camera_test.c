@@ -321,6 +321,17 @@ int main(void) {
     assert(decoded.count==2u && decoded.request_id==12u);
     for(unsigned k=0;k<8u;++k)packet[8u+k]=saved_revision[k];
     assert(g5_icam_decode_batch(packet,packet_size,7u,12u,&decoded));
+    /* A visible on-screen rectangle cannot be forged as invisible by
+     * clearing its clip; reject before publishing the decoded scene. */
+    assert(next_frame.items[0].visible);
+    assert(next_frame.items[0].projected.x_px <
+           (int32_t)next_frame.camera.width_px);
+    assert(next_frame.items[0].projected.y_px <
+           (int32_t)next_frame.camera.height_px);
+    for(unsigned k=0;k<24u;++k)packet[item0+24u+k]=0u;
+    assert(!g5_icam_decode_batch(packet,packet_size,7u,12u,&decoded));
+    assert(decoded.count==2u && decoded.request_id==12u);
+    assert(g5_icam_encode_batch(&next_frame,packet,sizeof(packet),&packet_size));
     /* The length out-parameter must not overwrite the encoded payload. */
     uint8_t length_alias[G5_ICAM_WIRE_BATCH_CAPACITY]={0};
     uint32_t clean_length=0;
