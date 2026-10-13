@@ -169,3 +169,26 @@ A crop of the *projected* rectangle is not automatically a crop of source
 pixels. The renderer must define and test the scale/sampling conversion
 explicitly; never silently treat projected source offsets as buffer offsets.
 The present gate remains OPEN.
+
+
+### Destination-clip implementation and boot isolation (2026-10-13)
+
+The compositor now exposes a trusted destination-space clip and applies it to
+pixel sampling and pointer hit-testing. Its setter validates nonempty,
+overflow-safe geometry wholly inside the transformed node. The occlusion
+optimization conservatively ignores clipped upper nodes, so it cannot discard
+underlying content on the assumption that an opaque cropped node covers its
+uncropped extent.
+
+This is **not** the source-buffer crop or arbitrary Q16 camera zoom required
+by the G5SB projection protocol. No production IPC authorization has been
+enabled. An experimental crop selftest introduced a QEMU boot regression; it
+was isolated from the kernel boot selftest at commit `cedf031f`, and the
+G5 IPC QEMU Cold Boot Recovery workflow passed on that commit. A separate
+host-side compositor crop suite with rendering, hit-testing and rollback
+assertions remains required before enabling production use. The Bootstrap
+Build and subsequent-commit QEMU results must be checked independently.
+
+**WP-05 remains OPEN** until authenticated surface resolution, atomic
+multi-node staging/presentation, matching ACK fencing and real QEMU
+end-to-end camera rendering all pass.
