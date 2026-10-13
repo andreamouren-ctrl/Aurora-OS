@@ -6,6 +6,7 @@
 #include <aurora/syscall_abi.h>
 #include <aurora/user_session_host_abi.h>
 #include <aurora/g5_ipc_abi.h>
+#include <aurora/g5_canvas_integer_camera.h>
 
 static void clear_bytes(void *buffer, size_t size) {
     volatile uint8_t *bytes = (volatile uint8_t *)buffer;
@@ -385,6 +386,13 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
         return 12;
     }
 
+    /* Per-process Ring 3 camera state. No kernel privilege or FP state. */
+    struct g5_integer_camera canvas_camera={0};
+    if ((startup->g5_endpoint != 0u || secondary) &&
+        !g5_icam_init(&canvas_camera,0,0,G5_ICAM_ONE,
+                      startup->graphics_width,startup->graphics_height))
+        return 19;
+
     uint64_t shell_commit=0u;
     if (startup->g5_endpoint != 0u || secondary) {
         uint64_t failure_stage=20u;
@@ -519,6 +527,8 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                 !send_message(startup->control_endpoint,
                               AURORA_USER_SESSION_HOST_FRAME_COMMITTED,
                               commit))
+                return 1;
+            if (!g5_icam_set_viewport(&canvas_camera,request.width,request.height))
                 return 1;
             last_resize_serial=request.configure_serial;
             current_graphics_buffer=request.graphics_buffer;
