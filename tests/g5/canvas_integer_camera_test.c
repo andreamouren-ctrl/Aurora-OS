@@ -2,6 +2,11 @@
 #include <assert.h>
 #include <limits.h>
 #include <stdio.h>
+static bool admit_surface(void *context,uint64_t surface_id,
+                          uint64_t session_generation) {
+    const uint64_t denied=*(const uint64_t *)context;
+    return session_generation==7u && surface_id!=denied;
+}
 int main(void) {
     struct g5_integer_camera c={0},saved;
     int32_t x=0,y=0;
@@ -351,6 +356,21 @@ int main(void) {
     assert(!g5_icam_decode_batch(packet,packet_size,7u,12u,&decoded));
     assert(decoded.count==2u && decoded.request_id==12u);
     assert(g5_icam_encode_batch(&next_frame,packet,sizeof(packet),&packet_size));
+    /* Authenticated receiver identity and per-surface authority must
+     * both succeed before a batch can be admitted. */
+    uint64_t denied_surface=0u;
+    assert(g5_icam_authorize_decoded_batch(
+        &decoded,7u,12u,admit_surface,&denied_surface));
+    denied_surface=decoded.items[1].surface_id;
+    assert(!g5_icam_authorize_decoded_batch(
+        &decoded,7u,12u,admit_surface,&denied_surface));
+    denied_surface=0u;
+    assert(!g5_icam_authorize_decoded_batch(
+        &decoded,8u,12u,admit_surface,&denied_surface));
+    assert(!g5_icam_authorize_decoded_batch(
+        &decoded,7u,13u,admit_surface,&denied_surface));
+    assert(!g5_icam_authorize_decoded_batch(
+        &decoded,7u,12u,NULL,&denied_surface));
     /* The length out-parameter must not overwrite the encoded payload. */
     uint8_t length_alias[G5_ICAM_WIRE_BATCH_CAPACITY]={0};
     uint32_t clean_length=0;
