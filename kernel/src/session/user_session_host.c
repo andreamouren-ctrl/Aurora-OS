@@ -1106,6 +1106,20 @@ static bool g5_wp05_route_background_scroll(
     if (host.scene.camera_revision != request.expected_camera_revision+1u ||
         host.scene.canvas_scene_revision != request.expected_scene_revision)
         return false;
+    /* Notify Ring 3 only after the trusted compositor transaction and
+     * camera revision have been confirmed. The earlier ACK meant forwarding. */
+    const struct aurora_user_session_host_camera_committed committed={
+        .header={
+            .version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+            .type=AURORA_USER_SESSION_HOST_CANVAS_PAN_COMMITTED,
+            .request_id=request.header.request_id
+        },
+        .camera_revision=host.scene.camera_revision,
+        .scene_revision=host.scene.canvas_scene_revision
+    };
+    if (!ipc_send(host.kernel_endpoint,&host.kernel_caps,&committed,
+                  (uint32_t)sizeof(committed),NULL,0u))
+        return false;
     host.last_camera_scroll_sequence=event->sequence;
     return true;
 }
