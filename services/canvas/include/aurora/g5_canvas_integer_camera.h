@@ -119,6 +119,18 @@ bool g5_icam_prepare_submission(
     uint64_t session_generation,uint64_t scene_revision,uint64_t request_id,
     const struct g5_icam_scene_item *items,uint32_t count,
     struct g5_icam_scene_submission *out);
+/* Receiver-side admission for a decoded camera batch. Identity is supplied
+ * by the authenticated IPC envelope, never by the numeric surface ID.
+ * The callback must resolve each surface in the receiver's capability
+ * registry, checking owner, rights and live object generation. This only
+ * validates admission; it does not publish or acknowledge a frame. */
+typedef bool (*g5_icam_surface_authorize_fn)(
+    void *context,uint64_t surface_id,uint64_t session_generation);
+bool g5_icam_authorize_decoded_batch(
+    const struct g5_icam_scene_submission *batch,
+    uint64_t authenticated_session_generation,
+    uint64_t authenticated_request_id,
+    g5_icam_surface_authorize_fn authorize,void *context);
 bool g5_icam_match_presented(
     const struct g5_icam_scene_submission *submitted,
     uint64_t session_generation,uint64_t scene_revision,
