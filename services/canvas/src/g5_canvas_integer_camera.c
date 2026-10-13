@@ -443,7 +443,7 @@ bool g5_icam_encode_batch(
         for(uint32_t j=0;j<10u;++j)
             g5_batch_put(p+8u+4u*j,(uint32_t)fields[j],4u);
     }
-    for(uint32_t i=0;i<bytes;++i)destination[i]=staged[i];
+    g5_batch_copy(destination,staged,bytes);
     *written=bytes;
     return true;
 }
