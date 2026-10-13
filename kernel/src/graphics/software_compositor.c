@@ -1313,20 +1313,18 @@ bool software_compositor_set_transform(
         mode->width, mode->height);
     node->transform = transform;
     node->scale = scale;
-    {
-        (void)damage_union(
-            &compositor->pending_damage,
-            node->x,
-            node->y,
-            new_width,
-            new_height,
-            mode->width,
-            mode->height
-        );
-    }
+    (void)damage_union(
+        &compositor->pending_damage,
+        node->x,
+        node->y,
+        new_width,
+        new_height,
+        mode->width,
+        mode->height
+    );
 
     graphics_surface_snapshot_release(&snapshot);
-    return valid;
+    return true;
 }
 
 bool software_compositor_set_secure_scene(
