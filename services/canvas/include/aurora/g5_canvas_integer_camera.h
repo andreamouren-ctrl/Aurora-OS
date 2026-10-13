@@ -125,6 +125,15 @@ bool g5_icam_match_presented(
     uint64_t request_id,uint64_t camera_revision,uint64_t display_serial,
     uint64_t previous_display_serial);
 
+/* Only a frame acknowledged as presented may be used to route focus.
+ * Compare against the live Shell camera and scene revisions so an old
+ * rendered frame cannot receive input after navigation or scene changes. */
+bool g5_icam_hit_presented_submission(
+    const struct g5_icam_scene_submission *submitted,
+    const struct g5_integer_camera *live_camera,
+    uint64_t live_scene_revision,uint64_t presented_display_serial,
+    int32_t pointer_x_px,int32_t pointer_y_px,uint64_t *out_surface_id);
+
 /* Shell-owned camera state must be synchronized as a complete snapshot.
  * A revision alone does not prove center, zoom or viewport equivalence.
  * expected_revision fences out-of-order acknowledgements. The caller
