@@ -111,8 +111,10 @@ static inline enum g5_canvas_input_action g5_canvas_resolve_drag(
 }
 static inline enum g5_canvas_input_action g5_canvas_resolve_right_release(
     const struct g5_canvas_input_context *ctx) {
-    if (!ctx || !ctx->right_wheel_used || ctx->modal_active ||
-        ctx->app_control_active) return G5_CANVAS_INPUT_APP;
+    if (!ctx || !ctx->right_wheel_used || ctx->modal_active)
+        return G5_CANVAS_INPUT_APP;
+    /* A right-wheel switch was already captured by the trusted Shell.
+     * Window focus cannot cancel its selection on button release. */
     return G5_CANVAS_INPUT_SWITCH_COMMIT;
 }
 /* A wheel notch is a single logical zoom operation. USB HID devices
