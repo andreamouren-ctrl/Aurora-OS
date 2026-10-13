@@ -117,6 +117,7 @@ int main(void) {
     batch[8]=1u;batch[16]=1u;
     batch[24]=160u;batch[28]=96u;batch[34]=1u;
     batch[56]=7u;batch[72]=20u;batch[76]=20u;
+    batch[88]=20u;batch[92]=20u;
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
     batch[56]=0u;
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
@@ -128,7 +129,11 @@ int main(void) {
     batch[96]=0u;
     batch[96]=19u;batch[88]=2u; /* clip width overflows source */
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
-    batch[96]=0u;batch[88]=0u;
+    batch[96]=0u;batch[88]=20u;
+    /* A smaller crop than the viewport intersection must be rejected. */
+    batch[88]=19u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[88]=20u;
     /* The IPC gate must accept the full Ring 3 camera viewport limit. */
     batch[24]=0u;batch[25]=64u; /* 16384px little endian */
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
@@ -148,6 +153,7 @@ int main(void) {
     batch[32]=0u;batch[33]=0u;batch[34]=1u;
     h.payload_bytes=152u;batch[6]=2u;
     batch[104]=7u;batch[120]=20u;batch[124]=20u;
+    batch[136]=20u;batch[140]=20u;
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
     batch[104]=8u;
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
