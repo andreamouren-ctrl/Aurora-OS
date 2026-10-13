@@ -150,11 +150,21 @@ bool g5_icam_commit_presented_camera(
  * Max 3 objects per packet; the caller must reject larger frames or use
  * a future authenticated shared-buffer protocol, never truncate.
  * This is serialization only: raw surface IDs are not capabilities. */
+/* The current 256-byte IPC message reserves 48 bytes for its G5
+ * envelope, leaving 208 bytes of inline payload. A full three-item
+ * camera batch uses 200 bytes. Keep this bound explicit so a future
+ * protocol change cannot silently produce oversized IPC messages. */
+#define G5_ICAM_G5_ENVELOPE_BYTES 48u
+#define G5_ICAM_G5_MESSAGE_BYTES 256u
+#define G5_ICAM_G5_INLINE_BYTES (G5_ICAM_G5_MESSAGE_BYTES - \
+                                G5_ICAM_G5_ENVELOPE_BYTES)
 #define G5_ICAM_WIRE_BATCH_MAX 3u
 #define G5_ICAM_WIRE_BATCH_HEADER 56u
 #define G5_ICAM_WIRE_BATCH_ITEM 48u
 #define G5_ICAM_WIRE_BATCH_CAPACITY (G5_ICAM_WIRE_BATCH_HEADER + \
                                     G5_ICAM_WIRE_BATCH_MAX * G5_ICAM_WIRE_BATCH_ITEM)
+_Static_assert(G5_ICAM_WIRE_BATCH_CAPACITY <= G5_ICAM_G5_INLINE_BYTES,
+               "camera batch exceeds G5 inline IPC payload");
 bool g5_icam_encode_batch(
     const struct g5_icam_scene_submission *submitted,
     uint8_t *destination,uint32_t capacity,uint32_t *written);
