@@ -27,7 +27,9 @@ enum g5_ipc_opcode {
     G5_OP_SCENE_PREPARE = 0x03000001u,
     G5_OP_SCENE_PUBLISH = 0x03000002u,
     /* WP-05: signed pixel delta, camera/scene revision (24-byte LE). */
-    G5_OP_CANVAS_PAN = 0x04000001u,\n    /* WP-05 Ring 3 scene batch; distinct from legacy pan/publish. */\n    G5_OP_CANVAS_SCENE_BATCH = 0x04000002u
+    G5_OP_CANVAS_PAN = 0x04000001u,
+    /* WP-05 Ring 3 scene batch; distinct from legacy pan/publish. */
+    G5_OP_CANVAS_SCENE_BATCH = 0x04000002u
 };
 
 enum g5_ipc_kind {
