@@ -285,6 +285,10 @@ int main(void) {
     assert(!g5_icam_encode_batch(&alias_frame,(uint8_t *)&alias_frame,
                                   sizeof(alias_frame),&alias_written));
     assert(alias_written==777u);
+    assert(!g5_icam_encode_batch(&alias_frame,
+                                  (uint8_t *)&alias_frame+8u,
+                                  sizeof(alias_frame)-8u,&alias_written));
+    assert(alias_written==777u);
     assert(alias_frame.count==next_frame.count);
     assert(alias_frame.items[0].surface_id==next_frame.items[0].surface_id);
     puts("g5 integer camera host arithmetic gate passed");
