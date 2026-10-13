@@ -135,9 +135,9 @@ int main(void) {
     batch[25]=64u;batch[24]=1u; /* 16385px */
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
     batch[24]=160u;batch[25]=0u;
-    batch[32]=0u;batch[33]=0u;
+    batch[32]=0u;batch[33]=0u;batch[34]=0u;
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
-    batch[32]=0xffu;batch[33]=3u; /* zoom 1023 */
+    batch[32]=0xffu;batch[33]=3u;batch[34]=0u; /* zoom 1023 */
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
     batch[32]=0u;batch[33]=4u; /* minimum zoom 1024 */
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
