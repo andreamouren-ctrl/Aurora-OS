@@ -477,10 +477,9 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                      * the requester. Keep the committed center/zoom and
                      * resynchronize only the revision. Never apply the
                      * speculative pan on rejection. */
-                    if (committed.camera_revision<canvas_camera.revision ||
-                        committed.camera_revision==UINT64_MAX)
+                    if (!g5_icam_reconcile_rejected(
+                            &canvas_camera,committed.camera_revision))
                         return 1;
-                    canvas_camera.revision=committed.camera_revision;
                 }
                 pending_canvas_pan_request=0u;
                 continue;
