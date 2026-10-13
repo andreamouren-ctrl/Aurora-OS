@@ -580,13 +580,9 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
     log_line("[g5-wp04-gate] scene input router registered");
     scene->x=48;
     scene->y=48;
-    /* Kernel is the camera authority. The legacy pan transaction still
-     * moves physical window placements until compositor projection lands,
-     * so its revision is mirrored to the world camera on every commit. */
-    if (!g5_icam_init(&scene->world_camera,0,0,G5_ICAM_ONE,
-                      (uint32_t)mode->width,(uint32_t)mode->height))
-        goto failure;
-    scene->camera_revision=scene->world_camera.revision;
+    /* Legacy bring-up revision fence only. The actual camera and its
+     * world-space state belong to the Ring 3 Canvas Engine. */
+    scene->camera_revision=1u;
     scene->canvas_scene_revision=1u;
     scene->active=true;
     return true;
@@ -926,10 +922,6 @@ bool g5_shell_scene_pan(struct g5_shell_scene *scene,
         x1>max1x || y1>max1y || x2>max2x || y2>max2y)
         return false;
 
-    struct g5_integer_camera next_camera=scene->world_camera;
-    if (next_camera.revision!=scene->camera_revision ||
-        !g5_icam_pan(&next_camera,(int32_t)dx,(int32_t)dy))
-        return false;
     bool moved_first=false,moved_second=false;
     if (!window_policy_move(&scene->window_policy,scene->window_id,
                             (int32_t)x1,(int32_t)y1,
@@ -956,11 +948,9 @@ bool g5_shell_scene_pan(struct g5_shell_scene *scene,
     scene->x=(int32_t)x1; scene->y=(int32_t)y1;
     scene->last_display_serial=serial;
     scene->extra.last_display_serial=serial;
-    /* Keep the authoritative camera synchronized with the accepted pan.
-     * Stage before publication: arithmetic failure cannot partially
-     * advance the world camera. */
-    scene->world_camera=next_camera;
-    scene->camera_revision=next_camera.revision;
+    /* Temporary kernel compositor bridge: acknowledge the presentation
+     * serial only. No center/zoom/viewport state is stored in Ring 0. */
+    ++scene->camera_revision;
     return true;
 rollback:
     (void)software_compositor_set_node(&scene->compositor,n1,
