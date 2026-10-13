@@ -17,6 +17,7 @@
 #include <aurora/g5_ipc_endpoint.h>
 #include <aurora/g5_shell_session.h>
 #include <aurora/g5_shell_scene.h>
+#include "../../../services/canvas/include/aurora/g5_canvas_input_context.h"
 #include <aurora/usercopy.h>
 
 #define USER_SESSION_HOST_TIMEOUT_NS UINT64_C(2000000000)
@@ -1081,6 +1082,22 @@ static bool g5_wp05_route_background_scroll(
         host.scene.canvas_scene_revision==0u ||
         host.next_request_id<=4u || host.next_request_id==UINT64_MAX)
         return false;
+    /* Transitional gate: consult the contextual resolver before routing
+     * any legacy pan. The final wheel gesture is zoom, not pan. Until
+     * kernel-authoritative zoom exists, never reinterpret zoom as motion. */
+    const struct g5_canvas_input_context input_context={
+        .canvas_navigation=1u,
+        .pointer_over_window=0u
+    };
+    const enum g5_canvas_input_action action=
+        g5_canvas_resolve_wheel(&input_context,event->scroll_y);
+    if (action==G5_CANVAS_INPUT_ZOOM_IN ||
+        action==G5_CANVAS_INPUT_ZOOM_OUT) {
+        host.last_camera_scroll_sequence=event->sequence;
+        return true; /* Consumed: zoom dispatch pending, no accidental pan. */
+    }
+    return true;
+#if 0 /* Retired wheel-to-pan path; preserved for protocol migration. */
     const int32_t dx=event->scroll_x>0?8:event->scroll_x<0?-8:0;
     const int32_t dy=event->scroll_y>0?8:event->scroll_y<0?-8:0;
     struct aurora_user_session_host_camera_message request={0};
@@ -1135,6 +1152,7 @@ static bool g5_wp05_route_background_scroll(
         return false;
     host.last_camera_scroll_sequence=event->sequence;
     return true;
+#endif
 }
 
 /* Isolated routing stage shared with the privileged boot self-test.
