@@ -42,6 +42,14 @@ int main(void) {
     assert(!g5_canvas_accept_zoom_commit(&live,&staged,rev,false));
     assert(live.zoom_q16==G5_ICAM_ONE);
     assert(!g5_canvas_accept_zoom_commit(&live,&staged,rev+1u,true));
+    struct g5_integer_camera invalid=staged;
+    invalid.width_px=801u;
+    assert(!g5_canvas_accept_zoom_commit(&live,&invalid,rev,true));
+    invalid=staged;invalid.zoom_q16=G5_ICAM_MAX_ZOOM+1u;
+    assert(!g5_canvas_accept_zoom_commit(&live,&invalid,rev,true));
+    invalid=staged;invalid.height_px=0u;
+    assert(!g5_canvas_accept_zoom_commit(&live,&invalid,rev,true));
+    assert(live.zoom_q16==G5_ICAM_ONE && live.revision==rev);
     assert(g5_canvas_accept_zoom_commit(&live,&staged,rev,true));
     assert(live.zoom_q16==81920u);
     assert(!g5_canvas_accept_zoom_commit(&live,&staged,rev,true));
