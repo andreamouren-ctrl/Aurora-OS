@@ -61,3 +61,26 @@ jobs:
             exit 1
           fi
           echo "Freestanding compile and SIMD register audit passed"
+      - name: Aurora Ring 3 ABI object gate (Clang freestanding)
+        shell: bash
+        run: |
+          set -euo pipefail
+          clang -target x86_64-unknown-none-elf -std=c11 -O2 \
+            -Wall -Wextra -Werror -ffreestanding -fno-builtin \
+            -fno-stack-protector -fno-stack-check -fno-pic -fno-pie \
+            -fno-common -ffunction-sections -fdata-sections \
+            -m64 -march=x86-64 -mno-red-zone -mno-mmx -mno-sse -mno-sse2 \
+            -Iservices/canvas/include \
+            -c services/canvas/src/g5_canvas_integer_camera.c \
+            -o /tmp/g5-icam-ring3.o
+          if nm -u /tmp/g5-icam-ring3.o | grep -q .; then
+            echo "Ring 3 camera must have zero unresolved symbols"
+            nm -u /tmp/g5-icam-ring3.o
+            exit 1
+          fi
+          if objdump -d /tmp/g5-icam-ring3.o | \
+             grep -E '\\b(xmm[0-9]+|ymm[0-9]+|zmm[0-9]+)\\b'; then
+            echo "Ring 3 camera emitted forbidden SIMD instructions"
+            exit 1
+          fi
+          echo "Aurora Ring 3 ABI camera object passed"
