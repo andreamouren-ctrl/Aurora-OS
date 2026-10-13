@@ -116,6 +116,16 @@ int main(void) {
     assert(g5_icam_accept_snapshot(&c,saved.revision,&staged));
     assert(c.zoom_q16==2*G5_ICAM_ONE && c.center_x_ticks==51200);
     assert(!g5_icam_accept_snapshot(&c,saved.revision,&staged));
+    /* A valid-looking but out-of-order or resized snapshot must not
+     * replace the committed viewport, even if its revision is newer. */
+    invalid=c;
+    invalid.revision=c.revision+2u;
+    assert(!g5_icam_accept_snapshot(&c,c.revision,&invalid));
+    invalid=c;
+    invalid.revision=c.revision+1u;
+    invalid.width_px=801u;
+    assert(!g5_icam_accept_snapshot(&c,c.revision,&invalid));
+    assert(c.width_px==800u && c.revision==staged.revision);
     invalid=c;
     invalid.revision=UINT64_MAX;
     assert(!g5_icam_accept_snapshot(&c,c.revision,&invalid));
