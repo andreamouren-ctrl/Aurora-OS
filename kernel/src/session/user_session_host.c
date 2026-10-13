@@ -1388,6 +1388,23 @@ static bool g5_wp05_pan_step(
         !g5_ipc_endpoint_poll(&host.g5_binding,&status))
         return false;
     if ((status==G5_IPC_OK)!=should_accept) return false;
+    /* The boot oracle uses the same control endpoint as live input. Every
+     * forwarded pan must receive its kernel-authoritative completion,
+     * otherwise the Ring 3 camera remains pending on the next test step. */
+    const struct aurora_user_session_host_camera_committed result={
+        .header={
+            .version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+            .type=should_accept ?
+                AURORA_USER_SESSION_HOST_CANVAS_PAN_COMMITTED :
+                AURORA_USER_SESSION_HOST_CANVAS_PAN_REJECTED,
+            .request_id=request.header.request_id
+        },
+        .camera_revision=host.scene.camera_revision,
+        .scene_revision=host.scene.canvas_scene_revision
+    };
+    if (!ipc_send(host.kernel_endpoint,&host.kernel_caps,&result,
+                  (uint32_t)sizeof(result),NULL,0u))
+        return false;
     struct aurora_window_toplevel after_first={0},after_second={0};
     if (!window_policy_read_toplevel(&host.scene.window_policy,
             host.scene.window_id,&after_first) ||
