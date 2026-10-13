@@ -154,10 +154,13 @@ bool g5_icam_commit_presented_camera(
  * envelope, leaving 208 bytes of inline payload. A full three-item
  * camera batch uses 200 bytes. Keep this bound explicit so a future
  * protocol change cannot silently produce oversized IPC messages. */
-/* Bind camera wire sizing to the actual G5 IPC ABI, rather than
- * duplicating its envelope and payload limits. */
-#include <aurora/g5_ipc_abi.h>
-#define G5_ICAM_G5_INLINE_BYTES G5_IPC_WIRE_INLINE_MAX
+/* Standalone Ring 3 camera tests intentionally compile with only the
+ * canvas include directory. Keep the ABI limit mirrored here; integration
+ * builds must assert equivalence against G5_IPC_WIRE_INLINE_MAX. */
+#define G5_ICAM_G5_ENVELOPE_BYTES 48u
+#define G5_ICAM_G5_MESSAGE_BYTES 256u
+#define G5_ICAM_G5_INLINE_BYTES (G5_ICAM_G5_MESSAGE_BYTES - \
+                                G5_ICAM_G5_ENVELOPE_BYTES)
 #define G5_ICAM_WIRE_BATCH_MAX 3u
 #define G5_ICAM_WIRE_BATCH_HEADER 56u
 #define G5_ICAM_WIRE_BATCH_ITEM 48u
