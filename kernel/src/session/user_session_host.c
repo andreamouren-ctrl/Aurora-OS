@@ -1062,7 +1062,7 @@ static bool g5_wp05_route_background_scroll(
         event->source!=AURORA_INPUT_SOURCE_USB_HID ||
         event->device_id<AURORA_INPUT_DEVICE_USB_BASE ||
         event->sequence==0u ||
-        (event->scroll_x==0 && event->scroll_y==0) ||
+        event->scroll_y==0 ||
         router->capture_target!=0u || host.drag_window_id!=0u ||
         router->pointer_focus_target!=0u)
         return true;
