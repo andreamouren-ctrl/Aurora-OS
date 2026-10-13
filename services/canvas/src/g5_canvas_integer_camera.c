@@ -448,7 +448,22 @@ bool g5_icam_encode_batch(
     g5_batch_put(staged+48u,(uint64_t)submitted->camera.center_y_ticks,8u);
     for (uint32_t i=0;i<submitted->count;++i) {
         const struct g5_icam_projected_item *item=&submitted->items[i];
-        if (!item->surface_id) return false;
+        if (!item->surface_id || item->projected.width_px<=0 ||
+            item->projected.height_px<=0 ||
+            item->clip.width_px<0 || item->clip.height_px<0 ||
+            item->visible!=(item->clip.width_px>0 &&
+                            item->clip.height_px>0) ||
+            (item->visible &&
+             (item->clip.x_px<0 || item->clip.y_px<0 ||
+              item->clip.source_x_px<0 || item->clip.source_y_px<0 ||
+              (int64_t)item->clip.x_px+item->clip.width_px>
+                  submitted->camera.width_px ||
+              (int64_t)item->clip.y_px+item->clip.height_px>
+                  submitted->camera.height_px)) ||
+            (!item->visible &&
+             (item->clip.x_px!=0 || item->clip.y_px!=0 ||
+              item->clip.source_x_px!=0 || item->clip.source_y_px!=0)))
+            return false;
         for(uint32_t j=0;j<i;++j)
             if(submitted->items[j].surface_id==item->surface_id) return false;
         uint8_t *p=staged+G5_ICAM_WIRE_BATCH_HEADER+
