@@ -61,6 +61,31 @@ int main(void) {
     assert(g5_icam_project(&c,0,0,&x,&y) && x==401 && y==301);
     assert(g5_icam_project(&c,-1024,-1024,&x,&y) && x==400 && y==300);
     assert(g5_icam_project(&c,1024,1024,&x,&y) && x==402 && y==302);
+    /* Deterministic matrix across even/odd viewports and zoom limits.
+     * Projected screen coordinates must remain monotonic with world ticks. */
+    const uint32_t zoom_matrix[]={
+        G5_ICAM_MIN_ZOOM,G5_ICAM_ONE/2,G5_ICAM_ONE,
+        G5_ICAM_ONE*2,G5_ICAM_MAX_ZOOM
+    };
+    for (unsigned zi=0;zi<sizeof(zoom_matrix)/sizeof(zoom_matrix[0]);++zi) {
+        for (uint32_t extent=799;extent<=802;++extent) {
+            assert(g5_icam_init(&c,123456,-654321,zoom_matrix[zi],
+                                extent,extent-200));
+            int32_t last=INT32_MIN;
+            for (int32_t step=-200;step<=200;++step) {
+                const int64_t wx0=c.center_x_ticks+(int64_t)step*1024;
+                assert(g5_icam_project(&c,wx0,c.center_y_ticks,&x,&y));
+                assert(x>=last);
+                last=x;
+            }
+            assert(g5_icam_unproject(&c,c.revision,
+                                     (int32_t)(extent/2),0,&wx,&wy));
+            saved=c;
+            assert(!g5_icam_zoom_at(&c,0,0,0));
+            assert(c.revision==saved.revision &&
+                   c.zoom_q16==saved.zoom_q16);
+        }
+    }
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
