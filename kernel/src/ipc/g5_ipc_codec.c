@@ -249,6 +249,24 @@ enum g5_ipc_status g5_ipc_validate_semantics(
       (uint64_t)source_x+clip_width>width ||
       (uint64_t)source_y+clip_height>height)
     return G5_IPC_BAD_FORMAT;
+   /* The crop is uniquely determined by projected geometry and viewport.
+    * Never accept a sender-selected smaller crop or an invisible visible item. */
+   int64_t px=(int32_t)get32(item+8),py=(int32_t)get32(item+12);
+   int64_t cw=(int32_t)get32(item+24),ch=(int32_t)get32(item+28);
+   int64_t left=px>0?px:0,top=py>0?py:0;
+   int64_t right=px+(int64_t)width,bottom=py+(int64_t)height;
+   if(right>(int64_t)get32(p+24))right=get32(p+24);
+   if(bottom>(int64_t)get32(p+28))bottom=get32(p+28);
+   if(right<=left || bottom<=top) {
+    if(cw!=0 || ch!=0 || clip_width!=0 || clip_height!=0 ||
+       source_x!=0 || source_y!=0)return G5_IPC_BAD_FORMAT;
+   } else {
+    if(cw!=left || ch!=top ||
+       clip_width!=(uint32_t)(right-left) ||
+       clip_height!=(uint32_t)(bottom-top) ||
+       source_x!=(uint32_t)(left-px) ||
+       source_y!=(uint32_t)(top-py))return G5_IPC_BAD_FORMAT;
+   }
    for(uint32_t j=0u;j<i;++j)
     if(surface==get64(p+G5_CANVAS_SCENE_BATCH_HEADER_BYTES+
                       j*G5_CANVAS_SCENE_BATCH_ITEM_BYTES))
