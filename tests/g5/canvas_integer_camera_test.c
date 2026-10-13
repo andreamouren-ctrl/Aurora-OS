@@ -371,6 +371,21 @@ int main(void) {
         &decoded,7u,13u,admit_surface,&denied_surface));
     assert(!g5_icam_authorize_decoded_batch(
         &decoded,7u,12u,NULL,&denied_surface));
+    /* Receive path publishes nothing until both wire and every surface
+     * pass authentication and authority checks. */
+    struct g5_icam_scene_submission received={0};
+    received.request_id=999u;
+    denied_surface=decoded.items[1].surface_id;
+    assert(!g5_icam_receive_authorized_batch(
+        packet,packet_size,7u,12u,admit_surface,&denied_surface,&received));
+    assert(received.request_id==999u);
+    denied_surface=0u;
+    assert(!g5_icam_receive_authorized_batch(
+        packet,packet_size,7u,13u,admit_surface,&denied_surface,&received));
+    assert(received.request_id==999u);
+    assert(g5_icam_receive_authorized_batch(
+        packet,packet_size,7u,12u,admit_surface,&denied_surface,&received));
+    assert(received.request_id==12u && received.count==2u);
     /* The length out-parameter must not overwrite the encoded payload. */
     uint8_t length_alias[G5_ICAM_WIRE_BATCH_CAPACITY]={0};
     uint32_t clean_length=0;
