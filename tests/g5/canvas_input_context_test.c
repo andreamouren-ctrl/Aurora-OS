@@ -145,6 +145,26 @@ int main(void) {
     assert(!g5_icam_project_rect(&projection,0,0,0u,1024u,&enlarged));
     assert(!g5_icam_project_rect(&projection,0,0,1024u,0u,&enlarged));
     assert(!g5_icam_project_rect(&projection,0,0,1024u,1024u,NULL));
+    /* A window partially beyond the viewport retains its world bounds,
+     * while the renderer receives exact screen crop offsets. */
+    struct g5_icam_screen_rect partial={-20,-10,100,50};
+    struct g5_icam_clip_rect clipped={0};
+    assert(g5_icam_clip_to_viewport(&projection,&partial,&clipped));
+    assert(clipped.x_px==0 && clipped.y_px==0);
+    assert(clipped.width_px==80 && clipped.height_px==40);
+    assert(clipped.source_x_px==20 && clipped.source_y_px==10);
+    assert(partial.x_px==-20 && partial.y_px==-10);
+    partial.x_px=790;partial.y_px=590;
+    assert(g5_icam_clip_to_viewport(&projection,&partial,&clipped));
+    assert(clipped.width_px==10 && clipped.height_px==10);
+    assert(clipped.source_x_px==0 && clipped.source_y_px==0);
+    partial.x_px=900;
+    assert(!g5_icam_clip_to_viewport(&projection,&partial,&clipped));
+    partial.x_px=INT32_MIN;
+    assert(!g5_icam_clip_to_viewport(&projection,&partial,&clipped));
+    partial.x_px=0;partial.width_px=0;
+    assert(!g5_icam_clip_to_viewport(&projection,&partial,&clipped));
+    assert(!g5_icam_clip_to_viewport(&projection,&partial,NULL));
     puts("G5 contextual input resolver and staged zoom: PASS");
     return 0;
 }
