@@ -1,0 +1,32 @@
+name: G5 WP-05 Integer Camera Host
+on:
+  push:
+    paths:
+      - 'services/canvas/include/aurora/g5_canvas_integer_camera.h'
+      - 'services/canvas/src/g5_canvas_integer_camera.c'
+      - 'tests/g5/canvas_integer_camera_test.c'
+      - '.github/workflows/g5-wp05-integer-camera.yml'
+  pull_request:
+    paths:
+      - 'services/canvas/include/aurora/g5_canvas_integer_camera.h'
+      - 'services/canvas/src/g5_canvas_integer_camera.c'
+      - 'tests/g5/canvas_integer_camera_test.c'
+      - '.github/workflows/g5-wp05-integer-camera.yml'
+  workflow_dispatch:
+jobs:
+  integer-camera:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Strict host test (GCC and Clang)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cc in gcc clang; do
+            "$cc" -std=c11 -Wall -Wextra -Werror -pedantic -O1 -g \
+              -fsanitize=undefined -fno-sanitize-recover=all \
+              -Iservices/canvas/include \
+              services/canvas/src/g5_canvas_integer_camera.c \
+              tests/g5/canvas_integer_camera_test.c -o "/tmp/g5-icam-$cc"
+            "/tmp/g5-icam-$cc"
+          done
