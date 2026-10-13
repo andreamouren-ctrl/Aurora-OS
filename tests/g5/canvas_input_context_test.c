@@ -80,6 +80,23 @@ int main(void) {
     assert(!g5_canvas_stage_wheel_zoom(&at_limit,G5_CANVAS_INPUT_ZOOM_IN,
                                        400,300,&candidate));
     assert(at_limit.zoom_q16==G5_ICAM_MAX_ZOOM);
+    /* Zoom-out is staged and gated exactly like zoom-in: no state
+     * publication before a matching authoritative commit. */
+    struct g5_integer_camera zoom_out={0},zoom_out_stage={0};
+    assert(g5_icam_init(&zoom_out,1024,-2048,G5_ICAM_ONE,800,600));
+    const uint64_t zoom_out_revision=zoom_out.revision;
+    assert(g5_canvas_stage_wheel_zoom(&zoom_out,G5_CANVAS_INPUT_ZOOM_OUT,
+                                       200,150,&zoom_out_stage));
+    assert(zoom_out.zoom_q16==G5_ICAM_ONE);
+    assert(zoom_out.center_x_ticks==1024 && zoom_out.center_y_ticks==-2048);
+    assert(zoom_out_stage.zoom_q16==G5_CANVAS_WHEEL_ZOOM_OUT_Q16);
+    assert(!g5_canvas_accept_zoom_commit(&zoom_out,&zoom_out_stage,
+                                         zoom_out_revision,false));
+    assert(zoom_out.zoom_q16==G5_ICAM_ONE);
+    assert(g5_canvas_accept_zoom_commit(&zoom_out,&zoom_out_stage,
+                                        zoom_out_revision,true));
+    assert(zoom_out.zoom_q16==G5_CANVAS_WHEEL_ZOOM_OUT_Q16);
+    assert(zoom_out.revision==zoom_out_revision+1u);
     /* A stale pan rejection can report a newer kernel revision.
      * It must not apply the speculative camera position or zoom. */
     struct g5_integer_camera rejected={0};
