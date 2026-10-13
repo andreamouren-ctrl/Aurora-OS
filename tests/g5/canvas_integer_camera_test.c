@@ -45,6 +45,16 @@ int main(void) {
     saved=c;
     assert(!g5_icam_zoom_at(&c,2*G5_ICAM_ONE,800,300));
     assert(c.revision==saved.revision && c.center_x_ticks==saved.center_x_ticks);
+    assert(g5_icam_init(&c,0,0,G5_ICAM_ONE,800,600));
+    saved=c;
+    assert(!g5_icam_set_viewport(&c,0,600));
+    assert(!g5_icam_set_viewport(&c,16385,600));
+    assert(c.revision==saved.revision && c.width_px==saved.width_px);
+    assert(g5_icam_set_viewport(&c,801,601));
+    assert(c.revision==2 && c.width_px==801 && c.height_px==601);
+    assert(!g5_icam_unproject(&c,1,400,300,&wx,&wy));
+    c.revision=UINT64_MAX;
+    assert(!g5_icam_set_viewport(&c,800,600));
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
