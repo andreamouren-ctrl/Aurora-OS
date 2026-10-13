@@ -80,11 +80,15 @@ struct g5_canvas_input_context {
 };
 static inline enum g5_canvas_input_action g5_canvas_resolve_wheel(
     const struct g5_canvas_input_context *ctx,int32_t wheel_y) {
-    if (!ctx || wheel_y==0 || ctx->modal_active ||
-        ctx->app_control_active) return G5_CANVAS_INPUT_APP;
+    if (!ctx || wheel_y==0 || ctx->modal_active)
+        return G5_CANVAS_INPUT_APP;
+    /* The right-button chord is a Shell-level application switcher,
+     * even when a window currently owns pointer focus. A modal
+     * operation still blocks the chord. */
     if (ctx->right_held)
         return wheel_y>0 ? G5_CANVAS_INPUT_SWITCH_PREVIOUS :
                            G5_CANVAS_INPUT_SWITCH_NEXT;
+    if (ctx->app_control_active) return G5_CANVAS_INPUT_APP;
     if (!ctx->canvas_navigation || ctx->pointer_over_window)
         return G5_CANVAS_INPUT_APP;
     return wheel_y>0 ? G5_CANVAS_INPUT_ZOOM_IN :
