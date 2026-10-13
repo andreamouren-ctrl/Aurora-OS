@@ -86,8 +86,10 @@ static bool project_axis(int64_t p,int64_t center,uint32_t zoom,
                          uint32_t extent,int32_t *out) {
     /* Pixel midpoint in half-pixel units, supports odd viewport sizes. */
     const wide delta=(wide)p-(wide)center;
-    const wide half=round_div(delta*zoom*2,(wide)1024*65536)+(wide)extent;
-    const wide pixel=round_div(half,2);
+    /* Single rounding avoids half-pixel double-rounding artifacts.
+     * The viewport midpoint is represented exactly as extent/2. */
+    const wide denom=(wide)1024*65536*2;
+    const wide pixel=round_div(delta*zoom*2+(wide)extent*1024*65536,denom);
     if (!out || pixel<INT32_MIN || pixel>INT32_MAX) return false;
     *out=(int32_t)pixel; return true;
 }
