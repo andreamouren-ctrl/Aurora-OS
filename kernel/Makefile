@@ -125,13 +125,15 @@ LDFLAGS := \
     -Wl,--gc-sections \
     -Wl,-T,$(ROOT)/linker/x86_64.ld
 
+.PHONY: all clean
+.DEFAULT_GOAL := all
+
+all: $(OUTPUT)
+
 $(BUILD_DIR)/g5_canvas_integer_camera.o: $(ROOT)/services/canvas/src/g5_canvas_integer_camera.c $(ROOT)/services/canvas/include/aurora/g5_canvas_integer_camera.h
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-.PHONY: all clean
-
-all: $(OUTPUT)
 
 $(COLOR_LUT_HEADER): $(COLOR_LUT_TOOL)
 	$(PYTHON) "$(COLOR_LUT_TOOL)" --output "$@"
