@@ -157,6 +157,27 @@ int main(void) {
     assert(frame[0].projected.x_px==prior.projected.x_px);
     assert(!g5_icam_project_scene(&c,c.revision-1u,scene,2u,frame));
     assert(!g5_icam_project_scene(&c,c.revision,scene,17u,frame));
+    /* Focus must use the presented clipped snapshot and topmost order. */
+    uint64_t focus=UINT64_MAX;
+    assert(g5_icam_hit_projected_scene(&c,c.revision,frame,2u,
+                                        410,300,&focus));
+    assert(focus==11u);
+    assert(g5_icam_hit_projected_scene(&c,c.revision,frame,2u,
+                                        0,0,&focus));
+    assert(focus==0u);
+    assert(!g5_icam_hit_projected_scene(&c,c.revision-1u,frame,2u,
+                                         410,300,&focus));
+    assert(focus==0u);
+    assert(!g5_icam_hit_projected_scene(&c,c.revision,frame,2u,
+                                         -1,300,&focus));
+    struct g5_icam_projected_item overlapping[2]={frame[0],frame[0]};
+    overlapping[1].surface_id=13u;
+    assert(g5_icam_hit_projected_scene(&c,c.revision,overlapping,2u,
+                                        410,300,&focus));
+    assert(focus==13u);
+    overlapping[1].clip.width_px=-1;
+    assert(!g5_icam_hit_projected_scene(&c,c.revision,overlapping,2u,
+                                         410,300,&focus));
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
