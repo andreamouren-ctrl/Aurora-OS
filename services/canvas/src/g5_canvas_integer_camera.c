@@ -216,9 +216,12 @@ bool g5_icam_accept_snapshot(struct g5_integer_camera *committed,
                               uint64_t expected_revision,
                               const struct g5_integer_camera *snapshot) {
     if (!valid(committed) || !valid(snapshot) ||
+        expected_revision==UINT64_MAX ||
         committed->revision!=expected_revision ||
-        snapshot->revision<=expected_revision ||
-        snapshot->revision==UINT64_MAX)
+        snapshot->revision!=expected_revision+1u ||
+        snapshot->revision==UINT64_MAX ||
+        snapshot->width_px!=committed->width_px ||
+        snapshot->height_px!=committed->height_px)
         return false;
     *committed=*snapshot;
     return true;
