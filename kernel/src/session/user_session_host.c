@@ -678,14 +678,24 @@ bool user_session_host_health_check(void) {
         .type=AURORA_USER_SESSION_HOST_HEALTH_POLL,
         .request_id=request_id
     };
-    if (!ipc_send(host.kernel_endpoint,&host.kernel_caps,&request,
-                  (uint32_t)sizeof(request),NULL,0u) ||
-        !receive_expected(AURORA_USER_SESSION_HOST_HEALTH_ACK,request_id))
-        return false;
+    const bool health_sent=ipc_send(
+        host.kernel_endpoint,&host.kernel_caps,&request,
+        (uint32_t)sizeof(request),NULL,0u);
+    const bool health_ack=health_sent &&
+        receive_expected(AURORA_USER_SESSION_HOST_HEALTH_ACK,request_id);
     enum g5_ipc_status health=G5_IPC_DENIED;
-    if (!g5_ipc_endpoint_poll(&host.g5_binding,&health) ||
-        health!=G5_IPC_OK)
+    const bool health_g5=health_ack &&
+        g5_ipc_endpoint_poll(&host.g5_binding,&health) &&
+        health==G5_IPC_OK;
+    if (!health_g5) {
+        log_write("[g5-wp03-health-channel] sent/ack/g5/status/id: ");
+        log_u64(health_sent);log_write("/");
+        log_u64(health_ack);log_write("/");
+        log_u64(health_g5);log_write("/");
+        log_u64((uint64_t)health);log_write("/");
+        log_u64(request_id);log_line("");
         return false;
+    }
     if (!host.scene.extra.active && host.second_process==NULL)
         return true; /* User closed the secondary window normally. */
     if (!host.scene.extra.active || !host.second_process ||
