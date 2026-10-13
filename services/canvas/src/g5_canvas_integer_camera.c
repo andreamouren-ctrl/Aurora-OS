@@ -296,8 +296,24 @@ bool g5_icam_hit_projected_scene(
     for (uint32_t i=count;i>0;--i) {
         const struct g5_icam_projected_item *item=&items[i-1u];
         if (!item->surface_id) return false;
-        if (!item->visible) continue;
+        /* Input must never trust a clip different from the one actually
+         * implied by the immutable projected rectangle and viewport. */
+        struct g5_icam_clip_rect canonical={0};
+        const bool visible=g5_icam_clip_to_viewport(
+            camera,&item->projected,&canonical);
+        if (visible!=item->visible) return false;
         const struct g5_icam_clip_rect *r=&item->clip;
+        if ((visible &&
+             (r->x_px!=canonical.x_px || r->y_px!=canonical.y_px ||
+              r->width_px!=canonical.width_px ||
+              r->height_px!=canonical.height_px ||
+              r->source_x_px!=canonical.source_x_px ||
+              r->source_y_px!=canonical.source_y_px)) ||
+            (!visible &&
+             (r->x_px || r->y_px || r->width_px || r->height_px ||
+              r->source_x_px || r->source_y_px)))
+            return false;
+        if (!visible) continue;
         if (r->width_px<=0 || r->height_px<=0 ||
             r->x_px<0 || r->y_px<0 ||
             (int64_t)r->x_px+r->width_px>camera->width_px ||
