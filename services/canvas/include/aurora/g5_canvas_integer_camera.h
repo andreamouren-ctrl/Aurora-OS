@@ -72,6 +72,26 @@ bool g5_icam_project_pair(
     const struct g5_icam_world_rect *second,
     struct g5_icam_screen_rect *first_out,
     struct g5_icam_screen_rect *second_out);
+/* Ring 3 compositor submission: bounded, immutable world geometry.
+ * An offscreen object is represented by visible=false; an arithmetic
+ * failure rejects the entire batch without changing any output. The
+ * compositor must authenticate the surfaces before presenting it. */
+#define G5_ICAM_SCENE_MAX_RECTS UINT32_C(16)
+struct g5_icam_scene_item {
+    struct g5_icam_world_rect world;
+    uint64_t surface_id;
+};
+struct g5_icam_projected_item {
+    uint64_t surface_id;
+    struct g5_icam_screen_rect projected;
+    struct g5_icam_clip_rect clip;
+    bool visible;
+};
+bool g5_icam_project_scene(
+    const struct g5_integer_camera *camera,uint64_t expected_revision,
+    const struct g5_icam_scene_item *items,uint32_t count,
+    struct g5_icam_projected_item *out);
+
 /* Shell-owned camera state must be synchronized as a complete snapshot.
  * A revision alone does not prove center, zoom or viewport equivalence.
  * expected_revision fences out-of-order acknowledgements. The caller
