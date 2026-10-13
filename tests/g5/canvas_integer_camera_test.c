@@ -321,6 +321,16 @@ int main(void) {
     assert(decoded.count==2u && decoded.request_id==12u);
     for(unsigned k=0;k<8u;++k)packet[8u+k]=saved_revision[k];
     assert(g5_icam_decode_batch(packet,packet_size,7u,12u,&decoded));
+    /* The length out-parameter must not overwrite the encoded payload. */
+    uint8_t length_alias[G5_ICAM_WIRE_BATCH_CAPACITY]={0};
+    uint32_t clean_length=0;
+    assert(!g5_icam_encode_batch(&next_frame,length_alias,
+                                  sizeof(length_alias),
+                                  (uint32_t *)(void *)length_alias));
+    assert(length_alias[0]==0u);
+    assert(g5_icam_encode_batch(&next_frame,length_alias,
+                                 sizeof(length_alias),&clean_length));
+    assert(clean_length==packet_size);
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
