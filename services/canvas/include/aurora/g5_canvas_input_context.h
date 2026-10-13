@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <aurora/g5_canvas_integer_camera.h>
+#include "g5_canvas_integer_camera.h"
 
 /* Pure contextual command resolution. No IPC, compositor or FP dependency.
  * The caller supplies trusted hit-test/focus state; untrusted applications
