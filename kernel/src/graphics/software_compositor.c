@@ -1211,6 +1211,17 @@ bool software_compositor_set_clip(
                                snapshot.buffer->height,&w,&h);
     graphics_surface_snapshot_release(&snapshot);
     if (!ok) return false;
+    /* The destination clip must intersect the actual transformed node.
+     * Never accept a clip that merely lies somewhere on the display. */
+    if (clip->enabled) {
+        int64_t left=node->x,top=node->y;
+        int64_t right=left+(int64_t)w,bottom=top+(int64_t)h;
+        int64_t cx=(int64_t)clip->x,cy=(int64_t)clip->y;
+        int64_t cr=cx+clip->width,cb=cy+clip->height;
+        if (w>(uint64_t)INT64_MAX || h>(uint64_t)INT64_MAX ||
+            right<=cx || bottom<=cy || cr<=left || cb<=top)
+            return false;
+    }
     (void)damage_union(&compositor->pending_damage,node->x,node->y,
                        w,h,mode->width,mode->height);
     node->clip=*clip;
