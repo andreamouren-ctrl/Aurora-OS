@@ -2136,6 +2136,25 @@ static bool software_compositor_basic_selftest(void) {
         return false;
     }
 
+    /* Destination clip is shared by rasterization and input hit testing. */
+    const struct aurora_compositor_clip green_clip={
+        .x=2u,.y=2u,.width=3u,.height=3u,.enabled=true
+    };
+    const struct aurora_compositor_clip invalid_clip={
+        .x=30u,.y=30u,.width=2u,.height=2u,.enabled=true
+    };
+    uint64_t clipped_hit=0u;
+    if (software_compositor_set_clip(&compositor,green_node,&invalid_clip) ||
+        !software_compositor_set_clip(&compositor,green_node,&green_clip) ||
+        software_compositor_hit_test(&compositor,1,1,&clipped_hit) ||
+        !software_compositor_hit_test(&compositor,2,2,&clipped_hit) ||
+        clipped_hit!=green_node) {
+        return false;
+    }
+    const struct aurora_compositor_clip no_clip={0};
+    if (!software_compositor_set_clip(&compositor,green_node,&no_clip))
+        return false;
+
     uint64_t first_present = 0u;
     if (!software_compositor_compose_present(
             &compositor,
