@@ -570,7 +570,11 @@ bool g5_icam_decode_batch(
             return false;
         if (!item->visible &&
             (fields[4]!=0 || fields[5]!=0 || fields[6]!=0 ||
-             fields[7]!=0 || fields[8]!=0 || fields[9]!=0))
+             fields[7]!=0 || fields[8]!=0 || fields[9]!=0 ||
+             ((int64_t)fields[0]<staged.camera.width_px &&
+              (int64_t)fields[1]<staged.camera.height_px &&
+              (int64_t)fields[0]+fields[2]>0 &&
+              (int64_t)fields[1]+fields[3]>0)))
             return false;
     }
     g5_batch_copy(out,&staged,sizeof(staged));
