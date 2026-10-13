@@ -132,3 +132,40 @@ The integration boundary is therefore explicit:
 The current IPC codec guards envelope and geometry but does not perform
 steps 2–4. Do **not** authorize the opcode in the production dispatcher until
 the receiver and its tests exist. This gate remains OPEN.
+
+
+### Compositor source-crop implementation gate (2026-10-13)
+
+The concrete compositor API inspection identifies a missing primitive:
+`software_compositor_set_node` controls position, z, opacity and visibility;
+`software_compositor_set_transform` supports integer scales 1–4 and
+quarter-turn rotations, but neither can express a source rectangle. The
+`destination_to_source` sampling path currently maps the *entire* committed
+buffer. Passing G5SB crop fields directly to these setters would render
+unintended pixels and would not implement camera zoom.
+
+Required compositor changes before enabling `G5_OP_CANVAS_SCENE_BATCH`:
+
+1. Introduce an explicitly validated per-node source crop, with positive
+   dimensions and overflow-safe bounds against the **committed buffer**
+   dimensions. Keep existing uncropped callers backward compatible.
+2. Make sampling, occlusion, damage tracking and hit-testing use the same
+   effective cropped geometry; a hidden or zero-intersection node must
+   neither paint nor receive pointer events.
+3. Implement a trusted multi-node staging/commit API with an all-or-nothing
+   presentation boundary. Validate every surface's live capability, owner,
+   object generation, committed buffer, configuration and scene membership
+   *before* mutating any node; roll back all staged state if presentation
+   fails.
+4. Bind a monotonic display serial to the authenticated request ID,
+   session generation, scene revision and camera revision. Shell commits
+   its speculative camera only after a matching ACK.
+5. Exercise positive and negative host tests and QEMU end-to-end before
+   admitting the opcode through `production_g5_authorize`.
+
+**Important:** G5SB `projected.width_px/height_px` may differ from the
+committed buffer dimensions because the Ring 3 camera applies zoom.
+A crop of the *projected* rectangle is not automatically a crop of source
+pixels. The renderer must define and test the scale/sampling conversion
+explicitly; never silently treat projected source offsets as buffer offsets.
+The present gate remains OPEN.
