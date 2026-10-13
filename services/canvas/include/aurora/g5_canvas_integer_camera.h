@@ -38,6 +38,18 @@ bool g5_icam_project_rect(const struct g5_integer_camera *camera,
                            int64_t x_ticks,int64_t y_ticks,
                            uint32_t width_ticks,uint32_t height_ticks,
                            struct g5_icam_screen_rect *out);
+/* Clip a projected world rectangle to the camera viewport. The
+ * returned source offsets allow the renderer to crop instead of moving
+ * or mutating the original world-space window. Fully offscreen objects
+ * return false without touching the output. */
+struct g5_icam_clip_rect {
+    int32_t x_px,y_px,width_px,height_px;
+    int32_t source_x_px,source_y_px;
+};
+bool g5_icam_clip_to_viewport(
+    const struct g5_integer_camera *camera,
+    const struct g5_icam_screen_rect *projected,
+    struct g5_icam_clip_rect *out);
 /* A rejected transaction never publishes speculative position or zoom.
  * The kernel's authoritative revision may be newer than the request's.
  * A backwards revision or overflow sentinel is not a valid resync. */
