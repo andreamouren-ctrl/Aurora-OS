@@ -468,9 +468,11 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                     return 1;
                 if (committed.header.type ==
                         AURORA_USER_SESSION_HOST_CANVAS_PAN_COMMITTED) {
-                    if (committed.camera_revision!=pending_canvas_camera_revision+1u)
+                    if (committed.camera_revision!=pending_canvas_camera.revision ||
+                        !g5_icam_accept_snapshot(&canvas_camera,
+                            pending_canvas_camera_revision,
+                            &pending_canvas_camera))
                         return 1;
-                    canvas_camera=pending_canvas_camera;
                 } else {
                     /* A rejected stale request reports the authoritative
                      * kernel revision, not the stale revision supplied by
