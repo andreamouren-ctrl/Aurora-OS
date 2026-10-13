@@ -2146,7 +2146,8 @@ static bool software_compositor_basic_selftest(void) {
     uint64_t clipped_hit=0u;
     if (software_compositor_set_clip(&compositor,green_node,&invalid_clip) ||
         !software_compositor_set_clip(&compositor,green_node,&green_clip) ||
-        software_compositor_hit_test(&compositor,1,1,&clipped_hit) ||
+        !software_compositor_hit_test(&compositor,1,1,&clipped_hit) ||
+        clipped_hit!=red_node ||
         !software_compositor_hit_test(&compositor,2,2,&clipped_hit) ||
         clipped_hit!=green_node) {
         return false;
