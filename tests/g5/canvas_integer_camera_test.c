@@ -241,6 +241,28 @@ int main(void) {
                                              7u,10u,12u,next_camera.revision,
                                              103u));
     assert(c.revision==next_camera.revision && last_serial==102u);
+    /* Third integration slice: bounded LE scene serialization, roundtrip,
+     * malformed length, replayed surface IDs and output atomicity. */
+    uint8_t packet[G5_ICAM_WIRE_BATCH_CAPACITY]={0};
+    uint32_t packet_size=0u;
+    assert(g5_icam_encode_batch(&next_frame,packet,sizeof(packet),&packet_size));
+    assert(packet_size==G5_ICAM_WIRE_BATCH_HEADER+
+                        2u*G5_ICAM_WIRE_BATCH_ITEM);
+    struct g5_icam_scene_submission decoded={0};
+    assert(g5_icam_decode_batch(packet,packet_size,7u,12u,&decoded));
+    assert(decoded.session_generation==7u && decoded.request_id==12u);
+    assert(decoded.camera.center_x_ticks==next_frame.camera.center_x_ticks);
+    assert(decoded.items[0].surface_id==11u && decoded.count==2u);
+    assert(!g5_icam_decode_batch(packet,packet_size-1u,7u,12u,&decoded));
+    assert(decoded.count==2u);
+    assert(!g5_icam_decode_batch(packet,packet_size,0u,12u,&decoded));
+    const uint8_t original_id=packet[G5_ICAM_WIRE_BATCH_HEADER+
+                                      G5_ICAM_WIRE_BATCH_ITEM];
+    packet[G5_ICAM_WIRE_BATCH_HEADER+G5_ICAM_WIRE_BATCH_ITEM]=11u;
+    assert(!g5_icam_decode_batch(packet,packet_size,7u,12u,&decoded));
+    packet[G5_ICAM_WIRE_BATCH_HEADER+G5_ICAM_WIRE_BATCH_ITEM]=original_id;
+    assert(!g5_icam_encode_batch(&next_frame,packet,packet_size-1u,
+                                 &packet_size));
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
