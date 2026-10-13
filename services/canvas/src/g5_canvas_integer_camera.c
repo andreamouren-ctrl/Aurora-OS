@@ -427,6 +427,7 @@ bool g5_icam_encode_batch(
     const struct g5_icam_scene_submission *submitted,
     uint8_t *destination,uint32_t capacity,uint32_t *written) {
     if (!submitted || !destination || !written ||
+        (const void *)destination==(const void *)submitted ||
         !submitted->session_generation || !submitted->request_id ||
         !submitted->scene_revision || !valid(&submitted->camera) ||
         !submitted->count || submitted->count>G5_ICAM_WIRE_BATCH_MAX)
