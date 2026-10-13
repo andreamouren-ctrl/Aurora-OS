@@ -263,6 +263,15 @@ int main(void) {
     packet[G5_ICAM_WIRE_BATCH_HEADER+G5_ICAM_WIRE_BATCH_ITEM]=original_id;
     assert(!g5_icam_encode_batch(&next_frame,packet,packet_size-1u,
                                  &packet_size));
+    /* Malformed crop must fail without mutating the previous decoded frame. */
+    assert(g5_icam_encode_batch(&next_frame,packet,sizeof(packet),&packet_size));
+    const uint32_t item0=G5_ICAM_WIRE_BATCH_HEADER;
+    uint8_t original_crop[4];
+    for(unsigned k=0;k<4u;++k)original_crop[k]=packet[item0+40u+k];
+    for(unsigned k=0;k<4u;++k)packet[item0+40u+k]=0xffu;
+    assert(!g5_icam_decode_batch(packet,packet_size,7u,12u,&decoded));
+    assert(decoded.count==2u && decoded.request_id==12u);
+    for(unsigned k=0;k<4u;++k)packet[item0+40u+k]=original_crop[k];
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
