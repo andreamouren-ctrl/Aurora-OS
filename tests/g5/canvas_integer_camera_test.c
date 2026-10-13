@@ -178,6 +178,32 @@ int main(void) {
     overlapping[1].clip.width_px=-1;
     assert(!g5_icam_hit_projected_scene(&c,c.revision,overlapping,2u,
                                          410,300,&focus));
+    /* Submission/ACK pair must fence generation, scene, request and frame.
+     * A malformed batch must leave the prior submission untouched. */
+    struct g5_icam_scene_submission submitted={0};
+    assert(g5_icam_prepare_submission(&c,c.revision,7u,9u,11u,
+                                      scene,2u,&submitted));
+    assert(submitted.count==2u && submitted.camera.revision==c.revision);
+    assert(submitted.items[0].surface_id==11u);
+    assert(g5_icam_match_presented(&submitted,7u,9u,11u,
+                                    c.revision,101u,100u));
+    assert(!g5_icam_match_presented(&submitted,8u,9u,11u,
+                                     c.revision,101u,100u));
+    assert(!g5_icam_match_presented(&submitted,7u,10u,11u,
+                                     c.revision,101u,100u));
+    assert(!g5_icam_match_presented(&submitted,7u,9u,12u,
+                                     c.revision,101u,100u));
+    assert(!g5_icam_match_presented(&submitted,7u,9u,11u,
+                                     c.revision-1u,101u,100u));
+    assert(!g5_icam_match_presented(&submitted,7u,9u,11u,
+                                     c.revision,100u,100u));
+    const uint64_t original_request=submitted.request_id;
+    assert(!g5_icam_prepare_submission(&c,c.revision,7u,9u,12u,
+                                        bad_scene,2u,&submitted));
+    assert(submitted.request_id==original_request);
+    assert(!g5_icam_prepare_submission(&c,c.revision-1u,7u,9u,12u,
+                                        scene,2u,&submitted));
+    assert(submitted.request_id==original_request);
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
