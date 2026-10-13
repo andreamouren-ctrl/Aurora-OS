@@ -435,3 +435,65 @@ bool g5_icam_encode_batch(
     *written=bytes;
     return true;
 }
+
+/* Decoder is side-effect-free until all length, identity and geometry
+ * checks pass. Session/request identity comes from the authenticated
+ * G5 envelope, never from untrusted surface IDs in the payload. */
+bool g5_icam_decode_batch(
+    const uint8_t *source,uint32_t length,
+    uint64_t authenticated_session_generation,uint64_t authenticated_request_id,
+    struct g5_icam_scene_submission *out) {
+    if (!source || !out || !authenticated_session_generation ||
+        !authenticated_request_id || length<G5_ICAM_WIRE_BATCH_HEADER ||
+        source[0]!='G' || source[1]!='5' || source[2]!='S' ||
+        source[3]!='B' || g5_batch_get(source+4u,2u)!=1u ||
+        g5_batch_get(source+36u,4u)!=0u)
+        return false;
+    const uint32_t count=(uint32_t)g5_batch_get(source+6u,2u);
+    if (!count || count>G5_ICAM_WIRE_BATCH_MAX ||
+        length!=G5_ICAM_WIRE_BATCH_HEADER+
+                count*G5_ICAM_WIRE_BATCH_ITEM)
+        return false;
+    struct g5_icam_scene_submission staged={0};
+    staged.session_generation=authenticated_session_generation;
+    staged.request_id=authenticated_request_id;
+    staged.scene_revision=g5_batch_get(source+16u,8u);
+    staged.camera.revision=g5_batch_get(source+8u,8u);
+    staged.camera.width_px=(uint32_t)g5_batch_get(source+24u,4u);
+    staged.camera.height_px=(uint32_t)g5_batch_get(source+28u,4u);
+    staged.camera.zoom_q16=(uint32_t)g5_batch_get(source+32u,4u);
+    staged.camera.center_x_ticks=(int64_t)g5_batch_get(source+40u,8u);
+    staged.camera.center_y_ticks=(int64_t)g5_batch_get(source+48u,8u);
+    if (!staged.scene_revision || !valid(&staged.camera))return false;
+    staged.count=count;
+    for(uint32_t i=0;i<count;++i) {
+        const uint8_t *p=source+G5_ICAM_WIRE_BATCH_HEADER+
+            i*G5_ICAM_WIRE_BATCH_ITEM;
+        struct g5_icam_projected_item *item=&staged.items[i];
+        item->surface_id=g5_batch_get(p,8u);
+        if(!item->surface_id)return false;
+        for(uint32_t j=0;j<i;++j)
+            if(staged.items[j].surface_id==item->surface_id)return false;
+        int32_t fields[10];
+        for(uint32_t j=0;j<10u;++j)
+            fields[j]=(int32_t)(uint32_t)g5_batch_get(p+8u+4u*j,4u);
+        item->projected=(struct g5_icam_screen_rect){
+            fields[0],fields[1],fields[2],fields[3]};
+        item->clip=(struct g5_icam_clip_rect){
+            fields[4],fields[5],fields[6],fields[7],fields[8],fields[9]};
+        if (fields[2]<=0 || fields[3]<=0 || fields[6]<0 || fields[7]<0)
+            return false;
+        item->visible=fields[6]>0 && fields[7]>0;
+        if (item->visible &&
+            (fields[4]<0 || fields[5]<0 ||
+             (int64_t)fields[4]+fields[6]>staged.camera.width_px ||
+             (int64_t)fields[5]+fields[7]>staged.camera.height_px))
+            return false;
+        if (!item->visible &&
+            (fields[4]!=0 || fields[5]!=0 || fields[6]!=0 ||
+             fields[7]!=0 || fields[8]!=0 || fields[9]!=0))
+            return false;
+    }
+    *out=staged;
+    return true;
+}
