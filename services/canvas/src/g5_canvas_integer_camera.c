@@ -484,6 +484,10 @@ bool g5_icam_encode_batch(
     if (!g5_icam_decode_batch(staged,bytes,submitted->session_generation,
                                submitted->request_id,&checked))
         return false;
+    for(uint32_t i=0;i<submitted->count;++i)
+        if (checked.items[i].surface_id!=submitted->items[i].surface_id ||
+            checked.items[i].visible!=submitted->items[i].visible)
+            return false;
     g5_batch_copy(destination,staged,bytes);
     *written=bytes;
     return true;
