@@ -14,6 +14,15 @@ _Static_assert(G5_ICAM_G5_INLINE_BYTES == G5_IPC_WIRE_INLINE_MAX,
                "canvas camera and G5 IPC inline capacities diverged");
 _Static_assert(G5_ICAM_WIRE_BATCH_CAPACITY <= G5_IPC_WIRE_INLINE_MAX,
                "canvas scene packet cannot fit the G5 IPC envelope");
+_Static_assert(G5_ICAM_WIRE_BATCH_HEADER ==
+               G5_CANVAS_SCENE_BATCH_HEADER_BYTES,
+               "canvas scene header diverged from IPC ABI");
+_Static_assert(G5_ICAM_WIRE_BATCH_ITEM ==
+               G5_CANVAS_SCENE_BATCH_ITEM_BYTES,
+               "canvas scene item diverged from IPC ABI");
+_Static_assert(G5_ICAM_WIRE_BATCH_MAX ==
+               G5_CANVAS_SCENE_BATCH_MAX_ITEMS,
+               "canvas scene batch count diverged from IPC ABI");
 
 static void clear_bytes(void *buffer, size_t size) {
     volatile uint8_t *bytes = (volatile uint8_t *)buffer;
