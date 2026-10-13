@@ -1097,15 +1097,28 @@ static bool g5_wp05_route_background_scroll(
                   &request,(uint32_t)sizeof(request),NULL,0u) ||
         !receive_primary_event(AURORA_USER_SESSION_HOST_CANVAS_PAN_ACK,
                                &ack) ||
-        ack!=request.header.request_id ||
-        !g5_ipc_endpoint_poll(&host.g5_binding,&status) ||
-        status!=G5_IPC_OK)
+        ack!=request.header.request_id)
         return false;
-    /* The IPC completion is authoritative: the scene revision must have
-     * advanced exactly once for the accepted pan transaction. */
-    if (host.scene.camera_revision != request.expected_camera_revision+1u ||
-        host.scene.canvas_scene_revision != request.expected_scene_revision)
+    const bool ipc_completed=g5_ipc_endpoint_poll(&host.g5_binding,&status);
+    /* A rejected G5 transaction must release Ring 3's staged camera;
+     * otherwise the next scroll would be blocked forever. */
+    const bool committed_ok=ipc_completed && status==G5_IPC_OK &&
+        host.scene.camera_revision==request.expected_camera_revision+1u &&
+        host.scene.canvas_scene_revision==request.expected_scene_revision;
+    if (!committed_ok) {
+        const struct aurora_user_session_host_camera_committed rejected={
+            .header={
+                .version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+                .type=AURORA_USER_SESSION_HOST_CANVAS_PAN_REJECTED,
+                .request_id=request.header.request_id
+            },
+            .camera_revision=host.scene.camera_revision,
+            .scene_revision=host.scene.canvas_scene_revision
+        };
+        (void)ipc_send(host.kernel_endpoint,&host.kernel_caps,&rejected,
+                       (uint32_t)sizeof(rejected),NULL,0u);
         return false;
+    }
     /* Notify Ring 3 only after the trusted compositor transaction and
      * camera revision have been confirmed. The earlier ACK meant forwarding. */
     const struct aurora_user_session_host_camera_committed committed={
