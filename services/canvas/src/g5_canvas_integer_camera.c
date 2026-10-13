@@ -206,3 +206,20 @@ bool g5_icam_project_pair(
     *second_out=b;
     return true;
 }
+
+/* Ring 3 is the sole owner of the committed camera. This accepts an
+ * authenticated compositor acknowledgement's complete snapshot only when
+ * it belongs to the currently outstanding camera revision. No partial
+ * publication is possible, and neither a stale nor an exhausted revision
+ * can replace a live camera. */
+bool g5_icam_accept_snapshot(struct g5_integer_camera *committed,
+                              uint64_t expected_revision,
+                              const struct g5_integer_camera *snapshot) {
+    if (!valid(committed) || !valid(snapshot) ||
+        committed->revision!=expected_revision ||
+        snapshot->revision<=expected_revision ||
+        snapshot->revision==UINT64_MAX)
+        return false;
+    *committed=*snapshot;
+    return true;
+}
