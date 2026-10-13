@@ -8,6 +8,13 @@
 #include <aurora/g5_ipc_abi.h>
 #include <aurora/g5_canvas_integer_camera.h>
 
+/* This translation unit sees both IPC and camera headers. Detect ABI
+ * drift without introducing a kernel-header dependency in host camera tests. */
+_Static_assert(G5_ICAM_G5_INLINE_BYTES == G5_IPC_WIRE_INLINE_MAX,
+               "canvas camera and G5 IPC inline capacities diverged");
+_Static_assert(G5_ICAM_WIRE_BATCH_CAPACITY <= G5_IPC_WIRE_INLINE_MAX,
+               "canvas scene packet cannot fit the G5 IPC envelope");
+
 static void clear_bytes(void *buffer, size_t size) {
     volatile uint8_t *bytes = (volatile uint8_t *)buffer;
     if (buffer == NULL) return;
