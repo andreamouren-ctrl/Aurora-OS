@@ -2151,6 +2151,16 @@ static bool software_compositor_basic_selftest(void) {
         clipped_hit!=green_node) {
         return false;
     }
+    /* Render must agree with hit testing: green pixels outside the
+     * destination crop must not cover the red surface underneath. */
+    uint64_t clipped_present=0u;
+    if (!software_compositor_compose_present(&compositor,&clipped_present) ||
+        clipped_present==0u ||
+        !pixel_rgb_equals(backbuffer_pixel(&compositor.backbuffer,1u,1u),
+                          &mode->format,255u,0u,0u) ||
+        !pixel_rgb_equals(backbuffer_pixel(&compositor.backbuffer,2u,2u),
+                          &mode->format,0u,255u,0u))
+        return false;
     const struct aurora_compositor_clip no_clip={0};
     if (!software_compositor_set_clip(&compositor,green_node,&no_clip))
         return false;
