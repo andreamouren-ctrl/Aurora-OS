@@ -17,6 +17,9 @@ struct g5_integer_camera {
 bool g5_icam_init(struct g5_integer_camera *camera, int64_t x, int64_t y,
                    uint32_t zoom_q16, uint32_t width, uint32_t height);
 bool g5_icam_pan(struct g5_integer_camera *camera, int32_t dx_px, int32_t dy_px);
+/* Factor in Q16.16; zoom anchored at an integer screen pixel. */
+bool g5_icam_zoom_at(struct g5_integer_camera *camera, uint32_t factor_q16,
+                      int32_t pointer_x_px, int32_t pointer_y_px);
 bool g5_icam_project(const struct g5_integer_camera *camera,
                       int64_t x_ticks, int64_t y_ticks,
                       int32_t *x_px, int32_t *y_px);
