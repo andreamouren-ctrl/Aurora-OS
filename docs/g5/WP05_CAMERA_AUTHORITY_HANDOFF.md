@@ -34,7 +34,7 @@ This is a **target architecture**, not a current implementation. The present G5 
 ## Outstanding engineering gates
 
 - Replace the legacy scroll-to-pan input route and its QEMU oracle with context-aware wheel-to-zoom, keyboard pan, drag pan, and right-button-wheel switch tests.
-- Define a kernel-authoritative camera snapshot (center, zoom, viewport, revision) and reconcile it across resize, rejection, restart and out-of-order messages; do not confuse a committed delta with an entire camera snapshot.
+- Define a **Shell-owned Ring 3 camera snapshot** (center, zoom, viewport, revision), with compositor presentation acknowledgement and generation/revision fencing across resize, rejection, restart and out-of-order messages; do not confuse a committed delta with an entire camera snapshot.
 - Make rendering camera-relative rather than moving world-space windows. Specify clipping, hit testing, focus, accessibility, frame pacing and offscreen culling.
 - Preserve existing capability/security checks, input provenance, and IPC revision validation.
 - Measure CPU, GPU, latency and memory against z-order-only switching on representative hardware.
@@ -64,3 +64,9 @@ The accepted `docs/KERNEL_MODEL.md`, `docs/adr/ADR-0006-graphics-compositor-spli
 5. Verify QEMU first/cold boot and p50/p95 latency, CPU wakeups and memory; only then propose WP-05 freeze.
 
 **This section records the target architecture, not a claim that Ring 0 graphics policy has already been migrated.**
+
+### Ring 3 compositor submission primitive (2026-10-13)
+
+`g5_icam_prepare_submission` stages a bounded set of world-space rectangles into one complete immutable projected frame, tagged with session generation, scene revision, camera revision and request ID. `g5_icam_match_presented` requires matching identity/revisions plus an advancing display serial. `g5_icam_hit_projected_scene` uses the same clipped projected frame for focus as presentation. Host tests include atomic rejection, offscreen culling, overlapping focus, stale revisions and replayed ACKs.
+
+**Boundary:** these are pure Ring 3 data/validation helpers. They are not a new IPC wire format, do not authenticate the compositor, and do not yet send transactions to the production compositor. The kernel's old two-window physical translation remains a bring-up compatibility path until the compositor and input router can consume the new scene submission together. Never treat a helper-level ACK match as proof of authorization without a trusted IPC sender and verified capabilities.
