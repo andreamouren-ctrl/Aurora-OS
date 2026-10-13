@@ -439,7 +439,12 @@ bool g5_icam_encode_batch(
         return false;
     const uint32_t bytes=G5_ICAM_WIRE_BATCH_HEADER+
         submitted->count*G5_ICAM_WIRE_BATCH_ITEM;
-    if (capacity<bytes) return false;
+    if (capacity<bytes ||
+        ((uintptr_t)written>=(uintptr_t)destination &&
+         (uintptr_t)written-(uintptr_t)destination<bytes) ||
+        ((uintptr_t)written<(uintptr_t)destination &&
+         (uintptr_t)destination-(uintptr_t)written<sizeof(*written)))
+        return false;
     uint8_t staged[G5_ICAM_WIRE_BATCH_CAPACITY];
     g5_batch_zero(staged,sizeof(staged));
     staged[0]='G';staged[1]='5';staged[2]='S';staged[3]='B';
