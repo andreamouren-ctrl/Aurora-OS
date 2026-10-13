@@ -72,6 +72,16 @@ bool g5_icam_project_pair(
     const struct g5_icam_world_rect *second,
     struct g5_icam_screen_rect *first_out,
     struct g5_icam_screen_rect *second_out);
+/* Shell-owned camera state must be synchronized as a complete snapshot.
+ * A revision alone does not prove center, zoom or viewport equivalence.
+ * expected_revision fences out-of-order acknowledgements. The caller
+ * validates authenticated session/object generations at the IPC boundary.
+ * This pure Ring 3 helper neither grants authority nor calls the kernel. */
+bool g5_icam_accept_snapshot(struct g5_integer_camera *committed,
+                              uint64_t expected_revision,
+                              const struct g5_integer_camera *snapshot);
+/* Legacy bounded-pan pilot compatibility only. Do not use revision-only
+ * reconciliation for the full spatial camera protocol. */
 /* A rejected transaction never publishes speculative position or zoom.
  * The kernel's authoritative revision may be newer than the request's.
  * A backwards revision or overflow sentinel is not a valid resync. */
