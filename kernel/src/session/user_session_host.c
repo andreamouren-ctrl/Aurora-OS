@@ -665,14 +665,24 @@ static bool start_with_context(
 }
 
 bool user_session_host_health_check(void) {
-    if (!user_session_host_active() || !host.g5_ready ||
-        session_g5_dispatcher == NULL || host.kernel_endpoint == NULL)
+    const bool active=user_session_host_active();
+    if (!active || !host.g5_ready ||
+        session_g5_dispatcher == NULL || host.kernel_endpoint == NULL) {
+        log_write("[g5-wp03-health-preflight] active/ready/dispatcher/endpoint: ");
+        log_u64(active);log_write("/");
+        log_u64(host.g5_ready);log_write("/");
+        log_u64(session_g5_dispatcher!=NULL);log_write("/");
+        log_u64(host.kernel_endpoint!=NULL);log_line("");
         return false;
+    }
     /* IDs 1 and 2 are reserved by Ring3 startup. All subsequent requests
      * consume a strictly increasing G5 and control ID in the same session. */
     uint64_t request_id=host.next_request_id++;
-    if (request_id < 3u || request_id == UINT64_MAX)
+    if (request_id < 3u || request_id == UINT64_MAX) {
+        log_write("[g5-wp03-health-preflight] invalid request ID: ");
+        log_u64(request_id);log_line("");
         return false;
+    }
     struct aurora_user_session_host_message request={
         .version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
         .type=AURORA_USER_SESSION_HOST_HEALTH_POLL,
