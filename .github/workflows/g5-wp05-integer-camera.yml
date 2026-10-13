@@ -101,6 +101,9 @@ jobs:
           sudo apt-get install -y -qq lld binutils
           make -C services/user_session/runtime ARCH=x86_64 CC=clang
           test -s build/x86_64/user-session-runtime/user-session-host.bin
+          # Assert that the Ring 3 binary contains the actual pan preflight,
+          # not merely an unreferenced camera object linked then discarded.
+          nm -n build/x86_64/user-session-runtime/user-session-host.elf | grep -F 'g5_icam_pan'
           test -s build/x86_64/user-session-runtime/g5_canvas_integer_camera.o
           nm -n build/x86_64/user-session-runtime/user-session-host.elf | grep -F 'g5_icam_init'
 
