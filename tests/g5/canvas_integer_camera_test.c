@@ -279,6 +279,14 @@ int main(void) {
     assert(!g5_icam_decode_batch(packet,packet_size,7u,12u,&decoded));
     assert(decoded.count==2u && decoded.request_id==12u);
     packet[clip_x_offset]^=1u;
+    /* Encoding over its own submission must not corrupt source state. */
+    struct g5_icam_scene_submission alias_frame=next_frame;
+    uint32_t alias_written=777u;
+    assert(!g5_icam_encode_batch(&alias_frame,(uint8_t *)&alias_frame,
+                                  sizeof(alias_frame),&alias_written));
+    assert(alias_written==777u);
+    assert(alias_frame.count==next_frame.count);
+    assert(alias_frame.items[0].surface_id==next_frame.items[0].surface_id);
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
