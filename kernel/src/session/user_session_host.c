@@ -1101,6 +1101,11 @@ static bool g5_wp05_route_background_scroll(
         !g5_ipc_endpoint_poll(&host.g5_binding,&status) ||
         status!=G5_IPC_OK)
         return false;
+    /* The IPC completion is authoritative: the scene revision must have
+     * advanced exactly once for the accepted pan transaction. */
+    if (host.scene.camera_revision != request.expected_camera_revision+1u ||
+        host.scene.canvas_scene_revision != request.expected_scene_revision)
+        return false;
     host.last_camera_scroll_sequence=event->sequence;
     return true;
 }
