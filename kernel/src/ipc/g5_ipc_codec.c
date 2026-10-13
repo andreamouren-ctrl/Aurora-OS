@@ -113,6 +113,7 @@ bool g5_ipc_opcode_known(uint32_t operation) {
         case G5_OP_SCENE_PREPARE:
         case G5_OP_SCENE_PUBLISH:
         case G5_OP_CANVAS_PAN:
+        case G5_OP_CANVAS_SCENE_BATCH:
             return true;
         default: return false;
     }
@@ -152,6 +153,18 @@ enum g5_ipc_status g5_ipc_validate_schema(const struct g5_ipc_header *h, uint32_
  enum g5_ipc_status s=check_header(h); if(s!=G5_IPC_OK)return s;
  if(!g5_ipc_opcode_known(h->operation))return G5_IPC_UNSUPPORTED_OPERATION;
  if(caps) return G5_IPC_BAD_CAPABILITIES;
+ if(h->operation==G5_OP_CANVAS_SCENE_BATCH) {
+  if(h->kind!=G5_IPC_REQUEST ||
+     h->payload_bytes<G5_CANVAS_SCENE_BATCH_HEADER_BYTES+
+                      G5_CANVAS_SCENE_BATCH_ITEM_BYTES ||
+     h->payload_bytes>G5_CANVAS_SCENE_BATCH_HEADER_BYTES+
+                      G5_CANVAS_SCENE_BATCH_MAX_ITEMS*
+                      G5_CANVAS_SCENE_BATCH_ITEM_BYTES ||
+     (h->payload_bytes-G5_CANVAS_SCENE_BATCH_HEADER_BYTES)%
+         G5_CANVAS_SCENE_BATCH_ITEM_BYTES!=0u)
+   return G5_IPC_BAD_FORMAT;
+  return G5_IPC_OK;
+ }
  uint32_t n=0; uint16_t k=G5_IPC_REQUEST;
  switch(h->operation){
  case G5_OP_SHELL_READY:k=G5_IPC_EVENT;break;
@@ -207,6 +220,17 @@ enum g5_ipc_status g5_ipc_validate_semantics(
   if(h->object_generation==0 || get64(p)==0 || get64(p+8)==0)
    return G5_IPC_BAD_FORMAT;
   break;
+ case G5_OP_CANVAS_SCENE_BATCH: {
+  /* Envelope only; compositor must authenticate each surface. */
+  uint32_t count=(h->payload_bytes-G5_CANVAS_SCENE_BATCH_HEADER_BYTES)/
+                  G5_CANVAS_SCENE_BATCH_ITEM_BYTES;
+  if(h->object_generation==0 || p[0]!='G' || p[1]!='5' ||
+     p[2]!='S' || p[3]!='B' || get16(p+4)!=1u ||
+     get16(p+6)!=count || get32(p+36)!=0u ||
+     get64(p+8)==0 || get64(p+16)==0)
+   return G5_IPC_BAD_FORMAT;
+  break;
+ }
  case G5_OP_CANVAS_PAN: {
   /* Signed +/-32 pixel step, checked in unsigned domain; no FP in Ring 0.
    * Payload: int32 dx/dy, uint64 camera_revision, uint64 scene_revision. */
@@ -237,6 +261,7 @@ uint64_t g5_ipc_opcode_required_rights(uint32_t operation) {
  case G5_OP_SCENE_PREPARE:
  case G5_OP_SCENE_PUBLISH:
  case G5_OP_CANVAS_PAN:
+ case G5_OP_CANVAS_SCENE_BATCH:
   return AURORA_RIGHT_CONTROL|AURORA_RIGHT_WRITE;
  default:
   return 0;
