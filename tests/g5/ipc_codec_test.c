@@ -123,12 +123,12 @@ int main(void) {
     batch[56]=7u;batch[72]=0u;
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
     batch[72]=20u;
-    batch[88]=21u; /* source X outside projected 20px width */
+    batch[96]=21u; /* source X outside projected 20px width */
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
-    batch[88]=0u;
-    batch[88]=19u;batch[88-8]=2u; /* clip width overflows source */
+    batch[96]=0u;
+    batch[96]=19u;batch[88]=2u; /* clip width overflows source */
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
-    batch[88]=0u;batch[80]=0u;
+    batch[96]=0u;batch[88]=0u;
     h.payload_bytes=152u;batch[6]=2u;
     batch[104]=7u;batch[120]=20u;batch[124]=20u;
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
