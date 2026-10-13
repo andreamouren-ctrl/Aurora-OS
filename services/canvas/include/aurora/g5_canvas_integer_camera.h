@@ -146,6 +146,22 @@ bool g5_icam_commit_presented_camera(
     uint64_t request_id,uint64_t camera_revision,
     uint64_t display_serial);
 
+/* Compact, explicit LE scene-batch payload for the existing G5 envelope.
+ * Max 3 objects per packet; the caller must reject larger frames or use
+ * a future authenticated shared-buffer protocol, never truncate.
+ * This is serialization only: raw surface IDs are not capabilities. */
+#define G5_ICAM_WIRE_BATCH_MAX 3u
+#define G5_ICAM_WIRE_BATCH_HEADER 32u
+#define G5_ICAM_WIRE_BATCH_ITEM 48u
+#define G5_ICAM_WIRE_BATCH_CAPACITY (G5_ICAM_WIRE_BATCH_HEADER + \
+                                    G5_ICAM_WIRE_BATCH_MAX * G5_ICAM_WIRE_BATCH_ITEM)
+bool g5_icam_encode_batch(
+    const struct g5_icam_scene_submission *submitted,
+    uint8_t *destination,uint32_t capacity,uint32_t *written);
+bool g5_icam_decode_batch(
+    const uint8_t *source,uint32_t length,
+    struct g5_icam_scene_submission *out);
+
 /* Shell-owned camera state must be synchronized as a complete snapshot.
  * A revision alone does not prove center, zoom or viewport equivalence.
  * expected_revision fences out-of-order acknowledgements. The caller
