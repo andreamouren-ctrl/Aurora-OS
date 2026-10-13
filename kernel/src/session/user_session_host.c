@@ -1508,11 +1508,20 @@ static bool g5_wp05_background_scroll_probe(void) {
     wheel.source=AURORA_INPUT_SOURCE_USB_HID;
     wheel.device_id=AURORA_INPUT_DEVICE_USB_BASE+1u;
     wheel.sequence=9002u;
-    if (!g5_wp05_route_normalized_input(&wheel,&consumed) ||
+    const bool first_scroll_routed=g5_wp05_route_normalized_input(&wheel,&consumed);
+    if (!first_scroll_routed ||
         host.scene.camera_revision!=4u ||
         g5_session_pan_events!=3u ||
-        host.scene.last_display_serial<=old_serial)
+        host.scene.last_display_serial<=old_serial) {
+        log_write("[g5-wp05-scroll-diagnostic] routed/consumed/camera/pans/display/previous: ");
+        log_u64(first_scroll_routed);log_write("/");
+        log_u64(consumed);log_write("/");
+        log_u64(host.scene.camera_revision);log_write("/");
+        log_u64(g5_session_pan_events);log_write("/");
+        log_u64(host.scene.last_display_serial);log_write("/");
+        log_u64(old_serial);log_line("");
         return g5_wp05_input_diagnostic(6u);
+    }
     uint64_t after_first=host.scene.last_display_serial;
     if (!g5_wp05_route_normalized_input(&wheel,&consumed) ||
         host.scene.camera_revision!=4u ||
