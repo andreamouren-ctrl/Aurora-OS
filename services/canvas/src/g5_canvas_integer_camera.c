@@ -382,6 +382,17 @@ bool g5_icam_commit_presented_camera(
     return true;
 }
 
+/* Explicit volatile byte loops prevent Clang's freestanding lowering
+ * from inserting unavailable memcpy/memset runtime dependencies. */
+static void g5_batch_zero(void *destination,uint32_t bytes) {
+    volatile uint8_t *p=(volatile uint8_t *)destination;
+    for(uint32_t i=0;i<bytes;++i)p[i]=0u;
+}
+static void g5_batch_copy(void *destination,const void *source,uint32_t bytes) {
+    volatile uint8_t *d=(volatile uint8_t *)destination;
+    const volatile uint8_t *s=(const volatile uint8_t *)source;
+    for(uint32_t i=0;i<bytes;++i)d[i]=s[i];
+}
 static void g5_batch_put(uint8_t *p,uint64_t value,uint32_t bytes) {
     for (uint32_t i=0;i<bytes;++i) p[i]=(uint8_t)(value>>(8u*i));
 }
@@ -403,7 +414,8 @@ bool g5_icam_encode_batch(
     const uint32_t bytes=G5_ICAM_WIRE_BATCH_HEADER+
         submitted->count*G5_ICAM_WIRE_BATCH_ITEM;
     if (capacity<bytes) return false;
-    uint8_t staged[G5_ICAM_WIRE_BATCH_CAPACITY]={0};
+    uint8_t staged[G5_ICAM_WIRE_BATCH_CAPACITY];
+    g5_batch_zero(staged,sizeof(staged));
     staged[0]='G';staged[1]='5';staged[2]='S';staged[3]='B';
     g5_batch_put(staged+4u,1u,2u);
     g5_batch_put(staged+6u,submitted->count,2u);
@@ -454,7 +466,8 @@ bool g5_icam_decode_batch(
         length!=G5_ICAM_WIRE_BATCH_HEADER+
                 count*G5_ICAM_WIRE_BATCH_ITEM)
         return false;
-    struct g5_icam_scene_submission staged={0};
+    struct g5_icam_scene_submission staged;
+    g5_batch_zero(&staged,sizeof(staged));
     staged.session_generation=authenticated_session_generation;
     staged.request_id=authenticated_request_id;
     staged.scene_revision=g5_batch_get(source+16u,8u);
@@ -494,6 +507,6 @@ bool g5_icam_decode_batch(
              fields[7]!=0 || fields[8]!=0 || fields[9]!=0))
             return false;
     }
-    *out=staged;
+    g5_batch_copy(out,&staged,sizeof(staged));
     return true;
 }
