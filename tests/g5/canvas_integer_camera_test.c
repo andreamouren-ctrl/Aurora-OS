@@ -27,6 +27,24 @@ int main(void) {
     assert(c.center_x_ticks==saved.center_x_ticks &&
            c.center_y_ticks==saved.center_y_ticks && c.revision==saved.revision);
     assert(!g5_icam_project(&c,INT64_MIN,INT64_MAX,&x,&y));
+    assert(g5_icam_init(&c,0,0,G5_ICAM_ONE,800,600));
+    assert(g5_icam_zoom_at(&c,2*G5_ICAM_ONE,400,300));
+    assert(c.zoom_q16==2*G5_ICAM_ONE && c.revision==2);
+    assert(c.center_x_ticks==0 && c.center_y_ticks==0);
+    assert(g5_icam_project(&c,1024,0,&x,&y) && x==402 && y==300);
+    assert(g5_icam_init(&c,0,0,G5_ICAM_ONE,800,600));
+    assert(g5_icam_zoom_at(&c,2*G5_ICAM_ONE,500,350));
+    assert(c.center_x_ticks==51200 && c.center_y_ticks==25600);
+    assert(g5_icam_unproject(&c,c.revision,500,350,&wx,&wy));
+    assert(wx==102400 && wy==51200);
+    saved=c;
+    assert(!g5_icam_zoom_at(&c,0,500,350));
+    assert(!g5_icam_zoom_at(&c,2*G5_ICAM_ONE,-1,350));
+    assert(c.revision==saved.revision && c.center_x_ticks==saved.center_x_ticks);
+    assert(g5_icam_init(&c,INT64_MAX,0,G5_ICAM_ONE,800,600));
+    saved=c;
+    assert(!g5_icam_zoom_at(&c,2*G5_ICAM_ONE,800,300));
+    assert(c.revision==saved.revision && c.center_x_ticks==saved.center_x_ticks);
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
