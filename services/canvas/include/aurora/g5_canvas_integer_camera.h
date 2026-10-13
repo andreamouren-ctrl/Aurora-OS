@@ -28,4 +28,15 @@ bool g5_icam_project(const struct g5_integer_camera *camera,
 bool g5_icam_unproject(const struct g5_integer_camera *camera,
                         uint64_t expected_revision, int32_t x_px, int32_t y_px,
                         int64_t *x_ticks, int64_t *y_ticks);
+/* A rejected transaction never publishes speculative position or zoom.
+ * The kernel's authoritative revision may be newer than the request's.
+ * A backwards revision or overflow sentinel is not a valid resync. */
+static inline bool g5_icam_reconcile_rejected(
+    struct g5_integer_camera *committed,uint64_t kernel_revision) {
+    if (!committed || kernel_revision<committed->revision ||
+        kernel_revision==UINT64_MAX)
+        return false;
+    committed->revision=kernel_revision;
+    return true;
+}
 #endif
