@@ -6,6 +6,9 @@ on:
       - 'services/canvas/src/g5_canvas_integer_camera.c'
       - 'tests/g5/canvas_integer_camera_test.c'
       - 'tests/g5/canvas_integer_camera_differential_test.c'
+      - 'services/user_session/runtime/main.c'
+      - 'services/user_session/runtime/Makefile'
+      - 'kernel/include/aurora/user_session_host_abi.h'
       - '.github/workflows/g5-wp05-integer-camera.yml'
   pull_request:
     paths:
@@ -13,6 +16,9 @@ on:
       - 'services/canvas/src/g5_canvas_integer_camera.c'
       - 'tests/g5/canvas_integer_camera_test.c'
       - 'tests/g5/canvas_integer_camera_differential_test.c'
+      - 'services/user_session/runtime/main.c'
+      - 'services/user_session/runtime/Makefile'
+      - 'kernel/include/aurora/user_session_host_abi.h'
       - '.github/workflows/g5-wp05-integer-camera.yml'
   workflow_dispatch:
 jobs:
