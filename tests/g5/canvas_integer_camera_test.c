@@ -291,6 +291,14 @@ int main(void) {
     assert(alias_written==777u);
     assert(alias_frame.count==next_frame.count);
     assert(alias_frame.items[0].surface_id==next_frame.items[0].surface_id);
+    /* Decoder must not accept a wire packet inside its output frame. */
+    struct g5_icam_scene_submission overlap_frame={0};
+    uint8_t *overlap_bytes=(uint8_t *)&overlap_frame;
+    for(uint32_t k=0;k<packet_size;++k)overlap_bytes[k]=packet[k];
+    assert(!g5_icam_decode_batch(overlap_bytes,packet_size,7u,12u,
+                                 &overlap_frame));
+    assert(!g5_icam_decode_batch(overlap_bytes+8u,packet_size,7u,12u,
+                                 &overlap_frame));
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
