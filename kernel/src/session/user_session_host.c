@@ -673,6 +673,19 @@ bool user_session_host_health_check(void) {
         log_u64(host.g5_ready);log_write("/");
         log_u64(session_g5_dispatcher!=NULL);log_write("/");
         log_u64(host.kernel_endpoint!=NULL);log_line("");
+        log_write("[g5-wp03-health-process] host/process/thread/running/extra/second/thread/running: ");
+        log_u64(host.active);log_write("/");
+        log_u64(host.process!=NULL);log_write("/");
+        log_u64(host.thread!=0u);log_write("/");
+        log_u64(host.process!=NULL &&
+                process_state(host.process)==AURORA_PROCESS_RUNNING);
+        log_write("/");
+        log_u64(host.scene.extra.active);log_write("/");
+        log_u64(host.second_process!=NULL);log_write("/");
+        log_u64(host.second_thread!=0u);log_write("/");
+        log_u64(host.second_process!=NULL &&
+                process_state(host.second_process)==AURORA_PROCESS_RUNNING);
+        log_line("");
         return false;
     }
     /* IDs 1 and 2 are reserved by Ring3 startup. All subsequent requests
