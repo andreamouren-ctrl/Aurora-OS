@@ -1471,31 +1471,27 @@ static bool g5_wp05_background_scroll_probe(void) {
     wheel.source=AURORA_INPUT_SOURCE_USB_HID;
     wheel.device_id=AURORA_INPUT_DEVICE_USB_BASE+1u;
     wheel.sequence=9002u;
+    /* Transitional wheel-to-zoom oracle: a trusted background wheel is
+     * consumed once but MUST NOT mutate window placement, camera revision,
+     * pan event count or display serial before zoom IPC is implemented. */
     const bool first_scroll_routed=g5_wp05_route_normalized_input(&wheel,&consumed);
-    if (!first_scroll_routed ||
-        host.scene.camera_revision!=4u ||
-        g5_session_pan_events!=3u ||
-        host.scene.last_display_serial<=old_serial) {
-        log_write("[g5-wp05-scroll-diagnostic] routed/consumed/camera/pans/display/previous: ");
-        log_u64(first_scroll_routed);log_write("/");
-        log_u64(consumed);log_write("/");
-        log_u64(host.scene.camera_revision);log_write("/");
-        log_u64(g5_session_pan_events);log_write("/");
-        log_u64(host.scene.last_display_serial);log_write("/");
-        log_u64(old_serial);log_line("");
+    if (!first_scroll_routed || !consumed ||
+        host.scene.camera_revision!=3u ||
+        g5_session_pan_events!=2u ||
+        host.scene.last_display_serial!=old_serial ||
+        host.last_camera_scroll_sequence!=9002u)
         return g5_wp05_input_diagnostic(6u);
-    }
-    uint64_t after_first=host.scene.last_display_serial;
     if (!g5_wp05_route_normalized_input(&wheel,&consumed) ||
-        host.scene.camera_revision!=4u ||
-        host.scene.last_display_serial!=after_first)
-        return g5_wp05_input_diagnostic(7u); /* repeated event cannot pan twice */
+        !consumed || host.scene.camera_revision!=3u ||
+        host.scene.last_display_serial!=old_serial)
+        return g5_wp05_input_diagnostic(7u);
     wheel.sequence=9003u;
     wheel.scroll_y=-1;
     if (!g5_wp05_route_normalized_input(&wheel,&consumed) ||
-        host.scene.camera_revision!=5u ||
-        g5_session_pan_events!=4u ||
-        host.scene.last_display_serial<=after_first)
+        !consumed || host.scene.camera_revision!=3u ||
+        g5_session_pan_events!=2u ||
+        host.scene.last_display_serial!=old_serial ||
+        host.last_camera_scroll_sequence!=9003u)
         return g5_wp05_input_diagnostic(8u);
     struct aurora_window_toplevel final_primary={0},final_second={0};
     if (!window_policy_read_toplevel(&host.scene.window_policy,
@@ -1527,7 +1523,7 @@ static bool g5_wp05_background_scroll_probe(void) {
     wheel.sequence=9004u;
     uint64_t after_return=host.scene.last_display_serial;
     if (!g5_wp05_route_normalized_input(&wheel,&consumed) ||
-        host.scene.camera_revision!=5u ||
+        host.scene.camera_revision!=3u ||
         host.scene.last_display_serial!=after_return)
         return g5_wp05_input_diagnostic(11u);
     if (consumed ||
@@ -1536,7 +1532,7 @@ static bool g5_wp05_background_scroll_probe(void) {
         dequeued.type!=AURORA_INPUT_EVENT_SCROLL ||
         dequeued.sequence!=9004u)
         return g5_wp05_input_diagnostic(13u);
-    log_line("[g5-wp05-input] USB HID background wheel uses authorized Ring3 pan");
+    log_line("[g5-wp05-input] contextual wheel consumed without legacy pan (zoom IPC pending)");
     return true;
 }
 
