@@ -1947,6 +1947,23 @@ bool user_session_host_self_test(void) {
         host.scene.extra.pending_resize_buffer==NULL &&
         host.scene.extra.last_commit_serial>=3u &&
         host.scene.extra.last_display_serial>original_second_serial;
+    if (!resized_primary || !resized_roundtrip) {
+        log_write("[g5-wp04-resize-diagnostic] primary/roundtrip/health: ");
+        log_u64(resized_primary);log_write("/");
+        log_u64(resized_roundtrip);log_write("/");
+        log_u64(live_health);
+        log_write(" primary-width/height/serial/pending: ");
+        log_u64(host.scene.width);log_write("/");
+        log_u64(host.scene.height);log_write("/");
+        log_u64(host.scene.last_display_serial);log_write("/");
+        log_u64(host.scene.pending_resize_buffer!=NULL);
+        log_write(" secondary-width/height/serial/pending: ");
+        log_u64(host.scene.extra.width);log_write("/");
+        log_u64(host.scene.extra.height);log_write("/");
+        log_u64(host.scene.extra.last_display_serial);log_write("/");
+        log_u64(host.scene.extra.pending_resize_buffer!=NULL);
+        log_line("");
+    }
     bool interaction_verified=resized_roundtrip &&
         g5_wp04_two_window_interaction_probe();
     bool stopped = user_session_host_active() && user_session_host_stop();
