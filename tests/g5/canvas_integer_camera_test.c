@@ -102,6 +102,24 @@ int main(void) {
     assert(!g5_icam_pan(&staged,65537,0));
     assert(staged.revision==c.revision &&
            staged.center_x_ticks==c.center_x_ticks);
+    /* Full camera snapshot handoff is atomic and rejects stale responses. */
+    assert(g5_icam_init(&c,0,0,G5_ICAM_ONE,800,600));
+    saved=c;
+    staged=c;
+    assert(g5_icam_zoom_at(&staged,2*G5_ICAM_ONE,500,350));
+    assert(!g5_icam_accept_snapshot(&c,0,&staged));
+    assert(c.zoom_q16==saved.zoom_q16 && c.revision==saved.revision);
+    struct g5_integer_camera invalid=staged;
+    invalid.zoom_q16=0;
+    assert(!g5_icam_accept_snapshot(&c,saved.revision,&invalid));
+    assert(c.center_x_ticks==saved.center_x_ticks);
+    assert(g5_icam_accept_snapshot(&c,saved.revision,&staged));
+    assert(c.zoom_q16==2*G5_ICAM_ONE && c.center_x_ticks==51200);
+    assert(!g5_icam_accept_snapshot(&c,saved.revision,&staged));
+    invalid=c;
+    invalid.revision=UINT64_MAX;
+    assert(!g5_icam_accept_snapshot(&c,c.revision,&invalid));
+    assert(c.zoom_q16==staged.zoom_q16 && c.revision==staged.revision);
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
