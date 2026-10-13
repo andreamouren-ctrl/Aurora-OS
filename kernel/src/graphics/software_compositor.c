@@ -1285,31 +1285,35 @@ bool software_compositor_set_transform(
         return false;
     }
 
-    (void)damage_union(
-        &compositor->pending_damage,
-        node->x,
-        node->y,
-        old_width,
-        old_height,
-        mode->width,
-        mode->height
-    );
-
-    node->transform = transform;
-    node->scale = scale;
-
+    /* Validate the prospective transform before mutating live scene state. */
+    struct aurora_compositor_node prospective = *node;
+    prospective.transform = transform;
+    prospective.scale = scale;
     uint64_t new_width = 0u;
     uint64_t new_height = 0u;
-    bool valid =
-        transformed_extent(
-            node,
-            snapshot.buffer->width,
-            snapshot.buffer->height,
-            &new_width,
-            &new_height
-        );
-
-    if (valid) {
+    bool valid = transformed_extent(
+        &prospective, snapshot.buffer->width, snapshot.buffer->height,
+        &new_width, &new_height);
+    if (valid && node->clip.enabled) {
+        int64_t cx=node->clip.x,cy=node->clip.y;
+        int64_t cr=cx+node->clip.width,cb=cy+node->clip.height;
+        valid = new_width<=(uint64_t)INT64_MAX &&
+                new_height<=(uint64_t)INT64_MAX &&
+                cx>=(int64_t)node->x && cy>=(int64_t)node->y &&
+                cr<=(int64_t)node->x+(int64_t)new_width &&
+                cb<=(int64_t)node->y+(int64_t)new_height;
+    }
+    if (!valid) {
+        graphics_surface_snapshot_release(&snapshot);
+        return false;
+    }
+    (void)damage_union(
+        &compositor->pending_damage,
+        node->x, node->y, old_width, old_height,
+        mode->width, mode->height);
+    node->transform = transform;
+    node->scale = scale;
+    {
         (void)damage_union(
             &compositor->pending_damage,
             node->x,
