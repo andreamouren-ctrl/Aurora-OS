@@ -84,3 +84,9 @@ jobs:
             exit 1
           fi
           echo "Aurora Ring 3 ABI camera object passed"
+
+      - name: Build real Ring 3 user-session binary
+        run: |
+          make -C services/user_session/runtime ARCH=x86_64
+          test -s build/x86_64/user-session-runtime/user-session-host.bin
+          test -s build/x86_64/user-session-runtime/g5_canvas_integer_camera.o
