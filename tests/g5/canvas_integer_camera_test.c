@@ -332,6 +332,15 @@ int main(void) {
     assert(!g5_icam_decode_batch(packet,packet_size,7u,12u,&decoded));
     assert(decoded.count==2u && decoded.request_id==12u);
     assert(g5_icam_encode_batch(&next_frame,packet,sizeof(packet),&packet_size));
+    /* An attacker cannot narrow the canonical visible crop while keeping
+     * the source-offset and viewport bounds otherwise well-formed. */
+    assert(next_frame.items[0].clip.width_px>1);
+    const uint32_t clip_width_offset=item0+32u;
+    assert(packet[clip_width_offset]>1u);
+    --packet[clip_width_offset];
+    assert(!g5_icam_decode_batch(packet,packet_size,7u,12u,&decoded));
+    assert(decoded.count==2u && decoded.request_id==12u);
+    assert(g5_icam_encode_batch(&next_frame,packet,sizeof(packet),&packet_size));
     /* The length out-parameter must not overwrite the encoded payload. */
     uint8_t length_alias[G5_ICAM_WIRE_BATCH_CAPACITY]={0};
     uint32_t clean_length=0;
