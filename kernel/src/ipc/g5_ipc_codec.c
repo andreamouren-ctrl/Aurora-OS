@@ -227,8 +227,24 @@ enum g5_ipc_status g5_ipc_validate_semantics(
   if(h->object_generation==0 || p[0]!='G' || p[1]!='5' ||
      p[2]!='S' || p[3]!='B' || get16(p+4)!=1u ||
      get16(p+6)!=count || get32(p+36)!=0u ||
-     get64(p+8)==0 || get64(p+16)==0)
+     get64(p+8)==0 || get64(p+16)==0 ||
+     get32(p+24)==0 || get32(p+24)>8192u ||
+     get32(p+28)==0 || get32(p+28)>8192u ||
+     get32(p+32)==0)
    return G5_IPC_BAD_FORMAT;
+  /* Reject malformed object identifiers and duplicate surfaces at the
+   * trusted IPC boundary, before reaching the Ring 3 renderer. */
+  for(uint32_t i=0u;i<count;++i) {
+   const uint8_t *item=p+G5_CANVAS_SCENE_BATCH_HEADER_BYTES+
+                       i*G5_CANVAS_SCENE_BATCH_ITEM_BYTES;
+   uint64_t surface=get64(item);
+   if(surface==0u || get32(item+16)==0u || get32(item+20)==0u)
+    return G5_IPC_BAD_FORMAT;
+   for(uint32_t j=0u;j<i;++j)
+    if(surface==get64(p+G5_CANVAS_SCENE_BATCH_HEADER_BYTES+
+                      j*G5_CANVAS_SCENE_BATCH_ITEM_BYTES))
+     return G5_IPC_BAD_FORMAT;
+  }
   break;
  }
  case G5_OP_CANVAS_PAN: {
