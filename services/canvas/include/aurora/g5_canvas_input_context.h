@@ -16,6 +16,18 @@ enum g5_canvas_input_action {
     G5_CANVAS_INPUT_SWITCH_PREVIOUS,
     G5_CANVAS_INPUT_SWITCH_COMMIT
 };
+/* Fixed-point wheel factors: 5/4 zoom in and 4/5 zoom out.
+ * Reciprocal ratios avoid floating point and preserve deterministic bounds. */
+#define G5_CANVAS_WHEEL_ZOOM_IN_Q16 UINT32_C(81920)
+#define G5_CANVAS_WHEEL_ZOOM_OUT_Q16 UINT32_C(52429)
+static inline uint32_t g5_canvas_zoom_factor(
+    enum g5_canvas_input_action action) {
+    if (action==G5_CANVAS_INPUT_ZOOM_IN)
+        return G5_CANVAS_WHEEL_ZOOM_IN_Q16;
+    if (action==G5_CANVAS_INPUT_ZOOM_OUT)
+        return G5_CANVAS_WHEEL_ZOOM_OUT_Q16;
+    return 0u;
+}
 struct g5_canvas_input_context {
     uint8_t canvas_navigation;
     uint8_t app_control_active;
