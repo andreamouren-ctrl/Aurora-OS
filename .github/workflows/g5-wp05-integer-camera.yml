@@ -92,3 +92,11 @@ jobs:
           make -C services/user_session/runtime ARCH=x86_64 CC=clang
           test -s build/x86_64/user-session-runtime/user-session-host.bin
           test -s build/x86_64/user-session-runtime/g5_canvas_integer_camera.o
+          nm -n build/x86_64/user-session-runtime/user-session-host.elf | grep -E ' [Tt] g5_icam_init
+
+          nm -n build/x86_64/user-session-runtime/user-session-host.elf | grep -E ' [Tt] g5_icam_set_viewport
+
+          if nm -u build/x86_64/user-session-runtime/user-session-host.elf | grep -q .; then
+            echo 'Ring 3 ELF has unresolved symbols'
+            exit 1
+          fi
