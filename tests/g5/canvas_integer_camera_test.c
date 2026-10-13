@@ -204,6 +204,23 @@ int main(void) {
     assert(!g5_icam_prepare_submission(&c,c.revision-1u,7u,9u,12u,
                                         scene,2u,&submitted));
     assert(submitted.request_id==original_request);
+    /* Focus is gated on the exact scene/camera snapshot displayed. */
+    focus=UINT64_MAX;
+    assert(g5_icam_hit_presented_submission(
+        &submitted,&c,9u,101u,410,300,&focus));
+    assert(focus==11u);
+    assert(!g5_icam_hit_presented_submission(
+        &submitted,&c,10u,101u,410,300,&focus));
+    assert(!g5_icam_hit_presented_submission(
+        &submitted,&c,9u,0u,410,300,&focus));
+    struct g5_integer_camera moved_camera=c;
+    assert(g5_icam_pan(&moved_camera,1,0));
+    assert(!g5_icam_hit_presented_submission(
+        &submitted,&moved_camera,9u,101u,410,300,&focus));
+    moved_camera=c;
+    moved_camera.center_x_ticks+=1024;
+    assert(!g5_icam_hit_presented_submission(
+        &submitted,&moved_camera,9u,101u,410,300,&focus));
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
