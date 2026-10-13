@@ -46,6 +46,16 @@ struct aurora_compositor_damage {
     bool valid;
 };
 
+/* Trusted destination-space clip. Coordinates are output pixels; this is
+ * deliberately not a source-buffer crop or an arbitrary zoom transform. */
+struct aurora_compositor_clip {
+    uint32_t x;
+    uint32_t y;
+    uint32_t width;
+    uint32_t height;
+    bool enabled;
+};
+
 struct aurora_compositor_node {
     uint64_t node_id;
     aurora_cap_handle surface_handle;
@@ -61,6 +71,7 @@ struct aurora_compositor_node {
     bool fully_opaque;
     /* Render normally, but allow underlying trusted surface to take input. */
     bool input_transparent;
+    struct aurora_compositor_clip clip;
     uint64_t last_commit_serial;
 };
 
@@ -133,6 +144,14 @@ bool software_compositor_set_input_transparent(
     aurora_cap_handle display_control_handle,
     uint64_t node_id,
     bool transparent
+);
+
+/* Reject zero-sized/overflowing rectangles; disable restores legacy full-node
+ * behavior. The trusted caller must stage and present scene changes atomically. */
+bool software_compositor_set_clip(
+    struct aurora_software_compositor *compositor,
+    uint64_t node_id,
+    const struct aurora_compositor_clip *clip
 );
 
 bool software_compositor_set_transform(
