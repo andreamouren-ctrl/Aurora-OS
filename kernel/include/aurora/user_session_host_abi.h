@@ -25,6 +25,8 @@
 #define AURORA_USER_SESSION_HOST_RESIZE_COMMIT_GRANT 10u
 #define AURORA_USER_SESSION_HOST_CANVAS_PAN_REQUEST 11u
 #define AURORA_USER_SESSION_HOST_CANVAS_PAN_ACK 12u
+/* Kernel-to-Ring3: issued only after the G5 pan has committed. */
+#define AURORA_USER_SESSION_HOST_CANVAS_PAN_COMMITTED 13u
 
 #define AURORA_USER_SESSION_HOST_READY_MAGIC UINT64_C(0x4155525345535348)
 
@@ -75,5 +77,13 @@ struct aurora_user_session_host_camera_message {
     int32_t delta_x_px, delta_y_px;
     uint64_t expected_camera_revision;
     uint64_t expected_scene_revision;
+};
+
+/* Kernel-authoritative completion, never an acknowledgement of forwarding.
+ * Request identity and scene revision bind this receipt to the pan request. */
+struct aurora_user_session_host_camera_committed {
+    struct aurora_user_session_host_message header;
+    uint64_t camera_revision;
+    uint64_t scene_revision;
 };
 #endif
