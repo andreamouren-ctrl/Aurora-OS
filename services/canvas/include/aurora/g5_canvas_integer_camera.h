@@ -28,6 +28,16 @@ bool g5_icam_project(const struct g5_integer_camera *camera,
 bool g5_icam_unproject(const struct g5_integer_camera *camera,
                         uint64_t expected_revision, int32_t x_px, int32_t y_px,
                         int64_t *x_ticks, int64_t *y_ticks);
+/* World-space rectangles are immutable scene geometry. Their projected
+ * bounds are derived from the committed camera, never stored back into
+ * the scene's world coordinates. Screen bounds may be off-viewport. */
+struct g5_icam_screen_rect {
+    int32_t x_px,y_px,width_px,height_px;
+};
+bool g5_icam_project_rect(const struct g5_integer_camera *camera,
+                           int64_t x_ticks,int64_t y_ticks,
+                           uint32_t width_ticks,uint32_t height_ticks,
+                           struct g5_icam_screen_rect *out);
 /* A rejected transaction never publishes speculative position or zoom.
  * The kernel's authoritative revision may be newer than the request's.
  * A backwards revision or overflow sentinel is not a valid resync. */
