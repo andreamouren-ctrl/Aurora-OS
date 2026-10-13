@@ -226,3 +226,35 @@ bool g5_icam_accept_snapshot(struct g5_integer_camera *committed,
     *committed=*snapshot;
     return true;
 }
+
+/* Bounded stack staging avoids allocation and prevents a partially
+ * updated compositor scene if any geometry is malformed or overflows. */
+bool g5_icam_project_scene(
+    const struct g5_integer_camera *camera,uint64_t expected_revision,
+    const struct g5_icam_scene_item *items,uint32_t count,
+    struct g5_icam_projected_item *out) {
+    if (!valid(camera) || camera->revision!=expected_revision ||
+        !items || !out || !count || count>G5_ICAM_SCENE_MAX_RECTS)
+        return false;
+    struct g5_icam_projected_item staged[G5_ICAM_SCENE_MAX_RECTS];
+    for (uint32_t i=0;i<count;++i) {
+        const struct g5_icam_world_rect *w=&items[i].world;
+        if (!items[i].surface_id ||
+            !g5_icam_project_rect(camera,w->x_ticks,w->y_ticks,
+                                  w->width_ticks,w->height_ticks,
+                                  &staged[i].projected))
+            return false;
+        for (uint32_t j=0;j<i;++j)
+            if (items[j].surface_id==items[i].surface_id)
+                return false;
+        staged[i].surface_id=items[i].surface_id;
+        staged[i].visible=g5_icam_clip_to_viewport(
+            camera,&staged[i].projected,&staged[i].clip);
+        if (!staged[i].visible) {
+            const struct g5_icam_clip_rect empty={0};
+            staged[i].clip=empty;
+        }
+    }
+    for (uint32_t i=0;i<count;++i) out[i]=staged[i];
+    return true;
+}
