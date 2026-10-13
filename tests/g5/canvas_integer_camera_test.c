@@ -302,9 +302,9 @@ int main(void) {
     /* Wire header integrity: reserved bits, protocol version, and camera
      * revision must fail closed without publishing a partial scene. */
     assert(g5_icam_encode_batch(&next_frame,packet,sizeof(packet),&packet_size));
-    const uint32_t header_offsets[]={4u,8u,36u};
-    const uint8_t header_values[]={2u,0u,1u};
-    for(unsigned k=0;k<3u;++k) {
+    const uint32_t header_offsets[]={4u,36u};
+    const uint8_t header_values[]={2u,1u};
+    for(unsigned k=0;k<2u;++k) {
         const uint32_t off=header_offsets[k];
         const uint8_t saved=packet[off];
         packet[off]=header_values[k];
@@ -312,6 +312,14 @@ int main(void) {
         assert(decoded.count==2u && decoded.request_id==12u);
         packet[off]=saved;
     }
+    uint8_t saved_revision[8];
+    for(unsigned k=0;k<8u;++k) {
+        saved_revision[k]=packet[8u+k];
+        packet[8u+k]=0u;
+    }
+    assert(!g5_icam_decode_batch(packet,packet_size,7u,12u,&decoded));
+    assert(decoded.count==2u && decoded.request_id==12u);
+    for(unsigned k=0;k<8u;++k)packet[8u+k]=saved_revision[k];
     assert(g5_icam_decode_batch(packet,packet_size,7u,12u,&decoded));
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
