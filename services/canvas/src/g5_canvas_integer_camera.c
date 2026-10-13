@@ -117,3 +117,32 @@ bool g5_icam_unproject(const struct g5_integer_camera *c,uint64_t revision,
         return false;
     *x=a; *y=b; return true;
 }
+
+bool g5_icam_project_rect(const struct g5_integer_camera *c,
+                           int64_t x,int64_t y,uint32_t w,uint32_t h,
+                           struct g5_icam_screen_rect *out) {
+    if (!valid(c) || !out || !w || !h) return false;
+    int64_t right,bottom;
+    if (!fit((wide)x+w,&right) || !fit((wide)y+h,&bottom))
+        return false;
+    int32_t left_px,top_px,right_px,bottom_px;
+    if (!project_axis(x,c->center_x_ticks,c->zoom_q16,
+                      c->width_px,&left_px) ||
+        !project_axis(y,c->center_y_ticks,c->zoom_q16,
+                      c->height_px,&top_px) ||
+        !project_axis(right,c->center_x_ticks,c->zoom_q16,
+                      c->width_px,&right_px) ||
+        !project_axis(bottom,c->center_y_ticks,c->zoom_q16,
+                      c->height_px,&bottom_px))
+        return false;
+    const int64_t projected_width=(int64_t)right_px-left_px;
+    const int64_t projected_height=(int64_t)bottom_px-top_px;
+    if (projected_width<=0 || projected_height<=0 ||
+        projected_width>INT32_MAX || projected_height>INT32_MAX)
+        return false;
+    const struct g5_icam_screen_rect result={
+        left_px,top_px,(int32_t)projected_width,(int32_t)projected_height
+    };
+    *out=result;
+    return true;
+}
