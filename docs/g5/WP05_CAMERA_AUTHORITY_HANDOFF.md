@@ -100,3 +100,35 @@ A direct include of `aurora/g5_ipc_abi.h` in the standalone Canvas camera header
 ### Verified production dispatcher boundary (2026-10-13)
 
 Source inspection confirms that `kernel/src/session/user_session_host.c` routes `G5_OP_SCENE_PUBLISH` to `g5_shell_scene_publish`, and `G5_OP_CANVAS_PAN` to `g5_shell_scene_pan` in `kernel/src/session/g5_shell_scene.c`. The latter requires two active surfaces, a bounded 24-byte pixel delta and matching scene/camera revisions, then moves the two legacy window-policy toplevels. **Neither handler consumes the Ring 3 `G5SB` camera batch.** The existing `SCENE_PUBLISH` payload is a 16-byte object ID plus commit serial, not the 56–200-byte camera batch. Therefore the future camera-batch IPC must have a distinct explicitly authorized schema/operation and receiver with capability-checked surfaces, generation fencing and atomic compositor presentation; do not repurpose the current opcodes or claim that the current legacy path provides infinite-canvas semantics.
+
+
+### Production dispatch and authority gate (2026-10-13)
+
+An additional source-level audit of `kernel/src/session/user_session_host.c`
+confirms that `production_g5_authorize` only allows the legacy scene
+publish/place/close/pan operations for an active scene. Its handler has **no**
+`G5_OP_CANVAS_SCENE_BATCH` branch. This is intentional fail-closed behavior:
+the newly validated wire message must not be promoted into an unguarded
+kernel scene mutation.
+
+The integration boundary is therefore explicit:
+
+1. The Shell/Canvas Engine in Ring 3 prepares and owns camera snapshots,
+   world-space geometry, projected clips and focus resolution.
+2. A trusted receiving service resolves every submitted numeric surface ID
+   against live capability records, including the authenticated session,
+   owner, rights, object generation and revocation status. Numeric IDs alone
+   must never authorize display.
+3. The compositor stages **all** members of the accepted frame, rejects
+   incomplete or oversized submissions, and publishes only on an atomic
+   present. A 3-item wire limit is not a 3-item infinite-canvas design limit.
+4. The receiver returns a presentation ACK bound to the authenticated request,
+   session, camera revision and scene revision, with a strictly increasing
+   display serial. Shell commits its camera only on that ACK.
+5. Tests must cover a forged/revoked surface, stale generation, duplicate
+   surfaces, replayed request, compositor failure and restart, as well as
+   positive end-to-end QEMU presentation.
+
+The current IPC codec guards envelope and geometry but does not perform
+steps 2–4. Do **not** authorize the opcode in the production dispatcher until
+the receiver and its tests exist. This gate remains OPEN.
