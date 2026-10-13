@@ -221,6 +221,16 @@ int main(void) {
     moved_camera.center_x_ticks+=1024;
     assert(!g5_icam_hit_presented_submission(
         &submitted,&moved_camera,9u,101u,410,300,&focus));
+    /* Hit routing must reject a forged crop even when the rectangle
+     * still lies inside the viewport and the surface ID is valid. */
+    struct g5_icam_scene_submission forged_hit=submitted;
+    assert(forged_hit.items[0].visible);
+    assert(forged_hit.items[0].clip.width_px>1);
+    --forged_hit.items[0].clip.width_px;
+    uint64_t forged_focus=999u;
+    assert(!g5_icam_hit_presented_submission(
+        &forged_hit,&c,9u,101u,410,300,&forged_focus));
+    assert(forged_focus==999u);
     /* Presenting a staged camera advances the Shell camera and frame
      * serial together. Replays and failed acknowledgements are inert. */
     struct g5_integer_camera next_camera=c;
