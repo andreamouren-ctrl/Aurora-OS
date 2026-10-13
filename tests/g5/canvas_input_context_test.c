@@ -80,6 +80,21 @@ int main(void) {
     assert(!g5_canvas_stage_wheel_zoom(&at_limit,G5_CANVAS_INPUT_ZOOM_IN,
                                        400,300,&candidate));
     assert(at_limit.zoom_q16==G5_ICAM_MAX_ZOOM);
+    /* A stale pan rejection can report a newer kernel revision.
+     * It must not apply the speculative camera position or zoom. */
+    struct g5_integer_camera rejected={0};
+    assert(g5_icam_init(&rejected,123,-456,G5_ICAM_ONE,800,600));
+    const uint64_t rejected_rev=rejected.revision;
+    assert(!g5_icam_reconcile_rejected(&rejected,rejected_rev-1u));
+    assert(!g5_icam_reconcile_rejected(&rejected,UINT64_MAX));
+    assert(rejected.revision==rejected_rev);
+    assert(g5_icam_reconcile_rejected(&rejected,rejected_rev+2u));
+    assert(rejected.revision==rejected_rev+2u);
+    assert(rejected.center_x_ticks==123 && rejected.center_y_ticks==-456);
+    assert(rejected.zoom_q16==G5_ICAM_ONE);
+    assert(!g5_icam_reconcile_rejected(&rejected,rejected_rev+1u));
+    assert(g5_icam_reconcile_rejected(&rejected,rejected_rev+2u));
+    assert(!g5_icam_reconcile_rejected(NULL,rejected_rev+2u));
     puts("G5 contextual input resolver and staged zoom: PASS");
     return 0;
 }
