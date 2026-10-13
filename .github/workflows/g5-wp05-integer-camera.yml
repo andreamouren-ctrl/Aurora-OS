@@ -9,6 +9,8 @@ on:
       - 'services/user_session/runtime/main.c'
       - 'services/user_session/runtime/Makefile'
       - 'kernel/include/aurora/user_session_host_abi.h'
+      - 'kernel/src/session/user_session_host.c'
+      - 'kernel/src/session/g5_shell_scene.c'
       - '.github/workflows/g5-wp05-integer-camera.yml'
   pull_request:
     paths:
@@ -19,6 +21,8 @@ on:
       - 'services/user_session/runtime/main.c'
       - 'services/user_session/runtime/Makefile'
       - 'kernel/include/aurora/user_session_host_abi.h'
+      - 'kernel/src/session/user_session_host.c'
+      - 'kernel/src/session/g5_shell_scene.c'
       - '.github/workflows/g5-wp05-integer-camera.yml'
   workflow_dispatch:
 jobs:
