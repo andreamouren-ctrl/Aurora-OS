@@ -55,6 +55,12 @@ int main(void) {
     assert(!g5_icam_unproject(&c,1,400,300,&wx,&wy));
     c.revision=UINT64_MAX;
     assert(!g5_icam_set_viewport(&c,800,600));
+    /* Odd viewport midpoint: positive and negative half pixels must
+     * round away from zero in screen coordinates, not in deltas. */
+    assert(g5_icam_init(&c,0,0,G5_ICAM_ONE,801,601));
+    assert(g5_icam_project(&c,0,0,&x,&y) && x==401 && y==301);
+    assert(g5_icam_project(&c,-1024,-1024,&x,&y) && x==400 && y==300);
+    assert(g5_icam_project(&c,1024,1024,&x,&y) && x==402 && y==302);
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
