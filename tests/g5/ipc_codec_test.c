@@ -119,6 +119,18 @@ int main(void) {
     batch[56]=7u;batch[72]=20u;batch[76]=20u;
     batch[88]=20u;batch[92]=20u;
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    /* Canonical viewport clipping: a rectangle starting at x=-5 must
+     * present x=0..14 with source offset 5, not an arbitrary crop. */
+    batch[64]=0xfbu;batch[65]=0xffu;batch[66]=0xffu;batch[67]=0xffu;
+    batch[88]=15u;batch[96]=5u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    batch[96]=4u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[96]=5u;batch[88]=14u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[64]=0u;batch[65]=0u;batch[66]=0u;batch[67]=0u;
+    batch[88]=20u;batch[96]=0u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
     batch[56]=0u;
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
     batch[56]=7u;batch[72]=0u;
