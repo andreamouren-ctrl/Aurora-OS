@@ -433,6 +433,10 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
         return 32;
 
     uint64_t last_canvas_pan_request=4u;
+    uint64_t pending_canvas_pan_request=0u;
+    uint64_t pending_canvas_camera_revision=0u;
+    uint64_t pending_canvas_scene_revision=0u;
+    struct g5_integer_camera pending_canvas_camera={0};
     uint64_t last_resize_serial=0u;
     uint64_t current_graphics_buffer=startup->graphics_buffer;
     for (;;) {
@@ -443,6 +447,28 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
             received.capability_count != 0u) {
             clear_bytes(&received, sizeof(received));
             return 1;
+        }
+        /* The kernel sends this only after G5 IPC and compositor commit.
+         * A forwarded ACK never changes local camera state. */
+        if (!secondary && startup->g5_endpoint != 0u &&
+            received.length ==
+                sizeof(struct aurora_user_session_host_camera_committed)) {
+            struct aurora_user_session_host_camera_committed committed={0};
+            copy_bytes(&committed,received.data,sizeof(committed));
+            if (committed.header.type ==
+                    AURORA_USER_SESSION_HOST_CANVAS_PAN_COMMITTED) {
+                clear_bytes(&received,sizeof(received));
+                if (committed.header.version !=
+                        AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
+                    pending_canvas_pan_request==0u ||
+                    committed.header.request_id!=pending_canvas_pan_request ||
+                    committed.camera_revision!=pending_canvas_camera_revision+1u ||
+                    committed.scene_revision!=pending_canvas_scene_revision)
+                    return 1;
+                canvas_camera=pending_canvas_camera;
+                pending_canvas_pan_request=0u;
+                continue;
+            }
         }
         /* Resize and camera control messages happen to have the same size.
          * Identify the type before treating the bytes as resize metadata. */
@@ -459,6 +485,7 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                 struct g5_integer_camera proposed_camera=canvas_camera;
                 if (pan.header.version != AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
                     pan.header.request_id<=last_canvas_pan_request ||
+                    pending_canvas_pan_request!=0u ||
                     pan.expected_camera_revision==0u ||
                     pan.expected_scene_revision==0u ||
                     pan.delta_x_px>32 || pan.delta_x_px< -32 ||
@@ -477,6 +504,10 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                                   pan.header.request_id))
                     return 1;
                 last_canvas_pan_request=pan.header.request_id;
+                pending_canvas_pan_request=pan.header.request_id;
+                pending_canvas_camera_revision=pan.expected_camera_revision;
+                pending_canvas_scene_revision=pan.expected_scene_revision;
+                pending_canvas_camera=proposed_camera;
                 continue;
             }
         }
