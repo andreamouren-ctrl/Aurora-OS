@@ -50,7 +50,11 @@ jobs:
             services/canvas/src/g5_canvas_integer_camera.c \
             -o /tmp/g5-icam-freestanding.o
           echo "Undefined symbols (must be resolved before Ring 3 linking):"
-          nm -u /tmp/g5-icam-freestanding.o || true
+          nm -u /tmp/g5-icam-freestanding.o
+          if nm -u /tmp/g5-icam-freestanding.o | grep -E '__((u?div|u?mod|multi|mul)[a-z0-9]*ti3|[a-z0-9]*tf[0-9]*)'; then
+            echo "BLOCKER: unsupported compiler runtime helper in Ring 3 camera"
+            exit 1
+          fi
           if objdump -d /tmp/g5-icam-freestanding.o | \
              grep -E '\\b(xmm[0-9]+|ymm[0-9]+|zmm[0-9]+)\\b'; then
             echo "Unexpected SIMD register use in freestanding camera"
