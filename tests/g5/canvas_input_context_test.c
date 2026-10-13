@@ -178,6 +178,28 @@ int main(void) {
                                    -1,310,0,0,102400u,51200u));
     assert(!g5_icam_hit_world_rect(&projection,projection.revision,
                                    410,310,0,0,0u,51200u));
+    /* Two windows are projected against one revision. Failed validation
+     * cannot leave a half-updated compositor layout. */
+    const struct g5_icam_world_rect first_world={0,0,102400u,51200u};
+    const struct g5_icam_world_rect second_world={204800,102400,51200u,51200u};
+    struct g5_icam_screen_rect first_screen={-77,-77,-77,-77};
+    struct g5_icam_screen_rect second_screen={-88,-88,-88,-88};
+    assert(g5_icam_project_pair(&projection,projection.revision,
+        &first_world,&second_world,&first_screen,&second_screen));
+    assert(first_screen.x_px==400 && first_screen.width_px==125);
+    assert(second_screen.x_px>first_screen.x_px);
+    const struct g5_icam_world_rect bad_world={
+        INT64_MAX,0,102400u,51200u};
+    const struct g5_icam_screen_rect previous_first=first_screen;
+    const struct g5_icam_screen_rect previous_second=second_screen;
+    assert(!g5_icam_project_pair(&projection,projection.revision,
+        &first_world,&bad_world,&first_screen,&second_screen));
+    assert(first_screen.x_px==previous_first.x_px &&
+           second_screen.x_px==previous_second.x_px);
+    assert(!g5_icam_project_pair(&projection,projection.revision-1u,
+        &first_world,&second_world,&first_screen,&second_screen));
+    assert(!g5_icam_project_pair(&projection,projection.revision,
+        &first_world,&second_world,&first_screen,&first_screen));
     puts("G5 contextual input resolver and staged zoom: PASS");
     return 0;
 }
