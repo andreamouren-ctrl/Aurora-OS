@@ -525,6 +525,25 @@ bool g5_icam_encode_batch(
  * G5 envelope, never from untrusted surface IDs in the payload. */
 /* No callback means no authority. Check all surfaces before the caller
  * may stage a transaction; partial authorization is never success. */
+bool g5_icam_receive_authorized_batch(
+    const uint8_t *wire,uint32_t wire_length,
+    uint64_t authenticated_session_generation,
+    uint64_t authenticated_request_id,
+    g5_icam_surface_authorize_fn authorize,void *context,
+    struct g5_icam_scene_submission *out) {
+    if (!wire || !out || !authorize) return false;
+    struct g5_icam_scene_submission staged;
+    if (!g5_icam_decode_batch(wire,wire_length,
+                              authenticated_session_generation,
+                              authenticated_request_id,&staged) ||
+        !g5_icam_authorize_decoded_batch(
+            &staged,authenticated_session_generation,
+            authenticated_request_id,authorize,context))
+        return false;
+    g5_batch_copy(out,&staged,sizeof(staged));
+    return true;
+}
+
 bool g5_icam_authorize_decoded_batch(
     const struct g5_icam_scene_submission *batch,
     uint64_t authenticated_session_generation,
