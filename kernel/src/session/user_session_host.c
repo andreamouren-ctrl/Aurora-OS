@@ -1121,10 +1121,13 @@ static bool g5_wp05_route_background_scroll(
         .canvas_navigation=1u,
         .pointer_over_window=0u
     };
-    const enum g5_canvas_input_action action=
-        g5_canvas_resolve_wheel(&input_context,event->scroll_y);
-    if (g5_canvas_zoom_factor(action)==0u)
+    uint32_t zoom_factor_q16=0u;
+    if (!g5_canvas_wheel_zoom_request(
+            &input_context,event->scroll_y,&zoom_factor_q16))
         return true;
+    /* The factor is normalized and bounded, but it must not be applied
+     * until the compositor supports authoritative world-space zoom. */
+    (void)zoom_factor_q16;
     host.last_camera_scroll_sequence=event->sequence;
     return true;
 }
