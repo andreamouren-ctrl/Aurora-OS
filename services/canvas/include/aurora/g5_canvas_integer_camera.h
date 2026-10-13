@@ -134,6 +134,18 @@ bool g5_icam_hit_presented_submission(
     uint64_t live_scene_revision,uint64_t presented_display_serial,
     int32_t pointer_x_px,int32_t pointer_y_px,uint64_t *out_surface_id);
 
+/* Commit a staged camera only after the compositor presents the exact
+ * submitted frame. The live camera and serial remain unchanged on any
+ * failed acknowledgement. This is a pure Ring 3 state transition, not
+ * an IPC authentication substitute. */
+bool g5_icam_commit_presented_camera(
+    struct g5_integer_camera *live_camera,
+    uint64_t *last_display_serial,
+    const struct g5_icam_scene_submission *submitted,
+    uint64_t session_generation,uint64_t scene_revision,
+    uint64_t request_id,uint64_t camera_revision,
+    uint64_t display_serial);
+
 /* Shell-owned camera state must be synchronized as a complete snapshot.
  * A revision alone does not prove center, zoom or viewport equivalence.
  * expected_revision fences out-of-order acknowledgements. The caller
