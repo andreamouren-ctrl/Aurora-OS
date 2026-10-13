@@ -88,6 +88,40 @@ int main(void) {
     assert(g5_ipc_validate_caps(&received,&needed,1,NULL,NULL)==G5_IPC_DENIED);
     received.capability_count=0;
     assert(g5_ipc_validate_caps(&received,NULL,0,NULL,NULL)==G5_IPC_OK);
+    /* New canvas batch has its own strict envelope schema, distinct
+     * from legacy 24-byte PAN and 16-byte SCENE_PUBLISH. */
+    h=valid_header(104u);
+    h.operation=G5_OP_CANVAS_SCENE_BATCH;
+    assert(g5_ipc_opcode_known(h.operation));
+    assert(g5_ipc_opcode_required_rights(h.operation)==
+           (AURORA_RIGHT_CONTROL|AURORA_RIGHT_WRITE));
+    assert(g5_ipc_validate_schema(&h,0)==G5_IPC_OK);
+    assert(g5_ipc_validate_schema(&h,1)==G5_IPC_BAD_CAPABILITIES);
+    h.payload_bytes=152u;
+    assert(g5_ipc_validate_schema(&h,0)==G5_IPC_OK);
+    h.payload_bytes=200u;
+    assert(g5_ipc_validate_schema(&h,0)==G5_IPC_OK);
+    h.payload_bytes=201u;
+    assert(g5_ipc_validate_schema(&h,0)==G5_IPC_BAD_FORMAT);
+    h.payload_bytes=56u;
+    assert(g5_ipc_validate_schema(&h,0)==G5_IPC_BAD_FORMAT);
+    h.payload_bytes=208u;
+    assert(g5_ipc_validate_schema(&h,0)==G5_IPC_BAD_FORMAT);
+    h.payload_bytes=104u;
+    h.kind=G5_IPC_EVENT;
+    assert(g5_ipc_validate_schema(&h,0)==G5_IPC_BAD_FORMAT);
+    h.kind=G5_IPC_REQUEST;
+    uint8_t batch[200]={0};
+    batch[0]='G';batch[1]='5';batch[2]='S';batch[3]='B';
+    batch[4]=1u;batch[6]=1u;
+    batch[8]=1u;batch[16]=1u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    batch[6]=2u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[6]=1u;batch[36]=1u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[36]=0u;h.object_generation=0u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
     puts("G5 IPC v1 codec contract tests: PASS");
     return 0;
 }
