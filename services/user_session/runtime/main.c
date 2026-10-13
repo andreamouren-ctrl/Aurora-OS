@@ -471,10 +471,16 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                     if (committed.camera_revision!=pending_canvas_camera_revision+1u)
                         return 1;
                     canvas_camera=pending_canvas_camera;
-                } else if (committed.camera_revision!=pending_canvas_camera_revision) {
-                    /* An unexpected revision requires a full authoritative
-                     * resynchronization, not a speculative local update. */
-                    return 1;
+                } else {
+                    /* A rejected stale request reports the authoritative
+                     * kernel revision, not the stale revision supplied by
+                     * the requester. Keep the committed center/zoom and
+                     * resynchronize only the revision. Never apply the
+                     * speculative pan on rejection. */
+                    if (committed.camera_revision<canvas_camera.revision ||
+                        committed.camera_revision==UINT64_MAX)
+                        return 1;
+                    canvas_camera.revision=committed.camera_revision;
                 }
                 pending_canvas_pan_request=0u;
                 continue;
