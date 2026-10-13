@@ -92,6 +92,16 @@ bool g5_icam_project_scene(
     const struct g5_icam_scene_item *items,uint32_t count,
     struct g5_icam_projected_item *out);
 
+/* Hit-test the same projected scene snapshot used for presentation.
+ * Items are ordered back-to-front (last is topmost). Returns a surface
+ * identifier, or zero for background. The revision fence prevents using
+ * a stale rendered scene after the camera has moved. */
+bool g5_icam_hit_projected_scene(
+    const struct g5_integer_camera *camera,uint64_t expected_revision,
+    const struct g5_icam_projected_item *items,uint32_t count,
+    int32_t pointer_x_px,int32_t pointer_y_px,
+    uint64_t *out_surface_id);
+
 /* Shell-owned camera state must be synchronized as a complete snapshot.
  * A revision alone does not prove center, zoom or viewport equivalence.
  * expected_revision fences out-of-order acknowledgements. The caller
