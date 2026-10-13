@@ -291,3 +291,45 @@ bool g5_icam_hit_projected_scene(
     *out_surface_id=hit;
     return true;
 }
+
+/* Prepare a whole compositor frame without publishing partial results.
+ * All world positions remain untouched, including fully culled surfaces. */
+bool g5_icam_prepare_submission(
+    const struct g5_integer_camera *camera,uint64_t expected_camera_revision,
+    uint64_t session_generation,uint64_t scene_revision,uint64_t request_id,
+    const struct g5_icam_scene_item *items,uint32_t count,
+    struct g5_icam_scene_submission *out) {
+    if (!out || !camera || !session_generation || !scene_revision ||
+        !request_id || !count || count>G5_ICAM_SCENE_MAX_RECTS ||
+        !valid(camera) || camera->revision!=expected_camera_revision)
+        return false;
+    struct g5_icam_scene_submission candidate={0};
+    if (!g5_icam_project_scene(camera,expected_camera_revision,
+                                items,count,candidate.items))
+        return false;
+    candidate.session_generation=session_generation;
+    candidate.scene_revision=scene_revision;
+    candidate.request_id=request_id;
+    candidate.camera=*camera;
+    candidate.count=count;
+    *out=candidate;
+    return true;
+}
+
+/* A forwarded ACK is not a presented frame. Reject stale and replayed
+ * compositor completions before the Shell publishes camera state. */
+bool g5_icam_match_presented(
+    const struct g5_icam_scene_submission *submitted,
+    uint64_t session_generation,uint64_t scene_revision,
+    uint64_t request_id,uint64_t camera_revision,uint64_t display_serial,
+    uint64_t previous_display_serial) {
+    return submitted && submitted->count>0 &&
+        submitted->count<=G5_ICAM_SCENE_MAX_RECTS &&
+        session_generation!=0 && scene_revision!=0 && request_id!=0 &&
+        submitted->session_generation==session_generation &&
+        submitted->scene_revision==scene_revision &&
+        submitted->request_id==request_id &&
+        valid(&submitted->camera) &&
+        submitted->camera.revision==camera_revision &&
+        display_serial!=0 && display_serial>previous_display_serial;
+}
