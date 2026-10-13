@@ -131,6 +131,17 @@ int main(void) {
     batch[64]=0u;batch[65]=0u;batch[66]=0u;batch[67]=0u;
     batch[88]=20u;batch[96]=0u;
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    /* Fully offscreen elements must carry a zero crop; they remain
+     * in the scene graph without producing a visible compositor region. */
+    batch[64]=200u;batch[65]=0u;batch[66]=0u;batch[67]=0u;
+    batch[88]=0u;batch[92]=0u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    batch[88]=1u;batch[92]=1u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[88]=0u;batch[92]=0u;
+    batch[64]=0u;batch[65]=0u;batch[66]=0u;batch[67]=0u;
+    batch[88]=20u;batch[92]=20u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
     batch[56]=0u;
     assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
     batch[56]=7u;batch[72]=0u;
