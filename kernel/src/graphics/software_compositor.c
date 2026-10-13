@@ -1109,6 +1109,19 @@ bool software_compositor_set_node(
         return false;
     }
 
+    /* A destination-space clip must remain inside the node after movement.
+     * Reject invalid moves before changing scene state or damage. */
+    if (node->clip.enabled) {
+        int64_t cx=node->clip.x,cy=node->clip.y;
+        int64_t cr=cx+node->clip.width,cb=cy+node->clip.height;
+        if (cx<(int64_t)x || cy<(int64_t)y ||
+            cr>(int64_t)x+(int64_t)old_width ||
+            cb>(int64_t)y+(int64_t)old_height) {
+            graphics_surface_snapshot_release(&snapshot);
+            return false;
+        }
+    }
+
     (void)damage_union(
         &compositor->pending_damage,
         node->x,
