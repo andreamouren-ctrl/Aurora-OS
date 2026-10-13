@@ -5,12 +5,14 @@ on:
       - 'services/canvas/include/aurora/g5_canvas_integer_camera.h'
       - 'services/canvas/src/g5_canvas_integer_camera.c'
       - 'tests/g5/canvas_integer_camera_test.c'
+      - 'tests/g5/canvas_integer_camera_differential_test.c'
       - '.github/workflows/g5-wp05-integer-camera.yml'
   pull_request:
     paths:
       - 'services/canvas/include/aurora/g5_canvas_integer_camera.h'
       - 'services/canvas/src/g5_canvas_integer_camera.c'
       - 'tests/g5/canvas_integer_camera_test.c'
+      - 'tests/g5/canvas_integer_camera_differential_test.c'
       - '.github/workflows/g5-wp05-integer-camera.yml'
   workflow_dispatch:
 jobs:
@@ -29,4 +31,12 @@ jobs:
               services/canvas/src/g5_canvas_integer_camera.c \
               tests/g5/canvas_integer_camera_test.c -o "/tmp/g5-icam-$cc"
             "/tmp/g5-icam-$cc"
+            "$cc" -std=c11 -Wall -Wextra -Werror -pedantic -O1 -g \
+              -fsanitize=undefined -fno-sanitize-recover=all \
+              -Iservices/canvas/include \
+              services/canvas/src/g5_canvas_integer_camera.c \
+              services/canvas/src/g5_canvas_camera.c \
+              tests/g5/canvas_integer_camera_differential_test.c \
+              -lm -o "/tmp/g5-icam-diff-$cc"
+            "/tmp/g5-icam-diff-$cc"
           done
