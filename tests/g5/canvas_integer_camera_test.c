@@ -272,6 +272,13 @@ int main(void) {
     assert(!g5_icam_decode_batch(packet,packet_size,7u,12u,&decoded));
     assert(decoded.count==2u && decoded.request_id==12u);
     for(unsigned k=0;k<4u;++k)packet[item0+40u+k]=original_crop[k];
+    /* A forged clip position cannot be detached from its source crop. */
+    assert(g5_icam_encode_batch(&next_frame,packet,sizeof(packet),&packet_size));
+    const uint32_t clip_x_offset=item0+24u;
+    packet[clip_x_offset]^=1u;
+    assert(!g5_icam_decode_batch(packet,packet_size,7u,12u,&decoded));
+    assert(decoded.count==2u && decoded.request_id==12u);
+    packet[clip_x_offset]^=1u;
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
