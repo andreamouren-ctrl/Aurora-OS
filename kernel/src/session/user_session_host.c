@@ -1921,13 +1921,28 @@ bool user_session_host_self_test(void) {
     bool wp05_input_verified=wp05_verified && g5_wp05_background_scroll_probe();
     /* Exercise the post-bootstrap Ring3 control loop and its kernel G5
      * dispatch, rather than just proving startup SHELL_READY/HEALTH. */
-    bool live_health=running && replay_denied &&
+    const bool live_preconditions=running && replay_denied &&
         wrong_generation_denied && foreign_object_denied &&
-        close_opcode_denied && wp05_verified && wp05_input_verified &&
-        user_session_host_health_check() &&
-        g5_session_health_events==2u &&
-        user_session_host_health_check() &&
-        g5_session_health_events==3u;
+        close_opcode_denied && wp05_verified && wp05_input_verified;
+    const bool first_live_poll=live_preconditions &&
+        user_session_host_health_check();
+    const uint64_t first_live_health_count=g5_session_health_events;
+    const bool second_live_poll=first_live_poll &&
+        first_live_health_count==2u &&
+        user_session_host_health_check();
+    const uint64_t second_live_health_count=g5_session_health_events;
+    bool live_health=live_preconditions && first_live_poll &&
+        first_live_health_count==2u && second_live_poll &&
+        second_live_health_count==3u;
+    if (!live_health) {
+        log_write("[g5-wp03-health-diagnostic] pre/first/count/second/count: ");
+        log_u64(live_preconditions);log_write("/");
+        log_u64(first_live_poll);log_write("/");
+        log_u64(first_live_health_count);log_write("/");
+        log_u64(second_live_poll);log_write("/");
+        log_u64(second_live_health_count);
+        log_line("");
+    }
     /* End-of-phase WP-04 native acceptance: the second *process* must
      * ACK two real configures and commit/present both replacement buffers. */
     uint64_t original_primary_serial=host.scene.last_display_serial;
