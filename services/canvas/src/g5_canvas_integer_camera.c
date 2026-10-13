@@ -333,3 +333,28 @@ bool g5_icam_match_presented(
         submitted->camera.revision==camera_revision &&
         display_serial!=0 && display_serial>previous_display_serial;
 }
+
+/* Do not resolve focus against an unpresented or superseded scene.
+ * This is a Ring 3 helper: trusted IPC must establish the display serial
+ * and authenticated compositor identity before calling it. */
+bool g5_icam_hit_presented_submission(
+    const struct g5_icam_scene_submission *submitted,
+    const struct g5_integer_camera *live_camera,
+    uint64_t live_scene_revision,uint64_t presented_display_serial,
+    int32_t pointer_x_px,int32_t pointer_y_px,uint64_t *out_surface_id) {
+    if (!submitted || !valid(live_camera) ||
+        !submitted->session_generation || !submitted->request_id ||
+        !live_scene_revision || !presented_display_serial ||
+        submitted->scene_revision!=live_scene_revision ||
+        submitted->camera.revision!=live_camera->revision ||
+        submitted->camera.center_x_ticks!=live_camera->center_x_ticks ||
+        submitted->camera.center_y_ticks!=live_camera->center_y_ticks ||
+        submitted->camera.zoom_q16!=live_camera->zoom_q16 ||
+        submitted->camera.width_px!=live_camera->width_px ||
+        submitted->camera.height_px!=live_camera->height_px)
+        return false;
+    return g5_icam_hit_projected_scene(
+        &submitted->camera,live_camera->revision,
+        submitted->items,submitted->count,
+        pointer_x_px,pointer_y_px,out_surface_id);
+}
