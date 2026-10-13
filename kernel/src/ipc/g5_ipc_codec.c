@@ -238,7 +238,16 @@ enum g5_ipc_status g5_ipc_validate_semantics(
    const uint8_t *item=p+G5_CANVAS_SCENE_BATCH_HEADER_BYTES+
                        i*G5_CANVAS_SCENE_BATCH_ITEM_BYTES;
    uint64_t surface=get64(item);
-   if(surface==0u || get32(item+16)==0u || get32(item+20)==0u)
+   uint32_t width=get32(item+16),height=get32(item+20);
+   uint32_t clip_width=get32(item+32),clip_height=get32(item+36);
+   uint32_t source_x=get32(item+40),source_y=get32(item+44);
+   if(surface==0u || width==0u || height==0u ||
+      width>0x7fffffffu || height>0x7fffffffu ||
+      clip_width>0x7fffffffu || clip_height>0x7fffffffu ||
+      source_x>0x7fffffffu || source_y>0x7fffffffu ||
+      (clip_width==0u)!=(clip_height==0u) ||
+      (uint64_t)source_x+clip_width>width ||
+      (uint64_t)source_y+clip_height>height)
     return G5_IPC_BAD_FORMAT;
    for(uint32_t j=0u;j<i;++j)
     if(surface==get64(p+G5_CANVAS_SCENE_BATCH_HEADER_BYTES+
