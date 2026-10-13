@@ -86,6 +86,22 @@ int main(void) {
                    c.zoom_q16==saved.zoom_q16);
         }
     }
+    /* Ring 3 forwarding is not a kernel commit: a staged pan must never
+     * advance the local authoritative camera until confirmed state arrives. */
+    assert(g5_icam_init(&c,0,0,G5_ICAM_ONE,160,96));
+    saved=c;
+    struct g5_integer_camera staged=c;
+    assert(g5_icam_pan(&staged,8,-8));
+    assert(staged.revision==saved.revision+1u);
+    assert(staged.center_x_ticks==-8192 && staged.center_y_ticks==8192);
+    assert(c.revision==saved.revision &&
+           c.center_x_ticks==saved.center_x_ticks &&
+           c.center_y_ticks==saved.center_y_ticks);
+    /* Failed staging must also leave the source unchanged. */
+    staged=c;
+    assert(!g5_icam_pan(&staged,65537,0));
+    assert(staged.revision==c.revision &&
+           staged.center_x_ticks==c.center_x_ticks);
     puts("g5 integer camera host arithmetic gate passed");
     return 0;
 }
