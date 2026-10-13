@@ -160,6 +160,7 @@ bool g5_icam_encode_batch(
     uint8_t *destination,uint32_t capacity,uint32_t *written);
 bool g5_icam_decode_batch(
     const uint8_t *source,uint32_t length,
+    uint64_t authenticated_session_generation,uint64_t authenticated_request_id,
     struct g5_icam_scene_submission *out);
 
 /* Shell-owned camera state must be synchronized as a complete snapshot.
