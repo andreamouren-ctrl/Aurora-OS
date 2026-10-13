@@ -523,6 +523,31 @@ bool g5_icam_encode_batch(
 /* Decoder is side-effect-free until all length, identity and geometry
  * checks pass. Session/request identity comes from the authenticated
  * G5 envelope, never from untrusted surface IDs in the payload. */
+/* No callback means no authority. Check all surfaces before the caller
+ * may stage a transaction; partial authorization is never success. */
+bool g5_icam_authorize_decoded_batch(
+    const struct g5_icam_scene_submission *batch,
+    uint64_t authenticated_session_generation,
+    uint64_t authenticated_request_id,
+    g5_icam_surface_authorize_fn authorize,void *context) {
+    if (!batch || !authorize || !authenticated_session_generation ||
+        !authenticated_request_id ||
+        batch->session_generation!=authenticated_session_generation ||
+        batch->request_id!=authenticated_request_id ||
+        !batch->scene_revision || !valid(&batch->camera) ||
+        !batch->count || batch->count>G5_ICAM_WIRE_BATCH_MAX)
+        return false;
+    uint8_t wire[G5_ICAM_WIRE_BATCH_CAPACITY];
+    uint32_t written=0u;
+    if (!g5_icam_encode_batch(batch,wire,sizeof(wire),&written))
+        return false;
+    for(uint32_t i=0u;i<batch->count;++i)
+        if (!authorize(context,batch->items[i].surface_id,
+                       authenticated_session_generation))
+            return false;
+    return true;
+}
+
 bool g5_icam_decode_batch(
     const uint8_t *source,uint32_t length,
     uint64_t authenticated_session_generation,uint64_t authenticated_request_id,
