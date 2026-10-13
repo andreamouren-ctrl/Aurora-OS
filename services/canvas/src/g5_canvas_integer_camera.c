@@ -21,6 +21,12 @@ bool g5_icam_init(struct g5_integer_camera *c,int64_t x,int64_t y,
     if (!valid(&n)) return false;
     *c=n; return true;
 }
+bool g5_icam_set_viewport(struct g5_integer_camera *c,uint32_t w,uint32_t h) {
+    if (!valid(c) || c->revision==UINT64_MAX ||
+        !w || !h || w>16384 || h>16384) return false;
+    c->width_px=w; c->height_px=h; ++c->revision;
+    return true;
+}
 bool g5_icam_pan(struct g5_integer_camera *c,int32_t dx,int32_t dy) {
     if (!valid(c) || c->revision==UINT64_MAX ||
         dx>65536 || dx< -65536 || dy>65536 || dy< -65536) return false;
