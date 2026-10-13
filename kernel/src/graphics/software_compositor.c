@@ -1210,16 +1210,16 @@ bool software_compositor_set_clip(
     bool ok=transformed_extent(node,snapshot.buffer->width,
                                snapshot.buffer->height,&w,&h);
     graphics_surface_snapshot_release(&snapshot);
-    if (!ok) return false;
-    /* The destination clip must intersect the actual transformed node.
-     * Never accept a clip that merely lies somewhere on the display. */
+    if (!ok || w>(uint64_t)INT64_MAX || h>(uint64_t)INT64_MAX)
+        return false;
+    /* A trusted destination clip is a subset of the transformed node,
+     * never a disjoint or sender-expanded rectangle. */
     if (clip->enabled) {
         int64_t left=node->x,top=node->y;
         int64_t right=left+(int64_t)w,bottom=top+(int64_t)h;
         int64_t cx=(int64_t)clip->x,cy=(int64_t)clip->y;
         int64_t cr=cx+clip->width,cb=cy+clip->height;
-        if (w>(uint64_t)INT64_MAX || h>(uint64_t)INT64_MAX ||
-            right<=cx || bottom<=cy || cr<=left || cb<=top)
+        if (cx<left || cy<top || cr>right || cb>bottom)
             return false;
     }
     (void)damage_union(&compositor->pending_damage,node->x,node->y,
