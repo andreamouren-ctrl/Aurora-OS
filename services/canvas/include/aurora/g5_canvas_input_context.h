@@ -111,4 +111,18 @@ static inline enum g5_canvas_input_action g5_canvas_resolve_right_release(
         ctx->app_control_active) return G5_CANVAS_INPUT_APP;
     return G5_CANVAS_INPUT_SWITCH_COMMIT;
 }
+/* A wheel notch is a single logical zoom operation. USB HID devices
+ * may report larger signed deltas; never multiply an untrusted delta
+ * into a zoom factor or advance multiple revisions per input event. */
+static inline bool g5_canvas_wheel_zoom_request(
+    const struct g5_canvas_input_context *ctx,int32_t wheel_y,
+    uint32_t *factor_q16) {
+    if (!factor_q16) return false;
+    const enum g5_canvas_input_action action=
+        g5_canvas_resolve_wheel(ctx,wheel_y);
+    const uint32_t factor=g5_canvas_zoom_factor(action);
+    if (!factor) return false;
+    *factor_q16=factor;
+    return true;
+}
 #endif
