@@ -85,6 +85,18 @@ bool g5_canvas_session_camera_commit(
     return true;
 }
 
+bool g5_canvas_session_camera_pointer_to_world(
+    const struct g5_canvas_session_camera *state,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    int32_t pixel_x,int32_t pixel_y,struct g5_world_point *world) {
+    if (!world || !authorized(state,session,scene,camera) ||
+        pixel_x<0 || pixel_y<0 ||
+        (uint32_t)pixel_x>=state->camera.width_px ||
+        (uint32_t)pixel_y>=state->camera.height_px)
+        return false;
+    return g5_camera_screen_to_world(&state->camera,camera,
+                                      pixel_x,pixel_y,world);
+}
 bool g5_canvas_session_camera_project_nodes(
     const struct g5_canvas_session_camera *state,
     uint64_t session,uint64_t scene,uint64_t camera,
