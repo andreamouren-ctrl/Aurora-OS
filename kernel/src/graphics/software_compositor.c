@@ -1342,7 +1342,6 @@ bool software_compositor_present_nodes_atomic(
         !out_present_serial) return false;
     struct aurora_compositor_node saved[AURORA_COMPOSITOR_MAX_NODES];
     uint32_t saved_indices[AURORA_COMPOSITOR_MAX_NODES];
-    struct aurora_compositor_damage old_damage=compositor->pending_damage;
     for (uint32_t i=0u;i<count;++i) {
         struct aurora_compositor_node *node=
             find_node(compositor,placements[i].node_id);
@@ -1369,7 +1368,6 @@ bool software_compositor_present_nodes_atomic(
         for (uint32_t i=0u;i<count;++i) {
             compositor->nodes[saved_indices[i]]=saved[i];
         }
-        compositor->pending_damage=old_damage;
         /* A failed frame may have left the staging buffer dirty; repaint
          * everything on the next attempt, never acknowledge this batch. */
         const struct aurora_display_mode *mode=
