@@ -1338,10 +1338,11 @@ bool software_compositor_present_nodes_atomic(
 ) {
     if (out_present_serial) *out_present_serial=0u;
     if (!compositor || !compositor->initialized || !placements ||
-        !count || count>AURORA_COMPOSITOR_MAX_NODES ||
+        !count || count>3u ||
         !out_present_serial) return false;
-    struct aurora_compositor_node saved[AURORA_COMPOSITOR_MAX_NODES];
-    uint32_t saved_indices[AURORA_COMPOSITOR_MAX_NODES];
+    /* Bounded by the three-item G5 scene batch; avoid large kernel stacks. */
+    struct aurora_compositor_node saved[3u];
+    uint32_t saved_indices[3u];
     for (uint32_t i=0u;i<count;++i) {
         struct aurora_compositor_node *node=
             find_node(compositor,placements[i].node_id);
