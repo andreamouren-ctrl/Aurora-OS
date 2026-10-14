@@ -9,6 +9,8 @@ struct g5_compositor_bridge {
  struct g5_frame_delivery *delivery;
  struct aurora_software_compositor *compositor;
  uint64_t generation;
+ /* Last confirmed physical display serial in this bridge generation. */
+ uint64_t last_display_serial;
  uint64_t node_ids[G5_SURFACE_REGISTRY_CAPACITY];
  uint64_t attached_object_ids[G5_SURFACE_REGISTRY_CAPACITY];
  uint32_t attached_object_generations[G5_SURFACE_REGISTRY_CAPACITY];
