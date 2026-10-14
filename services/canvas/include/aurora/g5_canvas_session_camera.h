@@ -8,6 +8,9 @@ struct g5_canvas_session_camera {
     uint64_t session_generation;
     uint64_t scene_revision;
 };
+/* Ring3 session teardown: revoke the adapter before freeing owned surfaces.
+ * A zeroed adapter rejects all subsequent stale camera operations. */
+void g5_canvas_session_camera_revoke(struct g5_canvas_session_camera *state);
 bool g5_canvas_session_camera_init(struct g5_canvas_session_camera *state,
     uint64_t session_generation,uint64_t scene_revision,
     struct g5_world_point origin,uint32_t width,uint32_t height);
