@@ -1687,7 +1687,7 @@ bool software_compositor_hit_test(
     return true;
 }
 
-bool software_compositor_compose_present(
+static bool software_compositor_compose_present_staged(
     struct aurora_software_compositor *compositor,
     uint64_t *out_present_serial
 ) {
