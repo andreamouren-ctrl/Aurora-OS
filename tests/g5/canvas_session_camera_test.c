@@ -296,6 +296,24 @@ int main(void) {
     assert(!g5_canvas_session_camera_locked_pan(&locked,70,3,2,
         2,0,acquire_serial,release_serial,publish_serial,&serial));
     assert(serial.presents==2 && serial.unlocks==2);
-    puts("[g5-wp05] Ring3 serialized camera pan passed");
+    /* Zoom and resize share the same serialization discipline. */
+    serial.accept=true;
+    assert(g5_canvas_session_camera_locked_zoom(&locked,70,3,2,
+        2.0,400,300,acquire_serial,release_serial,publish_serial,&serial));
+    assert(locked.camera.revision==3 && locked.camera.zoom==2.0);
+    assert(g5_canvas_session_camera_locked_viewport(&locked,70,3,3,
+        1024,768,acquire_serial,release_serial,publish_serial,&serial));
+    assert(locked.camera.revision==4 && locked.camera.width_px==1024);
+    serial.accept=false;
+    assert(!g5_canvas_session_camera_locked_zoom(&locked,70,3,4,
+        2.0,512,384,acquire_serial,release_serial,publish_serial,&serial));
+    assert(locked.camera.revision==4 && locked.camera.zoom==2.0);
+    assert(!g5_canvas_session_camera_locked_viewport(&locked,70,3,4,
+        1200,900,acquire_serial,release_serial,publish_serial,&serial));
+    assert(locked.camera.width_px==1024);
+    assert(serial.locks==serial.unlocks+1); /* held by prior contention test */
+    serial.locked=false;
+    assert(serial.locks==serial.unlocks+1);
+    puts("[g5-wp05] Ring3 serialized pan zoom viewport passed");
     return 0;
 }
