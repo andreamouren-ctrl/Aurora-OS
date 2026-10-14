@@ -77,6 +77,18 @@ bool g5_canvas_session_camera_project_nodes(
     uint64_t session,uint64_t scene,uint64_t camera,
     const struct g5_world_point *points,size_t count,
     int32_t *out_x,int32_t *out_y,size_t capacity);
+/* Serialized transaction hook: caller acquires an exclusive session/scene
+ * lock before invocation and holds it through presentation and commit.
+ * Lock failure must leave both camera and compositor unchanged. */
+typedef bool (*g5_canvas_session_lock_fn)(void *context);
+typedef void (*g5_canvas_session_unlock_fn)(void *context);
+bool g5_canvas_session_camera_locked_pan(
+    struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    double dx,double dy,
+    g5_canvas_session_lock_fn lock,g5_canvas_session_unlock_fn unlock,
+    bool (*present)(void *,const struct g5_canvas_session_camera *),
+    void *context);
 /* Synchronous trusted presenter: true only after atomic presentation.
  * Not an IPC endpoint; caller must serialize scene and session teardown. */
 typedef bool (*g5_canvas_session_present_fn)(
