@@ -47,6 +47,22 @@ int main(void) {
     assert(!g5_canvas_pan_present_commit(&live,&owner,&request,
                                          NULL,&calls));
     assert(calls==2);
+    /* The authoritative owner must be refreshed after each committed scene. */
+    struct g5_canvas_pan_owner next_owner=owner;
+    struct g5_canvas_pan_request next_request=request;
+    next_owner.scene_revision=56;
+    next_request.expected_scene_revision=56;
+    next_request.expected_camera_revision=2;
+    next_request.dx_pixels=-8;
+    next_request.dy_pixels=8;
+    assert(g5_canvas_pan_present_commit(&live,&next_owner,&next_request,
+                                        present_ok,&calls));
+    assert(calls==3 && live.camera.revision==3 && live.scene_revision==57);
+    assert(live.camera.x_ticks==0 && live.camera.y_ticks==0);
+    /* Replaying an already committed message cannot present again. */
+    assert(!g5_canvas_pan_present_commit(&live,&next_owner,&next_request,
+                                         present_ok,&calls));
+    assert(calls==3);
     puts("[g5-wp05] pan transaction staging and commit checks passed");
     return 0;
 }
