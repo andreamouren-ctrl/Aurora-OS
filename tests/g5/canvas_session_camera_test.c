@@ -296,6 +296,9 @@ int main(void) {
     assert(!g5_canvas_session_camera_locked_pan(&locked,70,3,2,
         2,0,acquire_serial,release_serial,publish_serial,&serial));
     assert(serial.presents==2 && serial.unlocks==2);
+    /* The contention test deliberately held the mock lock; release it
+     * before testing the next independent transaction. */
+    serial.locked=false;
     /* Zoom and resize share the same serialization discipline. */
     serial.accept=true;
     assert(g5_canvas_session_camera_locked_zoom(&locked,70,3,2,
