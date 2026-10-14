@@ -61,7 +61,12 @@ bool g5_compositor_bridge_present(struct g5_compositor_bridge *b,uint32_t slot,
   *display_serial=0;
   return false;
  }
+ if(!*display_serial) {
+  (void)g5_frame_delivery_abort(b->delivery,b->generation,receipt);
+  return false;
+ }
  if(!g5_frame_delivery_ack(b->delivery,b->generation,receipt)) {
+  /* Display already changed: do not claim an atomic rollback. */
   *display_serial=0;
   return false;
  }
