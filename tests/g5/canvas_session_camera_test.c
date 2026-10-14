@@ -168,6 +168,12 @@ int main(void) {
     assert(!g5_canvas_session_camera_project_nodes(&nodes,51,1,2,
         anchors,65,px,py,65));
     assert(px[0]==-1 && py[0]==-1);
+    /* Aliased output ranges must not corrupt each other on publication. */
+    int32_t overlapping[3]={-7,-8,-9};
+    assert(!g5_canvas_session_camera_project_nodes(&nodes,51,1,2,
+        anchors,2,overlapping,overlapping+1,2));
+    assert(overlapping[0]==-7 && overlapping[1]==-8 &&
+           overlapping[2]==-9);
     /* Pointer coordinates are camera-local and cannot use stale revisions. */
     struct g5_world_point hit={-1,-1};
     assert(g5_canvas_session_camera_pointer_to_world(&nodes,51,1,2,
