@@ -49,6 +49,16 @@ bool g5_canvas_session_camera_commit(
     const struct g5_canvas_session_camera *staged,
     uint64_t expected_session,uint64_t expected_scene,
     uint64_t expected_camera);
+/* Stage a scene topology revision for an external atomic compositor commit.
+ * Staging does not publish the new scene revision. */
+bool g5_canvas_session_camera_stage_scene(
+    const struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    struct g5_canvas_session_camera *staged);
+bool g5_canvas_session_camera_commit_scene(
+    struct g5_canvas_session_camera *current,
+    const struct g5_canvas_session_camera *staged,
+    uint64_t session,uint64_t scene,uint64_t camera);
 /* Serialized scene topology transition. Never changes the camera revision;
  * callers must coordinate the corresponding compositor scene transaction. */
 bool g5_canvas_session_camera_advance_scene(
