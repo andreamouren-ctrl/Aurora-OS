@@ -40,6 +40,18 @@ bool software_compositor_compose_present(struct aurora_software_compositor *c,ui
  *out=presents;
  return true;
 }
+bool software_compositor_present_nodes_atomic(
+ struct aurora_software_compositor *c,
+ const struct aurora_compositor_placement *placements,
+ uint32_t count,uint64_t *out
+) {
+ if(!c||!placements||!count||!out||fail_compose)return false;
+ for(uint32_t i=0;i<count;++i)
+  if(placements[i].node_id!=500)return false;
+ ++presents;
+ *out=presents;
+ return true;
+}
 int main(void) {
  struct g5_frame_submission f={0};
  struct g5_frame_delivery d={0};
