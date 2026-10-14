@@ -1,0 +1,21 @@
+name: G5 WP-05 Integer Differential
+on:
+  pull_request:
+    paths:
+      - 'services/canvas/include/aurora/g5_canvas_integer_pan.h'
+      - 'services/canvas/src/g5_canvas_camera.c'
+      - 'tests/g5/canvas_integer_pan_differential_test.c'
+      - '.github/workflows/g5-wp05-integer-differential.yml'
+  workflow_dispatch:
+jobs:
+  differential:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare integer and reference camera
+        run: |
+          ${{ matrix.compiler }} -std=c11 -Wall -Wextra -Werror -pedantic -O1 -g -fsanitize=undefined -fno-sanitize-recover=all -Iservices/canvas/include tests/g5/canvas_integer_pan_differential_test.c services/canvas/src/g5_canvas_camera.c -lm -o /tmp/g5-integer-differential
+          /tmp/g5-integer-differential
