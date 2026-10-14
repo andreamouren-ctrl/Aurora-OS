@@ -2,6 +2,8 @@
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>
+static bool present_ok(void *ctx) { ++*(unsigned *)ctx; return true; }
+static bool present_fail(void *ctx) { ++*(unsigned *)ctx; return false; }
 int main(void) {
     const struct g5_canvas_pan_owner owner={11,22,33,44,55,true};
     const struct g5_canvas_pan_request request={11,22,33,44,1,55,8,-8};
@@ -27,6 +29,21 @@ int main(void) {
     assert(!g5_canvas_pan_prepare(&current,NULL,&request,&staged));
     assert(!g5_canvas_pan_prepare(&current,&owner,NULL,&staged));
     assert(memcmp(&staged,&snapshot,sizeof staged)==0);
-    puts("[g5-wp05] pan transaction staging checks passed");
+    struct g5_canvas_pan_transaction live=current;
+    unsigned calls=0;
+    assert(!g5_canvas_pan_present_commit(&live,&owner,&request,
+                                         present_fail,&calls));
+    assert(calls==1 && memcmp(&live,&current,sizeof live)==0);
+    assert(g5_canvas_pan_present_commit(&live,&owner,&request,
+                                        present_ok,&calls));
+    assert(calls==2 && live.camera.revision==2 && live.scene_revision==56);
+    assert(live.camera.x_ticks==-8192 && live.camera.y_ticks==8192);
+    assert(!g5_canvas_pan_present_commit(&live,&owner,&request,
+                                         present_ok,&calls));
+    assert(calls==2); /* stale revisions never reach presentation */
+    assert(!g5_canvas_pan_present_commit(&live,&owner,&request,
+                                         NULL,&calls));
+    assert(calls==2);
+    puts("[g5-wp05] pan transaction staging and commit checks passed");
     return 0;
 }
