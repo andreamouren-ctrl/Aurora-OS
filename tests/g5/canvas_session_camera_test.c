@@ -311,9 +311,9 @@ int main(void) {
     assert(!g5_canvas_session_camera_locked_viewport(&locked,70,3,4,
         1200,900,acquire_serial,release_serial,publish_serial,&serial));
     assert(locked.camera.width_px==1024);
-    assert(serial.locks==serial.unlocks+1); /* held by prior contention test */
+    assert(serial.locks==serial.unlocks); /* failed lock did not acquire */
     serial.locked=false;
-    assert(serial.locks==serial.unlocks+1);
+    assert(serial.locks==serial.unlocks);
     puts("[g5-wp05] Ring3 serialized pan zoom viewport passed");
     return 0;
 }
