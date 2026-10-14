@@ -58,6 +58,9 @@ struct g5_shell_scene {
     uint64_t last_display_serial;
     uint64_t last_commit_serial;
     uint64_t camera_revision;
+    /* WP-05 integer-only world origin, 1024 ticks per screen pixel. */
+    int64_t camera_x_ticks;
+    int64_t camera_y_ticks;
     uint64_t canvas_scene_revision;
     uint32_t width;
     uint32_t height;
