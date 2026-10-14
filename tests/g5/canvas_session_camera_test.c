@@ -168,6 +168,23 @@ int main(void) {
     assert(!g5_canvas_session_camera_project_nodes(&nodes,51,1,2,
         anchors,65,px,py,65));
     assert(px[0]==-1 && py[0]==-1);
-    puts("[g5-wp05] Ring3 camera bounded scene projection passed");
+    /* Pointer coordinates are camera-local and cannot use stale revisions. */
+    struct g5_world_point hit={-1,-1};
+    assert(g5_canvas_session_camera_pointer_to_world(&nodes,51,1,2,
+        401,300,&hit));
+    assert(hit.x==0 && hit.y==0);
+    hit=(struct g5_world_point){-1,-1};
+    assert(!g5_canvas_session_camera_pointer_to_world(&nodes,51,1,1,
+        401,300,&hit));
+    assert(!g5_canvas_session_camera_pointer_to_world(&nodes,50,1,2,
+        401,300,&hit));
+    assert(!g5_canvas_session_camera_pointer_to_world(&nodes,51,2,2,
+        401,300,&hit));
+    assert(!g5_canvas_session_camera_pointer_to_world(&nodes,51,1,2,
+        800,300,&hit));
+    assert(!g5_canvas_session_camera_pointer_to_world(&nodes,51,1,2,
+        -1,300,&hit));
+    assert(hit.x==-1 && hit.y==-1);
+    puts("[g5-wp05] Ring3 scene projection and pointer routing passed");
     return 0;
 }
