@@ -1845,6 +1845,7 @@ static bool software_compositor_compose_present_staged(
     }
 
     if (!damage.valid) {
+        /* No display operation occurred: never manufacture a new serial. */
         return true;
     }
 
