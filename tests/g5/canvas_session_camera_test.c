@@ -1,8 +1,14 @@
 #include <aurora/g5_canvas_session_camera.h>
 #include <assert.h>
 #include <stdio.h>
-static bool present_yes(void *p) { ++*(unsigned *)p; return true; }
-static bool present_no(void *p) { ++*(unsigned *)p; return false; }
+static bool present_yes(void *p,const struct g5_canvas_session_camera *next) {
+    assert(next && g5_camera_valid(&next->camera));
+    ++*(unsigned *)p; return true;
+}
+static bool present_no(void *p,const struct g5_canvas_session_camera *next) {
+    assert(next && g5_camera_valid(&next->camera));
+    ++*(unsigned *)p; return false;
+}
 int main(void) {
     struct g5_canvas_session_camera s={0};
     const struct g5_world_point origin={0,0};
