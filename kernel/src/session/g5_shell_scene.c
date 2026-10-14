@@ -581,6 +581,8 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
     scene->x=48;
     scene->y=48;
     scene->camera_revision=1u;
+    scene->camera_x_ticks=0;
+    scene->camera_y_ticks=0;
     scene->canvas_scene_revision=1u;
     scene->active=true;
     return true;
@@ -890,6 +892,17 @@ bool g5_shell_scene_pan(struct g5_shell_scene *scene,
         return false;
     const int64_t dx=raw_x<=32u?(int64_t)raw_x:(int64_t)raw_x-4294967296LL;
     const int64_t dy=raw_y<=32u?(int64_t)raw_y:(int64_t)raw_y-4294967296LL;
+    /* Stage integer world translation before touching policy/compositor.
+     * Positive screen movement shifts the world origin negatively. */
+    const int64_t delta_x=dx*INT64_C(1024);
+    const int64_t delta_y=dy*INT64_C(1024);
+    if ((delta_x>0 && scene->camera_x_ticks<INT64_MIN+delta_x) ||
+        (delta_x<0 && scene->camera_x_ticks>INT64_MAX+delta_x) ||
+        (delta_y>0 && scene->camera_y_ticks<INT64_MIN+delta_y) ||
+        (delta_y<0 && scene->camera_y_ticks>INT64_MAX+delta_y))
+        return false;
+    const int64_t next_camera_x=scene->camera_x_ticks-delta_x;
+    const int64_t next_camera_y=scene->camera_y_ticks-delta_y;
     struct aurora_window_toplevel first={0},second={0};
     if (scene->window_id == scene->extra.window_id ||
         !window_policy_read_toplevel(&scene->window_policy,
@@ -946,6 +959,8 @@ bool g5_shell_scene_pan(struct g5_shell_scene *scene,
     scene->x=(int32_t)x1; scene->y=(int32_t)y1;
     scene->last_display_serial=serial;
     scene->extra.last_display_serial=serial;
+    scene->camera_x_ticks=next_camera_x;
+    scene->camera_y_ticks=next_camera_y;
     ++scene->camera_revision;
     return true;
 rollback:
