@@ -90,7 +90,7 @@ bool g5_canvas_session_camera_present_pan(
         !g5_canvas_session_camera_stage_pan(current,session,scene,camera,
                                              dx,dy,&staged))
         return false;
-    if (!present(context)) return false;
+    if (!present(context,&staged)) return false;
     return g5_canvas_session_camera_commit(current,&staged,
                                             session,scene,camera);
 }
@@ -104,7 +104,7 @@ bool g5_canvas_session_camera_present_zoom(
         !g5_canvas_session_camera_stage_zoom(current,session,scene,camera,
                                               factor,x,y,&staged))
         return false;
-    if (!present(context)) return false;
+    if (!present(context,&staged)) return false;
     return g5_canvas_session_camera_commit(current,&staged,
                                             session,scene,camera);
 }
