@@ -331,6 +331,15 @@ int main(void) {
         acquire_serial,release_serial,publish_serial,&serial));
     assert(serial.presents==before_stale);
     assert(serial.locks==serial.unlocks && !serial.locked);
+    /* Contention cannot invoke the compositor or publish a scene. */
+    serial.locked=true;
+    const unsigned before_scene_contention=serial.presents;
+    assert(!g5_canvas_session_camera_locked_scene(&locked,70,4,4,
+        acquire_serial,release_serial,publish_serial,&serial));
+    assert(serial.presents==before_scene_contention);
+    assert(locked.scene_revision==4);
+    serial.locked=false;
+    assert(serial.locks==serial.unlocks);
     /* A staged revision cannot smuggle in an unapproved device scale. */
     struct g5_canvas_session_camera scale_candidate={0};
     assert(g5_canvas_session_camera_stage_pan(&locked,70,4,4,
