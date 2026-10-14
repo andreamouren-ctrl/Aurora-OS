@@ -208,8 +208,9 @@ bool g5_canvas_session_camera_present_pan(
         !g5_canvas_session_camera_stage_pan(current,session,scene,camera,
                                              dx,dy,&staged))
         return false;
-    /* Reentrant callbacks are not allowed to replace the current session.
-     * Capture the authority snapshot and fail closed if it changes. */
+    /* The caller must serialize this callback with session teardown and
+     * scene changes: a successful external present cannot be rolled back
+     * if another actor changes current before the following commit. */
     if (!present(context,&staged)) return false;
     return g5_canvas_session_camera_commit(current,&staged,
                                             session,scene,camera);
