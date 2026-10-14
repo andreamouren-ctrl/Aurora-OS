@@ -114,9 +114,11 @@ bool g5_compositor_bridge_present_nodes_atomic(
  }
  uint64_t serial=0;
  if(!software_compositor_present_nodes_atomic(
-      b->compositor,nodes,count,&serial)||
-    !serial||serial<=b->last_display_serial)return false;
- b->last_display_serial=serial;
+      b->compositor,nodes,count,&serial))return false;
+ /* Once the display changed, record its serial even if the caller cannot
+  * accept this transaction. A duplicate/nonmonotonic serial is never ACKed. */
+ if(serial>b->last_display_serial)b->last_display_serial=serial;
+ else return false;
  *display_serial=serial;
  return true;
 }
