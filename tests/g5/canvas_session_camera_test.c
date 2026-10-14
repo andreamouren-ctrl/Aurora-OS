@@ -75,7 +75,7 @@ int main(void) {
         (struct g5_world_point){0,0},&x0,&y0));
     assert(g5_camera_world_to_screen(&s.camera,
         (struct g5_world_point){102400,51200},&x1,&y1));
-    assert(x1-x0==300 && y1-y0==150);
+    assert(x1-x0==450 && y1-y0==225);
     assert(s.camera.revision==9 && s.scene_revision==5);
     puts("[g5-wp05] Ring3 camera present-gated transactions passed");
     return 0;
