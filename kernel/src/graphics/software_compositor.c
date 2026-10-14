@@ -1370,7 +1370,8 @@ bool software_compositor_present_nodes_atomic(
             compositor->nodes[saved_indices[i]]=saved[i];
         }
         compositor->pending_damage=old_damage;
-        /* The staging buffer may be dirty: force complete recomposition. */
+        /* A failed frame may have left the staging buffer dirty; repaint
+         * everything on the next attempt, never acknowledge this batch. */
         const struct aurora_display_mode *mode=
             display_mode_at(compositor->output_index,0u);
         if (mode) compositor->pending_damage=
