@@ -127,3 +127,13 @@ present, alongside the existing camera revision increment. The original
 IPC payload and scene revision behavior are unchanged. This is a bounded
 translation foundation, **not** unbounded scrolling or zoom. QEMU and
 bootstrap compilation of this kernel change are required before acceptance.
+
+### Direct kernel-origin regression gate
+
+The production pan path now calls `kernel/include/aurora/g5_camera_origin.h`
+for checked integer coordinate staging. The new
+`tests/g5/camera_origin_kernel_test.c` compiles that exact kernel header
+under GCC and Clang with UBSan, checking inverse movement, overflow,
+bounds, no-op rejection and invalid output pointers. The compositor
+transaction itself still requires full QEMU verification. This helper
+uses distinct output pointers and does not modify them on failure.
