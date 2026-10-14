@@ -27,6 +27,26 @@ int main(void) {
     o.owner_token=0; r.dx_pixels=8;
     assert(!g5_canvas_pan_authorized(&c,&o,&r));
     assert(memcmp(&old,&c,sizeof c)==0);
+    /* A failed request must preserve state even at revision exhaustion. */
+    o.owner_token=44; o.active=true;
+    c.revision=UINT64_MAX;
+    r.expected_camera_revision=UINT64_MAX;
+    r.dx_pixels=0; r.dy_pixels=0;
+    old=c;
+    assert(!g5_canvas_pan_authorized(&c,&o,&r));
+    assert(memcmp(&old,&c,sizeof c)==0);
+    /* Zero or missing identity generations are never accepted. */
+    c.revision=2; r.expected_camera_revision=2;
+    old=c;
+    o.session_generation=0;
+    r.session_generation=0;
+    assert(!g5_canvas_pan_authorized(&c,&o,&r));
+    assert(memcmp(&old,&c,sizeof c)==0);
+    o.session_generation=11; r.session_generation=11;
+    assert(!g5_canvas_pan_authorized(NULL,&o,&r));
+    assert(!g5_canvas_pan_authorized(&c,NULL,&r));
+    assert(!g5_canvas_pan_authorized(&c,&o,NULL));
+    assert(memcmp(&old,&c,sizeof c)==0);
     puts("[g5-wp05] owner-generation pan prototype checks passed");
     return 0;
 }
