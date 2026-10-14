@@ -4,6 +4,7 @@
 #include <stdio.h>
 static bool present_ok(void *ctx) { ++*(unsigned *)ctx; return true; }
 static bool present_fail(void *ctx) { ++*(unsigned *)ctx; return false; }
+static bool present_must_not_run(void *ctx) { ++*(unsigned *)ctx; return true; }
 int main(void) {
     const struct g5_canvas_pan_owner owner={11,22,33,44,55,true};
     const struct g5_canvas_pan_request request={11,22,33,44,1,55,8,-8};
@@ -63,6 +64,20 @@ int main(void) {
     assert(!g5_canvas_pan_present_commit(&live,&next_owner,&next_request,
                                          present_ok,&calls));
     assert(calls==3);
+    /* An independent topology update invalidates the old scene fence. */
+    live.scene_revision=56;
+    unsigned rejected_calls=0;
+    struct g5_canvas_pan_transaction before_reject=live;
+    assert(!g5_canvas_pan_present_commit(&live,&next_owner,&next_request,
+                                         present_must_not_run,&rejected_calls));
+    assert(rejected_calls==0);
+    assert(memcmp(&live,&before_reject,sizeof live)==0);
+    next_owner.scene_revision=56;
+    next_request.expected_scene_revision=56;
+    next_request.expected_camera_revision=3;
+    assert(g5_canvas_pan_present_commit(&live,&next_owner,&next_request,
+                                        present_ok,&calls));
+    assert(calls==4 && live.scene_revision==56 && live.camera.revision==4);
     puts("[g5-wp05] pan transaction staging and commit checks passed");
     return 0;
 }
