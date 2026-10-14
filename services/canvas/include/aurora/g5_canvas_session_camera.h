@@ -37,6 +37,13 @@ bool g5_canvas_session_camera_commit(
     const struct g5_canvas_session_camera *staged,
     uint64_t expected_session,uint64_t expected_scene,
     uint64_t expected_camera);
+/* Project a bounded list of world-space node anchors for a compositor
+ * transaction. No surface authority is granted; no output on failure. */
+bool g5_canvas_session_camera_project_nodes(
+    const struct g5_canvas_session_camera *state,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    const struct g5_world_point *points,size_t count,
+    int32_t *out_x,int32_t *out_y,size_t capacity);
 /* Synchronous trusted presenter: true only after atomic presentation.
  * Not an IPC endpoint; caller must serialize scene and session teardown. */
 typedef bool (*g5_canvas_session_present_fn)(
