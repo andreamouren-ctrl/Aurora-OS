@@ -1,5 +1,12 @@
 name: G5 WP-05 Ring3 Camera Session
 on:
+  push:
+    branches:
+      - feat/g5-wp05-integer-translation-probe
+    paths:
+      - 'services/canvas/**'
+      - 'tests/g5/canvas_session_camera_test.c'
+      - '.github/workflows/g5-wp05-session-camera.yml'
   pull_request:
     paths:
       - 'services/canvas/include/aurora/g5_canvas_camera.h'
