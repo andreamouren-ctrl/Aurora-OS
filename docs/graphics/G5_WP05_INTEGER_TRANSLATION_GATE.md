@@ -76,3 +76,12 @@ The host test uses success/failure stubs, not the actual compositor. A
 production integration must use the existing authenticated Shell IPC and
 window policy/compositor rollback path, and must not expose the callback
 as a privilege escalation surface.
+
+### No in-place staging
+
+The preparation API rejects `current == staged`. This prevents callers
+from accidentally publishing new camera/scene revisions before the display
+presentation succeeds. The presenter must remain synchronous and must not
+mutate `current` through an alias; the prototype is not a lock or a
+concurrent transaction manager. Real runtime integration requires explicit
+serialization against session teardown and competing scene operations.
