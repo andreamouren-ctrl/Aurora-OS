@@ -34,4 +34,16 @@ bool g5_canvas_session_camera_commit(
     const struct g5_canvas_session_camera *staged,
     uint64_t expected_session,uint64_t expected_scene,
     uint64_t expected_camera);
+/* Synchronous trusted presenter: true only after atomic presentation.
+ * Not an IPC endpoint; caller must serialize scene and session teardown. */
+typedef bool (*g5_canvas_session_present_fn)(void *context);
+bool g5_canvas_session_camera_present_pan(
+    struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    double dx,double dy,g5_canvas_session_present_fn present,void *context);
+bool g5_canvas_session_camera_present_zoom(
+    struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    double factor,double x,double y,
+    g5_canvas_session_present_fn present,void *context);
 #endif
