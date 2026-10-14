@@ -1926,6 +1926,43 @@ static bool software_compositor_compose_present_staged(
     return presented;
 }
 
+bool software_compositor_compose_present(
+    struct aurora_software_compositor *compositor,
+    uint64_t *out_present_serial
+) {
+    if (out_present_serial) *out_present_serial=0u;
+    if (!compositor || !compositor->initialized ||
+        !compositor->backbuffer.ready ||
+        !compositor->staging_backbuffer.ready ||
+        compositor->backbuffer.in_flight ||
+        compositor->staging_backbuffer.in_flight ||
+        !compositor->backbuffer.pixels ||
+        !compositor->staging_backbuffer.pixels ||
+        compositor->backbuffer.byte_length !=
+            compositor->staging_backbuffer.byte_length)
+        return false;
+    for (uint64_t i=0u;i<compositor->backbuffer.byte_length;++i)
+        compositor->staging_backbuffer.pixels[i]=
+            compositor->backbuffer.pixels[i];
+    struct aurora_display_backbuffer previous=compositor->backbuffer;
+    compositor->backbuffer=compositor->staging_backbuffer;
+    compositor->staging_backbuffer=previous;
+    bool presented=software_compositor_compose_present_staged(
+        compositor,out_present_serial);
+    if (!presented) {
+        struct aurora_display_backbuffer failed=compositor->backbuffer;
+        compositor->backbuffer=compositor->staging_backbuffer;
+        compositor->staging_backbuffer=failed;
+        const struct aurora_display_mode *mode=
+            display_mode_at(compositor->output_index,0u);
+        if (mode) compositor->pending_damage=
+            (struct aurora_compositor_damage){
+                .x=0u,.y=0u,.width=(uint32_t)mode->width,
+                .height=(uint32_t)mode->height,.valid=true};
+    }
+    return presented;
+}
+
 static uint32_t make_test_pixel(
     const struct aurora_display_pixel_format *format,
     uint8_t red,
