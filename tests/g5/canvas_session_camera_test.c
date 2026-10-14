@@ -3,6 +3,7 @@
 #include <stdio.h>
 static bool present_yes(void *p,const struct g5_canvas_session_camera *next) {
     assert(next && g5_camera_valid(&next->camera));
+    assert(next->scene_revision==5 && next->session_generation==10);
     ++*(unsigned *)p; return true;
 }
 static bool present_no(void *p,const struct g5_canvas_session_camera *next) {
