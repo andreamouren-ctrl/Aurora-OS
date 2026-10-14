@@ -136,6 +136,8 @@ int main(void) {
  assert(!g5_compositor_bridge_present(&b,slot,4,config,&serial));
  surface.generation=2;
  g5_session_context_revoke(&f.registry.session);
+ assert(!g5_compositor_bridge_present_nodes_atomic(&b,&batch,1,&serial));
+ assert(serial==0&&presents==2);
  assert(!g5_compositor_bridge_present(&b,slot,4,config,&serial));
  fail_remove=true;
  g5_compositor_bridge_revoke(&b);
