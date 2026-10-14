@@ -44,6 +44,35 @@ bool g5_canvas_session_camera_zoom(struct g5_canvas_session_camera *s,
     return true;
 }
 
+bool g5_canvas_session_camera_stage_viewport(
+    const struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    uint32_t width,uint32_t height,
+    struct g5_canvas_session_camera *staged) {
+    if (!staged || staged==current ||
+        !authorized(current,session,scene,camera) ||
+        (width==current->camera.width_px &&
+         height==current->camera.height_px))
+        return false;
+    struct g5_canvas_session_camera next=*current;
+    if (!g5_camera_set_viewport(&next.camera,width,height))
+        return false;
+    *staged=next;
+    return true;
+}
+bool g5_canvas_session_camera_present_viewport(
+    struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    uint32_t width,uint32_t height,
+    g5_canvas_session_present_fn present,void *context) {
+    struct g5_canvas_session_camera staged;
+    if (!present || !g5_canvas_session_camera_stage_viewport(
+            current,session,scene,camera,width,height,&staged))
+        return false;
+    if (!present(context,&staged)) return false;
+    return g5_canvas_session_camera_commit(current,&staged,
+                                            session,scene,camera);
+}
 bool g5_canvas_session_camera_stage_pan(
     const struct g5_canvas_session_camera *current,
     uint64_t session,uint64_t scene,uint64_t camera,
