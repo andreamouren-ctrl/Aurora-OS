@@ -16,6 +16,7 @@ static inline bool g5_canvas_pan_prepare(
     const struct g5_canvas_pan_request *request,
     struct g5_canvas_pan_transaction *staged) {
     if (!current || !owner || !request || !staged ||
+        current == staged ||
         !current->scene_revision ||
         current->scene_revision != owner->scene_revision ||
         current->scene_revision == UINT64_MAX)
