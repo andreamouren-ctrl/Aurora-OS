@@ -336,6 +336,23 @@ int main(void) {
     assert(!g5_canvas_session_camera_commit(&locked,&scale_candidate,
         70,4,4));
     assert(locked.camera.revision==4 && locked.camera.device_scale==1.0);
+    /* Reject mixed transform classes and revision-only synthetic commits. */
+    assert(g5_canvas_session_camera_stage_viewport(&locked,70,4,4,
+        1200,900,&scale_candidate));
+    scale_candidate.camera.anchor.x=1024;
+    assert(!g5_canvas_session_camera_commit(&locked,&scale_candidate,
+        70,4,4));
+    assert(locked.camera.width_px==1024 && locked.camera.anchor.x== -2048);
+    assert(g5_canvas_session_camera_stage_zoom(&locked,70,4,4,
+        2.0,512,384,&scale_candidate));
+    scale_candidate.camera.width_px=1200;
+    assert(!g5_canvas_session_camera_commit(&locked,&scale_candidate,
+        70,4,4));
+    scale_candidate=locked;
+    ++scale_candidate.camera.revision;
+    assert(!g5_canvas_session_camera_commit(&locked,&scale_candidate,
+        70,4,4));
+    assert(locked.camera.revision==4);
     puts("[g5-wp05] Ring3 serialized pan zoom viewport scene passed");
     return 0;
 }
