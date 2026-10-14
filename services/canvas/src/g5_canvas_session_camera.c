@@ -1,5 +1,9 @@
 #include <aurora/g5_canvas_session_camera.h>
 #include <math.h>
+void g5_canvas_session_camera_revoke(struct g5_canvas_session_camera *s) {
+    if (!s) return;
+    *s=(struct g5_canvas_session_camera){0};
+}
 static bool authorized(const struct g5_canvas_session_camera *s,
     uint64_t session,uint64_t scene,uint64_t camera) {
     return s && s->session_generation!=0 && s->scene_revision!=0 &&
