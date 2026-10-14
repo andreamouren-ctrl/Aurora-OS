@@ -136,6 +136,21 @@ int main(void) {
     assert(!g5_canvas_session_camera_present_pan(&nodes,50,7,
         UINT64_MAX,1,0,present_two_nodes,&pair));
     assert(pair.calls==calls_before && nodes.camera.revision==UINT64_MAX);
-    puts("[g5-wp05] Ring3 camera two-node projection transactions passed");
+    /* Session logout revokes camera authority and rejects replay. */
+    g5_canvas_session_camera_revoke(&nodes);
+    assert(nodes.session_generation==0 && nodes.scene_revision==0);
+    assert(!g5_camera_valid(&nodes.camera));
+    assert(!g5_canvas_session_camera_present_pan(&nodes,50,7,3,
+        1,0,present_two_nodes,&pair));
+    assert(pair.calls==calls_before);
+    g5_canvas_session_camera_revoke(&nodes); /* idempotent */
+    g5_canvas_session_camera_revoke(NULL);
+    assert(g5_canvas_session_camera_init(&nodes,51,1,
+        (struct g5_world_point){0,0},800,600));
+    assert(!g5_canvas_session_camera_present_pan(&nodes,50,7,3,
+        1,0,present_two_nodes,&pair)); /* previous session replay */
+    assert(g5_canvas_session_camera_present_pan(&nodes,51,1,1,
+        1,0,present_two_nodes,&pair));
+    puts("[g5-wp05] Ring3 camera revocation and two-node transactions passed");
     return 0;
 }
