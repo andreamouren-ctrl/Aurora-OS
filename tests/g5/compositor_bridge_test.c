@@ -101,6 +101,14 @@ int main(void) {
  batch.placement.node_id=500;
  assert(!g5_compositor_bridge_present_nodes_atomic(&b,&batch,0,&serial));
  assert(serial==0);
+ /* Duplicate slot in a single transaction must fail before composition. */
+ struct g5_compositor_slot_placement duplicate[2]={batch,batch};
+ assert(!g5_compositor_bridge_present_nodes_atomic(&b,duplicate,2,&serial));
+ assert(serial==0&&presents==2);
+ /* An invalid count must not read beyond the caller's batch. */
+ assert(!g5_compositor_bridge_present_nodes_atomic(
+  &b,&batch,G5_SURFACE_REGISTRY_CAPACITY+1u,&serial));
+ assert(serial==0&&presents==2);
  batch.slot=G5_SURFACE_REGISTRY_CAPACITY;
  assert(!g5_compositor_bridge_present_nodes_atomic(&b,&batch,1,&serial));
  assert(serial==0&&presents==2);
