@@ -109,6 +109,7 @@ bool g5_canvas_session_camera_commit(
         staged->session_generation!=session ||
         staged->scene_revision!=scene ||
         !g5_camera_valid(&staged->camera) ||
+        staged->camera.device_scale!=current->camera.device_scale ||
         camera==UINT64_MAX || staged->camera.revision!=camera+1u)
         return false;
     *current=*staged;
