@@ -103,6 +103,14 @@ bool g5_canvas_session_camera_locked_viewport(
     g5_canvas_session_lock_fn lock,g5_canvas_session_unlock_fn unlock,
     bool (*present)(void *,const struct g5_canvas_session_camera *),
     void *context);
+/* Serialize a scene revision update with the compositor publication.
+ * No revision is published when the presenter rejects the staged scene. */
+bool g5_canvas_session_camera_locked_scene(
+    struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    g5_canvas_session_lock_fn lock,g5_canvas_session_unlock_fn unlock,
+    bool (*present)(void *,const struct g5_canvas_session_camera *),
+    void *context);
 /* Synchronous trusted presenter: true only after atomic presentation.
  * Not an IPC endpoint; caller must serialize scene and session teardown. */
 typedef bool (*g5_canvas_session_present_fn)(
