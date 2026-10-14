@@ -314,6 +314,20 @@ int main(void) {
     assert(serial.locks==serial.unlocks); /* failed lock did not acquire */
     serial.locked=false;
     assert(serial.locks==serial.unlocks);
-    puts("[g5-wp05] Ring3 serialized pan zoom viewport passed");
+    /* Scene publication shares the same lock as pan, zoom and resize. */
+    serial.accept=true;
+    assert(g5_canvas_session_camera_locked_scene(&locked,70,3,4,
+        acquire_serial,release_serial,publish_serial,&serial));
+    assert(locked.scene_revision==4 && locked.camera.revision==4);
+    serial.accept=false;
+    assert(!g5_canvas_session_camera_locked_scene(&locked,70,4,4,
+        acquire_serial,release_serial,publish_serial,&serial));
+    assert(locked.scene_revision==4);
+    const unsigned before_stale=serial.presents;
+    assert(!g5_canvas_session_camera_locked_scene(&locked,70,3,4,
+        acquire_serial,release_serial,publish_serial,&serial));
+    assert(serial.presents==before_stale);
+    assert(serial.locks==serial.unlocks && !serial.locked);
+    puts("[g5-wp05] Ring3 serialized pan zoom viewport scene passed");
     return 0;
 }
