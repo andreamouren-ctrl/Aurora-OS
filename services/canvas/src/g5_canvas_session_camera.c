@@ -90,6 +90,8 @@ bool g5_canvas_session_camera_present_pan(
         !g5_canvas_session_camera_stage_pan(current,session,scene,camera,
                                              dx,dy,&staged))
         return false;
+    /* A synchronous presenter may fail; no camera state is published then.
+     * The caller must serialize presentation against session teardown. */
     if (!present(context,&staged)) return false;
     return g5_canvas_session_camera_commit(current,&staged,
                                             session,scene,camera);
@@ -104,6 +106,8 @@ bool g5_canvas_session_camera_present_zoom(
         !g5_canvas_session_camera_stage_zoom(current,session,scene,camera,
                                               factor,x,y,&staged))
         return false;
+    /* A synchronous presenter may fail; no camera state is published then.
+     * The caller must serialize presentation against session teardown. */
     if (!present(context,&staged)) return false;
     return g5_canvas_session_camera_commit(current,&staged,
                                             session,scene,camera);
