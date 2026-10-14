@@ -1260,6 +1260,7 @@ bool software_compositor_set_nodes_atomic(
     uint64_t widths[AURORA_COMPOSITOR_MAX_NODES];
     uint64_t heights[AURORA_COMPOSITOR_MAX_NODES];
     bool opaque_format[AURORA_COMPOSITOR_MAX_NODES];
+    bool visibility_changed[AURORA_COMPOSITOR_MAX_NODES];
     for (uint32_t i=0u;i<count;++i) {
         for (uint32_t j=0u;j<i;++j)
             if (placements[i].node_id==placements[j].node_id)
@@ -1296,7 +1297,7 @@ bool software_compositor_set_nodes_atomic(
         (void)damage_union(&compositor->pending_damage,
             node->x,node->y,widths[i],heights[i],
             mode->width,mode->height);
-        bool visibility_changed=node->visible!=p->visible;
+        visibility_changed[i]=node->visible!=p->visible;
         node->x=p->x;
         node->y=p->y;
         node->z=p->z;
@@ -1306,12 +1307,15 @@ bool software_compositor_set_nodes_atomic(
         (void)damage_union(&compositor->pending_damage,
             node->x,node->y,widths[i],heights[i],
             mode->width,mode->height);
-        if (visibility_changed && compositor->scene_observer)
-            compositor->scene_observer(
-                compositor->scene_observer_context,
-                AURORA_COMPOSITOR_SCENE_NODE_VISIBILITY_CHANGED,
-                node->node_id);
     }
+    /* Publish observer events only after the entire batch has been applied. */
+    if (compositor->scene_observer)
+        for (uint32_t i=0u;i<count;++i)
+            if (visibility_changed[i])
+                compositor->scene_observer(
+                    compositor->scene_observer_context,
+                    AURORA_COMPOSITOR_SCENE_NODE_VISIBILITY_CHANGED,
+                    placements[i].node_id);
     return true;
 }
 
