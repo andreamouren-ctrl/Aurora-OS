@@ -89,6 +89,20 @@ bool g5_canvas_session_camera_locked_pan(
     g5_canvas_session_lock_fn lock,g5_canvas_session_unlock_fn unlock,
     bool (*present)(void *,const struct g5_canvas_session_camera *),
     void *context);
+bool g5_canvas_session_camera_locked_zoom(
+    struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    double factor,double pointer_x,double pointer_y,
+    g5_canvas_session_lock_fn lock,g5_canvas_session_unlock_fn unlock,
+    bool (*present)(void *,const struct g5_canvas_session_camera *),
+    void *context);
+bool g5_canvas_session_camera_locked_viewport(
+    struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    uint32_t width,uint32_t height,
+    g5_canvas_session_lock_fn lock,g5_canvas_session_unlock_fn unlock,
+    bool (*present)(void *,const struct g5_canvas_session_camera *),
+    void *context);
 /* Synchronous trusted presenter: true only after atomic presentation.
  * Not an IPC endpoint; caller must serialize scene and session teardown. */
 typedef bool (*g5_canvas_session_present_fn)(
