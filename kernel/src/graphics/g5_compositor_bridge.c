@@ -10,6 +10,7 @@ bool g5_compositor_bridge_bind(struct g5_compositor_bridge *b,
  if(!b||!d||!c||b->delivery||!d->submission||!c->initialized||
     !g5_session_context_authorized(&d->submission->registry.session,d->bound_generation))return false;
  b->delivery=d;b->compositor=c;b->generation=d->bound_generation;
+ b->last_display_serial=0;
  return true;
 }
 bool g5_compositor_bridge_attach(struct g5_compositor_bridge *b,uint32_t slot,
@@ -61,8 +62,9 @@ bool g5_compositor_bridge_present(struct g5_compositor_bridge *b,uint32_t slot,
   *display_serial=0;
   return false;
  }
- if(!*display_serial) {
+ if(!*display_serial || *display_serial<=b->last_display_serial) {
   (void)g5_frame_delivery_abort(b->delivery,b->generation,receipt);
+  *display_serial=0;
   return false;
  }
  if(!g5_frame_delivery_ack(b->delivery,b->generation,receipt)) {
@@ -70,6 +72,7 @@ bool g5_compositor_bridge_present(struct g5_compositor_bridge *b,uint32_t slot,
   *display_serial=0;
   return false;
  }
+ b->last_display_serial=*display_serial;
  return true;
 }
 bool g5_compositor_bridge_detach(struct g5_compositor_bridge *b,uint32_t slot) {
@@ -92,4 +95,5 @@ void g5_compositor_bridge_revoke(struct g5_compositor_bridge *b) {
  for(unsigned i=0;i<G5_SURFACE_REGISTRY_CAPACITY;i++)
   if(b->node_ids[i])return; /* keep owner for a later cleanup attempt */
  b->delivery=NULL;b->compositor=NULL;b->generation=0;
+ b->last_display_serial=0;
 }
