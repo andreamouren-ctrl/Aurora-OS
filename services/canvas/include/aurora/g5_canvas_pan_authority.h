@@ -9,6 +9,7 @@ struct g5_canvas_pan_owner {
     uint64_t process_generation;
     uint64_t surface_generation;
     uint64_t owner_token;
+    uint64_t scene_revision;
     bool active;
 };
 struct g5_canvas_pan_request {
@@ -17,6 +18,7 @@ struct g5_canvas_pan_request {
     uint64_t surface_generation;
     uint64_t owner_token;
     uint64_t expected_camera_revision;
+    uint64_t expected_scene_revision;
     int32_t dx_pixels,dy_pixels;
 };
 static inline bool g5_canvas_pan_authorized(
@@ -26,6 +28,8 @@ static inline bool g5_canvas_pan_authorized(
     if (!camera || !owner || !request || !owner->active ||
         !owner->session_generation || !owner->process_generation ||
         !owner->surface_generation || !owner->owner_token ||
+        !owner->scene_revision ||
+        request->expected_scene_revision != owner->scene_revision ||
         request->session_generation != owner->session_generation ||
         request->process_generation != owner->process_generation ||
         request->surface_generation != owner->surface_generation ||
