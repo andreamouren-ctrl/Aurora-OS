@@ -85,7 +85,7 @@ bool g5_compositor_bridge_present_nodes_atomic(
 ) {
  if(display_serial)*display_serial=0;
  if(!display_serial||!live(b)||!placements||!count||
-    count>G5_SURFACE_REGISTRY_CAPACITY||
+    count>3u||count>G5_SURFACE_REGISTRY_CAPACITY||
     count>AURORA_COMPOSITOR_MAX_NODES)return false;
  struct aurora_compositor_placement nodes[G5_SURFACE_REGISTRY_CAPACITY];
  for(uint32_t i=0;i<count;++i) {
