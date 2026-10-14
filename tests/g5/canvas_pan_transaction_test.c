@@ -16,6 +16,9 @@ int main(void) {
     assert(current.camera.x_ticks==0 && current.camera.y_ticks==0);
     assert(current.camera.revision==1 && current.scene_revision==55);
     staged=snapshot;
+    struct g5_canvas_pan_transaction aliased=current;
+    assert(!g5_canvas_pan_prepare(&aliased,&owner,&request,&aliased));
+    assert(memcmp(&aliased,&current,sizeof aliased)==0);
     struct g5_canvas_pan_request stale=request;
     stale.expected_scene_revision=54;
     assert(!g5_canvas_pan_prepare(&current,&owner,&stale,&staged));
