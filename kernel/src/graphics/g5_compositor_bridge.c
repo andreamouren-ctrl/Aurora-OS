@@ -75,6 +75,49 @@ bool g5_compositor_bridge_present(struct g5_compositor_bridge *b,uint32_t slot,
  b->last_display_serial=*display_serial;
  return true;
 }
+bool g5_compositor_bridge_present_nodes_atomic(
+ struct g5_compositor_bridge *b,
+ const struct g5_compositor_slot_placement *placements,
+ uint32_t count,
+ uint64_t *display_serial
+) {
+ if(display_serial)*display_serial=0;
+ if(!display_serial||!live(b)||!placements||!count||
+    count>G5_SURFACE_REGISTRY_CAPACITY||
+    count>AURORA_COMPOSITOR_MAX_NODES)return false;
+ struct aurora_compositor_placement nodes[G5_SURFACE_REGISTRY_CAPACITY];
+ for(uint32_t i=0;i<count;++i) {
+  uint32_t slot=placements[i].slot;
+  if(slot>=G5_SURFACE_REGISTRY_CAPACITY||!b->node_ids[slot]||
+     placements[i].placement.node_id!=b->node_ids[slot])return false;
+  for(uint32_t j=0;j<i;++j)
+   if(placements[j].slot==slot)return false;
+  struct g5_surface_registry_entry *entry=
+   &b->delivery->submission->registry.entries[slot];
+  if(!entry->occupied)return false;
+  struct g5_surface_bridge *bound=&entry->bridge;
+  if(!bound->owner_caps||
+     bound->object_id!=b->attached_object_ids[slot]||
+     bound->object_generation!=b->attached_object_generations[slot]||
+     !g5_surface_configure_ready(&bound->configure,
+       &b->delivery->submission->registry.session))return false;
+  struct aurora_graphics_surface *surface=NULL;
+  if(!graphics_surface_lookup(bound->owner_caps,bound->surface_handle,
+      AURORA_RIGHT_READ,&surface)||
+     surface->object_id!=bound->object_id||
+     surface->generation!=bound->object_generation||
+     surface->destroy_requested||
+     surface->state==AURORA_GRAPHICS_SURFACE_FREE)return false;
+  nodes[i]=placements[i].placement;
+ }
+ uint64_t serial=0;
+ if(!software_compositor_present_nodes_atomic(
+      b->compositor,nodes,count,&serial)||
+    !serial||serial<=b->last_display_serial)return false;
+ b->last_display_serial=serial;
+ *display_serial=serial;
+ return true;
+}
 bool g5_compositor_bridge_detach(struct g5_compositor_bridge *b,uint32_t slot) {
  if(!b||!b->compositor||slot>=G5_SURFACE_REGISTRY_CAPACITY||
     !b->node_ids[slot])return false;
