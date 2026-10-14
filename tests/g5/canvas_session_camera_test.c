@@ -185,6 +185,20 @@ int main(void) {
     assert(!g5_canvas_session_camera_pointer_to_world(&nodes,51,1,2,
         -1,300,&hit));
     assert(hit.x==-1 && hit.y==-1);
-    puts("[g5-wp05] Ring3 scene projection and pointer routing passed");
+    /* Scene topology changes invalidate stale scene requests, not camera. */
+    assert(g5_canvas_session_camera_advance_scene(&nodes,51,1,2));
+    assert(nodes.scene_revision==2 && nodes.camera.revision==2);
+    assert(!g5_canvas_session_camera_pointer_to_world(&nodes,51,1,2,
+        401,300,&hit));
+    assert(g5_canvas_session_camera_pointer_to_world(&nodes,51,2,2,
+        401,300,&hit));
+    assert(!g5_canvas_session_camera_advance_scene(&nodes,51,1,2));
+    assert(!g5_canvas_session_camera_advance_scene(&nodes,51,2,1));
+    assert(nodes.scene_revision==2 && nodes.camera.revision==2);
+    nodes.scene_revision=UINT64_MAX;
+    assert(!g5_canvas_session_camera_advance_scene(&nodes,51,
+        UINT64_MAX,2));
+    assert(nodes.scene_revision==UINT64_MAX);
+    puts("[g5-wp05] Ring3 scene revisions and pointer routing passed");
     return 0;
 }
