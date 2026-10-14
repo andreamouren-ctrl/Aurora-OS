@@ -1341,11 +1341,13 @@ bool software_compositor_present_nodes_atomic(
         !count || count>AURORA_COMPOSITOR_MAX_NODES ||
         !out_present_serial) return false;
     struct aurora_compositor_node saved[AURORA_COMPOSITOR_MAX_NODES];
+    uint32_t saved_indices[AURORA_COMPOSITOR_MAX_NODES];
     struct aurora_compositor_damage old_damage=compositor->pending_damage;
     for (uint32_t i=0u;i<count;++i) {
         struct aurora_compositor_node *node=
             find_node(compositor,placements[i].node_id);
         if (!node) return false;
+        saved_indices[i]=(uint32_t)(node-compositor->nodes);
         saved[i]=*node;
     }
     /* Notifications are held until a successful display presentation. */
@@ -1362,9 +1364,7 @@ bool software_compositor_present_nodes_atomic(
     bool presented=software_compositor_compose_present(compositor,&serial);
     if (!presented || !serial) {
         for (uint32_t i=0u;i<count;++i) {
-            struct aurora_compositor_node *node=
-                find_node(compositor,placements[i].node_id);
-            if (node) *node=saved[i];
+            compositor->nodes[saved_indices[i]]=saved[i];
         }
         compositor->pending_damage=old_damage;
         /* The staging buffer may be dirty: force complete recomposition. */
