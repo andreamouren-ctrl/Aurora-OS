@@ -11,7 +11,7 @@ int main(void) {
     struct g5_canvas_pan_transaction staged={{123,456,9},99},snapshot=staged;
     assert(g5_canvas_pan_prepare(&current,&owner,&request,&staged));
     assert(staged.camera.x_ticks==-8192 && staged.camera.y_ticks==8192);
-    assert(staged.camera.revision==2 && staged.scene_revision==56);
+    assert(staged.camera.revision==2 && staged.scene_revision==55);
     /* Staging must never change live camera or live scene. */
     assert(current.camera.x_ticks==0 && current.camera.y_ticks==0);
     assert(current.camera.revision==1 && current.scene_revision==55);
@@ -39,7 +39,7 @@ int main(void) {
     assert(calls==1 && memcmp(&live,&current,sizeof live)==0);
     assert(g5_canvas_pan_present_commit(&live,&owner,&request,
                                         present_ok,&calls));
-    assert(calls==2 && live.camera.revision==2 && live.scene_revision==56);
+    assert(calls==2 && live.camera.revision==2 && live.scene_revision==55);
     assert(live.camera.x_ticks==-8192 && live.camera.y_ticks==8192);
     assert(!g5_canvas_pan_present_commit(&live,&owner,&request,
                                          present_ok,&calls));
@@ -47,17 +47,17 @@ int main(void) {
     assert(!g5_canvas_pan_present_commit(&live,&owner,&request,
                                          NULL,&calls));
     assert(calls==2);
-    /* The authoritative owner must be refreshed after each committed scene. */
+    /* Camera revision advances; scene topology revision remains stable. */
     struct g5_canvas_pan_owner next_owner=owner;
     struct g5_canvas_pan_request next_request=request;
-    next_owner.scene_revision=56;
-    next_request.expected_scene_revision=56;
+    next_owner.scene_revision=55;
+    next_request.expected_scene_revision=55;
     next_request.expected_camera_revision=2;
     next_request.dx_pixels=-8;
     next_request.dy_pixels=8;
     assert(g5_canvas_pan_present_commit(&live,&next_owner,&next_request,
                                         present_ok,&calls));
-    assert(calls==3 && live.camera.revision==3 && live.scene_revision==57);
+    assert(calls==3 && live.camera.revision==3 && live.scene_revision==55);
     assert(live.camera.x_ticks==0 && live.camera.y_ticks==0);
     /* Replaying an already committed message cannot present again. */
     assert(!g5_canvas_pan_present_commit(&live,&next_owner,&next_request,
