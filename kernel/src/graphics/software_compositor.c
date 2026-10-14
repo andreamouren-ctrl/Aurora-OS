@@ -812,9 +812,17 @@ bool software_compositor_init(
         return false;
     }
 
+    if (!display_backbuffer_init(&compositor->staging_backbuffer, mode)) {
+        (void)display_backbuffer_release(&compositor->backbuffer);
+        return false;
+    }
     clear_bytes(
         compositor->backbuffer.pixels,
         compositor->backbuffer.byte_length
+    );
+    clear_bytes(
+        compositor->staging_backbuffer.pixels,
+        compositor->staging_backbuffer.byte_length
     );
 
     compositor->output_index = output_index;
@@ -847,6 +855,9 @@ bool software_compositor_destroy(
 
     cap_table_destroy(&compositor->surface_caps);
 
+    if (!display_backbuffer_release(&compositor->staging_backbuffer)) {
+        return false;
+    }
     if (!display_backbuffer_release(&compositor->backbuffer)) {
         return false;
     }
