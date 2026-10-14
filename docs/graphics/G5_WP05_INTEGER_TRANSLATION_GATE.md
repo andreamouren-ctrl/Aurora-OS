@@ -65,3 +65,14 @@ The caller must commit staged state **only after** the existing authorized
 window-policy/compositor transaction succeeds. If it fails, staged state
 must be discarded. No production call site is wired yet; the new host test
 checks staging and fail-atomic rejection only.
+
+### Presentation-gated commit prototype
+
+`g5_canvas_pan_present_commit` first validates and stages, then invokes a
+caller-provided presenter and commits camera/scene revisions only if it
+returns true. The callback contract requires **atomic presentation or
+complete rollback on failure**; this helper cannot verify that guarantee.
+The host test uses success/failure stubs, not the actual compositor. A
+production integration must use the existing authenticated Shell IPC and
+window policy/compositor rollback path, and must not expose the callback
+as a privilege escalation surface.
