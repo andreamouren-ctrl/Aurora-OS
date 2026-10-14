@@ -62,14 +62,16 @@ bool g5_compositor_bridge_present(struct g5_compositor_bridge *b,uint32_t slot,
   *display_serial=0;
   return false;
  }
- if(!*display_serial || *display_serial<=b->last_display_serial) {
+ /* Physical presentation has already occurred. Preserve its serial even
+  * if the receipt ACK fails or its ordering is invalid. */
+ uint64_t actual_serial=*display_serial;
+ if(actual_serial>b->last_display_serial)
+  b->last_display_serial=actual_serial;
+ else {
   (void)g5_frame_delivery_abort(b->delivery,b->generation,receipt);
   *display_serial=0;
   return false;
  }
- /* Physical presentation has already occurred. Preserve its serial even
-  * if the receipt ACK fails; a later request must not reuse old history. */
- b->last_display_serial=*display_serial;
  if(!g5_frame_delivery_ack(b->delivery,b->generation,receipt)) {
   /* Display already changed: do not claim an atomic rollback. */
   *display_serial=0;
