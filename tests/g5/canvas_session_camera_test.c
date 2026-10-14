@@ -10,6 +10,25 @@ static bool present_no(void *p,const struct g5_canvas_session_camera *next) {
     assert(next && g5_camera_valid(&next->camera));
     ++*(unsigned *)p; return false;
 }
+struct two_node_presenter {
+    unsigned calls;
+    bool accept;
+    int32_t x[2], y[2];
+};
+static bool present_two_nodes(void *context,
+    const struct g5_canvas_session_camera *proposed) {
+    struct two_node_presenter *p=context;
+    int32_t x[2],y[2];
+    ++p->calls;
+    if (!g5_camera_world_to_screen(&proposed->camera,
+        (struct g5_world_point){0,0},&x[0],&y[0]) ||
+        !g5_camera_world_to_screen(&proposed->camera,
+        (struct g5_world_point){102400,51200},&x[1],&y[1]))
+        return false;
+    if (!p->accept) return false;
+    for (unsigned i=0;i<2;++i) { p->x[i]=x[i];p->y[i]=y[i]; }
+    return true;
+}
 int main(void) {
     struct g5_canvas_session_camera s={0};
     const struct g5_world_point origin={0,0};
@@ -78,6 +97,29 @@ int main(void) {
         (struct g5_world_point){102400,51200},&x1,&y1));
     assert(x1-x0==450 && y1-y0==225);
     assert(s.camera.revision==9 && s.scene_revision==5);
-    puts("[g5-wp05] Ring3 camera present-gated transactions passed");
+    struct g5_canvas_session_camera nodes={0};
+    struct two_node_presenter pair={.accept=true};
+    assert(g5_canvas_session_camera_init(&nodes,50,7,
+        (struct g5_world_point){0,0},800,600));
+    assert(present_two_nodes(&pair,&nodes));
+    assert(pair.x[0]==400 && pair.y[0]==300);
+    assert(pair.x[1]==500 && pair.y[1]==350);
+    assert(g5_canvas_session_camera_present_pan(&nodes,50,7,1,
+        16,-8,present_two_nodes,&pair));
+    assert(nodes.camera.revision==2 && nodes.scene_revision==7);
+    assert(pair.x[0]==416 && pair.y[0]==292);
+    assert(pair.x[1]==516 && pair.y[1]==342);
+    pair.accept=false;
+    assert(!g5_canvas_session_camera_present_pan(&nodes,50,7,2,
+        8,8,present_two_nodes,&pair));
+    assert(nodes.camera.revision==2);
+    assert(pair.x[0]==416 && pair.y[0]==292);
+    pair.accept=true;
+    assert(g5_canvas_session_camera_present_zoom(&nodes,50,7,2,
+        2,400,300,present_two_nodes,&pair));
+    assert(nodes.camera.revision==3 && nodes.camera.zoom==2);
+    assert(pair.x[0]==432 && pair.y[0]==284);
+    assert(pair.x[1]==632 && pair.y[1]==384);
+    puts("[g5-wp05] Ring3 camera two-node projection transactions passed");
     return 0;
 }
