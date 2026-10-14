@@ -1,6 +1,8 @@
 #include <aurora/g5_canvas_session_camera.h>
 #include <assert.h>
 #include <stdio.h>
+static bool present_yes(void *p) { ++*(unsigned *)p; return true; }
+static bool present_no(void *p) { ++*(unsigned *)p; return false; }
 int main(void) {
     struct g5_canvas_session_camera s={0};
     const struct g5_world_point origin={0,0};
@@ -42,6 +44,25 @@ int main(void) {
     assert(staged.camera.revision==7 && s.camera.revision==6);
     assert(g5_canvas_session_camera_commit(&s,&staged,10,5,6));
     assert(s.camera.revision==7 && s.camera.zoom==3.0);
-    puts("[g5-wp05] Ring3 camera session, staging and zoom passed");
+    unsigned presentations=0;
+    assert(!g5_canvas_session_camera_present_pan(
+        &s,10,5,7,3,0,present_no,&presentations));
+    assert(presentations==1 && s.camera.revision==7);
+    assert(!g5_canvas_session_camera_present_pan(
+        &s,10,6,7,3,0,present_yes,&presentations));
+    assert(presentations==1 && s.camera.revision==7);
+    assert(g5_canvas_session_camera_present_pan(
+        &s,10,5,7,3,0,present_yes,&presentations));
+    assert(presentations==2 && s.camera.revision==8);
+    assert(!g5_canvas_session_camera_present_zoom(
+        &s,10,5,8,1.5,400,300,present_no,&presentations));
+    assert(presentations==3 && s.camera.revision==8);
+    assert(g5_canvas_session_camera_present_zoom(
+        &s,10,5,8,1.5,400,300,present_yes,&presentations));
+    assert(presentations==4 && s.camera.revision==9);
+    assert(!g5_canvas_session_camera_present_pan(
+        &s,10,5,8,3,0,present_yes,&presentations));
+    assert(presentations==4);
+    puts("[g5-wp05] Ring3 camera present-gated transactions passed");
     return 0;
 }
