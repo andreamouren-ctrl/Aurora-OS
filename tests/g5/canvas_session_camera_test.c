@@ -151,6 +151,23 @@ int main(void) {
         1,0,present_two_nodes,&pair)); /* previous session replay */
     assert(g5_canvas_session_camera_present_pan(&nodes,51,1,1,
         1,0,present_two_nodes,&pair));
-    puts("[g5-wp05] Ring3 camera revocation and two-node transactions passed");
+    /* Bounded scene projection is fail-atomic and revision fenced. */
+    const struct g5_world_point anchors[2]={{0,0},{102400,51200}};
+    int32_t px[2]={-1,-1},py[2]={-1,-1};
+    assert(g5_canvas_session_camera_project_nodes(&nodes,51,1,2,
+        anchors,2,px,py,2));
+    assert(px[0]==401 && py[0]==300);
+    assert(px[1]==501 && py[1]==350);
+    px[0]=-1;py[0]=-1;
+    assert(!g5_canvas_session_camera_project_nodes(&nodes,51,1,1,
+        anchors,2,px,py,2));
+    assert(px[0]==-1 && py[0]==-1);
+    assert(!g5_canvas_session_camera_project_nodes(&nodes,51,1,2,
+        anchors,2,px,py,1));
+    assert(px[0]==-1 && py[0]==-1);
+    assert(!g5_canvas_session_camera_project_nodes(&nodes,51,1,2,
+        anchors,65,px,py,65));
+    assert(px[0]==-1 && py[0]==-1);
+    puts("[g5-wp05] Ring3 camera bounded scene projection passed");
     return 0;
 }
