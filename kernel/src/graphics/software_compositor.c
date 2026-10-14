@@ -1259,6 +1259,7 @@ bool software_compositor_set_nodes_atomic(
     struct aurora_compositor_node *targets[AURORA_COMPOSITOR_MAX_NODES];
     uint64_t widths[AURORA_COMPOSITOR_MAX_NODES];
     uint64_t heights[AURORA_COMPOSITOR_MAX_NODES];
+    bool opaque_format[AURORA_COMPOSITOR_MAX_NODES];
     for (uint32_t i=0u;i<count;++i) {
         for (uint32_t j=0u;j<i;++j)
             if (placements[i].node_id==placements[j].node_id)
@@ -1273,6 +1274,7 @@ bool software_compositor_set_nodes_atomic(
         bool valid=transformed_extent(
             node,snapshot.buffer->width,snapshot.buffer->height,
             &widths[i],&heights[i]);
+        opaque_format[i]=snapshot.buffer->format.alpha_mask_size==0u;
         graphics_surface_snapshot_release(&snapshot);
         if (!valid || widths[i]>(uint64_t)INT64_MAX ||
             heights[i]>(uint64_t)INT64_MAX)
@@ -1300,9 +1302,7 @@ bool software_compositor_set_nodes_atomic(
         node->z=p->z;
         node->opacity=p->opacity;
         node->visible=p->visible;
-        /* Opaque classification is derived from committed buffer format
-         * by set_node; retain it only for fully opaque submissions. */
-        if (p->opacity!=255u) node->fully_opaque=false;
+        node->fully_opaque=p->opacity==255u && opaque_format[i];
         (void)damage_union(&compositor->pending_damage,
             node->x,node->y,widths[i],heights[i],
             mode->width,mode->height);
