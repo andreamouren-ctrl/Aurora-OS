@@ -272,3 +272,19 @@ bool g5_canvas_session_camera_locked_viewport(
     unlock(context);
     return ok;
 }
+
+bool g5_canvas_session_camera_locked_scene(
+    struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    g5_canvas_session_lock_fn lock,g5_canvas_session_unlock_fn unlock,
+    g5_canvas_session_present_fn present,void *context) {
+    if (!lock || !unlock || !present || !lock(context)) return false;
+    struct g5_canvas_session_camera staged;
+    bool ok=g5_canvas_session_camera_stage_scene(
+        current,session,scene,camera,&staged);
+    if (ok) ok=present(context,&staged);
+    if (ok) ok=g5_canvas_session_camera_commit_scene(
+        current,&staged,session,scene,camera);
+    unlock(context);
+    return ok;
+}
