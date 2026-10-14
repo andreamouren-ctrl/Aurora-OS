@@ -18,4 +18,20 @@ bool g5_canvas_session_camera_zoom(struct g5_canvas_session_camera *state,
     uint64_t session_generation,uint64_t expected_scene_revision,
     uint64_t expected_camera_revision,double factor,double pointer_x,
     double pointer_y);
+/* Staging leaves the live camera untouched until compositor acceptance.
+ * A successful presentation must be followed by a serialized commit. */
+bool g5_canvas_session_camera_stage_pan(
+    const struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    double dx,double dy,struct g5_canvas_session_camera *staged);
+bool g5_canvas_session_camera_stage_zoom(
+    const struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    double factor,double x,double y,
+    struct g5_canvas_session_camera *staged);
+bool g5_canvas_session_camera_commit(
+    struct g5_canvas_session_camera *current,
+    const struct g5_canvas_session_camera *staged,
+    uint64_t expected_session,uint64_t expected_scene,
+    uint64_t expected_camera);
 #endif
