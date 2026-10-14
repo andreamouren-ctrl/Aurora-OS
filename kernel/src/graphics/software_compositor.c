@@ -1347,6 +1347,9 @@ bool software_compositor_present_nodes_atomic(
         struct aurora_compositor_node *node=
             find_node(compositor,placements[i].node_id);
         if (!node) return false;
+        for (uint32_t j=0u;j<i;++j)
+            if (placements[i].node_id==placements[j].node_id)
+                return false;
         saved_indices[i]=(uint32_t)(node-compositor->nodes);
         saved[i]=*node;
     }
