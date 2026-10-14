@@ -205,6 +205,33 @@ int main(void) {
     assert(!g5_canvas_session_camera_advance_scene(&nodes,51,
         UINT64_MAX,2));
     assert(nodes.scene_revision==UINT64_MAX);
-    puts("[g5-wp05] Ring3 scene revisions and pointer routing passed");
+    /* Resize must be presented before publishing the new camera revision. */
+    struct g5_canvas_session_camera resized={0},candidate={0};
+    assert(g5_canvas_session_camera_init(&resized,60,4,
+        (struct g5_world_point){0,0},800,600));
+    assert(g5_canvas_session_camera_stage_viewport(&resized,60,4,1,
+        1024,768,&candidate));
+    assert(resized.camera.width_px==800 && resized.camera.revision==1);
+    assert(candidate.camera.width_px==1024 &&
+           candidate.camera.height_px==768 && candidate.camera.revision==2);
+    pair.accept=false;
+    const unsigned resize_calls=pair.calls;
+    assert(!g5_canvas_session_camera_present_viewport(&resized,60,4,1,
+        1024,768,present_two_nodes,&pair));
+    assert(pair.calls==resize_calls+1 && resized.camera.revision==1);
+    pair.accept=true;
+    assert(g5_canvas_session_camera_present_viewport(&resized,60,4,1,
+        1024,768,present_two_nodes,&pair));
+    assert(resized.camera.width_px==1024 &&
+           resized.camera.height_px==768 && resized.camera.revision==2);
+    const unsigned accepted_resize_calls=pair.calls;
+    assert(!g5_canvas_session_camera_present_viewport(&resized,60,4,1,
+        1200,900,present_two_nodes,&pair));
+    assert(!g5_canvas_session_camera_present_viewport(&resized,60,4,2,
+        1024,768,present_two_nodes,&pair));
+    assert(!g5_canvas_session_camera_present_viewport(&resized,60,4,2,
+        0,768,present_two_nodes,&pair));
+    assert(pair.calls==accepted_resize_calls);
+    puts("[g5-wp05] Ring3 camera resize and scene revisions passed");
     return 0;
 }
