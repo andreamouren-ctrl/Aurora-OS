@@ -1,0 +1,22 @@
+name: G5 WP-05 Pan Transaction Staging
+on:
+  pull_request:
+    paths:
+      - 'services/canvas/include/aurora/g5_canvas_integer_pan.h'
+      - 'services/canvas/include/aurora/g5_canvas_pan_authority.h'
+      - 'services/canvas/include/aurora/g5_canvas_pan_transaction.h'
+      - 'tests/g5/canvas_pan_transaction_test.c'
+      - '.github/workflows/g5-wp05-pan-transaction.yml'
+  workflow_dispatch:
+jobs:
+  staging:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and test
+        run: |
+          ${{ matrix.compiler }} -std=c11 -Wall -Wextra -Werror -pedantic -O1 -g -fsanitize=undefined -fno-sanitize-recover=all -Iservices/canvas/include tests/g5/canvas_pan_transaction_test.c -o /tmp/g5-pan-transaction
+          /tmp/g5-pan-transaction
