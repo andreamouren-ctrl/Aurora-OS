@@ -1,6 +1,5 @@
 #include <aurora/g5_canvas_session_camera.h>
 #include <math.h>
-#include <string.h>
 static bool authorized(const struct g5_canvas_session_camera *s,
     uint64_t session,uint64_t scene,uint64_t camera) {
     return s && s->session_generation!=0 && s->scene_revision!=0 &&
@@ -37,5 +36,47 @@ bool g5_canvas_session_camera_zoom(struct g5_canvas_session_camera *s,
     struct g5_canvas_session_camera next=*s;
     if (!g5_camera_zoom_at(&next.camera,factor,x,y)) return false;
     *s=next;
+    return true;
+}
+
+bool g5_canvas_session_camera_stage_pan(
+    const struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    double dx,double dy,struct g5_canvas_session_camera *staged) {
+    if (!staged || staged==current ||
+        !authorized(current,session,scene,camera) ||
+        !isfinite(dx) || !isfinite(dy) || (dx==0.0 && dy==0.0))
+        return false;
+    struct g5_canvas_session_camera next=*current;
+    if (!g5_camera_pan(&next.camera,dx,dy)) return false;
+    *staged=next;
+    return true;
+}
+bool g5_canvas_session_camera_stage_zoom(
+    const struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    double factor,double x,double y,
+    struct g5_canvas_session_camera *staged) {
+    if (!staged || staged==current ||
+        !authorized(current,session,scene,camera) ||
+        !isfinite(factor) || factor==1.0)
+        return false;
+    struct g5_canvas_session_camera next=*current;
+    if (!g5_camera_zoom_at(&next.camera,factor,x,y)) return false;
+    *staged=next;
+    return true;
+}
+bool g5_canvas_session_camera_commit(
+    struct g5_canvas_session_camera *current,
+    const struct g5_canvas_session_camera *staged,
+    uint64_t session,uint64_t scene,uint64_t camera) {
+    if (!current || !staged || current==staged ||
+        !authorized(current,session,scene,camera) ||
+        staged->session_generation!=session ||
+        staged->scene_revision!=scene ||
+        !g5_camera_valid(&staged->camera) ||
+        camera==UINT64_MAX || staged->camera.revision!=camera+1u)
+        return false;
+    *current=*staged;
     return true;
 }
