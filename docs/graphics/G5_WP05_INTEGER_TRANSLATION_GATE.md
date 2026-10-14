@@ -94,3 +94,17 @@ old scene or camera revision is rejected before invoking the presenter.
 The host regression now exercises two consecutive opposite movements and
 rejects replay of the second request. The owner snapshot is still supplied
 by the test harness, **not** by a live kernel-owned authority object.
+
+### Production revision compatibility correction
+
+An audit of `kernel/src/session/g5_shell_scene.c` confirmed that the
+accepted `G5_OP_CANVAS_PAN` handler increments `camera_revision` after
+successful presentation but does **not** increment
+`canvas_scene_revision` for a pure translation. The host transaction
+prototype now preserves the scene topology revision and advances only
+camera revision. A new topology/scene publication must independently
+advance its own revision in the production authority; this prototype
+neither performs nor authorizes such publication. The earlier notes
+suggesting that every pan advances both revisions are superseded by
+this correction. A second pan must carry the updated camera revision
+and the same scene revision, unless scene topology changed separately.
