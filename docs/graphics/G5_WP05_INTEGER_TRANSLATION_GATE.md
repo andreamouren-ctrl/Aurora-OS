@@ -117,23 +117,17 @@ snapshot using the prior topology revision is rejected without calling
 the presenter, then checks that a refreshed owner/request can proceed.
 This simulates revision fencing only; it is not a production scene update.
 
-### First production integer-origin integration
+### Canonical Ring 3 Canvas Engine boundary (architecture correction)
 
-`kernel/src/session/g5_shell_scene.c` now stages signed 64-bit world-origin
-coordinates for an accepted bounded pan, using 1024 ticks per screen pixel.
-Both axes are overflow-checked before the window policy/compositor is
-modified. The world origin is committed only after a successful compositor
-present, alongside the existing camera revision increment. The original
-IPC payload and scene revision behavior are unchanged. This is a bounded
-translation foundation, **not** unbounded scrolling or zoom. QEMU and
-bootstrap compilation of this kernel change are required before acceptance.
+G5-D30/D31/D32/D36/D38 and `G5_WP05_CAMERA_IMPLEMENTATION.md`
+assign camera/world coordinates and spatial scene computation to a
+Ring 3 Canvas Engine, not kernel Ring 0. The experimental kernel
+`camera_x_ticks`/`camera_y_ticks` fields and
+`g5_camera_origin.h` helper have been removed from this PR.
 
-### Direct kernel-origin regression gate
-
-The production pan path now calls `kernel/include/aurora/g5_camera_origin.h`
-for checked integer coordinate staging. The new
-`tests/g5/camera_origin_kernel_test.c` compiles that exact kernel header
-under GCC and Clang with UBSan, checking inverse movement, overflow,
-bounds, no-op rejection and invalid output pointers. The compositor
-transaction itself still requires full QEMU verification. This helper
-uses distinct output pointers and does not modify them on failure.
+The accepted kernel `G5_OP_CANVAS_PAN` bounded IPC/presentation bridge
+remains unchanged for compatibility with the already accepted QEMU
+gate. The Shell owns desktop policy, the compositor owns composition
+and presentation, and the future isolated Canvas Engine owns world
+coordinates, zoom and spatial state. The host prototypes in
+`services/canvas` are not yet linked to a Ring 3 process.
