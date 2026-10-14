@@ -348,8 +348,9 @@ bool window_policy_place_initial(
     uint32_t centered_y =
         (policy->output_height - height) / 2u;
 
-    uint32_t cascade = policy->cascade_index++;
-    uint32_t offset = (cascade % 8u) * 32u;
+    uint32_t cascade = policy->cascade_index;
+    policy->cascade_index = (cascade + 1u) % 8u;
+    uint32_t offset = cascade * 32u;
 
     uint32_t max_x = policy->output_width - width;
     uint32_t max_y = policy->output_height - height;
@@ -360,10 +361,8 @@ bool window_policy_place_initial(
     if (x > max_x) x = max_x;
     if (y > max_y) y = max_y;
 
+    if (policy->next_z == INT32_MAX) return false;
     int32_t z = policy->next_z++;
-    if (policy->next_z <= 0) {
-        policy->next_z = 1;
-    }
 
     window->placed = true;
     window->placement = (struct aurora_window_placement){
@@ -455,10 +454,8 @@ bool window_policy_raise(
 
     if (!surface_live(window)) return false;
 
+    if (policy->next_z == INT32_MAX) return false;
     int32_t z = policy->next_z++;
-    if (policy->next_z <= 0) {
-        policy->next_z = 1;
-    }
 
     window->placement.z = z;
     return true;
