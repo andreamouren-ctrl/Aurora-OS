@@ -9,8 +9,11 @@ ELF := $(BUILD_DIR)/user-session-host.elf
 BIN := $(BUILD_DIR)/user-session-host.bin
 MAIN_OBJECT := $(BUILD_DIR)/main.o
 ENTRY_OBJECT := $(BUILD_DIR)/entry.o
+CANVAS_CAMERA_OBJECT := $(BUILD_DIR)/g5_canvas_integer_camera.o
+CANVAS_CAMERA_SOURCE := $(ROOT)/services/canvas/src/g5_canvas_integer_camera.c
+CANVAS_CAMERA_HEADER := $(ROOT)/services/canvas/include/aurora/g5_canvas_integer_camera.h
 
-CPPFLAGS := -I$(KERNEL_INCLUDE)
+CPPFLAGS := -I$(KERNEL_INCLUDE) -I$(ROOT)/services/canvas/include
 CFLAGS := \
     -target x86_64-unknown-none-elf \
     -std=c11 \
@@ -64,12 +67,15 @@ $(MAIN_OBJECT): main.c $(KERNEL_INCLUDE)/aurora/capability_abi.h $(KERNEL_INCLUD
 	python3 $(ROOT)/scripts/check-g5-ring3-wire.py
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c main.c -o $@
 
+$(CANVAS_CAMERA_OBJECT): $(CANVAS_CAMERA_SOURCE) $(CANVAS_CAMERA_HEADER) | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $(CANVAS_CAMERA_SOURCE) -o $@
+
 $(ENTRY_OBJECT): entry.S $(KERNEL_INCLUDE)/aurora/user_session_host_abi.h $(ROOT)/scripts/check-user-session-entry-abi.py | $(BUILD_DIR)
 	python3 $(ROOT)/scripts/check-user-session-entry-abi.py
 	$(CC) $(ASMFLAGS) -c entry.S -o $@
 
-$(ELF): $(ENTRY_OBJECT) $(MAIN_OBJECT) linker.ld
-	$(CC) $(LDFLAGS) $(ENTRY_OBJECT) $(MAIN_OBJECT) -o $@
+$(ELF): $(ENTRY_OBJECT) $(MAIN_OBJECT) $(CANVAS_CAMERA_OBJECT) linker.ld
+	$(CC) $(LDFLAGS) $(ENTRY_OBJECT) $(MAIN_OBJECT) $(CANVAS_CAMERA_OBJECT) -o $@
 
 $(BIN): $(ELF)
 	$(OBJCOPY) -O binary $< $@

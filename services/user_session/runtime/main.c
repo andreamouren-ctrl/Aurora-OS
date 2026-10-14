@@ -6,6 +6,23 @@
 #include <aurora/syscall_abi.h>
 #include <aurora/user_session_host_abi.h>
 #include <aurora/g5_ipc_abi.h>
+#include <aurora/g5_canvas_integer_camera.h>
+
+/* This translation unit sees both IPC and camera headers. Detect ABI
+ * drift without introducing a kernel-header dependency in host camera tests. */
+_Static_assert(G5_ICAM_G5_INLINE_BYTES == G5_IPC_WIRE_INLINE_MAX,
+               "canvas camera and G5 IPC inline capacities diverged");
+_Static_assert(G5_ICAM_WIRE_BATCH_CAPACITY <= G5_IPC_WIRE_INLINE_MAX,
+               "canvas scene packet cannot fit the G5 IPC envelope");
+_Static_assert(G5_ICAM_WIRE_BATCH_HEADER ==
+               G5_CANVAS_SCENE_BATCH_HEADER_BYTES,
+               "canvas scene header diverged from IPC ABI");
+_Static_assert(G5_ICAM_WIRE_BATCH_ITEM ==
+               G5_CANVAS_SCENE_BATCH_ITEM_BYTES,
+               "canvas scene item diverged from IPC ABI");
+_Static_assert(G5_ICAM_WIRE_BATCH_MAX ==
+               G5_CANVAS_SCENE_BATCH_MAX_ITEMS,
+               "canvas scene batch count diverged from IPC ABI");
 
 static void clear_bytes(void *buffer, size_t size) {
     volatile uint8_t *bytes = (volatile uint8_t *)buffer;
@@ -385,6 +402,13 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
         return 12;
     }
 
+    /* Per-process Ring 3 camera state. No kernel privilege or FP state. */
+    struct g5_integer_camera canvas_camera={0};
+    if ((startup->g5_endpoint != 0u || secondary) &&
+        !g5_icam_init(&canvas_camera,0,0,G5_ICAM_ONE,
+                      startup->graphics_width,startup->graphics_height))
+        return 19;
+
     uint64_t shell_commit=0u;
     if (startup->g5_endpoint != 0u || secondary) {
         uint64_t failure_stage=20u;
@@ -424,6 +448,11 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                                     shell_commit))
         return 32;
 
+    uint64_t last_canvas_pan_request=4u;
+    uint64_t pending_canvas_pan_request=0u;
+    uint64_t pending_canvas_camera_revision=0u;
+    uint64_t pending_canvas_scene_revision=0u;
+    struct g5_integer_camera pending_canvas_camera={0};
     uint64_t last_resize_serial=0u;
     uint64_t current_graphics_buffer=startup->graphics_buffer;
     for (;;) {
@@ -435,6 +464,45 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
             clear_bytes(&received, sizeof(received));
             return 1;
         }
+        /* The kernel sends this only after G5 IPC and compositor commit.
+         * A forwarded ACK never changes local camera state. */
+        if (!secondary && startup->g5_endpoint != 0u &&
+            received.length ==
+                sizeof(struct aurora_user_session_host_camera_committed)) {
+            struct aurora_user_session_host_camera_committed committed={0};
+            copy_bytes(&committed,received.data,sizeof(committed));
+            if (committed.header.type ==
+                    AURORA_USER_SESSION_HOST_CANVAS_PAN_COMMITTED ||
+                committed.header.type ==
+                    AURORA_USER_SESSION_HOST_CANVAS_PAN_REJECTED) {
+                clear_bytes(&received,sizeof(received));
+                if (committed.header.version !=
+                        AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
+                    pending_canvas_pan_request==0u ||
+                    committed.header.request_id!=pending_canvas_pan_request ||
+                    committed.scene_revision!=pending_canvas_scene_revision)
+                    return 1;
+                if (committed.header.type ==
+                        AURORA_USER_SESSION_HOST_CANVAS_PAN_COMMITTED) {
+                    if (committed.camera_revision!=pending_canvas_camera.revision ||
+                        !g5_icam_accept_snapshot(&canvas_camera,
+                            pending_canvas_camera_revision,
+                            &pending_canvas_camera))
+                        return 1;
+                } else {
+                    /* A rejected stale request reports the authoritative
+                     * kernel revision, not the stale revision supplied by
+                     * the requester. Keep the committed center/zoom and
+                     * resynchronize only the revision. Never apply the
+                     * speculative pan on rejection. */
+                    if (!g5_icam_reconcile_rejected(
+                            &canvas_camera,committed.camera_revision))
+                        return 1;
+                }
+                pending_canvas_pan_request=0u;
+                continue;
+            }
+        }
         /* Resize and camera control messages happen to have the same size.
          * Identify the type before treating the bytes as resize metadata. */
         if (!secondary && startup->g5_endpoint != 0u &&
@@ -444,8 +512,19 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
             copy_bytes(&pan,received.data,sizeof(pan));
             if (pan.header.type == AURORA_USER_SESSION_HOST_CANVAS_PAN_REQUEST) {
                 clear_bytes(&received,sizeof(received));
+                /* Preflight the integer camera transaction without committing
+                 * speculative state. Kernel scene policy remains authoritative:
+                 * the control ACK only acknowledges forwarding, not acceptance. */
+                struct g5_integer_camera proposed_camera=canvas_camera;
                 if (pan.header.version != AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
-                    pan.header.request_id<=4u ||
+                    pan.header.request_id<=last_canvas_pan_request ||
+                    pending_canvas_pan_request!=0u ||
+                    pan.expected_camera_revision==0u ||
+                    pan.expected_scene_revision==0u ||
+                    pan.delta_x_px>32 || pan.delta_x_px< -32 ||
+                    pan.delta_y_px>32 || pan.delta_y_px< -32 ||
+                    (pan.delta_x_px==0 && pan.delta_y_px==0) ||
+                    !g5_icam_pan(&proposed_camera,pan.delta_x_px,pan.delta_y_px) ||
                     !send_g5_canvas_pan(startup->g5_endpoint,
                                         startup->session_generation,
                                         startup->graphics_object_generation,
@@ -457,6 +536,11 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                                   AURORA_USER_SESSION_HOST_CANVAS_PAN_ACK,
                                   pan.header.request_id))
                     return 1;
+                last_canvas_pan_request=pan.header.request_id;
+                pending_canvas_pan_request=pan.header.request_id;
+                pending_canvas_camera_revision=pan.expected_camera_revision;
+                pending_canvas_scene_revision=pan.expected_scene_revision;
+                pending_canvas_camera=proposed_camera;
                 continue;
             }
         }
@@ -519,6 +603,8 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                 !send_message(startup->control_endpoint,
                               AURORA_USER_SESSION_HOST_FRAME_COMMITTED,
                               commit))
+                return 1;
+            if (!g5_icam_set_viewport(&canvas_camera,request.width,request.height))
                 return 1;
             last_resize_serial=request.configure_serial;
             current_graphics_buffer=request.graphics_buffer;

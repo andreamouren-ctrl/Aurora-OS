@@ -46,6 +46,16 @@ struct aurora_compositor_damage {
     bool valid;
 };
 
+/* Trusted destination-space clip. Coordinates are output pixels; this is
+ * deliberately not a source-buffer crop or an arbitrary zoom transform. */
+struct aurora_compositor_clip {
+    uint32_t x;
+    uint32_t y;
+    uint32_t width;
+    uint32_t height;
+    bool enabled;
+};
+
 struct aurora_compositor_node {
     uint64_t node_id;
     aurora_cap_handle surface_handle;
@@ -61,12 +71,15 @@ struct aurora_compositor_node {
     bool fully_opaque;
     /* Render normally, but allow underlying trusted surface to take input. */
     bool input_transparent;
+    struct aurora_compositor_clip clip;
     uint64_t last_commit_serial;
 };
 
 struct aurora_software_compositor {
     struct aurora_cap_table surface_caps;
     struct aurora_display_backbuffer backbuffer;
+    /* Private raster target; never the last successfully presented frame. */
+    struct aurora_display_backbuffer staging_backbuffer;
     struct aurora_compositor_node nodes[AURORA_COMPOSITOR_MAX_NODES];
     struct aurora_compositor_damage pending_damage;
     uint32_t output_index;
@@ -133,6 +146,41 @@ bool software_compositor_set_input_transparent(
     aurora_cap_handle display_control_handle,
     uint64_t node_id,
     bool transparent
+);
+
+/* Reject zero-sized/overflowing rectangles; disable restores legacy full-node
+ * behavior. The trusted caller must stage and present scene changes atomically. */
+bool software_compositor_set_clip(
+    struct aurora_software_compositor *compositor,
+    uint64_t node_id,
+    const struct aurora_compositor_clip *clip
+);
+
+/* Trusted all-or-nothing placement preparation. This does not present a
+ * frame, authorize Ring 3 surfaces or constitute a G5 IPC transaction. */
+struct aurora_compositor_placement {
+    uint64_t node_id;
+    int32_t x;
+    int32_t y;
+    int32_t z;
+    uint8_t opacity;
+    bool visible;
+};
+
+bool software_compositor_set_nodes_atomic(
+    struct aurora_software_compositor *compositor,
+    const struct aurora_compositor_placement *placements,
+    uint32_t count
+);
+
+/* Trusted synchronous scene transaction for at most three placements:
+ * validate, compose and present once, restore node state on failure.
+ * Not a Ring 3 IPC entry; physical scanout atomicity is not guaranteed. */
+bool software_compositor_present_nodes_atomic(
+    struct aurora_software_compositor *compositor,
+    const struct aurora_compositor_placement *placements,
+    uint32_t count,
+    uint64_t *out_present_serial
 );
 
 bool software_compositor_set_transform(

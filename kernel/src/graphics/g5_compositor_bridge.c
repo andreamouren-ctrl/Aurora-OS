@@ -10,6 +10,7 @@ bool g5_compositor_bridge_bind(struct g5_compositor_bridge *b,
  if(!b||!d||!c||b->delivery||!d->submission||!c->initialized||
     !g5_session_context_authorized(&d->submission->registry.session,d->bound_generation))return false;
  b->delivery=d;b->compositor=c;b->generation=d->bound_generation;
+ b->last_display_serial=0;
  return true;
 }
 bool g5_compositor_bridge_attach(struct g5_compositor_bridge *b,uint32_t slot,
@@ -61,10 +62,66 @@ bool g5_compositor_bridge_present(struct g5_compositor_bridge *b,uint32_t slot,
   *display_serial=0;
   return false;
  }
- if(!g5_frame_delivery_ack(b->delivery,b->generation,receipt)) {
+ /* Physical presentation has already occurred. Preserve its serial even
+  * if the receipt ACK fails or its ordering is invalid. */
+ uint64_t actual_serial=*display_serial;
+ if(actual_serial>b->last_display_serial)
+  b->last_display_serial=actual_serial;
+ else {
+  (void)g5_frame_delivery_abort(b->delivery,b->generation,receipt);
   *display_serial=0;
   return false;
  }
+ if(!g5_frame_delivery_ack(b->delivery,b->generation,receipt)) {
+  /* Display already changed: do not claim an atomic rollback. */
+  *display_serial=0;
+  return false;
+ }
+ return true;
+}
+bool g5_compositor_bridge_present_nodes_atomic(
+ struct g5_compositor_bridge *b,
+ const struct g5_compositor_slot_placement *placements,
+ uint32_t count,
+ uint64_t *display_serial
+) {
+ if(display_serial)*display_serial=0;
+ if(!display_serial||!live(b)||!placements||!count||
+    count>3u||count>G5_SURFACE_REGISTRY_CAPACITY||
+    count>AURORA_COMPOSITOR_MAX_NODES)return false;
+ struct aurora_compositor_placement nodes[G5_SURFACE_REGISTRY_CAPACITY];
+ for(uint32_t i=0;i<count;++i) {
+  uint32_t slot=placements[i].slot;
+  if(slot>=G5_SURFACE_REGISTRY_CAPACITY||!b->node_ids[slot]||
+     placements[i].placement.node_id!=b->node_ids[slot])return false;
+  for(uint32_t j=0;j<i;++j)
+   if(placements[j].slot==slot)return false;
+  struct g5_surface_registry_entry *entry=
+   &b->delivery->submission->registry.entries[slot];
+  if(!entry->occupied)return false;
+  struct g5_surface_bridge *bound=&entry->bridge;
+  if(!bound->owner_caps||
+     bound->object_id!=b->attached_object_ids[slot]||
+     bound->object_generation!=b->attached_object_generations[slot]||
+     !g5_surface_configure_ready(&bound->configure,
+       &b->delivery->submission->registry.session))return false;
+  struct aurora_graphics_surface *surface=NULL;
+  if(!graphics_surface_lookup(bound->owner_caps,bound->surface_handle,
+      AURORA_RIGHT_READ,&surface)||
+     surface->object_id!=bound->object_id||
+     surface->generation!=bound->object_generation||
+     surface->destroy_requested||
+     surface->state==AURORA_GRAPHICS_SURFACE_FREE)return false;
+  nodes[i]=placements[i].placement;
+ }
+ uint64_t serial=0;
+ if(!software_compositor_present_nodes_atomic(
+      b->compositor,nodes,count,&serial))return false;
+ /* Once the display changed, record its serial even if the caller cannot
+  * accept this transaction. A duplicate/nonmonotonic serial is never ACKed. */
+ if(serial>b->last_display_serial)b->last_display_serial=serial;
+ else return false;
+ *display_serial=serial;
  return true;
 }
 bool g5_compositor_bridge_detach(struct g5_compositor_bridge *b,uint32_t slot) {
@@ -87,4 +144,5 @@ void g5_compositor_bridge_revoke(struct g5_compositor_bridge *b) {
  for(unsigned i=0;i<G5_SURFACE_REGISTRY_CAPACITY;i++)
   if(b->node_ids[i])return; /* keep owner for a later cleanup attempt */
  b->delivery=NULL;b->compositor=NULL;b->generation=0;
+ b->last_display_serial=0;
 }

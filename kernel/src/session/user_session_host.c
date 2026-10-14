@@ -17,6 +17,7 @@
 #include <aurora/g5_ipc_endpoint.h>
 #include <aurora/g5_shell_session.h>
 #include <aurora/g5_shell_scene.h>
+#include "../../../services/canvas/include/aurora/g5_canvas_input_context.h"
 #include <aurora/usercopy.h>
 
 #define USER_SESSION_HOST_TIMEOUT_NS UINT64_C(2000000000)
@@ -664,27 +665,60 @@ static bool start_with_context(
 }
 
 bool user_session_host_health_check(void) {
-    if (!user_session_host_active() || !host.g5_ready ||
-        session_g5_dispatcher == NULL || host.kernel_endpoint == NULL)
+    const bool active=user_session_host_active();
+    if (!active || !host.g5_ready ||
+        session_g5_dispatcher == NULL || host.kernel_endpoint == NULL) {
+        log_write("[g5-wp03-health-preflight] active/ready/dispatcher/endpoint: ");
+        log_u64(active);log_write("/");
+        log_u64(host.g5_ready);log_write("/");
+        log_u64(session_g5_dispatcher!=NULL);log_write("/");
+        log_u64(host.kernel_endpoint!=NULL);log_line("");
+        log_write("[g5-wp03-health-process] host/process/thread/running/extra/second/thread/running: ");
+        log_u64(host.active);log_write("/");
+        log_u64(host.process!=NULL);log_write("/");
+        log_u64(host.thread!=0u);log_write("/");
+        log_u64(host.process!=NULL &&
+                process_state(host.process)==AURORA_PROCESS_RUNNING);
+        log_write("/");
+        log_u64(host.scene.extra.active);log_write("/");
+        log_u64(host.second_process!=NULL);log_write("/");
+        log_u64(host.second_thread!=0u);log_write("/");
+        log_u64(host.second_process!=NULL &&
+                process_state(host.second_process)==AURORA_PROCESS_RUNNING);
+        log_line("");
         return false;
+    }
     /* IDs 1 and 2 are reserved by Ring3 startup. All subsequent requests
      * consume a strictly increasing G5 and control ID in the same session. */
     uint64_t request_id=host.next_request_id++;
-    if (request_id < 3u || request_id == UINT64_MAX)
+    if (request_id < 3u || request_id == UINT64_MAX) {
+        log_write("[g5-wp03-health-preflight] invalid request ID: ");
+        log_u64(request_id);log_line("");
         return false;
+    }
     struct aurora_user_session_host_message request={
         .version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
         .type=AURORA_USER_SESSION_HOST_HEALTH_POLL,
         .request_id=request_id
     };
-    if (!ipc_send(host.kernel_endpoint,&host.kernel_caps,&request,
-                  (uint32_t)sizeof(request),NULL,0u) ||
-        !receive_expected(AURORA_USER_SESSION_HOST_HEALTH_ACK,request_id))
-        return false;
+    const bool health_sent=ipc_send(
+        host.kernel_endpoint,&host.kernel_caps,&request,
+        (uint32_t)sizeof(request),NULL,0u);
+    const bool health_ack=health_sent &&
+        receive_expected(AURORA_USER_SESSION_HOST_HEALTH_ACK,request_id);
     enum g5_ipc_status health=G5_IPC_DENIED;
-    if (!g5_ipc_endpoint_poll(&host.g5_binding,&health) ||
-        health!=G5_IPC_OK)
+    const bool health_g5=health_ack &&
+        g5_ipc_endpoint_poll(&host.g5_binding,&health) &&
+        health==G5_IPC_OK;
+    if (!health_g5) {
+        log_write("[g5-wp03-health-channel] sent/ack/g5/status/id: ");
+        log_u64(health_sent);log_write("/");
+        log_u64(health_ack);log_write("/");
+        log_u64(health_g5);log_write("/");
+        log_u64((uint64_t)health);log_write("/");
+        log_u64(request_id);log_line("");
         return false;
+    }
     if (!host.scene.extra.active && host.second_process==NULL)
         return true; /* User closed the secondary window normally. */
     if (!host.scene.extra.active || !host.second_process ||
@@ -1061,7 +1095,7 @@ static bool g5_wp05_route_background_scroll(
         event->source!=AURORA_INPUT_SOURCE_USB_HID ||
         event->device_id<AURORA_INPUT_DEVICE_USB_BASE ||
         event->sequence==0u ||
-        (event->scroll_x==0 && event->scroll_y==0) ||
+        event->scroll_y==0 ||
         router->capture_target!=0u || host.drag_window_id!=0u ||
         router->pointer_focus_target!=0u)
         return true;
@@ -1081,26 +1115,19 @@ static bool g5_wp05_route_background_scroll(
         host.scene.canvas_scene_revision==0u ||
         host.next_request_id<=4u || host.next_request_id==UINT64_MAX)
         return false;
-    const int32_t dx=event->scroll_x>0?8:event->scroll_x<0?-8:0;
-    const int32_t dy=event->scroll_y>0?8:event->scroll_y<0?-8:0;
-    struct aurora_user_session_host_camera_message request={0};
-    request.header.version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION;
-    request.header.type=AURORA_USER_SESSION_HOST_CANVAS_PAN_REQUEST;
-    request.header.request_id=host.next_request_id++;
-    request.delta_x_px=dx;
-    request.delta_y_px=dy;
-    request.expected_camera_revision=host.scene.camera_revision;
-    request.expected_scene_revision=host.scene.canvas_scene_revision;
-    uint64_t ack=0u;
-    enum g5_ipc_status status=G5_IPC_DENIED;
-    if (!ipc_send(host.kernel_endpoint,&host.kernel_caps,
-                  &request,(uint32_t)sizeof(request),NULL,0u) ||
-        !receive_primary_event(AURORA_USER_SESSION_HOST_CANVAS_PAN_ACK,
-                               &ack) ||
-        ack!=request.header.request_id ||
-        !g5_ipc_endpoint_poll(&host.g5_binding,&status) ||
-        status!=G5_IPC_OK)
-        return false;
+    /* Until zoom IPC and compositor projection are integrated, consume
+     * physical wheel input without mutating the camera. */
+    const struct g5_canvas_input_context input_context={
+        .canvas_navigation=1u,
+        .pointer_over_window=0u
+    };
+    uint32_t zoom_factor_q16=0u;
+    if (!g5_canvas_wheel_zoom_request(
+            &input_context,event->scroll_y,&zoom_factor_q16))
+        return true;
+    /* The factor is normalized and bounded, but it must not be applied
+     * until the compositor supports authoritative world-space zoom. */
+    (void)zoom_factor_q16;
     host.last_camera_scroll_sequence=event->sequence;
     return true;
 }
@@ -1356,6 +1383,23 @@ static bool g5_wp05_pan_step(
         !g5_ipc_endpoint_poll(&host.g5_binding,&status))
         return false;
     if ((status==G5_IPC_OK)!=should_accept) return false;
+    /* The boot oracle uses the same control endpoint as live input. Every
+     * forwarded pan must receive its kernel-authoritative completion,
+     * otherwise the Ring 3 camera remains pending on the next test step. */
+    const struct aurora_user_session_host_camera_committed result={
+        .header={
+            .version=AURORA_USER_SESSION_HOST_PROTOCOL_VERSION,
+            .type=should_accept ?
+                AURORA_USER_SESSION_HOST_CANVAS_PAN_COMMITTED :
+                AURORA_USER_SESSION_HOST_CANVAS_PAN_REJECTED,
+            .request_id=request.header.request_id
+        },
+        .camera_revision=host.scene.camera_revision,
+        .scene_revision=host.scene.canvas_scene_revision
+    };
+    if (!ipc_send(host.kernel_endpoint,&host.kernel_caps,&result,
+                  (uint32_t)sizeof(result),NULL,0u))
+        return false;
     struct aurora_window_toplevel after_first={0},after_second={0};
     if (!window_policy_read_toplevel(&host.scene.window_policy,
             host.scene.window_id,&after_first) ||
@@ -1459,22 +1503,27 @@ static bool g5_wp05_background_scroll_probe(void) {
     wheel.source=AURORA_INPUT_SOURCE_USB_HID;
     wheel.device_id=AURORA_INPUT_DEVICE_USB_BASE+1u;
     wheel.sequence=9002u;
-    if (!g5_wp05_route_normalized_input(&wheel,&consumed) ||
-        host.scene.camera_revision!=4u ||
-        g5_session_pan_events!=3u ||
-        host.scene.last_display_serial<=old_serial)
+    /* Transitional wheel-to-zoom oracle: a trusted background wheel is
+     * consumed once but MUST NOT mutate window placement, camera revision,
+     * pan event count or display serial before zoom IPC is implemented. */
+    const bool first_scroll_routed=g5_wp05_route_normalized_input(&wheel,&consumed);
+    if (!first_scroll_routed || !consumed ||
+        host.scene.camera_revision!=3u ||
+        g5_session_pan_events!=2u ||
+        host.scene.last_display_serial!=old_serial ||
+        host.last_camera_scroll_sequence!=9002u)
         return g5_wp05_input_diagnostic(6u);
-    uint64_t after_first=host.scene.last_display_serial;
     if (!g5_wp05_route_normalized_input(&wheel,&consumed) ||
-        host.scene.camera_revision!=4u ||
-        host.scene.last_display_serial!=after_first)
-        return g5_wp05_input_diagnostic(7u); /* repeated event cannot pan twice */
+        !consumed || host.scene.camera_revision!=3u ||
+        host.scene.last_display_serial!=old_serial)
+        return g5_wp05_input_diagnostic(7u);
     wheel.sequence=9003u;
     wheel.scroll_y=-1;
     if (!g5_wp05_route_normalized_input(&wheel,&consumed) ||
-        host.scene.camera_revision!=5u ||
-        g5_session_pan_events!=4u ||
-        host.scene.last_display_serial<=after_first)
+        !consumed || host.scene.camera_revision!=3u ||
+        g5_session_pan_events!=2u ||
+        host.scene.last_display_serial!=old_serial ||
+        host.last_camera_scroll_sequence!=9003u)
         return g5_wp05_input_diagnostic(8u);
     struct aurora_window_toplevel final_primary={0},final_second={0};
     if (!window_policy_read_toplevel(&host.scene.window_policy,
@@ -1486,6 +1535,18 @@ static bool g5_wp05_background_scroll_probe(void) {
         final_second.placement.x!=second.placement.x ||
         final_second.placement.y!=second.placement.y)
         return g5_wp05_input_diagnostic(9u);
+    /* Horizontal-only scrolling is not a Canvas zoom gesture and must
+     * remain available to the focused application/input router. */
+    wheel.sequence=9004u;
+    wheel.scroll_y=0;
+    wheel.scroll_x=1;
+    consumed=true;
+    if (!g5_wp05_route_normalized_input(&wheel,&consumed) ||
+        consumed || host.last_camera_scroll_sequence!=9003u ||
+        host.scene.camera_revision!=3u ||
+        host.scene.last_display_serial!=old_serial)
+        return g5_wp05_input_diagnostic(11u);
+    wheel.scroll_x=0;
     /* Over a committed app window, USB wheel remains app-owned. */
     struct aurora_input_event over_window={0};
     over_window.type=AURORA_INPUT_EVENT_POINTER_ABSOLUTE;
@@ -1506,7 +1567,7 @@ static bool g5_wp05_background_scroll_probe(void) {
     wheel.sequence=9004u;
     uint64_t after_return=host.scene.last_display_serial;
     if (!g5_wp05_route_normalized_input(&wheel,&consumed) ||
-        host.scene.camera_revision!=5u ||
+        host.scene.camera_revision!=3u ||
         host.scene.last_display_serial!=after_return)
         return g5_wp05_input_diagnostic(11u);
     if (consumed ||
@@ -1515,7 +1576,7 @@ static bool g5_wp05_background_scroll_probe(void) {
         dequeued.type!=AURORA_INPUT_EVENT_SCROLL ||
         dequeued.sequence!=9004u)
         return g5_wp05_input_diagnostic(13u);
-    log_line("[g5-wp05-input] USB HID background wheel uses authorized Ring3 pan");
+    log_line("[g5-wp05-input] contextual wheel consumed without legacy pan (zoom IPC pending)");
     return true;
 }
 
@@ -1852,6 +1913,16 @@ bool user_session_host_self_test(void) {
             host.scene.y==72 && host.scene.last_display_serial==display_before &&
             g5_session_place_events==1u;
     }
+    if (!foreign_object_denied) {
+        log_write("[g5-foreign-diagnostic] running/replay/wrong/scene-x/y/place/present: ");
+        log_u64(running);log_write("/");
+        log_u64(replay_denied);log_write("/");
+        log_u64(wrong_generation_denied);log_write("/");
+        log_u64((uint64_t)host.scene.x);log_write("/");
+        log_u64((uint64_t)host.scene.y);log_write("/");
+        log_u64(g5_session_place_events);log_write("/");
+        log_u64(g5_session_present_events);log_line("");
+    }
     bool close_opcode_denied=false;
     if (foreign_object_denied) {
         uint8_t wire[G5_IPC_WIRE_HEADER_BYTES+8u]={0},args[8]={0};
@@ -1872,6 +1943,13 @@ bool user_session_host_self_test(void) {
             g5_ipc_endpoint_poll(&host.g5_binding,&status) &&
             status==G5_IPC_DENIED && host.scene.active &&
             g5_session_place_events==1u && g5_session_present_events==1u;
+        if (!close_opcode_denied) {
+            log_write("[g5-close-diagnostic] status/active/place/present: ");
+            log_u64((uint64_t)status);log_write("/");
+            log_u64(host.scene.active);log_write("/");
+            log_u64(g5_session_place_events);log_write("/");
+            log_u64(g5_session_present_events);log_line("");
+        }
     }
     /* WP-05 proof: two real Ring 3 windows move together in one frame.
      * Restore the original placement to preserve frozen WP-04 probes. */
@@ -1879,13 +1957,28 @@ bool user_session_host_self_test(void) {
     bool wp05_input_verified=wp05_verified && g5_wp05_background_scroll_probe();
     /* Exercise the post-bootstrap Ring3 control loop and its kernel G5
      * dispatch, rather than just proving startup SHELL_READY/HEALTH. */
-    bool live_health=running && replay_denied &&
+    const bool live_preconditions=running && replay_denied &&
         wrong_generation_denied && foreign_object_denied &&
-        close_opcode_denied && wp05_verified && wp05_input_verified &&
-        user_session_host_health_check() &&
-        g5_session_health_events==2u &&
-        user_session_host_health_check() &&
-        g5_session_health_events==3u;
+        close_opcode_denied && wp05_verified && wp05_input_verified;
+    const bool first_live_poll=live_preconditions &&
+        user_session_host_health_check();
+    const uint64_t first_live_health_count=g5_session_health_events;
+    const bool second_live_poll=first_live_poll &&
+        first_live_health_count==2u &&
+        user_session_host_health_check();
+    const uint64_t second_live_health_count=g5_session_health_events;
+    bool live_health=live_preconditions && first_live_poll &&
+        first_live_health_count==2u && second_live_poll &&
+        second_live_health_count==3u;
+    if (!live_health) {
+        log_write("[g5-wp03-health-diagnostic] pre/first/count/second/count: ");
+        log_u64(live_preconditions);log_write("/");
+        log_u64(first_live_poll);log_write("/");
+        log_u64(first_live_health_count);log_write("/");
+        log_u64(second_live_poll);log_write("/");
+        log_u64(second_live_health_count);
+        log_line("");
+    }
     /* End-of-phase WP-04 native acceptance: the second *process* must
      * ACK two real configures and commit/present both replacement buffers. */
     uint64_t original_primary_serial=host.scene.last_display_serial;
@@ -1913,6 +2006,23 @@ bool user_session_host_self_test(void) {
         host.scene.extra.pending_resize_buffer==NULL &&
         host.scene.extra.last_commit_serial>=3u &&
         host.scene.extra.last_display_serial>original_second_serial;
+    if (!resized_primary || !resized_roundtrip) {
+        log_write("[g5-wp04-resize-diagnostic] primary/roundtrip/health: ");
+        log_u64(resized_primary);log_write("/");
+        log_u64(resized_roundtrip);log_write("/");
+        log_u64(live_health);
+        log_write(" primary-width/height/serial/pending: ");
+        log_u64(host.scene.width);log_write("/");
+        log_u64(host.scene.height);log_write("/");
+        log_u64(host.scene.last_display_serial);log_write("/");
+        log_u64(host.scene.pending_resize_buffer!=NULL);
+        log_write(" secondary-width/height/serial/pending: ");
+        log_u64(host.scene.extra.width);log_write("/");
+        log_u64(host.scene.extra.height);log_write("/");
+        log_u64(host.scene.extra.last_display_serial);log_write("/");
+        log_u64(host.scene.extra.pending_resize_buffer!=NULL);
+        log_line("");
+    }
     bool interaction_verified=resized_roundtrip &&
         g5_wp04_two_window_interaction_probe();
     bool stopped = user_session_host_active() && user_session_host_stop();

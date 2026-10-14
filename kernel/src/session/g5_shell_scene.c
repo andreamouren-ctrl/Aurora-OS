@@ -580,6 +580,8 @@ bool g5_shell_scene_begin(struct g5_shell_scene *scene,
     log_line("[g5-wp04-gate] scene input router registered");
     scene->x=48;
     scene->y=48;
+    /* Legacy bring-up revision fence only. The actual camera and its
+     * world-space state belong to the Ring 3 Canvas Engine. */
     scene->camera_revision=1u;
     scene->canvas_scene_revision=1u;
     scene->active=true;
@@ -946,6 +948,8 @@ bool g5_shell_scene_pan(struct g5_shell_scene *scene,
     scene->x=(int32_t)x1; scene->y=(int32_t)y1;
     scene->last_display_serial=serial;
     scene->extra.last_display_serial=serial;
+    /* Temporary kernel compositor bridge: acknowledge the presentation
+     * serial only. No center/zoom/viewport state is stored in Ring 0. */
     ++scene->camera_revision;
     return true;
 rollback:

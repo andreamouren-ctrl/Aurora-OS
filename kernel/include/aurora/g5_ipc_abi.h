@@ -27,7 +27,9 @@ enum g5_ipc_opcode {
     G5_OP_SCENE_PREPARE = 0x03000001u,
     G5_OP_SCENE_PUBLISH = 0x03000002u,
     /* WP-05: signed pixel delta, camera/scene revision (24-byte LE). */
-    G5_OP_CANVAS_PAN = 0x04000001u
+    G5_OP_CANVAS_PAN = 0x04000001u,
+    /* WP-05 Ring 3 scene batch; distinct from legacy pan/publish. */
+    G5_OP_CANVAS_SCENE_BATCH = 0x04000002u
 };
 
 enum g5_ipc_kind {
@@ -116,6 +118,13 @@ enum g5_ipc_status g5_ipc_validate_caps(
     g5_ipc_cap_check_fn checker,
     void *context
 );
+
+/* G5SB v1: 56-byte header plus 1..3 fixed 48-byte items.
+ * Surface IDs in this payload are NOT capabilities; a receiver must
+ * resolve and authorize each surface before any compositor side effect. */
+#define G5_CANVAS_SCENE_BATCH_HEADER_BYTES 56u
+#define G5_CANVAS_SCENE_BATCH_ITEM_BYTES 48u
+#define G5_CANVAS_SCENE_BATCH_MAX_ITEMS 3u
 
 /* Initial strict control-message schema. These are version-1 byte lengths,
  * not native C struct sizes. Schema checks do not authorize the sender. */

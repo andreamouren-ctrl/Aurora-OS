@@ -40,6 +40,18 @@ bool software_compositor_compose_present(struct aurora_software_compositor *c,ui
  *out=presents;
  return true;
 }
+bool software_compositor_present_nodes_atomic(
+ struct aurora_software_compositor *c,
+ const struct aurora_compositor_placement *placements,
+ uint32_t count,uint64_t *out
+) {
+ if(!c||!placements||!count||!out||fail_compose)return false;
+ for(uint32_t i=0;i<count;++i)
+  if(placements[i].node_id!=500)return false;
+ ++presents;
+ *out=presents;
+ return true;
+}
 int main(void) {
  struct g5_frame_submission f={0};
  struct g5_frame_delivery d={0};
@@ -76,9 +88,54 @@ int main(void) {
  f.registry.entries[slot].bridge.object_id=33;
  assert(b.attached_object_ids[slot]==33);
 
+ struct g5_compositor_slot_placement batch={0};
+ batch.slot=slot;
+ batch.placement.node_id=500;
+ batch.placement.opacity=255;
+ batch.placement.visible=true;
+ assert(g5_compositor_bridge_present_nodes_atomic(&b,&batch,1,&serial));
+ assert(serial==2&&b.last_display_serial==2);
+ batch.placement.node_id=501;
+ assert(!g5_compositor_bridge_present_nodes_atomic(&b,&batch,1,&serial));
+ assert(serial==0);
+ batch.placement.node_id=500;
+ assert(!g5_compositor_bridge_present_nodes_atomic(&b,&batch,0,&serial));
+ assert(serial==0);
+ /* Duplicate slot in a single transaction must fail before composition. */
+ struct g5_compositor_slot_placement duplicate[2]={batch,batch};
+ assert(!g5_compositor_bridge_present_nodes_atomic(&b,duplicate,2,&serial));
+ assert(serial==0&&presents==2);
+ /* An invalid count must not read beyond the caller's batch. */
+ assert(!g5_compositor_bridge_present_nodes_atomic(
+  &b,&batch,G5_SURFACE_REGISTRY_CAPACITY+1u,&serial));
+ assert(serial==0&&presents==2);
+ batch.slot=G5_SURFACE_REGISTRY_CAPACITY;
+ assert(!g5_compositor_bridge_present_nodes_atomic(&b,&batch,1,&serial));
+ assert(serial==0&&presents==2);
+ batch.slot=slot;
+ deny_surface_read=true;
+ assert(!g5_compositor_bridge_present_nodes_atomic(&b,&batch,1,&serial));
+ assert(serial==0&&presents==2);
+ deny_surface_read=false;
+ surface.destroy_requested=true;
+ assert(!g5_compositor_bridge_present_nodes_atomic(&b,&batch,1,&serial));
+ assert(serial==0&&presents==2);
+ surface.destroy_requested=false;
+ surface.generation=3;
+ assert(!g5_compositor_bridge_present_nodes_atomic(&b,&batch,1,&serial));
+ assert(serial==0&&presents==2);
+ surface.generation=2;
+ f.registry.entries[slot].bridge.object_id=99;
+ assert(!g5_compositor_bridge_present_nodes_atomic(&b,&batch,1,&serial));
+ assert(serial==0&&presents==2);
+ f.registry.entries[slot].bridge.object_id=33;
+ fail_compose=true;
+ assert(!g5_compositor_bridge_present_nodes_atomic(&b,&batch,1,&serial));
+ assert(serial==0&&presents==2);
+ fail_compose=false;
  deny_surface_read=true;
  assert(!g5_compositor_bridge_present(&b,slot,4,config,&serial));
- assert(serial==0&&presents==1&&releases==2);
+ assert(serial==0&&presents==2&&releases==2);
  deny_surface_read=false;
  surface.destroy_requested=true;
  assert(!g5_compositor_bridge_present(&b,slot,4,config,&serial));
@@ -87,6 +144,8 @@ int main(void) {
  assert(!g5_compositor_bridge_present(&b,slot,4,config,&serial));
  surface.generation=2;
  g5_session_context_revoke(&f.registry.session);
+ assert(!g5_compositor_bridge_present_nodes_atomic(&b,&batch,1,&serial));
+ assert(serial==0&&presents==2);
  assert(!g5_compositor_bridge_present(&b,slot,4,config,&serial));
  fail_remove=true;
  g5_compositor_bridge_revoke(&b);

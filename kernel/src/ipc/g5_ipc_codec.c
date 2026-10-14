@@ -113,6 +113,7 @@ bool g5_ipc_opcode_known(uint32_t operation) {
         case G5_OP_SCENE_PREPARE:
         case G5_OP_SCENE_PUBLISH:
         case G5_OP_CANVAS_PAN:
+        case G5_OP_CANVAS_SCENE_BATCH:
             return true;
         default: return false;
     }
@@ -152,6 +153,18 @@ enum g5_ipc_status g5_ipc_validate_schema(const struct g5_ipc_header *h, uint32_
  enum g5_ipc_status s=check_header(h); if(s!=G5_IPC_OK)return s;
  if(!g5_ipc_opcode_known(h->operation))return G5_IPC_UNSUPPORTED_OPERATION;
  if(caps) return G5_IPC_BAD_CAPABILITIES;
+ if(h->operation==G5_OP_CANVAS_SCENE_BATCH) {
+  if(h->kind!=G5_IPC_REQUEST ||
+     h->payload_bytes<G5_CANVAS_SCENE_BATCH_HEADER_BYTES+
+                      G5_CANVAS_SCENE_BATCH_ITEM_BYTES ||
+     h->payload_bytes>G5_CANVAS_SCENE_BATCH_HEADER_BYTES+
+                      G5_CANVAS_SCENE_BATCH_MAX_ITEMS*
+                      G5_CANVAS_SCENE_BATCH_ITEM_BYTES ||
+     (h->payload_bytes-G5_CANVAS_SCENE_BATCH_HEADER_BYTES)%
+         G5_CANVAS_SCENE_BATCH_ITEM_BYTES!=0u)
+   return G5_IPC_BAD_FORMAT;
+  return G5_IPC_OK;
+ }
  uint32_t n=0; uint16_t k=G5_IPC_REQUEST;
  switch(h->operation){
  case G5_OP_SHELL_READY:k=G5_IPC_EVENT;break;
@@ -207,6 +220,60 @@ enum g5_ipc_status g5_ipc_validate_semantics(
   if(h->object_generation==0 || get64(p)==0 || get64(p+8)==0)
    return G5_IPC_BAD_FORMAT;
   break;
+ case G5_OP_CANVAS_SCENE_BATCH: {
+  /* Envelope only; compositor must authenticate each surface. */
+  uint32_t count=(h->payload_bytes-G5_CANVAS_SCENE_BATCH_HEADER_BYTES)/
+                  G5_CANVAS_SCENE_BATCH_ITEM_BYTES;
+  if(h->object_generation==0 || p[0]!='G' || p[1]!='5' ||
+     p[2]!='S' || p[3]!='B' || get16(p+4)!=1u ||
+     get16(p+6)!=count || get32(p+36)!=0u ||
+     get64(p+8)==0 || get64(p+16)==0 ||
+     get32(p+24)==0 || get32(p+24)>16384u ||
+     get32(p+28)==0 || get32(p+28)>16384u ||
+     get32(p+32)<1024u || get32(p+32)>4194304u)
+   return G5_IPC_BAD_FORMAT;
+  /* Reject malformed object identifiers and duplicate surfaces at the
+   * trusted IPC boundary, before reaching the Ring 3 renderer. */
+  for(uint32_t i=0u;i<count;++i) {
+   const uint8_t *item=p+G5_CANVAS_SCENE_BATCH_HEADER_BYTES+
+                       i*G5_CANVAS_SCENE_BATCH_ITEM_BYTES;
+   uint64_t surface=get64(item);
+   uint32_t width=get32(item+16),height=get32(item+20);
+   uint32_t clip_width=get32(item+32),clip_height=get32(item+36);
+   uint32_t source_x=get32(item+40),source_y=get32(item+44);
+   if(surface==0u || width==0u || height==0u ||
+      width>0x7fffffffu || height>0x7fffffffu ||
+      clip_width>0x7fffffffu || clip_height>0x7fffffffu ||
+      source_x>0x7fffffffu || source_y>0x7fffffffu ||
+      (clip_width==0u)!=(clip_height==0u) ||
+      (uint64_t)source_x+clip_width>width ||
+      (uint64_t)source_y+clip_height>height)
+    return G5_IPC_BAD_FORMAT;
+   /* The crop is uniquely determined by projected geometry and viewport.
+    * Never accept a sender-selected smaller crop or an invisible visible item. */
+   int64_t px=(int32_t)get32(item+8),py=(int32_t)get32(item+12);
+   int64_t cw=(int32_t)get32(item+24),ch=(int32_t)get32(item+28);
+   int64_t left=px>0?px:0,top=py>0?py:0;
+   int64_t right=px+(int64_t)width,bottom=py+(int64_t)height;
+   if(right>(int64_t)get32(p+24))right=get32(p+24);
+   if(bottom>(int64_t)get32(p+28))bottom=get32(p+28);
+   if(right<=left || bottom<=top) {
+    if(cw!=0 || ch!=0 || clip_width!=0 || clip_height!=0 ||
+       source_x!=0 || source_y!=0)return G5_IPC_BAD_FORMAT;
+   } else {
+    if(cw!=left || ch!=top ||
+       clip_width!=(uint32_t)(right-left) ||
+       clip_height!=(uint32_t)(bottom-top) ||
+       source_x!=(uint32_t)(left-px) ||
+       source_y!=(uint32_t)(top-py))return G5_IPC_BAD_FORMAT;
+   }
+   for(uint32_t j=0u;j<i;++j)
+    if(surface==get64(p+G5_CANVAS_SCENE_BATCH_HEADER_BYTES+
+                      j*G5_CANVAS_SCENE_BATCH_ITEM_BYTES))
+     return G5_IPC_BAD_FORMAT;
+  }
+  break;
+ }
  case G5_OP_CANVAS_PAN: {
   /* Signed +/-32 pixel step, checked in unsigned domain; no FP in Ring 0.
    * Payload: int32 dx/dy, uint64 camera_revision, uint64 scene_revision. */
@@ -237,6 +304,7 @@ uint64_t g5_ipc_opcode_required_rights(uint32_t operation) {
  case G5_OP_SCENE_PREPARE:
  case G5_OP_SCENE_PUBLISH:
  case G5_OP_CANVAS_PAN:
+ case G5_OP_CANVAS_SCENE_BATCH:
   return AURORA_RIGHT_CONTROL|AURORA_RIGHT_WRITE;
  default:
   return 0;

@@ -88,6 +88,116 @@ int main(void) {
     assert(g5_ipc_validate_caps(&received,&needed,1,NULL,NULL)==G5_IPC_DENIED);
     received.capability_count=0;
     assert(g5_ipc_validate_caps(&received,NULL,0,NULL,NULL)==G5_IPC_OK);
+    /* New canvas batch has its own strict envelope schema, distinct
+     * from legacy 24-byte PAN and 16-byte SCENE_PUBLISH. */
+    h=valid_header(104u);
+    h.operation=G5_OP_CANVAS_SCENE_BATCH;
+    assert(g5_ipc_opcode_known(h.operation));
+    assert(g5_ipc_opcode_required_rights(h.operation)==
+           (AURORA_RIGHT_CONTROL|AURORA_RIGHT_WRITE));
+    assert(g5_ipc_validate_schema(&h,0)==G5_IPC_OK);
+    assert(g5_ipc_validate_schema(&h,1)==G5_IPC_BAD_CAPABILITIES);
+    h.payload_bytes=152u;
+    assert(g5_ipc_validate_schema(&h,0)==G5_IPC_OK);
+    h.payload_bytes=200u;
+    assert(g5_ipc_validate_schema(&h,0)==G5_IPC_OK);
+    h.payload_bytes=201u;
+    assert(g5_ipc_validate_schema(&h,0)==G5_IPC_BAD_FORMAT);
+    h.payload_bytes=56u;
+    assert(g5_ipc_validate_schema(&h,0)==G5_IPC_BAD_FORMAT);
+    h.payload_bytes=208u;
+    assert(g5_ipc_validate_schema(&h,0)==G5_IPC_BAD_FORMAT);
+    h.payload_bytes=104u;
+    h.kind=G5_IPC_EVENT;
+    assert(g5_ipc_validate_schema(&h,0)==G5_IPC_BAD_FORMAT);
+    h.kind=G5_IPC_REQUEST;
+    uint8_t batch[200]={0};
+    batch[0]='G';batch[1]='5';batch[2]='S';batch[3]='B';
+    batch[4]=1u;batch[6]=1u;
+    batch[8]=1u;batch[16]=1u;
+    batch[24]=160u;batch[28]=96u;batch[34]=1u;
+    batch[56]=7u;batch[72]=20u;batch[76]=20u;
+    batch[88]=20u;batch[92]=20u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    /* Canonical viewport clipping: a rectangle starting at x=-5 must
+     * present x=0..14 with source offset 5, not an arbitrary crop. */
+    batch[64]=0xfbu;batch[65]=0xffu;batch[66]=0xffu;batch[67]=0xffu;
+    batch[88]=15u;batch[96]=5u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    batch[96]=4u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[96]=5u;batch[88]=14u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[64]=0u;batch[65]=0u;batch[66]=0u;batch[67]=0u;
+    batch[88]=20u;batch[96]=0u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    /* Fully offscreen elements must carry a zero crop; they remain
+     * in the scene graph without producing a visible compositor region. */
+    batch[64]=200u;batch[65]=0u;batch[66]=0u;batch[67]=0u;
+    batch[88]=0u;batch[92]=0u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    batch[88]=1u;batch[92]=1u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[88]=0u;batch[92]=0u;
+    batch[64]=0u;batch[65]=0u;batch[66]=0u;batch[67]=0u;
+    batch[88]=20u;batch[92]=20u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    /* Vertical clipping follows the same canonical source mapping. */
+    batch[68]=0xf9u;batch[69]=0xffu;batch[70]=0xffu;batch[71]=0xffu;
+    batch[84]=0u;batch[92]=13u;batch[100]=7u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    batch[100]=6u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[100]=7u;batch[92]=12u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[68]=0u;batch[69]=0u;batch[70]=0u;batch[71]=0u;
+    batch[92]=20u;batch[100]=0u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    batch[56]=0u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[56]=7u;batch[72]=0u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[72]=20u;
+    batch[96]=21u; /* source X outside projected 20px width */
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[96]=0u;
+    batch[96]=19u;batch[88]=2u; /* clip width overflows source */
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[96]=0u;batch[88]=20u;
+    /* A smaller crop than the viewport intersection must be rejected. */
+    batch[88]=19u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[88]=20u;
+    /* The IPC gate must accept the full Ring 3 camera viewport limit. */
+    batch[24]=0u;batch[25]=64u; /* 16384px little endian */
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    batch[25]=64u;batch[24]=1u; /* 16385px */
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[24]=160u;batch[25]=0u;
+    batch[32]=0u;batch[33]=0u;batch[34]=0u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[32]=0xffu;batch[33]=3u;batch[34]=0u; /* zoom 1023 */
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[32]=0u;batch[33]=4u; /* minimum zoom 1024 */
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    batch[32]=1u;batch[33]=0u;batch[34]=64u; /* 4194305 */
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[32]=0u;batch[33]=0u;batch[34]=64u; /* maximum zoom */
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    batch[32]=0u;batch[33]=0u;batch[34]=1u;
+    h.payload_bytes=152u;batch[6]=2u;
+    batch[104]=7u;batch[120]=20u;batch[124]=20u;
+    batch[136]=20u;batch[140]=20u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[104]=8u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_OK);
+    h.payload_bytes=104u;batch[6]=1u;
+    batch[6]=2u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[6]=1u;batch[36]=1u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
+    batch[36]=0u;h.object_generation=0u;
+    assert(g5_ipc_validate_semantics(&h,batch)==G5_IPC_BAD_FORMAT);
     puts("G5 IPC v1 codec contract tests: PASS");
     return 0;
 }

@@ -1,0 +1,125 @@
+name: G5 WP-05 Integer Camera Host
+on:
+  push:
+    paths:
+      - 'services/canvas/include/aurora/g5_canvas_integer_camera.h'
+      - 'services/canvas/include/aurora/g5_canvas_input_context.h'
+      - 'tests/g5/canvas_input_context_test.c'
+      - 'services/canvas/src/g5_canvas_integer_camera.c'
+      - 'tests/g5/canvas_integer_camera_test.c'
+      - 'tests/g5/canvas_integer_camera_differential_test.c'
+      - 'services/user_session/runtime/main.c'
+      - 'services/user_session/runtime/Makefile'
+      - 'kernel/include/aurora/user_session_host_abi.h'
+      - 'kernel/src/session/user_session_host.c'
+      - 'kernel/src/session/g5_shell_scene.c'
+      - '.github/workflows/g5-wp05-integer-camera.yml'
+  pull_request:
+    paths:
+      - 'services/canvas/include/aurora/g5_canvas_integer_camera.h'
+      - 'services/canvas/include/aurora/g5_canvas_input_context.h'
+      - 'tests/g5/canvas_input_context_test.c'
+      - 'services/canvas/src/g5_canvas_integer_camera.c'
+      - 'tests/g5/canvas_integer_camera_test.c'
+      - 'tests/g5/canvas_integer_camera_differential_test.c'
+      - 'services/user_session/runtime/main.c'
+      - 'services/user_session/runtime/Makefile'
+      - 'kernel/include/aurora/user_session_host_abi.h'
+      - 'kernel/src/session/user_session_host.c'
+      - 'kernel/src/session/g5_shell_scene.c'
+      - '.github/workflows/g5-wp05-integer-camera.yml'
+  workflow_dispatch:
+jobs:
+  integer-camera:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Strict host test (GCC and Clang)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cc in gcc clang; do
+            "$cc" -std=c11 -Wall -Wextra -Werror -pedantic -O1 -g \
+              -fsanitize=undefined -fno-sanitize-recover=all \
+              -Iservices/canvas/include \
+              services/canvas/src/g5_canvas_integer_camera.c \
+              tests/g5/canvas_input_context_test.c -o "/tmp/g5-context-$cc"
+            "/tmp/g5-context-$cc"
+            "$cc" -std=c11 -Wall -Wextra -Werror -pedantic -O1 -g \
+              -fsanitize=undefined -fno-sanitize-recover=all \
+              -Iservices/canvas/include \
+              services/canvas/src/g5_canvas_integer_camera.c \
+              tests/g5/canvas_integer_camera_test.c -o "/tmp/g5-icam-$cc"
+            "/tmp/g5-icam-$cc"
+            "$cc" -std=c11 -Wall -Wextra -Werror -pedantic -O1 -g \
+              -fsanitize=undefined -fno-sanitize-recover=all \
+              -Iservices/canvas/include \
+              services/canvas/src/g5_canvas_integer_camera.c \
+              services/canvas/src/g5_canvas_camera.c \
+              tests/g5/canvas_integer_camera_differential_test.c \
+              -lm -o "/tmp/g5-icam-diff-$cc"
+            "/tmp/g5-icam-diff-$cc"
+          done
+      - name: Freestanding x86-64 code generation audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror -pedantic -O2 \
+            -ffreestanding -fno-builtin -mno-sse -mno-sse2 \
+            -Iservices/canvas/include -c \
+            services/canvas/src/g5_canvas_integer_camera.c \
+            -o /tmp/g5-icam-freestanding.o
+          echo "Undefined symbols (must be resolved before Ring 3 linking):"
+          nm -u /tmp/g5-icam-freestanding.o
+          if nm -u /tmp/g5-icam-freestanding.o | grep -E '__((u?div|u?mod|multi|mul)[a-z0-9]*ti3|[a-z0-9]*tf[0-9]*)'; then
+            echo "BLOCKER: unsupported compiler runtime helper in Ring 3 camera"
+            exit 1
+          fi
+          if objdump -d /tmp/g5-icam-freestanding.o | \
+             grep -E '\\b(xmm[0-9]+|ymm[0-9]+|zmm[0-9]+)\\b'; then
+            echo "Unexpected SIMD register use in freestanding camera"
+            exit 1
+          fi
+          echo "Freestanding compile and SIMD register audit passed"
+      - name: Aurora Ring 3 ABI object gate (Clang freestanding)
+        shell: bash
+        run: |
+          set -euo pipefail
+          clang -target x86_64-unknown-none-elf -std=c11 -O2 \
+            -Wall -Wextra -Werror -ffreestanding -fno-builtin \
+            -fno-stack-protector -fno-stack-check -fno-pic -fno-pie \
+            -fno-common -ffunction-sections -fdata-sections \
+            -m64 -march=x86-64 -mno-red-zone -mno-mmx -mno-sse -mno-sse2 \
+            -Iservices/canvas/include \
+            -c services/canvas/src/g5_canvas_integer_camera.c \
+            -o /tmp/g5-icam-ring3.o
+          if nm -u /tmp/g5-icam-ring3.o | grep -q .; then
+            echo "Ring 3 camera must have zero unresolved symbols"
+            nm -u /tmp/g5-icam-ring3.o
+            exit 1
+          fi
+          if objdump -d /tmp/g5-icam-ring3.o | \
+             grep -E '\\b(xmm[0-9]+|ymm[0-9]+|zmm[0-9]+)\\b'; then
+            echo "Ring 3 camera emitted forbidden SIMD instructions"
+            exit 1
+          fi
+          echo "Aurora Ring 3 ABI camera object passed"
+
+      - name: Build real Ring 3 user-session binary
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lld binutils
+          make -C services/user_session/runtime ARCH=x86_64 CC=clang
+          test -s build/x86_64/user-session-runtime/user-session-host.bin
+          # Assert that the Ring 3 binary contains the actual pan preflight,
+          # not merely an unreferenced camera object linked then discarded.
+          nm -n build/x86_64/user-session-runtime/user-session-host.elf | grep -F 'g5_icam_pan'
+          test -s build/x86_64/user-session-runtime/g5_canvas_integer_camera.o
+          nm -n build/x86_64/user-session-runtime/user-session-host.elf | grep -F 'g5_icam_init'
+
+          nm -n build/x86_64/user-session-runtime/user-session-host.elf | grep -F 'g5_icam_set_viewport'
+
+          if nm -u build/x86_64/user-session-runtime/user-session-host.elf | grep -q .; then
+            echo 'Ring 3 ELF has unresolved symbols'
+            exit 1
+          fi

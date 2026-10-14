@@ -124,8 +124,10 @@ LDFLAGS := \
     -Wl,-T,$(ROOT)/linker/x86_64.ld
 
 .PHONY: all clean
+.DEFAULT_GOAL := all
 
 all: $(OUTPUT)
+
 
 $(COLOR_LUT_HEADER): $(COLOR_LUT_TOOL)
 	$(PYTHON) "$(COLOR_LUT_TOOL)" --output "$@"
