@@ -1243,6 +1243,78 @@ bool software_compositor_set_clip(
     return true;
 }
 
+/* Validate every placement before modifying any node. This is a trusted
+ * compositor staging primitive; display presentation is a separate step. */
+bool software_compositor_set_nodes_atomic(
+    struct aurora_software_compositor *compositor,
+    const struct aurora_compositor_placement *placements,
+    uint32_t count
+) {
+    if (!compositor || !compositor->initialized || !placements ||
+        !count || count>AURORA_COMPOSITOR_MAX_NODES)
+        return false;
+    const struct aurora_display_mode *mode =
+        display_mode_at(compositor->output_index,0u);
+    if (!mode) return false;
+    struct aurora_compositor_node *targets[AURORA_COMPOSITOR_MAX_NODES];
+    uint64_t widths[AURORA_COMPOSITOR_MAX_NODES];
+    uint64_t heights[AURORA_COMPOSITOR_MAX_NODES];
+    for (uint32_t i=0u;i<count;++i) {
+        for (uint32_t j=0u;j<i;++j)
+            if (placements[i].node_id==placements[j].node_id)
+                return false;
+        struct aurora_compositor_node *node =
+            find_node(compositor,placements[i].node_id);
+        if (!node) return false;
+        struct aurora_graphics_surface_snapshot snapshot={0};
+        if (!graphics_surface_read_committed(
+                &compositor->surface_caps,node->surface_handle,&snapshot))
+            return false;
+        bool valid=transformed_extent(
+            node,snapshot.buffer->width,snapshot.buffer->height,
+            &widths[i],&heights[i]);
+        graphics_surface_snapshot_release(&snapshot);
+        if (!valid || widths[i]>(uint64_t)INT64_MAX ||
+            heights[i]>(uint64_t)INT64_MAX)
+            return false;
+        if (node->clip.enabled) {
+            int64_t x=placements[i].x,y=placements[i].y;
+            int64_t cx=node->clip.x,cy=node->clip.y;
+            if (cx<x || cy<y ||
+                cx+node->clip.width>x+(int64_t)widths[i] ||
+                cy+node->clip.height>y+(int64_t)heights[i])
+                return false;
+        }
+        targets[i]=node;
+    }
+    /* No fallible operations remain in the mutation phase. */
+    for (uint32_t i=0u;i<count;++i) {
+        struct aurora_compositor_node *node=targets[i];
+        const struct aurora_compositor_placement *p=&placements[i];
+        (void)damage_union(&compositor->pending_damage,
+            node->x,node->y,widths[i],heights[i],
+            mode->width,mode->height);
+        bool visibility_changed=node->visible!=p->visible;
+        node->x=p->x;
+        node->y=p->y;
+        node->z=p->z;
+        node->opacity=p->opacity;
+        node->visible=p->visible;
+        /* Opaque classification is derived from committed buffer format
+         * by set_node; retain it only for fully opaque submissions. */
+        if (p->opacity!=255u) node->fully_opaque=false;
+        (void)damage_union(&compositor->pending_damage,
+            node->x,node->y,widths[i],heights[i],
+            mode->width,mode->height);
+        if (visibility_changed && compositor->scene_observer)
+            compositor->scene_observer(
+                compositor->scene_observer_context,
+                AURORA_COMPOSITOR_SCENE_NODE_VISIBILITY_CHANGED,
+                node->node_id);
+    }
+    return true;
+}
+
 bool software_compositor_set_transform(
     struct aurora_software_compositor *compositor,
     uint64_t node_id,
