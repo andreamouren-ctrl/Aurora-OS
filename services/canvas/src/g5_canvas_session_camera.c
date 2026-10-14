@@ -246,3 +246,29 @@ bool g5_canvas_session_camera_locked_pan(
     unlock(context);
     return ok;
 }
+
+bool g5_canvas_session_camera_locked_zoom(
+    struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    double factor,double pointer_x,double pointer_y,
+    g5_canvas_session_lock_fn lock,g5_canvas_session_unlock_fn unlock,
+    g5_canvas_session_present_fn present,void *context) {
+    if (!lock || !unlock || !present || !lock(context)) return false;
+    const bool ok=g5_canvas_session_camera_present_zoom(
+        current,session,scene,camera,factor,pointer_x,pointer_y,
+        present,context);
+    unlock(context);
+    return ok;
+}
+bool g5_canvas_session_camera_locked_viewport(
+    struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    uint32_t width,uint32_t height,
+    g5_canvas_session_lock_fn lock,g5_canvas_session_unlock_fn unlock,
+    g5_canvas_session_present_fn present,void *context) {
+    if (!lock || !unlock || !present || !lock(context)) return false;
+    const bool ok=g5_canvas_session_camera_present_viewport(
+        current,session,scene,camera,width,height,present,context);
+    unlock(context);
+    return ok;
+}
