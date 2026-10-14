@@ -53,6 +53,5 @@ The two models express movement in opposite coordinate frames: the
 existing compositor moves window screen placements by +dx/+dy; a world
 camera that tracks the same visual movement shifts its world anchor by
 -dx/-dy. A future adapter must specify the sign convention explicitly
-and must preserve both camera and scene revision semantics. The prototype
-currently fences only camera revision; it does not implement the existing
-scene revision or window policy transaction.
+and must preserve both camera and scene revision semantics. The prototype now fences camera and scene revisions, but does not
+implement the existing window policy/compositor transaction.
