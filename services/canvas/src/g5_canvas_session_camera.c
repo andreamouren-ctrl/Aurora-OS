@@ -208,8 +208,8 @@ bool g5_canvas_session_camera_present_pan(
         !g5_canvas_session_camera_stage_pan(current,session,scene,camera,
                                              dx,dy,&staged))
         return false;
-    /* A synchronous presenter may fail; no camera state is published then.
-     * The caller must serialize presentation against session teardown. */
+    /* Reentrant callbacks are not allowed to replace the current session.
+     * Capture the authority snapshot and fail closed if it changes. */
     if (!present(context,&staged)) return false;
     return g5_canvas_session_camera_commit(current,&staged,
                                             session,scene,camera);
