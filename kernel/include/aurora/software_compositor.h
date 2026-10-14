@@ -78,6 +78,8 @@ struct aurora_compositor_node {
 struct aurora_software_compositor {
     struct aurora_cap_table surface_caps;
     struct aurora_display_backbuffer backbuffer;
+    /* Private raster target; never the last successfully presented frame. */
+    struct aurora_display_backbuffer staging_backbuffer;
     struct aurora_compositor_node nodes[AURORA_COMPOSITOR_MAX_NODES];
     struct aurora_compositor_damage pending_damage;
     uint32_t output_index;
