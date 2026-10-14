@@ -460,6 +460,8 @@ Remaining:
 - [x] explicit window-policy surface revocation and policy-reset APIs (code + regression selftests, runtime verification pending);
 - [ ] wire the revocation APIs into real surface/process/session teardown paths;
 - [ ] concurrency/lifetime auditing before use with asynchronous Ring 3 clients;
+- [x] fail-closed z-order exhaustion and bounded cascade index (selftests added; runtime gate pending);
+- [ ] establish an owned, synchronized window-policy instance before wiring surface/process/session callbacks; avoid callbacks into stack-local selftest state;
 - [ ] verify new policy regression tests in QEMU and Actions;
 - [ ] decorations;
 - [ ] Desktop Shell process;
