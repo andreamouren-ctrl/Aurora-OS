@@ -4,8 +4,8 @@
 #include <stdio.h>
 int main(void) {
     struct g5_integer_pan c={0,0,1}, old;
-    struct g5_canvas_pan_owner o={11,22,33,44,true};
-    struct g5_canvas_pan_request r={11,22,33,44,1,8,-8};
+    struct g5_canvas_pan_owner o={11,22,33,44,55,true};
+    struct g5_canvas_pan_request r={11,22,33,44,1,55,8,-8};
     assert(g5_canvas_pan_authorized(&c,&o,&r));
     assert(c.x_ticks==-8192 && c.y_ticks==8192 && c.revision==2);
     old=c;
@@ -16,6 +16,10 @@ int main(void) {
     r.dx_pixels=8; r.dy_pixels=-8;
     assert(!g5_canvas_pan_authorized(&c,&o,&r)); /* stale camera */
     r.expected_camera_revision=2;
+    r.expected_scene_revision=54;
+    assert(!g5_canvas_pan_authorized(&c,&o,&r)); /* stale scene */
+    assert(memcmp(&old,&c,sizeof c)==0);
+    r.expected_scene_revision=55;
     r.session_generation=12;
     assert(!g5_canvas_pan_authorized(&c,&o,&r));
     r.session_generation=11; r.process_generation=23;
