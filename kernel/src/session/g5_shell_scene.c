@@ -1,4 +1,5 @@
 #include <aurora/g5_shell_scene.h>
+#include <aurora/g5_camera_origin.h>
 #include <aurora/display.h>
 #include <aurora/log.h>
 #include <aurora/capability_abi.h>
@@ -892,17 +893,11 @@ bool g5_shell_scene_pan(struct g5_shell_scene *scene,
         return false;
     const int64_t dx=raw_x<=32u?(int64_t)raw_x:(int64_t)raw_x-4294967296LL;
     const int64_t dy=raw_y<=32u?(int64_t)raw_y:(int64_t)raw_y-4294967296LL;
-    /* Stage integer world translation before touching policy/compositor.
-     * Positive screen movement shifts the world origin negatively. */
-    const int64_t delta_x=dx*INT64_C(1024);
-    const int64_t delta_y=dy*INT64_C(1024);
-    if ((delta_x>0 && scene->camera_x_ticks<INT64_MIN+delta_x) ||
-        (delta_x<0 && scene->camera_x_ticks>INT64_MAX+delta_x) ||
-        (delta_y>0 && scene->camera_y_ticks<INT64_MIN+delta_y) ||
-        (delta_y<0 && scene->camera_y_ticks>INT64_MAX+delta_y))
+    /* Stage world coordinates; commit only after successful presentation. */
+    int64_t next_camera_x=0,next_camera_y=0;
+    if (!g5_camera_origin_stage(scene->camera_x_ticks,scene->camera_y_ticks,
+                                dx,dy,&next_camera_x,&next_camera_y))
         return false;
-    const int64_t next_camera_x=scene->camera_x_ticks-delta_x;
-    const int64_t next_camera_y=scene->camera_y_ticks-delta_y;
     struct aurora_window_toplevel first={0},second={0};
     if (scene->window_id == scene->extra.window_id ||
         !window_policy_read_toplevel(&scene->window_policy,
