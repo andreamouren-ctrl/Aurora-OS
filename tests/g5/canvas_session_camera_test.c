@@ -328,6 +328,14 @@ int main(void) {
         acquire_serial,release_serial,publish_serial,&serial));
     assert(serial.presents==before_stale);
     assert(serial.locks==serial.unlocks && !serial.locked);
+    /* A staged revision cannot smuggle in an unapproved device scale. */
+    struct g5_canvas_session_camera scale_candidate={0};
+    assert(g5_canvas_session_camera_stage_pan(&locked,70,4,4,
+        1,0,&scale_candidate));
+    scale_candidate.camera.device_scale=2.0;
+    assert(!g5_canvas_session_camera_commit(&locked,&scale_candidate,
+        70,4,4));
+    assert(locked.camera.revision==4 && locked.camera.device_scale==1.0);
     puts("[g5-wp05] Ring3 serialized pan zoom viewport scene passed");
     return 0;
 }
