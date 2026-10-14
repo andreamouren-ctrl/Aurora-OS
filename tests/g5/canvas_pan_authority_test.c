@@ -9,6 +9,11 @@ int main(void) {
     assert(g5_canvas_pan_authorized(&c,&o,&r));
     assert(c.x_ticks==-8192 && c.y_ticks==8192 && c.revision==2);
     old=c;
+    r.expected_camera_revision=2;
+    r.dx_pixels=0; r.dy_pixels=0;
+    assert(!g5_canvas_pan_authorized(&c,&o,&r)); /* zero motion */
+    r.expected_camera_revision=1;
+    r.dx_pixels=8; r.dy_pixels=-8;
     assert(!g5_canvas_pan_authorized(&c,&o,&r)); /* stale camera */
     r.expected_camera_revision=2;
     r.session_generation=12;
