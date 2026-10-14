@@ -115,6 +115,40 @@ bool g5_canvas_session_camera_commit(
     return true;
 }
 
+bool g5_canvas_session_camera_stage_scene(
+    const struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    struct g5_canvas_session_camera *staged) {
+    if (!staged || staged==current ||
+        !authorized(current,session,scene,camera) || scene==UINT64_MAX)
+        return false;
+    struct g5_canvas_session_camera next=*current;
+    ++next.scene_revision;
+    *staged=next;
+    return true;
+}
+bool g5_canvas_session_camera_commit_scene(
+    struct g5_canvas_session_camera *current,
+    const struct g5_canvas_session_camera *staged,
+    uint64_t session,uint64_t scene,uint64_t camera) {
+    if (!current || !staged || current==staged ||
+        !authorized(current,session,scene,camera) ||
+        scene==UINT64_MAX || staged->session_generation!=session ||
+        staged->scene_revision!=scene+1u ||
+        !g5_camera_valid(&staged->camera) ||
+        staged->camera.revision!=camera ||
+        staged->camera.anchor.x!=current->camera.anchor.x ||
+        staged->camera.anchor.y!=current->camera.anchor.y ||
+        staged->camera.offset_x_units!=current->camera.offset_x_units ||
+        staged->camera.offset_y_units!=current->camera.offset_y_units ||
+        staged->camera.zoom!=current->camera.zoom ||
+        staged->camera.device_scale!=current->camera.device_scale ||
+        staged->camera.width_px!=current->camera.width_px ||
+        staged->camera.height_px!=current->camera.height_px)
+        return false;
+    current->scene_revision=staged->scene_revision;
+    return true;
+}
 bool g5_canvas_session_camera_advance_scene(
     struct g5_canvas_session_camera *state,
     uint64_t session,uint64_t scene,uint64_t camera) {
