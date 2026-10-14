@@ -15,6 +15,7 @@ static inline bool g5_integer_pan_apply(struct g5_integer_pan *state,
                                          uint64_t expected_revision) {
     if (!state || !state->revision || state->revision == UINT64_MAX ||
         state->revision != expected_revision ||
+        (dx_pixels == 0 && dy_pixels == 0) ||
         dx_pixels < -G5_INTEGER_PAN_MAX_DELTA ||
         dx_pixels > G5_INTEGER_PAN_MAX_DELTA ||
         dy_pixels < -G5_INTEGER_PAN_MAX_DELTA ||
