@@ -85,6 +85,14 @@ bool g5_canvas_session_camera_commit(
     return true;
 }
 
+bool g5_canvas_session_camera_advance_scene(
+    struct g5_canvas_session_camera *state,
+    uint64_t session,uint64_t scene,uint64_t camera) {
+    if (!authorized(state,session,scene,camera) || scene==UINT64_MAX)
+        return false;
+    ++state->scene_revision;
+    return true;
+}
 bool g5_canvas_session_camera_pointer_to_world(
     const struct g5_canvas_session_camera *state,
     uint64_t session,uint64_t scene,uint64_t camera,
