@@ -29,6 +29,31 @@ static bool present_two_nodes(void *context,
     for (unsigned i=0;i<2;++i) { p->x[i]=x[i];p->y[i]=y[i]; }
     return true;
 }
+struct serialized_presenter {
+    bool locked;
+    bool accept;
+    unsigned locks,unlocks,presents;
+};
+static bool acquire_serial(void *context) {
+    struct serialized_presenter *p=context;
+    if (p->locked) return false;
+    p->locked=true;
+    ++p->locks;
+    return true;
+}
+static void release_serial(void *context) {
+    struct serialized_presenter *p=context;
+    assert(p->locked);
+    p->locked=false;
+    ++p->unlocks;
+}
+static bool publish_serial(void *context,
+    const struct g5_canvas_session_camera *next) {
+    struct serialized_presenter *p=context;
+    assert(p->locked && next && g5_camera_valid(&next->camera));
+    ++p->presents;
+    return p->accept;
+}
 int main(void) {
     struct g5_canvas_session_camera s={0};
     const struct g5_world_point origin={0,0};
@@ -250,6 +275,27 @@ int main(void) {
     assert(resized.scene_revision==5 && resized.camera.revision==2);
     assert(!g5_canvas_session_camera_commit_scene(&resized,&scene_next,
         60,4,2)); /* replay */
-    puts("[g5-wp05] Ring3 staged scene transaction passed");
+    /* Publication and camera commit must share the exclusive lock. */
+    struct serialized_presenter serial={0};
+    struct g5_canvas_session_camera locked={0};
+    assert(g5_canvas_session_camera_init(&locked,70,3,
+        (struct g5_world_point){0,0},800,600));
+    serial.accept=true;
+    assert(g5_canvas_session_camera_locked_pan(&locked,70,3,1,
+        2,0,acquire_serial,release_serial,publish_serial,&serial));
+    assert(locked.camera.revision==2);
+    assert(serial.locks==1 && serial.unlocks==1 &&
+           serial.presents==1 && !serial.locked);
+    serial.accept=false;
+    assert(!g5_canvas_session_camera_locked_pan(&locked,70,3,2,
+        2,0,acquire_serial,release_serial,publish_serial,&serial));
+    assert(locked.camera.revision==2);
+    assert(serial.locks==2 && serial.unlocks==2 &&
+           serial.presents==2 && !serial.locked);
+    serial.locked=true;
+    assert(!g5_canvas_session_camera_locked_pan(&locked,70,3,2,
+        2,0,acquire_serial,release_serial,publish_serial,&serial));
+    assert(serial.presents==2 && serial.unlocks==2);
+    puts("[g5-wp05] Ring3 serialized camera pan passed");
     return 0;
 }
