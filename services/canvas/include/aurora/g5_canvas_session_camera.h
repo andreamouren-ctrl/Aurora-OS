@@ -37,6 +37,11 @@ bool g5_canvas_session_camera_commit(
     const struct g5_canvas_session_camera *staged,
     uint64_t expected_session,uint64_t expected_scene,
     uint64_t expected_camera);
+/* Serialized scene topology transition. Never changes the camera revision;
+ * callers must coordinate the corresponding compositor scene transaction. */
+bool g5_canvas_session_camera_advance_scene(
+    struct g5_canvas_session_camera *state,
+    uint64_t session,uint64_t expected_scene,uint64_t expected_camera);
 /* Ring3 pointer routing: reject stale session, scene and camera snapshots
  * before converting a physical pixel to persistent world ticks. */
 bool g5_canvas_session_camera_pointer_to_world(
