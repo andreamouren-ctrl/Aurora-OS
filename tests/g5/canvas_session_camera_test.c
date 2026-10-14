@@ -120,6 +120,22 @@ int main(void) {
     assert(nodes.camera.revision==3 && nodes.camera.zoom==2);
     assert(pair.x[0]==432 && pair.y[0]==284);
     assert(pair.x[1]==632 && pair.y[1]==384);
+    /* Rejected operations must never invoke the presenter. */
+    const unsigned calls_before=pair.calls;
+    assert(!g5_canvas_session_camera_present_pan(&nodes,50,7,2,
+        4,0,present_two_nodes,&pair)); /* stale camera revision */
+    assert(!g5_canvas_session_camera_present_zoom(&nodes,50,7,3,
+        1,400,300,present_two_nodes,&pair)); /* no-op zoom */
+    assert(!g5_canvas_session_camera_present_zoom(&nodes,50,7,3,
+        100,400,300,present_two_nodes,&pair)); /* zoom limit */
+    assert(!g5_canvas_session_camera_present_pan(&nodes,50,7,3,
+        65537,0,present_two_nodes,&pair)); /* pan limit */
+    assert(pair.calls==calls_before && nodes.camera.revision==3);
+    /* Revision saturation must fail closed without presenting. */
+    nodes.camera.revision=UINT64_MAX;
+    assert(!g5_canvas_session_camera_present_pan(&nodes,50,7,
+        UINT64_MAX,1,0,present_two_nodes,&pair));
+    assert(pair.calls==calls_before && nodes.camera.revision==UINT64_MAX);
     puts("[g5-wp05] Ring3 camera two-node projection transactions passed");
     return 0;
 }
