@@ -37,6 +37,12 @@ bool g5_canvas_session_camera_commit(
     const struct g5_canvas_session_camera *staged,
     uint64_t expected_session,uint64_t expected_scene,
     uint64_t expected_camera);
+/* Ring3 pointer routing: reject stale session, scene and camera snapshots
+ * before converting a physical pixel to persistent world ticks. */
+bool g5_canvas_session_camera_pointer_to_world(
+    const struct g5_canvas_session_camera *state,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    int32_t pixel_x,int32_t pixel_y,struct g5_world_point *world);
 /* Project a bounded list of world-space node anchors for a compositor
  * transaction. No surface authority is granted; no output on failure. */
 bool g5_canvas_session_camera_project_nodes(
