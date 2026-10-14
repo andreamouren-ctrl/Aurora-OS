@@ -131,3 +131,14 @@ gate. The Shell owns desktop policy, the compositor owns composition
 and presentation, and the future isolated Canvas Engine owns world
 coordinates, zoom and spatial state. The host prototypes in
 `services/canvas` are not yet linked to a Ring 3 process.
+
+### Ring 3 camera session module (next WP-05 slice)
+
+`services/canvas/include/aurora/g5_canvas_session_camera.h` and
+`services/canvas/src/g5_canvas_session_camera.c` wrap the canonical
+user-space camera reference with session-generation, scene-revision and
+camera-revision fences. Pan and pointer-anchored zoom are staged into a
+copy and committed only on successful camera math. The new GCC/Clang
+UBSan host workflow checks these invariants. This module does **not**
+claim IPC authentication, compositor presentation or a running isolated
+Ring 3 Canvas process: those are subsequent runtime integration gates.
