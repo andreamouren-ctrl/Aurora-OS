@@ -1,5 +1,6 @@
 #include <aurora/g5_canvas_session_camera.h>
 #include <math.h>
+#include <stdint.h>
 void g5_canvas_session_camera_revoke(struct g5_canvas_session_camera *s) {
     if (!s) return;
     *s=(struct g5_canvas_session_camera){0};
@@ -113,9 +114,17 @@ bool g5_canvas_session_camera_project_nodes(
     /* The existing software compositor is bounded to 64 scene nodes. */
     int32_t x[64],y[64];
     if (!authorized(state,session,scene,camera) || count>64 ||
-        count>capacity || (count && (!points || !out_x || !out_y)) ||
-        (count && out_x==out_y))
+        count>capacity || (count && (!points || !out_x || !out_y)))
         return false;
+    /* Reject partially overlapping destination arrays before writing either
+     * one. Count is bounded to 64, so byte length cannot overflow size_t. */
+    if (count) {
+        const uintptr_t ax=(uintptr_t)out_x, ay=(uintptr_t)out_y;
+        const size_t bytes=count*sizeof(*out_x);
+        if (ax>UINTPTR_MAX-bytes || ay>UINTPTR_MAX-bytes ||
+            (ax<ay+bytes && ay<ax+bytes))
+            return false;
+    }
     for (size_t i=0;i<count;++i) {
         if (!g5_camera_world_to_screen(&state->camera,points[i],
                                         &x[i],&y[i]))
