@@ -425,6 +425,7 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
         return 32;
 
     uint64_t last_resize_serial=0u;
+    uint64_t last_canvas_pan_request_id=4u;
     uint64_t current_graphics_buffer=startup->graphics_buffer;
     for (;;) {
         if (!wait_message(startup->control_endpoint)) return 1;
@@ -445,7 +446,7 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
             if (pan.header.type == AURORA_USER_SESSION_HOST_CANVAS_PAN_REQUEST) {
                 clear_bytes(&received,sizeof(received));
                 if (pan.header.version != AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
-                    pan.header.request_id<=4u ||
+                    pan.header.request_id<=last_canvas_pan_request_id ||
                     !send_g5_canvas_pan(startup->g5_endpoint,
                                         startup->session_generation,
                                         startup->graphics_object_generation,
@@ -457,6 +458,7 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                                   AURORA_USER_SESSION_HOST_CANVAS_PAN_ACK,
                                   pan.header.request_id))
                     return 1;
+                last_canvas_pan_request_id=pan.header.request_id;
                 continue;
             }
         }
