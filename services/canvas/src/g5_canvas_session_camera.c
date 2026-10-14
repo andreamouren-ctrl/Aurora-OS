@@ -80,3 +80,31 @@ bool g5_canvas_session_camera_commit(
     *current=*staged;
     return true;
 }
+
+bool g5_canvas_session_camera_present_pan(
+    struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    double dx,double dy,g5_canvas_session_present_fn present,void *context) {
+    struct g5_canvas_session_camera staged;
+    if (!present ||
+        !g5_canvas_session_camera_stage_pan(current,session,scene,camera,
+                                             dx,dy,&staged))
+        return false;
+    if (!present(context)) return false;
+    return g5_canvas_session_camera_commit(current,&staged,
+                                            session,scene,camera);
+}
+bool g5_canvas_session_camera_present_zoom(
+    struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    double factor,double x,double y,
+    g5_canvas_session_present_fn present,void *context) {
+    struct g5_canvas_session_camera staged;
+    if (!present ||
+        !g5_canvas_session_camera_stage_zoom(current,session,scene,camera,
+                                              factor,x,y,&staged))
+        return false;
+    if (!present(context)) return false;
+    return g5_canvas_session_camera_commit(current,&staged,
+                                            session,scene,camera);
+}
