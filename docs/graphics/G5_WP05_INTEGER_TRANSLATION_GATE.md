@@ -108,3 +108,11 @@ neither performs nor authorizes such publication. The earlier notes
 suggesting that every pan advances both revisions are superseded by
 this correction. A second pan must carry the updated camera revision
 and the same scene revision, unless scene topology changed separately.
+
+### Topology invalidation regression
+
+The host transaction test now simulates an independent scene topology
+revision update between pan requests. It asserts that an owner/request
+snapshot using the prior topology revision is rejected without calling
+the presenter, then checks that a refreshed owner/request can proceed.
+This simulates revision fencing only; it is not a production scene update.
