@@ -85,6 +85,28 @@ bool g5_canvas_session_camera_commit(
     return true;
 }
 
+bool g5_canvas_session_camera_project_nodes(
+    const struct g5_canvas_session_camera *state,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    const struct g5_world_point *points,size_t count,
+    int32_t *out_x,int32_t *out_y,size_t capacity) {
+    /* The existing software compositor is bounded to 64 scene nodes. */
+    int32_t x[64],y[64];
+    if (!authorized(state,session,scene,camera) || count>64 ||
+        count>capacity || (count && (!points || !out_x || !out_y)) ||
+        (count && out_x==out_y))
+        return false;
+    for (size_t i=0;i<count;++i) {
+        if (!g5_camera_world_to_screen(&state->camera,points[i],
+                                        &x[i],&y[i]))
+            return false;
+    }
+    for (size_t i=0;i<count;++i) {
+        out_x[i]=x[i];
+        out_y[i]=y[i];
+    }
+    return true;
+}
 bool g5_canvas_session_camera_present_pan(
     struct g5_canvas_session_camera *current,
     uint64_t session,uint64_t scene,uint64_t camera,
