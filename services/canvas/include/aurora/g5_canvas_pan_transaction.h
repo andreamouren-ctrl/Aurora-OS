@@ -24,7 +24,8 @@ static inline bool g5_canvas_pan_prepare(
     struct g5_canvas_pan_transaction next=*current;
     if (!g5_canvas_pan_authorized(&next.camera,owner,request))
         return false;
-    ++next.scene_revision;
+    /* Existing kernel G5_OP_CANVAS_PAN increments camera revision only.
+     * Scene revision fences topology; it is not advanced by a pure pan. */
     *staged=next;
     return true;
 }
