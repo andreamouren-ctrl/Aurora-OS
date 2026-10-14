@@ -232,6 +232,24 @@ int main(void) {
     assert(!g5_canvas_session_camera_present_viewport(&resized,60,4,2,
         0,768,present_two_nodes,&pair));
     assert(pair.calls==accepted_resize_calls);
-    puts("[g5-wp05] Ring3 camera resize and scene revisions passed");
+    /* Scene transaction staging must not publish a topology revision. */
+    struct g5_canvas_session_camera scene_next={0};
+    assert(g5_canvas_session_camera_stage_scene(&resized,60,4,2,
+        &scene_next));
+    assert(resized.scene_revision==4 && scene_next.scene_revision==5);
+    assert(scene_next.camera.revision==resized.camera.revision);
+    assert(!g5_canvas_session_camera_commit_scene(&resized,&scene_next,
+        60,4,1)); /* stale camera */
+    assert(resized.scene_revision==4);
+    scene_next.camera.anchor.x=1;
+    assert(!g5_canvas_session_camera_commit_scene(&resized,&scene_next,
+        60,4,2)); /* camera mutation forbidden in topology commit */
+    scene_next.camera.anchor.x=0;
+    assert(g5_canvas_session_camera_commit_scene(&resized,&scene_next,
+        60,4,2));
+    assert(resized.scene_revision==5 && resized.camera.revision==2);
+    assert(!g5_canvas_session_camera_commit_scene(&resized,&scene_next,
+        60,4,2)); /* replay */
+    puts("[g5-wp05] Ring3 staged scene transaction passed");
     return 0;
 }
