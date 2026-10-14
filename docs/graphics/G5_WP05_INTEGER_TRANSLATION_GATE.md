@@ -85,3 +85,12 @@ presentation succeeds. The presenter must remain synchronous and must not
 mutate `current` through an alias; the prototype is not a lock or a
 concurrent transaction manager. Real runtime integration requires explicit
 serialization against session teardown and competing scene operations.
+
+### Revision handoff after successful presentation
+
+After commit, the caller must refresh the trusted owner snapshot to the
+new scene revision before accepting another request. A request with the
+old scene or camera revision is rejected before invoking the presenter.
+The host regression now exercises two consecutive opposite movements and
+rejects replay of the second request. The owner snapshot is still supplied
+by the test harness, **not** by a live kernel-owned authority object.
