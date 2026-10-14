@@ -1330,6 +1330,64 @@ bool software_compositor_set_nodes_atomic(
     return true;
 }
 
+bool software_compositor_present_nodes_atomic(
+    struct aurora_software_compositor *compositor,
+    const struct aurora_compositor_placement *placements,
+    uint32_t count,
+    uint64_t *out_present_serial
+) {
+    if (out_present_serial) *out_present_serial=0u;
+    if (!compositor || !compositor->initialized || !placements ||
+        !count || count>AURORA_COMPOSITOR_MAX_NODES ||
+        !out_present_serial) return false;
+    struct aurora_compositor_node saved[AURORA_COMPOSITOR_MAX_NODES];
+    struct aurora_compositor_damage old_damage=compositor->pending_damage;
+    for (uint32_t i=0u;i<count;++i) {
+        struct aurora_compositor_node *node=
+            find_node(compositor,placements[i].node_id);
+        if (!node) return false;
+        saved[i]=*node;
+    }
+    /* Notifications are held until a successful display presentation. */
+    aurora_compositor_scene_observer observer=compositor->scene_observer;
+    void *observer_context=compositor->scene_observer_context;
+    compositor->scene_observer=NULL;
+    bool staged=software_compositor_set_nodes_atomic(
+        compositor,placements,count);
+    if (!staged) {
+        compositor->scene_observer=observer;
+        return false;
+    }
+    uint64_t serial=0u;
+    bool presented=software_compositor_compose_present(compositor,&serial);
+    if (!presented || !serial) {
+        for (uint32_t i=0u;i<count;++i) {
+            struct aurora_compositor_node *node=
+                find_node(compositor,placements[i].node_id);
+            if (node) *node=saved[i];
+        }
+        compositor->pending_damage=old_damage;
+        /* The staging buffer may be dirty: force complete recomposition. */
+        const struct aurora_display_mode *mode=
+            display_mode_at(compositor->output_index,0u);
+        if (mode) compositor->pending_damage=
+            (struct aurora_compositor_damage){
+                .x=0u,.y=0u,.width=(uint32_t)mode->width,
+                .height=(uint32_t)mode->height,.valid=true};
+        compositor->scene_observer=observer;
+        return false;
+    }
+    compositor->scene_observer=observer;
+    if (observer)
+        for (uint32_t i=0u;i<count;++i)
+            if (saved[i].visible!=placements[i].visible)
+                observer(observer_context,
+                    AURORA_COMPOSITOR_SCENE_NODE_VISIBILITY_CHANGED,
+                    placements[i].node_id);
+    *out_present_serial=serial;
+    return true;
+}
+
 bool software_compositor_set_transform(
     struct aurora_software_compositor *compositor,
     uint64_t node_id,
