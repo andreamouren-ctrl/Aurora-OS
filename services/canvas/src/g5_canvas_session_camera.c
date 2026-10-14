@@ -112,6 +112,21 @@ bool g5_canvas_session_camera_commit(
         staged->camera.device_scale!=current->camera.device_scale ||
         camera==UINT64_MAX || staged->camera.revision!=camera+1u)
         return false;
+    /* Exactly one transform class may change per transaction. A viewport
+     * update cannot silently move the camera or alter zoom, and zoom cannot
+     * smuggle in a viewport resize. */
+    const bool viewport_changed=
+        staged->camera.width_px!=current->camera.width_px ||
+        staged->camera.height_px!=current->camera.height_px;
+    const bool zoom_changed=staged->camera.zoom!=current->camera.zoom;
+    const bool position_changed=
+        staged->camera.anchor.x!=current->camera.anchor.x ||
+        staged->camera.anchor.y!=current->camera.anchor.y ||
+        staged->camera.offset_x_units!=current->camera.offset_x_units ||
+        staged->camera.offset_y_units!=current->camera.offset_y_units;
+    if ((viewport_changed && (zoom_changed || position_changed)) ||
+        (!viewport_changed && !zoom_changed && !position_changed))
+        return false;
     *current=*staged;
     return true;
 }
