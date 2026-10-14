@@ -88,9 +88,22 @@ int main(void) {
  f.registry.entries[slot].bridge.object_id=33;
  assert(b.attached_object_ids[slot]==33);
 
+ struct g5_compositor_slot_placement batch={0};
+ batch.slot=slot;
+ batch.placement.node_id=500;
+ batch.placement.opacity=255;
+ batch.placement.visible=true;
+ assert(g5_compositor_bridge_present_nodes_atomic(&b,&batch,1,&serial));
+ assert(serial==2&&b.last_display_serial==2);
+ batch.placement.node_id=501;
+ assert(!g5_compositor_bridge_present_nodes_atomic(&b,&batch,1,&serial));
+ assert(serial==0);
+ batch.placement.node_id=500;
+ assert(!g5_compositor_bridge_present_nodes_atomic(&b,&batch,0,&serial));
+ assert(serial==0);
  deny_surface_read=true;
  assert(!g5_compositor_bridge_present(&b,slot,4,config,&serial));
- assert(serial==0&&presents==1&&releases==2);
+ assert(serial==0&&presents==2&&releases==2);
  deny_surface_read=false;
  surface.destroy_requested=true;
  assert(!g5_compositor_bridge_present(&b,slot,4,config,&serial));
