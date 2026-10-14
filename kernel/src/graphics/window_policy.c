@@ -985,6 +985,17 @@ bool window_policy_selftest(void) {
     if (window_policy_hit_test_committed(&policy, input_place.x,
                                          input_place.y, &hit)) return false;
 
+    /* Counter exhaustion must never wrap z-order into stale priority. */
+    int32_t saved_next_z = policy.next_z;
+    policy.next_z = INT32_MAX;
+    struct aurora_window_placement rejected_placement = {0};
+    if (window_policy_raise(&policy, second_window) ||
+        window_policy_place_initial(&policy, second_window,
+                                    400u, 300u, &rejected_placement)) {
+        return false;
+    }
+    policy.next_z = saved_next_z;
+
     /* Surface teardown revokes all outstanding activation authority. */
     struct aurora_graphics_surface cleanup_surface = {
         .generation = 20u,
