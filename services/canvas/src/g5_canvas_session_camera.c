@@ -231,3 +231,18 @@ bool g5_canvas_session_camera_present_zoom(
     return g5_canvas_session_camera_commit(current,&staged,
                                             session,scene,camera);
 }
+
+/* The exclusive lock must cover both compositor publication and camera
+ * revision commit. Lock implementations must not permit callback reentry. */
+bool g5_canvas_session_camera_locked_pan(
+    struct g5_canvas_session_camera *current,
+    uint64_t session,uint64_t scene,uint64_t camera,
+    double dx,double dy,
+    g5_canvas_session_lock_fn lock,g5_canvas_session_unlock_fn unlock,
+    g5_canvas_session_present_fn present,void *context) {
+    if (!lock || !unlock || !present || !lock(context)) return false;
+    const bool ok=g5_canvas_session_camera_present_pan(
+        current,session,scene,camera,dx,dy,present,context);
+    unlock(context);
+    return ok;
+}
