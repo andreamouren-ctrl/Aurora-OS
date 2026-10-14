@@ -116,3 +116,14 @@ revision update between pan requests. It asserts that an owner/request
 snapshot using the prior topology revision is rejected without calling
 the presenter, then checks that a refreshed owner/request can proceed.
 This simulates revision fencing only; it is not a production scene update.
+
+### First production integer-origin integration
+
+`kernel/src/session/g5_shell_scene.c` now stages signed 64-bit world-origin
+coordinates for an accepted bounded pan, using 1024 ticks per screen pixel.
+Both axes are overflow-checked before the window policy/compositor is
+modified. The world origin is committed only after a successful compositor
+present, alongside the existing camera revision increment. The original
+IPC payload and scene revision behavior are unchanged. This is a bounded
+translation foundation, **not** unbounded scrolling or zoom. QEMU and
+bootstrap compilation of this kernel change are required before acceptance.
