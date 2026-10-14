@@ -154,6 +154,23 @@ bool software_compositor_set_clip(
     const struct aurora_compositor_clip *clip
 );
 
+/* Trusted all-or-nothing placement preparation. This does not present a
+ * frame, authorize Ring 3 surfaces or constitute a G5 IPC transaction. */
+struct aurora_compositor_placement {
+    uint64_t node_id;
+    int32_t x;
+    int32_t y;
+    int32_t z;
+    uint8_t opacity;
+    bool visible;
+};
+
+bool software_compositor_set_nodes_atomic(
+    struct aurora_software_compositor *compositor,
+    const struct aurora_compositor_placement *placements,
+    uint32_t count
+);
+
 bool software_compositor_set_transform(
     struct aurora_software_compositor *compositor,
     uint64_t node_id,
