@@ -173,8 +173,9 @@ bool software_compositor_set_nodes_atomic(
     uint32_t count
 );
 
-/* Trusted synchronous scene transaction: validate all placements, compose
- * and present once, restore node state on failure. Not a Ring 3 IPC entry. */
+/* Trusted synchronous scene transaction for at most three placements:
+ * validate, compose and present once, restore node state on failure.
+ * Not a Ring 3 IPC entry; physical scanout atomicity is not guaranteed. */
 bool software_compositor_present_nodes_atomic(
     struct aurora_software_compositor *compositor,
     const struct aurora_compositor_placement *placements,
