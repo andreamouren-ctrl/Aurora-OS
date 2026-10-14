@@ -7,6 +7,7 @@ int main(void) {
     assert(g5_integer_pan_apply(&s,8,-8,1));
     assert(s.x_ticks==-8192 && s.y_ticks==8192 && s.revision==2);
     before=s;
+    assert(!g5_integer_pan_apply(&s,0,0,2));
     assert(!g5_integer_pan_apply(&s,1,1,1));
     assert(!g5_integer_pan_apply(&s,33,0,2));
     assert(!g5_integer_pan_apply(&s,0,-33,2));
