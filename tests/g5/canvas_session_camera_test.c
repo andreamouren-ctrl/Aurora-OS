@@ -69,6 +69,14 @@ int main(void) {
     assert(!g5_canvas_session_camera_present_pan(
         &s,10,5,8,3,0,present_yes,&presentations));
     assert(presentations==4);
+    /* Two independent world points project consistently after pan/zoom. */
+    int32_t x0=0,y0=0,x1=0,y1=0;
+    assert(g5_camera_world_to_screen(&s.camera,
+        (struct g5_world_point){0,0},&x0,&y0));
+    assert(g5_camera_world_to_screen(&s.camera,
+        (struct g5_world_point){102400,51200},&x1,&y1));
+    assert(x1-x0==300 && y1-y0==150);
+    assert(s.camera.revision==9 && s.scene_revision==5);
     puts("[g5-wp05] Ring3 camera present-gated transactions passed");
     return 0;
 }
