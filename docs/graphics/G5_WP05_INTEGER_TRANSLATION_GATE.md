@@ -55,3 +55,13 @@ camera that tracks the same visual movement shifts its world anchor by
 -dx/-dy. A future adapter must specify the sign convention explicitly
 and must preserve both camera and scene revision semantics. The prototype now fences camera and scene revisions, but does not
 implement the existing window policy/compositor transaction.
+
+## Experimental camera/scene transaction staging
+
+`g5_canvas_pan_transaction.h` prepares a new camera and scene revision
+into caller-provided staging memory. It does not mutate the live state,
+perform compositor operations, or decide whether presentation succeeded.
+The caller must commit staged state **only after** the existing authorized
+window-policy/compositor transaction succeeds. If it fails, staged state
+must be discarded. No production call site is wired yet; the new host test
+checks staging and fail-atomic rejection only.
