@@ -1,5 +1,9 @@
 #include <aurora/g5_canvas_session_camera.h>
+#if defined(G5_CANVAS_FREESTANDING)
+#define isfinite(x) __builtin_isfinite(x)
+#else
 #include <math.h>
+#endif
 #include <stdint.h>
 void g5_canvas_session_camera_revoke(struct g5_canvas_session_camera *s) {
     if (!s) return;
