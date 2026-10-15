@@ -281,7 +281,9 @@ static void cleanup_finished_host(void) {
     g5_shell_session_end(&shell_session);
     /* Canvas owns no graphics authority; reap its exited process before
      * clearing host bookkeeping. Never fake termination. */
-    (void)g5_canvas_service_reap(&host.canvas);
+    if (host.canvas.process != NULL &&
+        !g5_canvas_service_reap(&host.canvas))
+        (void)g5_canvas_service_reap_failed(&host.canvas);
     revoke_g5_receiver();
     (void)shutdown_second_client();
     if (session_g5_dispatcher != NULL)
