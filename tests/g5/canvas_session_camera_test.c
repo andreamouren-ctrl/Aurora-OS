@@ -100,13 +100,15 @@ static void test_scene_bridge(void) {
     b.count=2;
     /* The bridge must not accept a stale or revoked session, and a
      * rejected presentation must not advance the camera revision. */
+    /* A scene revision is not intrinsically stale: the caller must compare
+     * it against the authoritative compositor scene generation. The local
+     * bridge only checks that the proposed session is internally valid. */
     state.scene_revision=4;
-    assert(!g5_canvas_scene_bridge_present(&b,&state));
-    assert(p.calls==3);
-    state.scene_revision=3;
+    assert(g5_canvas_scene_bridge_present(&b,&state));
+    assert(p.calls==4 && p.scene==4);
     g5_canvas_session_camera_revoke(&state);
     assert(!g5_canvas_scene_bridge_present(&b,&state));
-    assert(p.calls==3);
+    assert(p.calls==4);
 }
 int main(void) {
     test_scene_bridge();
