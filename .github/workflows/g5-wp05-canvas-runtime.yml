@@ -31,7 +31,19 @@ jobs:
         run: |
           test -s build/x86_64/canvas-runtime/canvas-engine.bin
           readelf -h build/x86_64/canvas-runtime/canvas-engine.elf
-          nm build/x86_64/canvas-runtime/canvas-engine.elf | grep ' _start
+          nm build/x86_64/canvas-runtime/canvas-engine.elf | grep -q ' _start
+          test -z "$(nm -u build/x86_64/canvas-runtime/canvas-engine.elf)"
+          readelf -h build/x86_64/canvas-runtime/canvas-engine.elf | grep -q 'Machine:.*Advanced Micro Devices X86-64'
+          nm build/x86_64/canvas-runtime/canvas-engine.elf | grep -q ' g5_canvas_runtime_main
+
+
+          test -z "$(nm -u build/x86_64/canvas-runtime/canvas-engine.elf)"
+          readelf -h build/x86_64/canvas-runtime/canvas-engine.elf | grep -q 'Machine:.*Advanced Micro Devices X86-64'
+          nm build/x86_64/canvas-runtime/canvas-engine.elf | grep ' g5_canvas_runtime_main
+
+
+
+
 
           test -z "$(nm -u build/x86_64/canvas-runtime/canvas-engine.elf)"
           readelf -h build/x86_64/canvas-runtime/canvas-engine.elf | grep -q 'Machine:.*Advanced Micro Devices X86-64'
