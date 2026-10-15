@@ -19,6 +19,13 @@ bool g5_compositor_bridge_attach(struct g5_compositor_bridge *b,uint32_t slot,
  int32_t x,int32_t y,int32_t z,uint64_t *node_id);
 bool g5_compositor_bridge_present(struct g5_compositor_bridge *b,uint32_t slot,
  uint64_t request_id,uint64_t configure_serial,uint64_t *display_serial);
+/* Trusted scene coordinator: resolve two live surface slots and publish
+ * their positions in one compositor transaction. This does not grant an
+ * untrusted sender permission to choose slots or bypass IPC authorization. */
+bool g5_compositor_bridge_place_pair(
+ struct g5_compositor_bridge *bridge,uint32_t first_slot,
+ int32_t first_x,int32_t first_y,uint32_t second_slot,
+ int32_t second_x,int32_t second_y);
 bool g5_compositor_bridge_detach(struct g5_compositor_bridge *b,uint32_t slot);
 void g5_compositor_bridge_revoke(struct g5_compositor_bridge *b);
 #endif
