@@ -282,8 +282,9 @@ static void cleanup_finished_host(void) {
     /* Canvas owns no graphics authority; reap its exited process before
      * clearing host bookkeeping. Never fake termination. */
     if (host.canvas.process != NULL &&
-        !g5_canvas_service_reap(&host.canvas))
-        (void)g5_canvas_service_reap_failed(&host.canvas);
+        !g5_canvas_service_reap(&host.canvas) &&
+        !g5_canvas_service_reap_failed(&host.canvas))
+        log_line("[g5-wp05] Canvas cleanup deferred: process still live or unreapable");
     revoke_g5_receiver();
     (void)shutdown_second_client();
     if (session_g5_dispatcher != NULL)
