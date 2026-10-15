@@ -132,6 +132,16 @@ static void test_scene_receiver(void) {
     assert(p.calls==2 && receiver.camera_revision==2);
     assert(g5_canvas_scene_receiver_publish(&receiver,20,3,3,x,y,2));
     assert(p.calls==3 && receiver.camera_revision==3);
+    /* Teardown or scene replacement invalidates the receiver fence. */
+    receiver.session_generation=21;
+    assert(!g5_canvas_scene_receiver_publish(&receiver,20,3,4,x,y,2));
+    receiver.session_generation=20;
+    receiver.scene_revision=4;
+    assert(!g5_canvas_scene_receiver_publish(&receiver,20,3,4,x,y,2));
+    assert(p.calls==3 && receiver.camera_revision==3);
+    /* A newly-authorized scene can publish its next camera revision. */
+    assert(g5_canvas_scene_receiver_publish(&receiver,20,4,4,x,y,2));
+    assert(p.calls==4 && receiver.camera_revision==4);
 }
 int main(void) {
     test_scene_receiver();
