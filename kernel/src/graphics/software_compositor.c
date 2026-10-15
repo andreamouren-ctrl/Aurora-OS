@@ -2163,6 +2163,32 @@ static bool software_compositor_basic_selftest(void) {
         return false;
     }
 
+    /* G5 WP-05: two-node commit is all-or-none, including stale IDs. */
+    const struct aurora_compositor_position rejected[2]={
+        {red_node,4,4},{UINT64_MAX,9,9}
+    };
+    if (software_compositor_set_positions(&compositor,rejected,2u) ||
+        find_node(&compositor,red_node)->x!=-2 ||
+        find_node(&compositor,red_node)->y!=-2)
+        return false;
+    const struct aurora_compositor_position duplicate[2]={
+        {red_node,4,4},{red_node,9,9}
+    };
+    if (software_compositor_set_positions(&compositor,duplicate,2u))
+        return false;
+    const struct aurora_compositor_position moved[2]={
+        {red_node,0,0},{green_node,1,1}
+    };
+    if (!software_compositor_set_positions(&compositor,moved,2u) ||
+        find_node(&compositor,red_node)->x!=0 ||
+        find_node(&compositor,green_node)->x!=1)
+        return false;
+    const struct aurora_compositor_position restored[1]={
+        {red_node,-2,-2}
+    };
+    if (!software_compositor_set_positions(&compositor,restored,1u))
+        return false;
+
     if (!software_compositor_set_node(
             &compositor,
             green_node,
