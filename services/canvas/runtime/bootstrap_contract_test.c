@@ -11,6 +11,10 @@ int main(void) {
         G5_CANVAS_BOOTSTRAP_READY_REQUEST_ID
     };
     if (!g5_canvas_bootstrap_ready_valid(&message, generation)) return 1;
+    if (g5_canvas_bootstrap_ready_valid(0, generation)) return 10;
+    message.request_id = 2u;
+    if (g5_canvas_bootstrap_ready_valid(&message, generation)) return 11;
+    message.request_id = G5_CANVAS_BOOTSTRAP_READY_REQUEST_ID;
     if (g5_canvas_bootstrap_ready_valid(&message, generation + 1u)) return 2;
     if (g5_canvas_bootstrap_ready_valid(&message, 0u)) return 3;
     message.version++;
