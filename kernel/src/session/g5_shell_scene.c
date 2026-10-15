@@ -931,12 +931,13 @@ bool g5_shell_scene_pan(struct g5_shell_scene *scene,
                             scene->extra.width,scene->extra.height))
         goto rollback;
     moved_second=true;
-    if (!software_compositor_set_node(&scene->compositor,n1,
-                                      (int32_t)x1,(int32_t)y1,
-                                      first.placement.z,255u,true) ||
-        !software_compositor_set_node(&scene->compositor,n2,
-                                      (int32_t)x2,(int32_t)y2,
-                                      second.placement.z,255u,true))
+    /* The actual Ring3 PAN IPC path now submits one compositor batch.
+     * No first-window-only state is exposed if the second node is stale. */
+    const struct aurora_compositor_position moved[2]={
+        {n1,(int32_t)x1,(int32_t)y1},
+        {n2,(int32_t)x2,(int32_t)y2}
+    };
+    if (!software_compositor_set_positions(&scene->compositor,moved,2u))
         goto rollback;
     uint64_t serial=0u;
     if (!software_compositor_compose_present(&scene->compositor,&serial) ||
@@ -949,12 +950,11 @@ bool g5_shell_scene_pan(struct g5_shell_scene *scene,
     ++scene->camera_revision;
     return true;
 rollback:
-    (void)software_compositor_set_node(&scene->compositor,n1,
-             first.placement.x,first.placement.y,
-             first.placement.z,255u,true);
-    (void)software_compositor_set_node(&scene->compositor,n2,
-             second.placement.x,second.placement.y,
-             second.placement.z,255u,true);
+    const struct aurora_compositor_position restored[2]={
+        {n1,first.placement.x,first.placement.y},
+        {n2,second.placement.x,second.placement.y}
+    };
+    (void)software_compositor_set_positions(&scene->compositor,restored,2u);
     if (moved_second)
         (void)window_policy_move(&scene->window_policy,
                                  scene->extra.window_id,
