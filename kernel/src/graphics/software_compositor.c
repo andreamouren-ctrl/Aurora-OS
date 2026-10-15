@@ -1059,6 +1059,46 @@ bool software_compositor_remove_surface(
     return cap_revoke(&compositor->surface_caps, handle);
 }
 
+bool software_compositor_set_positions(
+    struct aurora_software_compositor *compositor,
+    const struct aurora_compositor_position *positions,
+    size_t count
+) {
+    /* Caller must serialize this batch with surface teardown, output mode
+     * changes and other compositor writers. Validate all committed buffers
+     * before the first mutation, so a missing node cannot partially move
+     * the scene. This primitive does not perform IPC authorization. */
+    if (!compositor || !compositor->initialized ||
+        count>AURORA_COMPOSITOR_MAX_NODES ||
+        (count && !positions) ||
+        !display_mode_at(compositor->output_index,0u))
+        return false;
+    for (size_t i=0;i<count;++i) {
+        struct aurora_compositor_node *node=
+            find_node(compositor,positions[i].node_id);
+        if (!node) return false;
+        for (size_t j=0;j<i;++j)
+            if (positions[j].node_id==positions[i].node_id) return false;
+        struct aurora_graphics_surface_snapshot snapshot={0};
+        if (!graphics_surface_read_committed(&compositor->surface_caps,
+                node->surface_handle,&snapshot)) return false;
+        uint64_t width=0,height=0;
+        const bool valid=transformed_extent(node,snapshot.buffer->width,
+            snapshot.buffer->height,&width,&height);
+        graphics_surface_snapshot_release(&snapshot);
+        if (!valid) return false;
+    }
+    /* All nodes and their committed buffers were checked above. */
+    for (size_t i=0;i<count;++i) {
+        struct aurora_compositor_node *node=
+            find_node(compositor,positions[i].node_id);
+        if (!software_compositor_set_node(compositor,positions[i].node_id,
+                positions[i].x,positions[i].y,node->z,node->opacity,
+                node->visible)) return false;
+    }
+    return true;
+}
+
 bool software_compositor_set_node(
     struct aurora_software_compositor *compositor,
     uint64_t node_id,
