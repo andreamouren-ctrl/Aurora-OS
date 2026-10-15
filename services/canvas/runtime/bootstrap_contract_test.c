@@ -29,6 +29,17 @@ int main(void) {
             G5_CANVAS_BOOTSTRAP_HEALTH_ACK, generation, 18u)) return 7;
     if (g5_canvas_bootstrap_valid(&message,
             G5_CANVAS_BOOTSTRAP_HEALTH_ACK, generation, 0u)) return 8;
+    message.type = G5_CANVAS_BOOTSTRAP_SHUTDOWN_ACK;
+    if (g5_canvas_bootstrap_valid(&message,
+            G5_CANVAS_BOOTSTRAP_HEALTH_ACK, generation, 17u)) return 12;
+    message.type = G5_CANVAS_BOOTSTRAP_HEALTH_ACK;
+    message.request_id = 0u;
+    if (g5_canvas_bootstrap_valid(&message,
+            G5_CANVAS_BOOTSTRAP_HEALTH_ACK, generation, 17u)) return 13;
+    message.request_id = 17u;
+    message.session_generation = generation + 1u;
+    if (g5_canvas_bootstrap_valid(&message,
+            G5_CANVAS_BOOTSTRAP_HEALTH_ACK, generation, 17u)) return 14;
     message.session_generation = 0u;
     if (g5_canvas_bootstrap_valid(&message,
             G5_CANVAS_BOOTSTRAP_HEALTH_ACK, generation, 17u)) return 9;
