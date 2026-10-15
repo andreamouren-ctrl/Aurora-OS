@@ -35,8 +35,9 @@ bool g5_canvas_service_reap(struct g5_canvas_service *service) {
         service->thread_id=0u;
     }
     if (process_live_thread_count(service->process)!=0u) return false;
-    if (process_state(service->process)==AURORA_PROCESS_RUNNING)
-        return false; /* Never forge successful exit during cleanup. */
+    if (process_state(service->process)!=AURORA_PROCESS_EXITED ||
+        service->process->exit_code!=0)
+        return false; /* Faulted or nonzero exit cannot pass the smoke gate. */
     if (!process_reap(service->process,NULL) ||
         !process_release(service->process)) return false;
     service->process=NULL;
