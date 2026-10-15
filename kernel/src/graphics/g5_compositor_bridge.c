@@ -67,6 +67,37 @@ bool g5_compositor_bridge_present(struct g5_compositor_bridge *b,uint32_t slot,
  }
  return true;
 }
+bool g5_compositor_bridge_place_pair(
+ struct g5_compositor_bridge *b,uint32_t a,int32_t ax,int32_t ay,
+ uint32_t c,int32_t cx,int32_t cy) {
+ if(!live(b)||a==c||a>=G5_SURFACE_REGISTRY_CAPACITY||
+    c>=G5_SURFACE_REGISTRY_CAPACITY||
+    !b->node_ids[a]||!b->node_ids[c]||
+    b->node_ids[a]==b->node_ids[c])return false;
+ const uint32_t slots[2]={a,c};
+ for(unsigned i=0;i<2u;++i) {
+  struct g5_surface_registry_entry *entry=
+      &b->delivery->submission->registry.entries[slots[i]];
+  if(!entry->occupied)return false;
+  struct g5_surface_bridge *bound=&entry->bridge;
+  struct aurora_graphics_surface *surface=NULL;
+  if(bound->object_id!=b->attached_object_ids[slots[i]]||
+     bound->object_generation!=b->attached_object_generations[slots[i]]||
+     !bound->owner_caps||
+     !graphics_surface_lookup(bound->owner_caps,bound->surface_handle,
+                              AURORA_RIGHT_READ,&surface)||
+     surface->object_id!=bound->object_id||
+     surface->generation!=bound->object_generation||
+     surface->destroy_requested||
+     surface->state==AURORA_GRAPHICS_SURFACE_FREE||
+     !g5_surface_configure_ready(&bound->configure,
+       &b->delivery->submission->registry.session))return false;
+ }
+ const struct aurora_compositor_position positions[2]={
+     {b->node_ids[a],ax,ay},{b->node_ids[c],cx,cy}
+ };
+ return software_compositor_set_positions(b->compositor,positions,2u);
+}
 bool g5_compositor_bridge_detach(struct g5_compositor_bridge *b,uint32_t slot) {
  if(!b||!b->compositor||slot>=G5_SURFACE_REGISTRY_CAPACITY||
     !b->node_ids[slot])return false;
