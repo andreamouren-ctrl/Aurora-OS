@@ -1,0 +1,24 @@
+name: G5 WP-05 Canvas Ring3 Binary
+on:
+  push:
+    branches:
+      - feat/g5-wp05-integer-translation-probe
+    paths:
+      - 'services/canvas/**'
+      - '.github/workflows/g5-wp05-canvas-runtime.yml'
+  pull_request:
+    paths:
+      - 'services/canvas/**'
+      - '.github/workflows/g5-wp05-canvas-runtime.yml'
+jobs:
+  canvas-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build isolated freestanding Ring3 binary
+        run: make -C services/canvas/runtime
+      - name: Verify ELF entry and executable
+        run: |
+          test -s build/x86_64/canvas-runtime/canvas-engine.bin
+          readelf -h build/x86_64/canvas-runtime/canvas-engine.elf
+          nm build/x86_64/canvas-runtime/canvas-engine.elf | grep ' _start$'
