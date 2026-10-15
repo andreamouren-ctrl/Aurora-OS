@@ -1,5 +1,11 @@
 #include <aurora/g5_canvas_camera.h>
+#if defined(G5_CANVAS_FREESTANDING)
+/* Compiler intrinsics avoid hosted libc headers in the Ring3 image. */
+#define isfinite(x) __builtin_isfinite(x)
+#define fabs(x) __builtin_fabs(x)
+#else
 #include <math.h>
+#endif
 #include <limits.h>
 
 /* __int128 is intentionally confined to user-space implementation. Explicit
