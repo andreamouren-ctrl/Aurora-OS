@@ -5,7 +5,7 @@ ROOT := ../../..
 BUILD := $(ROOT)/build/$(ARCH)/canvas-runtime
 ELF := $(BUILD)/canvas-engine.elf
 BIN := $(BUILD)/canvas-engine.bin
-CFLAGS := -DG5_CANVAS_FREESTANDING -target x86_64-unknown-none-elf -std=c11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -fno-common -ffunction-sections -fdata-sections -m64 -march=x86-64 -mno-red-zone -mno-mmx -mno-sse -mno-sse2
+CFLAGS := -DG5_CANVAS_FREESTANDING -target x86_64-unknown-none-elf -std=c11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-pie -fno-common -ffunction-sections -fdata-sections -m64 -march=x86-64 -mno-red-zone -msse2
 ASFLAGS := -target x86_64-unknown-none-elf -ffreestanding -fno-pic -fno-pie -m64 -march=x86-64 -mno-red-zone
 LDFLAGS := -target x86_64-unknown-none-elf -fuse-ld=lld -nostdlib -static -Wl,--build-id=none -Wl,--gc-sections -Wl,-z,max-page-size=0x1000 -Wl,-T,linker.ld
 .PHONY: all clean
