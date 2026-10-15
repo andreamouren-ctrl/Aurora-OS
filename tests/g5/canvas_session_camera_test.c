@@ -314,9 +314,7 @@ int main(void) {
     assert(!g5_canvas_session_camera_locked_viewport(&locked,70,3,4,
         1200,900,acquire_serial,release_serial,publish_serial,&serial));
     assert(locked.camera.width_px==1024);
-    assert(serial.locks==serial.unlocks); /* failed lock did not acquire */
-    serial.locked=false;
-    assert(serial.locks==serial.unlocks);
+    assert(serial.locks==serial.unlocks && !serial.locked);
     /* Scene publication shares the same lock as pan, zoom and resize. */
     serial.accept=true;
     assert(g5_canvas_session_camera_locked_scene(&locked,70,3,4,
