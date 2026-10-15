@@ -77,6 +77,7 @@ static void test_scene_bridge(void) {
     struct g5_canvas_session_camera state={0};
     const struct g5_world_point nodes[2]={{0,0},{102400,51200}};
     struct bridge_probe p={0};
+    p.accept=true;
     struct g5_canvas_scene_bridge b={nodes,2,bridge_publish,&p};
     assert(g5_canvas_session_camera_init(&state,20,3,nodes[0],800,600));
     assert(g5_canvas_scene_bridge_present(&b,&state));
