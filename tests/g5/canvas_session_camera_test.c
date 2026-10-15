@@ -363,6 +363,19 @@ int main(void) {
     assert(!g5_canvas_session_camera_commit(&locked,&scale_candidate,
         70,4,4));
     assert(locked.camera.revision==4);
+    /* A valid resize changes only viewport dimensions and is committable.
+     * A valid zoom may also move the anchor to preserve pointer focus. */
+    assert(g5_canvas_session_camera_stage_viewport(&locked,70,4,4,
+        1200,900,&scale_candidate));
+    assert(g5_canvas_session_camera_commit(&locked,&scale_candidate,
+        70,4,4));
+    assert(locked.camera.revision==5 &&
+           locked.camera.width_px==1200 && locked.camera.height_px==900);
+    assert(g5_canvas_session_camera_stage_zoom(&locked,70,4,5,
+        1.5,300,200,&scale_candidate));
+    assert(g5_canvas_session_camera_commit(&locked,&scale_candidate,
+        70,4,5));
+    assert(locked.camera.revision==6 && locked.camera.zoom==3.0);
     puts("[g5-wp05] Ring3 serialized pan zoom viewport scene passed");
     return 0;
 }
