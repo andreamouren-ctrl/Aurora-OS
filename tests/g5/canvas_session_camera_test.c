@@ -406,6 +406,17 @@ int main(void) {
     assert(locked.camera.revision==after_interleaved_pan.revision &&
            locked.camera.anchor.x==after_interleaved_pan.anchor.x &&
            locked.camera.anchor.y==after_interleaved_pan.anchor.y);
+    /* A topology revision published between stage and commit must reject
+     * the stale camera candidate, even if its camera revision still matches. */
+    assert(g5_canvas_session_camera_stage_pan(&locked,70,4,8,
+        3,0,&obsolete));
+    assert(g5_canvas_session_camera_advance_scene(&locked,70,4,8));
+    assert(locked.scene_revision==5 && locked.camera.revision==8);
+    assert(!g5_canvas_session_camera_commit(&locked,&obsolete,
+        70,4,8));
+    assert(!g5_canvas_session_camera_commit(&locked,&obsolete,
+        70,5,8));
+    assert(locked.scene_revision==5 && locked.camera.revision==8);
     puts("[g5-wp05] Ring3 serialized pan zoom viewport scene passed");
     return 0;
 }
