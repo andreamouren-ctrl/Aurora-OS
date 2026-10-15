@@ -59,3 +59,21 @@ bool g5_canvas_service_reap(struct g5_canvas_service *service) {
     service->session_generation=0u;
     return true;
 }
+
+bool g5_canvas_service_reap_failed(struct g5_canvas_service *service) {
+    if (!service || !service->process) return false;
+    if (service->thread_id) {
+        if (!scheduler_thread_finished(service->thread_id)) return false;
+        if (!scheduler_reap_thread(service->thread_id)) return false;
+        service->thread_id=0u;
+    }
+    if (process_live_thread_count(service->process)!=0u ||
+        process_state(service->process)==AURORA_PROCESS_RUNNING)
+        return false;
+    /* This is cleanup of a terminal process, not proof of a clean exit. */
+    if (!process_reap(service->process,NULL) ||
+        !process_release(service->process)) return false;
+    service->process=NULL;
+    service->session_generation=0u;
+    return true;
+}
