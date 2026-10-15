@@ -2,8 +2,9 @@
 
 This is an isolated, freestanding x86-64 executable built by
 `make -C services/canvas/runtime`. The link must contain no undefined
-symbols. It is **not** currently packaged into the kernel image or launched
-by the Session Manager.
+symbols. It is packaged as a distinct image in the kernel build. The Session Manager
+launches it as a short-lived Ring3 smoke probe and requires a clean exit
+before marking the G5 session ready. It is **not** a persistent service.
 
 ## Current bootstrap boundary
 
@@ -14,7 +15,8 @@ scene to operate on.
 
 ## Required activation gates
 
-1. Package `canvas-engine.bin` separately from `user-session-host.bin`.
+1. [Implemented, pending CI/QEMU validation] Package `canvas-engine.bin`
+   separately from `user-session-host.bin` and smoke-launch its process.
 2. Launch it in its own process/address space, with a unique control IPC
    endpoint and validated startup generation.
 3. Prove READY/HEALTH, shutdown and stale-generation rejection.
