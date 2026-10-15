@@ -27,6 +27,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build isolated freestanding Ring3 binary
         run: make -C services/canvas/runtime
+      - name: Test Canvas bootstrap protocol rejection paths
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -Ikernel/include \
+            services/canvas/runtime/bootstrap_contract_test.c \
+            -o /tmp/g5-canvas-bootstrap-contract-test
+          /tmp/g5-canvas-bootstrap-contract-test
       - name: Verify ELF entry and executable
         run: |
           test -s build/x86_64/canvas-runtime/canvas-engine.bin
