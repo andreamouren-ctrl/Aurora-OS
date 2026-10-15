@@ -1,4 +1,5 @@
 #include <aurora/g5_canvas_session_camera.h>
+#include <aurora/g5_canvas_scene_bridge.h>
 #include <assert.h>
 #include <stdio.h>
 static bool present_yes(void *p,const struct g5_canvas_session_camera *next) {
@@ -54,7 +55,50 @@ static bool publish_serial(void *context,
     ++p->presents;
     return p->accept;
 }
+struct bridge_probe {
+    unsigned calls;
+    bool accept;
+    uint64_t session, scene, camera;
+    size_t count;
+    int32_t x[2], y[2];
+};
+static bool bridge_publish(void *context, uint64_t session, uint64_t scene,
+    uint64_t camera, const int32_t *x, const int32_t *y, size_t count) {
+    struct bridge_probe *p=context;
+    ++p->calls;
+    p->session=session; p->scene=scene; p->camera=camera;
+    p->count=count;
+    if (!p->accept) return false;
+    assert(count==2);
+    for (size_t i=0;i<count;i++) { p->x[i]=x[i]; p->y[i]=y[i]; }
+    return true;
+}
+static void test_scene_bridge(void) {
+    struct g5_canvas_session_camera state={0};
+    const struct g5_world_point nodes[2]={{0,0},{102400,51200}};
+    struct bridge_probe p={0};
+    struct g5_canvas_scene_bridge b={nodes,2,bridge_publish,&p};
+    assert(g5_canvas_session_camera_init(&state,20,3,nodes[0],800,600));
+    assert(g5_canvas_scene_bridge_present(&b,&state));
+    assert(p.calls==1 && p.session==20 && p.scene==3 &&
+           p.camera==1 && p.count==2);
+    const int32_t old_x=p.x[0], old_y=p.y[0];
+    p.accept=false;
+    assert(!g5_canvas_session_camera_present_pan(&state,20,3,1,8,4,
+        g5_canvas_scene_bridge_present,&b));
+    assert(state.camera.revision==1 && p.calls==2 &&
+           p.x[0]==old_x && p.y[0]==old_y);
+    p.accept=true;
+    assert(g5_canvas_session_camera_present_pan(&state,20,3,1,8,4,
+        g5_canvas_scene_bridge_present,&b));
+    assert(state.camera.revision==2 && p.calls==3 && p.camera==2);
+    assert(p.x[0]==old_x+8 && p.y[0]==old_y+4);
+    b.count=65;
+    assert(!g5_canvas_scene_bridge_present(&b,&state));
+    assert(p.calls==3);
+}
 int main(void) {
+    test_scene_bridge();
     struct g5_canvas_session_camera s={0};
     const struct g5_world_point origin={0,0};
     assert(!g5_canvas_session_camera_init(&s,0,5,origin,800,600));
