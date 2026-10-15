@@ -17,8 +17,9 @@ scene to operate on.
 
 1. [Implemented, pending CI/QEMU validation] Package `canvas-engine.bin`
    separately from `user-session-host.bin` and smoke-launch its process.
-2. Launch it in its own process/address space, with a unique control IPC
-   endpoint and validated startup generation.
+2. [Partially implemented] Launch in a separate process/address space.
+   A unique control IPC endpoint and validated Ring3 startup generation
+   are still required for the persistent service.
 3. Prove READY/HEALTH, shutdown and stale-generation rejection.
 4. Route camera transactions from Shell to Canvas, then project bounded
    positions and publish them through the trusted compositor coordinator.
