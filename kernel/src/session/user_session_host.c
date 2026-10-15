@@ -684,9 +684,19 @@ static bool start_with_context(
         const uint64_t canvas_deadline=clock_now_ns()+USER_SESSION_HOST_TIMEOUT_NS;
         while (!scheduler_thread_finished(host.canvas.thread_id) &&
                clock_now_ns()<canvas_deadline) arch_idle();
-        if (!scheduler_thread_finished(host.canvas.thread_id) ||
-            !g5_canvas_service_reap(&host.canvas)) {
-            log_line("[g5-wp05] Canvas Ring3 exit/reap probe failed");
+        if (!scheduler_thread_finished(host.canvas.thread_id)) {
+            log_line("[g5-wp05] Canvas Ring3 exit timeout; refusing session READY");
+            cleanup_unstarted_host();
+            return false;
+        }
+        if (process_state(host.canvas.process)!=AURORA_PROCESS_EXITED ||
+            host.canvas.process->exit_code!=0) {
+            log_line("[g5-wp05] Canvas Ring3 fault or nonzero exit; refusing session READY");
+            cleanup_unstarted_host();
+            return false;
+        }
+        if (!g5_canvas_service_reap(&host.canvas)) {
+            log_line("[g5-wp05] Canvas Ring3 resource reap failed; refusing session READY");
             cleanup_unstarted_host();
             return false;
         }
