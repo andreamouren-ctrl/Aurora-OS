@@ -110,7 +110,31 @@ static void test_scene_bridge(void) {
     assert(!g5_canvas_scene_bridge_present(&b,&state));
     assert(p.calls==4);
 }
+static void test_scene_receiver(void) {
+    struct bridge_probe p={0};
+    p.accept=true;
+    struct g5_canvas_scene_receiver receiver={
+        20,3,1,2,bridge_publish,&p
+    };
+    const int32_t x[2]={400,500},y[2]={300,350};
+    assert(!g5_canvas_scene_receiver_publish(&receiver,21,3,2,x,y,2));
+    assert(!g5_canvas_scene_receiver_publish(&receiver,20,4,2,x,y,2));
+    assert(!g5_canvas_scene_receiver_publish(&receiver,20,3,3,x,y,2));
+    assert(!g5_canvas_scene_receiver_publish(&receiver,20,3,2,x,y,3));
+    assert(p.calls==0 && receiver.camera_revision==1);
+    p.accept=false;
+    assert(!g5_canvas_scene_receiver_publish(&receiver,20,3,2,x,y,2));
+    assert(p.calls==1 && receiver.camera_revision==1);
+    p.accept=true;
+    assert(g5_canvas_scene_receiver_publish(&receiver,20,3,2,x,y,2));
+    assert(p.calls==2 && receiver.camera_revision==2);
+    assert(!g5_canvas_scene_receiver_publish(&receiver,20,3,2,x,y,2));
+    assert(p.calls==2 && receiver.camera_revision==2);
+    assert(g5_canvas_scene_receiver_publish(&receiver,20,3,3,x,y,2));
+    assert(p.calls==3 && receiver.camera_revision==3);
+}
 int main(void) {
+    test_scene_receiver();
     test_scene_bridge();
     struct g5_canvas_session_camera s={0};
     const struct g5_world_point origin={0,0};
