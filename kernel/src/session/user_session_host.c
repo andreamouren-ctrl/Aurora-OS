@@ -314,6 +314,9 @@ static void cleanup_finished_host(void) {
 }
 
 static void cleanup_unstarted_host(void) {
+    /* A failed Canvas spawn can leave a prepared image with no thread. */
+    if (host.canvas.process != NULL && host.canvas.thread_id == 0u)
+        (void)g5_canvas_service_abort_unstarted(&host.canvas);
     if (host.process != NULL) {
         (void)session_profile_lease_revoke_process(host.process);
         if (process_state(host.process) == AURORA_PROCESS_RUNNING &&
