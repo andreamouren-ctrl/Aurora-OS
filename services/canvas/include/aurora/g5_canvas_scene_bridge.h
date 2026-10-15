@@ -20,6 +20,21 @@ struct g5_canvas_scene_bridge {
     g5_canvas_scene_publish_fn publish;
     void *context;
 };
+/* Receiver-side guard for a previously authenticated, exclusive compositor
+ * transaction. The authoritative receiver supplies the expected generations;
+ * these checks do not replace surface capability and ownership validation. */
+struct g5_canvas_scene_receiver {
+    uint64_t session_generation;
+    uint64_t scene_revision;
+    uint64_t camera_revision;
+    size_t max_nodes;
+    g5_canvas_scene_publish_fn publish;
+    void *context;
+};
+bool g5_canvas_scene_receiver_publish(
+    void *context, uint64_t session_generation, uint64_t scene_revision,
+    uint64_t camera_revision, const int32_t *x, const int32_t *y,
+    size_t count);
 bool g5_canvas_scene_bridge_present(
     void *context, const struct g5_canvas_session_camera *proposed);
 #endif
