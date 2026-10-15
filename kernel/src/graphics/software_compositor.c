@@ -1064,37 +1064,41 @@ bool software_compositor_set_positions(
     const struct aurora_compositor_position *positions,
     size_t count
 ) {
-    /* Caller must serialize this batch with surface teardown, output mode
-     * changes and other compositor writers. Validate all committed buffers
-     * before the first mutation, so a missing node cannot partially move
-     * the scene. This primitive does not perform IPC authorization. */
+    /* The caller serializes scene writers, buffer retirement and output mode
+     * changes. Retain every buffer and validate every node before mutation.
+     * The commit phase only writes positions and accumulates damage: it has
+     * no fallible lookups and cannot leave a partially moved batch. */
     if (!compositor || !compositor->initialized ||
         count>AURORA_COMPOSITOR_MAX_NODES ||
-        (count && !positions) ||
-        !display_mode_at(compositor->output_index,0u))
-        return false;
+        (count && !positions)) return false;
+    const struct aurora_display_mode *mode=
+        display_mode_at(compositor->output_index,0u);
+    if (!mode) return false;
+    struct aurora_compositor_node *nodes[AURORA_COMPOSITOR_MAX_NODES]={0};
+    uint64_t widths[AURORA_COMPOSITOR_MAX_NODES]={0};
+    uint64_t heights[AURORA_COMPOSITOR_MAX_NODES]={0};
     for (size_t i=0;i<count;++i) {
-        struct aurora_compositor_node *node=
-            find_node(compositor,positions[i].node_id);
-        if (!node) return false;
+        nodes[i]=find_node(compositor,positions[i].node_id);
+        if (!nodes[i]) return false;
         for (size_t j=0;j<i;++j)
-            if (positions[j].node_id==positions[i].node_id) return false;
+            if (nodes[i]==nodes[j]) return false;
         struct aurora_graphics_surface_snapshot snapshot={0};
         if (!graphics_surface_read_committed(&compositor->surface_caps,
-                node->surface_handle,&snapshot)) return false;
-        uint64_t width=0,height=0;
-        const bool valid=transformed_extent(node,snapshot.buffer->width,
-            snapshot.buffer->height,&width,&height);
+                nodes[i]->surface_handle,&snapshot)) return false;
+        const bool valid=transformed_extent(nodes[i],
+            snapshot.buffer->width,snapshot.buffer->height,
+            &widths[i],&heights[i]);
         graphics_surface_snapshot_release(&snapshot);
         if (!valid) return false;
     }
-    /* All nodes and their committed buffers were checked above. */
     for (size_t i=0;i<count;++i) {
-        struct aurora_compositor_node *node=
-            find_node(compositor,positions[i].node_id);
-        if (!software_compositor_set_node(compositor,positions[i].node_id,
-                positions[i].x,positions[i].y,node->z,node->opacity,
-                node->visible)) return false;
+        struct aurora_compositor_node *node=nodes[i];
+        (void)damage_union(&compositor->pending_damage,node->x,node->y,
+            widths[i],heights[i],mode->width,mode->height);
+        node->x=positions[i].x;
+        node->y=positions[i].y;
+        (void)damage_union(&compositor->pending_damage,node->x,node->y,
+            widths[i],heights[i],mode->width,mode->height);
     }
     return true;
 }
