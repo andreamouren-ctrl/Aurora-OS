@@ -458,12 +458,16 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
                                         pan.header.request_id,
                                         pan.delta_x_px,pan.delta_y_px,
                                         pan.expected_camera_revision,
-                                        pan.expected_scene_revision) ||
-                    !send_message(startup->control_endpoint,
+                                        pan.expected_scene_revision))
+                    return 1;
+                /* Once IPC_SEND succeeds, the request is consumed even if
+                 * the host ACK subsequently fails. Never permit a replay
+                 * of a movement already handed to the compositor path. */
+                last_canvas_pan_request_id=pan.header.request_id;
+                if (!send_message(startup->control_endpoint,
                                   AURORA_USER_SESSION_HOST_CANVAS_PAN_ACK,
                                   pan.header.request_id))
                     return 1;
-                last_canvas_pan_request_id=pan.header.request_id;
                 continue;
             }
         }
