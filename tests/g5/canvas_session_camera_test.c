@@ -376,6 +376,22 @@ int main(void) {
     assert(g5_canvas_session_camera_commit(&locked,&scale_candidate,
         70,4,5));
     assert(locked.camera.revision==6 && locked.camera.zoom==3.0);
+    /* A staged pan remains fail-atomic when the session generation changes
+     * before commit. The same applies to a changed scene revision. */
+    assert(g5_canvas_session_camera_stage_pan(&locked,70,4,6,
+        8,0,&scale_candidate));
+    const struct g5_camera unchanged_camera=locked.camera;
+    assert(!g5_canvas_session_camera_commit(&locked,&scale_candidate,
+        71,4,6));
+    assert(!g5_canvas_session_camera_commit(&locked,&scale_candidate,
+        70,5,6));
+    assert(locked.camera.revision==unchanged_camera.revision &&
+           locked.camera.anchor.x==unchanged_camera.anchor.x &&
+           locked.camera.anchor.y==unchanged_camera.anchor.y &&
+           locked.camera.zoom==unchanged_camera.zoom);
+    assert(g5_canvas_session_camera_commit(&locked,&scale_candidate,
+        70,4,6));
+    assert(locked.camera.revision==7);
     puts("[g5-wp05] Ring3 serialized pan zoom viewport scene passed");
     return 0;
 }
