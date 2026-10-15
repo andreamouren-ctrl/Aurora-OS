@@ -17,6 +17,7 @@
 #include <aurora/g5_ipc_endpoint.h>
 #include <aurora/g5_shell_session.h>
 #include <aurora/g5_shell_scene.h>
+#include <aurora/g5_canvas_service.h>
 #include <aurora/usercopy.h>
 
 #define USER_SESSION_HOST_TIMEOUT_NS UINT64_C(2000000000)
@@ -24,6 +25,7 @@
 struct user_session_host_runtime {
     struct aurora_process *process;
     aurora_thread_id thread;
+    struct g5_canvas_service canvas;
     /* Second Ring3 process, exclusive control endpoint and graphics owner. */
     struct aurora_process *second_process;
     aurora_thread_id second_thread;
@@ -277,6 +279,9 @@ static void cleanup_finished_host(void) {
     /* Scene teardown uses extra.owner->capabilities. Revoke graphics
      * while the second process object still exists; then reap it. */
     g5_shell_session_end(&shell_session);
+    /* Canvas owns no graphics authority; reap its exited process before
+     * clearing host bookkeeping. Never fake termination. */
+    (void)g5_canvas_service_reap(&host.canvas);
     revoke_g5_receiver();
     (void)shutdown_second_client();
     if (session_g5_dispatcher != NULL)
@@ -652,6 +657,15 @@ static bool start_with_context(
     if (session_g5_dispatcher != NULL &&
         !start_second_client(user_id,generation)) {
         log_line("[g5-wp04] independent second Ring3 render client failed");
+        cleanup_unstarted_host();
+        return false;
+    }
+    /* WP-05 bootstrap: distinct image and address space, no Shell grants.
+     * Its current fail-closed entry exits without becoming scene READY. */
+    if (session_g5_dispatcher != NULL &&
+        (!g5_canvas_service_prepare(&host.canvas,generation) ||
+         !g5_canvas_service_start(&host.canvas))) {
+        log_line("[g5-wp05] Canvas Ring3 process bootstrap failed");
         cleanup_unstarted_host();
         return false;
     }
