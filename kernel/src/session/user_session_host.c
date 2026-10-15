@@ -696,7 +696,9 @@ static bool start_with_context(
 
 bool user_session_host_health_check(void) {
     if (!user_session_host_active() || !host.g5_ready ||
-        session_g5_dispatcher == NULL || host.kernel_endpoint == NULL)
+        session_g5_dispatcher == NULL || host.kernel_endpoint == NULL ||
+        host.canvas.process != NULL || host.canvas.thread_id != 0u ||
+        host.canvas.session_generation != 0u)
         return false;
     /* IDs 1 and 2 are reserved by Ring3 startup. All subsequent requests
      * consume a strictly increasing G5 and control ID in the same session. */
