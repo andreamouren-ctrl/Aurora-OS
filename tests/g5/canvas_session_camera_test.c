@@ -97,6 +97,16 @@ static void test_scene_bridge(void) {
     b.count=65;
     assert(!g5_canvas_scene_bridge_present(&b,&state));
     assert(p.calls==3);
+    b.count=2;
+    /* The bridge must not accept a stale or revoked session, and a
+     * rejected presentation must not advance the camera revision. */
+    state.scene_revision=4;
+    assert(!g5_canvas_scene_bridge_present(&b,&state));
+    assert(p.calls==3);
+    state.scene_revision=3;
+    g5_canvas_session_camera_revoke(&state);
+    assert(!g5_canvas_scene_bridge_present(&b,&state));
+    assert(p.calls==3);
 }
 int main(void) {
     test_scene_bridge();
