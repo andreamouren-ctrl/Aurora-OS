@@ -425,6 +425,9 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
         return 32;
 
     uint64_t last_resize_serial=0u;
+    /* The bootstrap G5 handshake reserves request IDs 1..4. Keep this
+     * high-water mark for the lifetime of this Shell process, including
+     * host ACK failures after a successful G5 IPC send. */
     uint64_t last_canvas_pan_request_id=4u;
     uint64_t current_graphics_buffer=startup->graphics_buffer;
     for (;;) {
