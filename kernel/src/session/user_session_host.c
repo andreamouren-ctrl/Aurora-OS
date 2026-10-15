@@ -745,6 +745,10 @@ bool user_session_host_stop(void) {
     revoke_g5_sender();
     revoke_g5_receiver();
     bool second_stopped=shutdown_second_client();
+    /* Canvas smoke probe must have exited and been reaped at bootstrap.
+     * A retained Canvas process is a lifecycle failure, not success. */
+    const bool canvas_stopped=host.canvas.process==NULL &&
+        host.canvas.thread_id==0u && host.canvas.session_generation==0u;
     if (!host.active ||
         host.process == NULL ||
         host.thread == 0u ||
@@ -794,7 +798,7 @@ bool user_session_host_stop(void) {
         host.process->exit_code == 0;
 
     cleanup_finished_host();
-    return acknowledged && clean_exit && second_stopped;
+    return acknowledged && clean_exit && second_stopped && canvas_stopped;
 }
 
 /* Production G5 receiver policy. The self-test registers its own dispatcher,
