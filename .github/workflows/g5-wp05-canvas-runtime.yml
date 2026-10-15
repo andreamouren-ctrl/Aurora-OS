@@ -5,10 +5,20 @@ on:
       - feat/g5-wp05-integer-translation-probe
     paths:
       - 'services/canvas/**'
+      - 'kernel/Makefile'
+      - 'kernel/src/session/g5_canvas_service.c'
+      - 'kernel/src/user/g5_canvas_runtime_image.c'
+      - 'kernel/src/session/user_session_host.c'
+      - 'kernel/include/aurora/g5_canvas_*.h'
       - '.github/workflows/g5-wp05-canvas-runtime.yml'
   pull_request:
     paths:
       - 'services/canvas/**'
+      - 'kernel/Makefile'
+      - 'kernel/src/session/g5_canvas_service.c'
+      - 'kernel/src/user/g5_canvas_runtime_image.c'
+      - 'kernel/src/session/user_session_host.c'
+      - 'kernel/include/aurora/g5_canvas_*.h'
       - '.github/workflows/g5-wp05-canvas-runtime.yml'
 jobs:
   canvas-runtime:
@@ -21,4 +31,9 @@ jobs:
         run: |
           test -s build/x86_64/canvas-runtime/canvas-engine.bin
           readelf -h build/x86_64/canvas-runtime/canvas-engine.elf
-          nm build/x86_64/canvas-runtime/canvas-engine.elf | grep ' _start$'
+          nm build/x86_64/canvas-runtime/canvas-engine.elf | grep ' _start
+
+          test -z "$(nm -u build/x86_64/canvas-runtime/canvas-engine.elf)"
+          readelf -h build/x86_64/canvas-runtime/canvas-engine.elf | grep -q 'Machine:.*Advanced Micro Devices X86-64'
+          nm build/x86_64/canvas-runtime/canvas-engine.elf | grep ' g5_canvas_runtime_main
+
