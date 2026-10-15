@@ -417,6 +417,8 @@ static bool start_with_context(
         cleanup_finished_host();
     /* Never discard a live or unreaped process by clearing host state. */
     if (host.active || host.process != NULL || host.thread != 0u ||
+        host.canvas.process != NULL || host.canvas.thread_id != 0u ||
+        host.canvas.session_generation != 0u ||
         user_id == NULL ||
         generation == 0u ||
         !session_profile_lease_active()) {
