@@ -392,6 +392,20 @@ int main(void) {
     assert(g5_canvas_session_camera_commit(&locked,&scale_candidate,
         70,4,6));
     assert(locked.camera.revision==7);
+    /* A stale staged candidate cannot overwrite a newer camera revision. */
+    struct g5_canvas_session_camera obsolete={0};
+    assert(g5_canvas_session_camera_stage_pan(&locked,70,4,7,
+        3,0,&obsolete));
+    assert(g5_canvas_session_camera_pan(&locked,70,4,7,2,0));
+    assert(locked.camera.revision==8);
+    const struct g5_camera after_interleaved_pan=locked.camera;
+    assert(!g5_canvas_session_camera_commit(&locked,&obsolete,
+        70,4,7));
+    assert(!g5_canvas_session_camera_commit(&locked,&obsolete,
+        70,4,8));
+    assert(locked.camera.revision==after_interleaved_pan.revision &&
+           locked.camera.anchor.x==after_interleaved_pan.anchor.x &&
+           locked.camera.anchor.y==after_interleaved_pan.anchor.y);
     puts("[g5-wp05] Ring3 serialized pan zoom viewport scene passed");
     return 0;
 }
