@@ -669,6 +669,21 @@ static bool start_with_context(
         cleanup_unstarted_host();
         return false;
     }
+    if (session_g5_dispatcher != NULL) {
+        /* The first Canvas binary is an intentionally terminating smoke
+         * process, not yet a long-lived camera service. Verify actual
+         * scheduler exit and reclaim its address space before READY. */
+        const uint64_t canvas_deadline=clock_now_ns()+USER_SESSION_HOST_TIMEOUT_NS;
+        while (!scheduler_thread_finished(host.canvas.thread_id) &&
+               clock_now_ns()<canvas_deadline) arch_idle();
+        if (!scheduler_thread_finished(host.canvas.thread_id) ||
+            !g5_canvas_service_reap(&host.canvas)) {
+            log_line("[g5-wp05] Canvas Ring3 exit/reap probe failed");
+            cleanup_unstarted_host();
+            return false;
+        }
+        log_line("[g5-wp05] isolated Canvas Ring3 image executed and reaped");
+    }
     if (!g5_shell_session_ready(&shell_session,generation)) {
         cleanup_unstarted_host();
         return false;
