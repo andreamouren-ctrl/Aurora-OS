@@ -13,5 +13,7 @@ struct g5_canvas_service {
 bool g5_canvas_service_prepare(struct g5_canvas_service *service,
                                uint64_t generation);
 bool g5_canvas_service_start(struct g5_canvas_service *service);
+/* Abort only a prepared process that never acquired a scheduler thread. */
+bool g5_canvas_service_abort_unstarted(struct g5_canvas_service *service);
 bool g5_canvas_service_reap(struct g5_canvas_service *service);
 #endif
