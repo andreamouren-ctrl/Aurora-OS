@@ -27,6 +27,21 @@ bool g5_canvas_service_start(struct g5_canvas_service *service) {
     return service->thread_id!=0u;
 }
 
+bool g5_canvas_service_abort_unstarted(struct g5_canvas_service *service) {
+    if (!service || !service->process || service->thread_id ||
+        process_live_thread_count(service->process)!=0u ||
+        process_state(service->process)!=AURORA_PROCESS_RUNNING)
+        return false;
+    /* No thread was ever scheduled: this is cancellation, not a
+     * fabricated successful Ring3 execution. */
+    process_mark_exited(service->process,1);
+    if (!process_reap(service->process,NULL) ||
+        !process_release(service->process)) return false;
+    service->process=NULL;
+    service->session_generation=0u;
+    return true;
+}
+
 bool g5_canvas_service_reap(struct g5_canvas_service *service) {
     if (!service || !service->process) return false;
     if (service->thread_id) {
