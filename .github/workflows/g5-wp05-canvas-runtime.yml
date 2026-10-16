@@ -25,6 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install ELF linker
+        run: sudo apt-get update && sudo apt-get install -y lld
       - name: Build isolated freestanding Ring3 binary
         run: make -C services/canvas/runtime
       - name: Test Canvas bootstrap protocol rejection paths
