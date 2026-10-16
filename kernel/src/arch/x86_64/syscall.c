@@ -165,7 +165,7 @@ static struct aurora_ipc_endpoint *lookup_ipc_endpoint(
 ) {
     struct aurora_capability_view view;
     if (process == NULL ||
-        !cap_lookup(
+        !cap_lookup_retain(
             &process->capabilities,
             (aurora_cap_handle)handle,
             AURORA_CAP_IPC_ENDPOINT,
@@ -222,6 +222,12 @@ static uint64_t dispatch_ipc_send(
         result = 0ull;
 
 cleanup:
+    if (endpoint != NULL) {
+        const struct aurora_capability_view view = {
+            .object = endpoint, .type = AURORA_CAP_IPC_ENDPOINT
+        };
+        cap_view_release(&view);
+    }
     secure_zero_bytes(payload, sizeof(payload));
     secure_zero_bytes(user_transfer_buffer, sizeof(user_transfer_buffer));
     secure_zero_bytes(transfers, sizeof(transfers));
@@ -264,6 +270,12 @@ static uint64_t dispatch_ipc_receive(
     }
 
 cleanup:
+    if (endpoint != NULL) {
+        const struct aurora_capability_view view = {
+            .object = endpoint, .type = AURORA_CAP_IPC_ENDPOINT
+        };
+        cap_view_release(&view);
+    }
     secure_zero_bytes(&received, sizeof(received));
     secure_zero_bytes(&output, sizeof(output));
     return result;
