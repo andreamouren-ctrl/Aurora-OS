@@ -5,6 +5,9 @@ Version: **0.2**
 
 This roadmap orders M4 work by hard dependencies. A checkbox in the global roadmap is completed only after the relevant implementation and runtime gate are satisfied.
 
+> **Audit note (2026-10-16): current status versus historical checklists.** The dated G5 WP-03 sections below are an append-only engineering investigation log: their unchecked `[ ]` items and phrases such as `CI pending` describe the state *at the time of that entry*, not necessarily the current acceptance status. They must not be aggregated as today's outstanding WP-03 work. The later **G5 WP-03 — Frozen verified baseline (2026-10-09)** supersedes those historical pending statements for the explicitly frozen WP-03 scope; **G5 WP-04 — Two independent Ring 3 window clients (2026-10-10)** records the later accepted windowing scope. **G5 WP-05** remains partial, with accepted bounded camera/pan pilots but no complete Canvas Engine, arbitrary zoom or durable spatial world. Retain the old checkboxes unchanged as historical evidence until a separate, test-traceable migration to a current-only task register is performed. CI success claims here refer to documented historical accepted commits, not an independent verification of the latest `main` head.
+
+
 
 ## G5 WP-05 — Background wheel → authorized Ring 3 pan pilot (2026-10-12)
 
