@@ -736,6 +736,22 @@ static bool start_with_context(
             arch_idle();
         }
         if (!canvas_healthy) {
+            if (scheduler_thread_finished(host.canvas.thread_id)) {
+                if (host.canvas.process &&
+                    process_state(host.canvas.process)==AURORA_PROCESS_EXITED) {
+                    switch (host.canvas.process->exit_code) {
+                    case 13: log_line("[g5-wp05] Canvas HEALTH stage: capability check failed"); break;
+                    case 14: log_line("[g5-wp05] Canvas HEALTH stage: READY send failed"); break;
+                    case 15: log_line("[g5-wp05] Canvas HEALTH stage: IPC wait/receive/ack failed"); break;
+                    case 16: log_line("[g5-wp05] Canvas HEALTH stage: shutdown exchange failed"); break;
+                    default: log_line("[g5-wp05] Canvas HEALTH stage: process exited unexpectedly"); break;
+                    }
+                } else {
+                    log_line("[g5-wp05] Canvas HEALTH stage: thread ended without clean exit");
+                }
+            } else {
+                log_line("[g5-wp05] Canvas HEALTH stage: process still running or blocked");
+            }
             log_line("[g5-wp05] Canvas HEALTH_ACK timeout or rejected");
             cleanup_unstarted_host();
             return false;
