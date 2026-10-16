@@ -746,6 +746,14 @@ static bool start_with_context(
                     case 16: log_line("[g5-wp05] Canvas HEALTH stage: shutdown exchange failed"); break;
                     default: log_line("[g5-wp05] Canvas HEALTH stage: process exited unexpectedly"); break;
                     }
+                } else if (host.canvas.process &&
+                           process_state(host.canvas.process)==AURORA_PROCESS_FAULTED) {
+                    switch (host.canvas.process->fault_vector) {
+                    case 6u: log_line("[g5-wp05] Canvas HEALTH stage: Ring3 invalid opcode fault (#UD)"); break;
+                    case 13u: log_line("[g5-wp05] Canvas HEALTH stage: Ring3 general protection fault (#GP)"); break;
+                    case 14u: log_line("[g5-wp05] Canvas HEALTH stage: Ring3 page fault (#PF)"); break;
+                    default: log_line("[g5-wp05] Canvas HEALTH stage: unexpected Ring3 exception vector"); break;
+                    }
                 } else {
                     log_line("[g5-wp05] Canvas HEALTH stage: thread ended without clean exit");
                 }
