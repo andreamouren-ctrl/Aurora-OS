@@ -78,6 +78,9 @@ void ipc_channel_close(struct aurora_ipc_channel *channel) {
         return;
     }
     channel->closed = true;
+    aurora_thread_id waiters[2] = {
+        channel->waiter_thread[0], channel->waiter_thread[1]
+    };
     for (uint32_t side = 0u; side < 2u; ++side) {
         struct aurora_ipc_queue *queue = &channel->inbound[side];
         channel->waiter_thread[side] = 0u;
@@ -99,6 +102,10 @@ void ipc_channel_close(struct aurora_ipc_channel *channel) {
     }
     spinlock_unlock(&channel->lock);
     cap_table_destroy(&channel->escrow);
+    for (uint32_t side = 0u; side < 2u; ++side) {
+        if (waiters[side] != 0u)
+            (void)scheduler_wake_thread(waiters[side]);
+    }
 }
 
 struct aurora_ipc_endpoint *ipc_channel_endpoint(
