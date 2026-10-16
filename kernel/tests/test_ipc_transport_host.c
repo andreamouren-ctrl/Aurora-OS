@@ -11,8 +11,12 @@
 #include "../src/security/capability.c"
 #include "../src/ipc/ipc.c"
 
+static aurora_thread_id last_woken_thread;
+static uint32_t wake_count;
+
 bool scheduler_wake_thread(aurora_thread_id id) {
-    (void)id;
+    last_woken_thread = id;
+    ++wake_count;
     return true;
 }
 
@@ -103,7 +107,13 @@ static void test_wait_registration_and_delivery(void) {
     assert(channel.inbound[0].count == 0u);
     assert(channel.inbound[1].count == 0u);
     assert(ipc_send(writer, NULL, payload, sizeof(payload), NULL, 0u));
+    assert(ipc_wait_register(reader, 77u) == AURORA_IPC_WAIT_READY);
+    assert(ipc_receive(reader, &receiver, &message));
+    assert(ipc_wait_register(reader, 77u) == AURORA_IPC_WAIT_REGISTERED);
+    const uint32_t wake_before_close = wake_count;
     ipc_channel_close(&channel);
+    assert(wake_count == wake_before_close + 1u);
+    assert(last_woken_thread == 77u);
     assert(channel.closed);
     assert(channel.inbound[1].count == 0u);
     assert(!ipc_send(writer, NULL, payload, sizeof(payload), NULL, 0u));
