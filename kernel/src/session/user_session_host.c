@@ -18,6 +18,7 @@
 #include <aurora/g5_shell_session.h>
 #include <aurora/g5_shell_scene.h>
 #include <aurora/g5_canvas_service.h>
+#include <aurora/g5_canvas_bootstrap.h>
 #include <aurora/usercopy.h>
 
 #define USER_SESSION_HOST_TIMEOUT_NS UINT64_C(2000000000)
