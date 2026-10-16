@@ -7,7 +7,12 @@ _start:
      * Align the call site to the x86-64 SysV ABI before invoking C.
      * The runtime is freestanding and must not return to a caller. */
     movq %rsp, %rdi
-    /* The launch descriptor occupies [initial_rsp-24, initial_rsp).\n     * Reserve space before CALL so its return address and the C prologue\n     * cannot overwrite that descriptor before it is copied. */\n    subq $4096, %rsp\n    andq $-16, %rsp\n    call g5_canvas_runtime_main
+    /* The launch descriptor occupies [initial_rsp-24, initial_rsp).
+     * Reserve space before CALL so its return address and the C prologue
+     * cannot overwrite that descriptor before it is copied. */
+    subq $4096, %rsp
+    andq $-16, %rsp
+    call g5_canvas_runtime_main
     movq %rax, %rdi
     movq $3, %rax
     syscall
