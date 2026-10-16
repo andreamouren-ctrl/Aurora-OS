@@ -7,7 +7,14 @@
 #include <stdint.h>
 void g5_canvas_session_camera_revoke(struct g5_canvas_session_camera *s) {
     if (!s) return;
+#if defined(G5_CANVAS_FREESTANDING)
+    /* Ring3 bootstrap does not yet enable the CPU SIMD context.
+     * Clear bytewise so Clang cannot emit XMM stores for aggregate zeroing. */
+    volatile unsigned char *bytes=(volatile unsigned char *)(void *)s;
+    for (uint32_t i=0u;i<sizeof(*s);++i) bytes[i]=0u;
+#else
     *s=(struct g5_canvas_session_camera){0};
+#endif
 }
 static bool authorized(const struct g5_canvas_session_camera *s,
     uint64_t session,uint64_t scene,uint64_t camera) {
