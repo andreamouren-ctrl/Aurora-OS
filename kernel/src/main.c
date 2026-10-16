@@ -2416,7 +2416,7 @@ void kmain(void) {
         kernel_panic("IPC capability-transfer self-test failed");
     }
 
-    log_line("[ipc] bounded capability-transfer self-test passed");
+    log_line("[ipc] bounded capability-transfer and failed-delivery cleanup self-test passed");
     if (!g5_ipc_endpoint_self_test()) {
         kernel_panic("G5 real IPC endpoint dispatch self-test failed");
     }
