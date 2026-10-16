@@ -46,6 +46,7 @@ void ipc_channel_init(
     );
 
     channel->closed = false;
+    channel->active_refs = 0u;
 
     cap_table_init(
         &channel->escrow
