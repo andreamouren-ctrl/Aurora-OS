@@ -62,6 +62,10 @@ bool g5_compositor_bridge_present(struct g5_compositor_bridge *b,uint32_t slot,
   return false;
  }
  if(!g5_frame_delivery_ack(b->delivery,b->generation,receipt)) {
+  /* Presentation succeeded, but the delivery receipt was not consumed.
+   * Attempt to retire it so an unexpected ACK failure cannot exhaust
+   * the bounded delivery table on subsequent frames. */
+  (void)g5_frame_delivery_abort(b->delivery,b->generation,receipt);
   *display_serial=0;
   return false;
  }
