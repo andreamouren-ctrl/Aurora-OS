@@ -46,4 +46,5 @@ jobs:
       - name: Inspect Canvas Ring3 fault instruction
         run: |
           objdump -d -M intel --start-address=0x400030 --stop-address=0x400090 build/x86_64/canvas-runtime/canvas-engine.elf
+          objdump -d -M intel --start-address=0x4003c0 --stop-address=0x400430 build/x86_64/canvas-runtime/canvas-engine.elf
           objdump -d -M intel build/x86_64/canvas-runtime/canvas-engine.elf | grep -n -C 5 'ud2' || true
