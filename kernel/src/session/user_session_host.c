@@ -679,6 +679,24 @@ static bool start_with_context(
         return false;
     }
     if (session_g5_dispatcher != NULL) {
+        /* READY must arrive from the exclusive Canvas endpoint, never from
+         * the Shell control channel or an untrusted process. */
+        const uint64_t ready_deadline=clock_now_ns()+USER_SESSION_HOST_TIMEOUT_NS;
+        bool canvas_ready=false;
+        while (clock_now_ns()<ready_deadline) {
+            if (g5_canvas_service_receive_ready(&host.canvas)) {
+                canvas_ready=true;
+                break;
+            }
+            if (scheduler_thread_finished(host.canvas.thread_id)) break;
+            arch_idle();
+        }
+        if (!canvas_ready) {
+            log_line("[g5-wp05] Canvas private IPC READY missing or rejected");
+            cleanup_unstarted_host();
+            return false;
+        }
+        log_line("[g5-wp05] Canvas private IPC READY verified");
         /* The first Canvas binary is an intentionally terminating smoke
          * process, not yet a long-lived camera service. Verify actual
          * scheduler exit and reclaim its address space before READY. */
