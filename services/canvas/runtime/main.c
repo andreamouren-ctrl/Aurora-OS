@@ -15,6 +15,31 @@ static uint64_t canvas_syscall3(uint64_t number,uint64_t a,uint64_t b,uint64_t c
     return rax;
 }
 
+static uint64_t canvas_syscall5(uint64_t number,uint64_t a,uint64_t b,
+                                uint64_t c,uint64_t d,uint64_t e) {
+    register uint64_t rax __asm__("rax")=number;
+    register uint64_t rdi __asm__("rdi")=a;
+    register uint64_t rsi __asm__("rsi")=b;
+    register uint64_t rdx __asm__("rdx")=c;
+    register uint64_t r10 __asm__("r10")=d;
+    register uint64_t r8 __asm__("r8")=e;
+    __asm__ volatile("syscall" : "+a"(rax) :
+        "D"(rdi),"S"(rsi),"d"(rdx),"r"(r10),"r"(r8) :
+        "rcx","r11","memory");
+    return rax;
+}
+
+static int canvas_send_ready(uint64_t endpoint,uint64_t generation) {
+    const struct g5_canvas_bootstrap ready={
+        .version=G5_CANVAS_BOOTSTRAP_VERSION,
+        .type=G5_CANVAS_BOOTSTRAP_READY,
+        .session_generation=generation,
+        .request_id=G5_CANVAS_BOOTSTRAP_READY_REQUEST_ID
+    };
+    return canvas_syscall5(AURORA_SYS_IPC_SEND,endpoint,
+        (uint64_t)(uintptr_t)&ready,sizeof(ready),0u,0u)==0u;
+}
+
 int64_t g5_canvas_runtime_main(uint64_t initial_rsp) {
     if (initial_rsp<G5_CANVAS_STARTUP_STACK_OFFSET) return 11;
     const struct g5_canvas_startup *stack_startup=
@@ -29,6 +54,8 @@ int64_t g5_canvas_runtime_main(uint64_t initial_rsp) {
         canvas_syscall3(AURORA_SYS_CAP_CHECK,startup.control_endpoint,
             AURORA_CAP_IPC_ENDPOINT,AURORA_RIGHT_TRANSFER)==1u)
         return 13;
+    if (!canvas_send_ready(startup.control_endpoint,
+                           startup.session_generation)) return 14;
     struct g5_canvas_session_camera camera={0};
     g5_canvas_session_camera_revoke(&camera);
     return 0;
