@@ -71,6 +71,23 @@ static void test_wait_registration_and_delivery(void) {
     }
     assert(channel.inbound[1].head == channel.inbound[1].tail);
     assert(channel.inbound[1].count == 0u);
+
+    /* Reject malformed requests without altering either queue. */
+    assert(!ipc_send(NULL, NULL, payload, sizeof(payload), NULL, 0u));
+    assert(!ipc_send(writer, NULL, NULL, 1u, NULL, 0u));
+    assert(!ipc_send(writer, NULL, payload,
+                     AURORA_IPC_PAYLOAD_MAX + 1u, NULL, 0u));
+    assert(!ipc_send(writer, NULL, payload, sizeof(payload),
+                     NULL, 1u));
+    assert(!ipc_send(writer, NULL, payload, sizeof(payload),
+                     NULL, AURORA_IPC_CAPS_MAX + 1u));
+    assert(!ipc_receive(NULL, &receiver, &message));
+    assert(!ipc_receive(reader, NULL, &message));
+    assert(!ipc_receive(reader, &receiver, NULL));
+    assert(ipc_wait_register(reader, 0u) == AURORA_IPC_WAIT_ERROR);
+    assert(!ipc_wait_cancel(reader, 0u));
+    assert(channel.inbound[0].count == 0u);
+    assert(channel.inbound[1].count == 0u);
 }
 
 int main(void) {
