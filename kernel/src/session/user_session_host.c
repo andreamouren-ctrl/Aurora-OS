@@ -672,6 +672,7 @@ static bool start_with_context(
      * Its current fail-closed entry exits without becoming scene READY. */
     if (session_g5_dispatcher != NULL &&
         (!g5_canvas_service_prepare(&host.canvas,generation) ||
+         !g5_canvas_service_provision_control(&host.canvas) ||
          !g5_canvas_service_start(&host.canvas))) {
         log_line("[g5-wp05] Canvas Ring3 process bootstrap failed");
         cleanup_unstarted_host();
