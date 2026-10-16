@@ -1,37 +1,95 @@
 #!/usr/bin/env python3
-"""Static regression guard for syscall IPC staging cleanup.
+"""Source-level regression guard for kernel IPC syscall cleanup.
 
-This checks source structure, not runtime erasure or capability lifetime safety.
+This checks structural invariants; it is not a runtime memory-erasure test.
 """
 from pathlib import Path
 import re
 
-source = Path("kernel/src/arch/x86_64/syscall.c").read_text()
+SOURCE = Path("kernel/src/arch/x86_64/syscall.c").read_text()
 
 
-def body_between(start: str, end: str) -> str:
+def function_region(source: str, start: str, end: str) -> str:
     first = source.find(start)
     last = source.find(end, first + len(start))
-    assert first >= 0 and last > first, f"Missing function boundary: {start}"
+    if first < 0 or last <= first:
+        raise AssertionError(f"Missing function boundary: {start}")
     return source[first:last]
 
 
-send = body_between("static uint64_t dispatch_ipc_send(", "static uint64_t dispatch_ipc_receive(")
-receive = body_between("static uint64_t dispatch_ipc_receive(", "static uint64_t dispatch_entropy_seed(")
+def check(source: str) -> None:
+    if "static void secure_zero_bytes(" not in source:
+        raise AssertionError("secure zero helper missing")
 
-assert "static void secure_zero_bytes(" in source
-for label, body, buffers in (
-    ("send", send, ("payload", "user_transfer_buffer", "transfers")),
-    ("receive", receive, ("&received", "&output")),
-):
-    assert "cleanup:" in body, f"{label}: missing cleanup label"
-    assert body.count("return ") == 1, f"{label}: bypassable cleanup return"
-    assert re.search(r"cleanup:\s*(?:secure_zero_bytes\([^;]+;\s*)+return ", body), (
-        f"{label}: cleanup must precede the sole return"
+    send = function_region(
+        source, "static uint64_t dispatch_ipc_send(",
+        "static uint64_t dispatch_ipc_receive("
     )
-    for buffer in buffers:
-        pattern = rf"secure_zero_bytes\(\s*{re.escape(buffer)}\s*,\s*sizeof\("
-        assert re.search(pattern, body), f"{label}: missing wipe of {buffer}"
+    receive = function_region(
+        source, "static uint64_t dispatch_ipc_receive(",
+        "static uint64_t dispatch_entropy_seed("
+    )
 
-assert "ipc_received_revoke_capabilities(&process->capabilities, &received)" in receive
-print("IPC syscall cleanup source invariants: PASS")
+    for label, body, buffers in (
+        ("send", send, ("payload", "user_transfer_buffer", "transfers")),
+        ("receive", receive, ("&received", "&output")),
+    ):
+        if "cleanup:" not in body or body.count("return ") != 1:
+            raise AssertionError(f"{label}: cleanup may be bypassed")
+        if not re.search(
+            r"cleanup:\s*(?:secure_zero_bytes\([^;]+;\s*)+return ", body
+        ):
+            raise AssertionError(f"{label}: cleanup does not precede return")
+        for buffer in buffers:
+            pattern = rf"secure_zero_bytes\(\s*{re.escape(buffer)}\s*,\s*sizeof\("
+            if not re.search(pattern, body):
+                raise AssertionError(f"{label}: missing wipe of {buffer}")
+
+    if "ipc_received_revoke_capabilities(&process->capabilities, &received)" not in receive:
+        raise AssertionError("receive: missing capability rollback")
+
+
+def expect_rejection(source: str, description: str) -> None:
+    try:
+        check(source)
+    except AssertionError:
+        return
+    raise AssertionError(f"Regression guard missed mutation: {description}")
+
+
+check(SOURCE)
+
+# Self-test the guard against representative security regressions.
+expect_rejection(
+    SOURCE.replace(
+        "secure_zero_bytes(transfers, sizeof(transfers));",
+        "/* transfer wipe removed */",
+        1,
+    ),
+    "removed transfer wipe",
+)
+expect_rejection(
+    SOURCE.replace(
+        "secure_zero_bytes(&received, sizeof(received));",
+        "/* received wipe removed */",
+        1,
+    ),
+    "removed received wipe",
+)
+expect_rejection(
+    SOURCE.replace(
+        "ipc_received_revoke_capabilities(&process->capabilities, &received);",
+        "/* rollback removed */",
+        1,
+    ),
+    "removed capability rollback",
+)
+expect_rejection(
+    SOURCE.replace(
+        "if (endpoint == NULL) goto cleanup;",
+        "if (endpoint == NULL) return AURORA_SYS_RESULT_ERROR;",
+        1,
+    ),
+    "early return bypass",
+)
+print("IPC syscall cleanup invariants and mutation checks: PASS")
