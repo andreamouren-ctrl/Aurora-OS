@@ -176,6 +176,11 @@ static struct aurora_ipc_endpoint *lookup_ipc_endpoint(
     return (struct aurora_ipc_endpoint *)view.object;
 }
 
+static void ipc_wipe_bytes(void *buffer, size_t length) {
+    volatile uint8_t *bytes = (volatile uint8_t *)buffer;
+    for (size_t i = 0u; i < length; ++i) bytes[i] = 0u;
+}
+
 static uint64_t dispatch_ipc_send(
     struct aurora_process *process,
     uint64_t endpoint_handle,
@@ -184,39 +189,29 @@ static uint64_t dispatch_ipc_send(
     uint64_t user_transfers,
     uint64_t transfer_count
 ) {
-    uint8_t payload[AURORA_SYS_IPC_PAYLOAD_MAX];
-    struct aurora_sys_ipc_transfer user_transfer_buffer[AURORA_SYS_IPC_CAPS_MAX];
-    struct aurora_ipc_transfer transfers[AURORA_SYS_IPC_CAPS_MAX];
+    uint8_t payload[AURORA_SYS_IPC_PAYLOAD_MAX] = {0};
+    struct aurora_sys_ipc_transfer user_transfer_buffer[AURORA_SYS_IPC_CAPS_MAX] = {0};
+    struct aurora_ipc_transfer transfers[AURORA_SYS_IPC_CAPS_MAX] = {0};
+    uint64_t result = AURORA_SYS_RESULT_ERROR;
 
     if (process == NULL ||
         length > AURORA_SYS_IPC_PAYLOAD_MAX ||
-        transfer_count > AURORA_SYS_IPC_CAPS_MAX) {
-        return AURORA_SYS_RESULT_ERROR;
-    }
+        transfer_count > AURORA_SYS_IPC_CAPS_MAX) goto cleanup;
 
     struct aurora_ipc_endpoint *endpoint =
         lookup_ipc_endpoint(process, endpoint_handle, AURORA_RIGHT_WRITE);
-    if (endpoint == NULL) return AURORA_SYS_RESULT_ERROR;
+    if (endpoint == NULL) goto cleanup;
 
     if (length != 0u &&
-        !copy_from_user(process, payload, user_data, (size_t)length)) {
-        volatile uint8_t *sensitive = (volatile uint8_t *)payload;
-        for (size_t i = 0u; i < sizeof(payload); ++i) sensitive[i] = 0u;
-        return AURORA_SYS_RESULT_ERROR;
-    }
+        !copy_from_user(process, payload, user_data, (size_t)length))
+        goto cleanup;
 
     if (transfer_count != 0u) {
         size_t transfer_bytes =
             (size_t)transfer_count * sizeof(user_transfer_buffer[0]);
-        if (!copy_from_user(
-                process,
-                user_transfer_buffer,
-                user_transfers,
-                transfer_bytes)) {
-            volatile uint8_t *sensitive = (volatile uint8_t *)payload;
-            for (size_t i = 0u; i < sizeof(payload); ++i) sensitive[i] = 0u;
-            return AURORA_SYS_RESULT_ERROR;
-        }
+        if (!copy_from_user(process, user_transfer_buffer,
+                            user_transfers, transfer_bytes))
+            goto cleanup;
 
         for (uint32_t i = 0u; i < (uint32_t)transfer_count; ++i) {
             transfers[i].handle =
@@ -225,23 +220,17 @@ static uint64_t dispatch_ipc_send(
         }
     }
 
-    bool sent = ipc_send(
-        endpoint,
-        &process->capabilities,
-        length == 0u ? NULL : payload,
-        (uint32_t)length,
-        transfer_count == 0u ? NULL : transfers,
-        (uint32_t)transfer_count
-    );
-    volatile uint8_t *sensitive = (volatile uint8_t *)payload;
-    for (size_t i = 0u; i < sizeof(payload); ++i) sensitive[i] = 0u;
-    volatile uint8_t *transfer_bytes = (volatile uint8_t *)transfers;
-    volatile uint8_t *user_transfer_bytes =
-        (volatile uint8_t *)user_transfer_buffer;
-    for (size_t i = 0u; i < sizeof(transfers); ++i) transfer_bytes[i] = 0u;
-    for (size_t i = 0u; i < sizeof(user_transfer_buffer); ++i)
-        user_transfer_bytes[i] = 0u;
-    return sent ? 0ull : AURORA_SYS_RESULT_ERROR;
+    if (ipc_send(endpoint, &process->capabilities,
+                 length == 0u ? NULL : payload, (uint32_t)length,
+                 transfer_count == 0u ? NULL : transfers,
+                 (uint32_t)transfer_count))
+        result = 0ull;
+
+cleanup:
+    ipc_wipe_bytes(payload, sizeof(payload));
+    ipc_wipe_bytes(user_transfer_buffer, sizeof(user_transfer_buffer));
+    ipc_wipe_bytes(transfers, sizeof(transfers));
+    return result;
 }
 
 static uint64_t dispatch_ipc_receive(
