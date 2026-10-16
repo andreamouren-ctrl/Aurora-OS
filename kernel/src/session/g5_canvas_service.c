@@ -2,11 +2,13 @@
 #include <aurora/g5_canvas_runtime_image.h>
 #include <aurora/process.h>
 #include <aurora/scheduler.h>
+#include <aurora/capability.h>
 
 bool g5_canvas_service_prepare(struct g5_canvas_service *service,
                                uint64_t generation) {
     if (!service || !generation || service->process ||
-        service->thread_id || service->session_generation)
+        service->thread_id || service->session_generation ||
+        service->kernel_endpoint || service->control_handle)
         return false;
     const uint8_t *image=g5_canvas_runtime_image();
     size_t size=g5_canvas_runtime_image_size();
@@ -17,6 +19,35 @@ bool g5_canvas_service_prepare(struct g5_canvas_service *service,
     service->process=process;
     service->session_generation=generation;
     return true;
+}
+
+bool g5_canvas_service_provision_control(struct g5_canvas_service *service) {
+    if (!service || !service->process || !service->session_generation ||
+        service->thread_id || service->kernel_endpoint ||
+        service->control_handle != AURORA_CAP_INVALID)
+        return false;
+    ipc_channel_init(&service->control_channel);
+    struct aurora_ipc_endpoint *kernel_peer =
+        ipc_channel_endpoint(&service->control_channel,0u);
+    struct aurora_ipc_endpoint *user_peer =
+        ipc_channel_endpoint(&service->control_channel,1u);
+    if (!kernel_peer || !user_peer) return false;
+    aurora_cap_handle handle=cap_grant(
+        &service->process->capabilities,user_peer,
+        AURORA_CAP_IPC_ENDPOINT,AURORA_RIGHT_READ|AURORA_RIGHT_WRITE);
+    if (handle==AURORA_CAP_INVALID) return false;
+    service->control_handle=handle;
+    service->kernel_endpoint=kernel_peer;
+    return true;
+}
+
+static void revoke_control(struct g5_canvas_service *service) {
+    if (service->control_handle!=AURORA_CAP_INVALID &&
+        service->process!=NULL)
+        (void)cap_revoke(&service->process->capabilities,
+                         service->control_handle);
+    service->control_handle=AURORA_CAP_INVALID;
+    service->kernel_endpoint=NULL;
 }
 
 bool g5_canvas_service_start(struct g5_canvas_service *service) {
@@ -37,6 +68,7 @@ bool g5_canvas_service_abort_unstarted(struct g5_canvas_service *service) {
     process_mark_exited(service->process,1);
     if (!process_reap(service->process,NULL) ||
         !process_release(service->process)) return false;
+    revoke_control(service);
     service->process=NULL;
     service->session_generation=0u;
     return true;
