@@ -274,9 +274,7 @@ static uint64_t dispatch_ipc_receive(
      * its capabilities. If the final usercopy fails, do not strand those
      * newly delegated handles in the receiver's capability table.
      */
-    for (uint32_t i = 0u; i < received.capability_count; ++i) {
-        (void)cap_revoke(&process->capabilities, received.capabilities[i]);
-    }
+    ipc_received_revoke_capabilities(&process->capabilities, &received);
     return AURORA_SYS_RESULT_ERROR;
 }
 
