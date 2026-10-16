@@ -3,6 +3,14 @@
 #include <aurora/capability_abi.h>
 #include <aurora/syscall_abi.h>
 
+/* Freestanding runtime: provide the compiler's required memory primitive
+ * without depending on a hosted libc. */
+void *memset(void *destination,int value,size_t count) {
+    unsigned char *bytes=(unsigned char *)destination;
+    for (size_t i=0;i<count;++i) bytes[i]=(unsigned char)value;
+    return destination;
+}
+
 /* Startup is copied from the kernel-owned launch stack before any syscall.
  * Do not activate SSE camera operations until scheduler FPU isolation is proven. */
 static uint64_t canvas_syscall3(uint64_t number,uint64_t a,uint64_t b,uint64_t c) {
