@@ -88,6 +88,20 @@ static void test_wait_registration_and_delivery(void) {
     assert(!ipc_wait_cancel(reader, 0u));
     assert(channel.inbound[0].count == 0u);
     assert(channel.inbound[1].count == 0u);
+
+    /* Both directions are independent and preserve their own FIFO. */
+    const uint8_t left_to_right = 0xA5u;
+    const uint8_t right_to_left = 0x5Au;
+    assert(ipc_send(writer, NULL, &left_to_right, 1u, NULL, 0u));
+    assert(ipc_send(reader, NULL, &right_to_left, 1u, NULL, 0u));
+    assert(channel.inbound[0].count == 1u);
+    assert(channel.inbound[1].count == 1u);
+    assert(ipc_receive(writer, &receiver, &message));
+    assert(message.length == 1u && message.data[0] == right_to_left);
+    assert(ipc_receive(reader, &receiver, &message));
+    assert(message.length == 1u && message.data[0] == left_to_right);
+    assert(channel.inbound[0].count == 0u);
+    assert(channel.inbound[1].count == 0u);
 }
 
 int main(void) {
