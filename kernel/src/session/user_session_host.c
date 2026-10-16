@@ -693,6 +693,24 @@ static bool start_with_context(
             arch_idle();
         }
         if (!canvas_ready) {
+            if (scheduler_thread_finished(host.canvas.thread_id)) {
+                if (host.canvas.process &&
+                    process_state(host.canvas.process)==AURORA_PROCESS_EXITED) {
+                    switch (host.canvas.process->exit_code) {
+                    case 11: log_line("[g5-wp05] Canvas failed: startup stack pointer"); break;
+                    case 12: log_line("[g5-wp05] Canvas failed: startup ABI validation"); break;
+                    case 13: log_line("[g5-wp05] Canvas failed: endpoint capability rights"); break;
+                    case 14: log_line("[g5-wp05] Canvas failed: READY IPC send"); break;
+                    case 15: log_line("[g5-wp05] Canvas failed: HEALTH IPC roundtrip"); break;
+                    case 16: log_line("[g5-wp05] Canvas failed: SHUTDOWN IPC roundtrip"); break;
+                    default: log_line("[g5-wp05] Canvas exited before READY with unexpected status"); break;
+                    }
+                } else {
+                    log_line("[g5-wp05] Canvas thread terminated without clean process exit");
+                }
+            } else {
+                log_line("[g5-wp05] Canvas READY timed out while thread was active");
+            }
             log_line("[g5-wp05] Canvas private IPC READY missing or rejected");
             cleanup_unstarted_host();
             return false;
