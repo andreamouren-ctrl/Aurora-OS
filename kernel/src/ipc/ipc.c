@@ -317,6 +317,9 @@ bool ipc_receive(
             AURORA_CAP_INVALID;
     }
 
+    /* Erase delivered payload before making the slot reusable. */
+    volatile uint8_t *payload = (volatile uint8_t *)slot->data;
+    for (uint32_t i = 0u; i < slot->length; ++i) payload[i] = 0u;
     slot->length = 0;
     slot->capability_count = 0;
 
