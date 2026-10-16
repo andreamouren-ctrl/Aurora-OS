@@ -1,6 +1,7 @@
 name: IPC Syscall Compile Check
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - 'kernel/src/arch/x86_64/syscall.c'
