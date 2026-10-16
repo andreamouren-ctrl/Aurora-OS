@@ -102,6 +102,14 @@ static void test_wait_registration_and_delivery(void) {
     assert(message.length == 1u && message.data[0] == left_to_right);
     assert(channel.inbound[0].count == 0u);
     assert(channel.inbound[1].count == 0u);
+    assert(ipc_send(writer, NULL, payload, sizeof(payload), NULL, 0u));
+    ipc_channel_close(&channel);
+    assert(channel.closed);
+    assert(channel.inbound[1].count == 0u);
+    assert(!ipc_send(writer, NULL, payload, sizeof(payload), NULL, 0u));
+    assert(!ipc_receive(reader, &receiver, &message));
+    assert(ipc_wait_register(reader, 21u) == AURORA_IPC_WAIT_ERROR);
+    ipc_channel_close(&channel);
 }
 
 int main(void) {
