@@ -157,7 +157,8 @@ Currently:
 - NVMe baseline read/write/flush and filesystem traversal are runtime-verified in QEMU;
 - AHCI still lacks advanced batching, robust port-reset recovery, interrupt-driven completion, NCQ and hot-plug;
 - NVMe still lacks interrupt/MSI-X completion, larger transfer/PRP-list handling, multi-controller/multi-namespace support and hot-plug policy;
-- USB/xHCI and USB mass-storage are not implemented yet;
+- USB xHCI HID input (keyboard, mouse and wheel) has a separately runtime-verified bounded-polling baseline in the graphics/input stack; this does **not** provide USB block-device access;
+- USB mass-storage transport, removable-disk enumeration and filesystem mounting over USB are not implemented yet;
 - physical hardware validation remains separate from QEMU runtime verification.
 
 Therefore the modern SATA and NVMe software paths are now functional at baseline, but Aurora must not claim universal hardware compatibility until physical-device testing and advanced recovery/error handling are completed.
