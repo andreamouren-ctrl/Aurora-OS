@@ -544,6 +544,11 @@ bool ipc_self_test(void) {
                  &rejected_transfer, 1u)) return false;
     if (channel.inbound[1].count != 0u) return false;
     if (channel.inbound[1].slots[rejected_slot].length != 0u) return false;
+    if (channel.inbound[1].slots[rejected_slot].capability_count != 0u ||
+        channel.inbound[1].slots[rejected_slot].escrow_handles[0] !=
+            AURORA_CAP_INVALID ||
+        channel.inbound[1].slots[rejected_slot].final_rights[0] != 0u)
+        return false;
     for (size_t i = 0u; i < sizeof(payload); ++i) {
         if (channel.inbound[1].slots[rejected_slot].data[i] != 0u)
             return false;
