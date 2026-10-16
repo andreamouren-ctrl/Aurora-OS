@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - 'kernel/src/arch/x86_64/syscall.c'
+      - 'kernel/src/ipc/ipc.c'
       - 'kernel/include/aurora/**'
       - 'kernel/Makefile'
       - 'kernel/tests/check_ipc_syscall_cleanup.py'
@@ -12,6 +13,7 @@ on:
   push:
     paths:
       - 'kernel/src/arch/x86_64/syscall.c'
+      - 'kernel/src/ipc/ipc.c'
       - 'kernel/include/aurora/**'
       - 'kernel/Makefile'
       - 'kernel/tests/check_ipc_syscall_cleanup.py'
@@ -40,3 +42,14 @@ jobs:
             -mno-sse2 -mcmodel=kernel -Ikernel/include \
             -Ithird_party/limine-protocol/include \
             -c kernel/src/arch/x86_64/syscall.c -o /tmp/aurora-ipc-syscall.o
+      - name: Compile production IPC transport translation unit
+        run: |
+          clang -target x86_64-unknown-none-elf -std=c11 \
+            -DAURORA_BOOT_VALIDATION=0 -DAURORA_NVME_RW_PROBE_ONLY=0 \
+            -O2 -g -Wall -Wextra -Werror -ffreestanding \
+            -fno-stack-protector -fno-stack-check -fno-pic -fno-pie \
+            -fno-common -ffunction-sections -fdata-sections \
+            -m64 -march=x86-64 -mno-red-zone -mno-mmx -mno-sse \
+            -mno-sse2 -mcmodel=kernel -Ikernel/include \
+            -Ithird_party/limine-protocol/include \
+            -c kernel/src/ipc/ipc.c -o /tmp/aurora-ipc-transport.o
