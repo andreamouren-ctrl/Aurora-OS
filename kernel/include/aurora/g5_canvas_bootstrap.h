@@ -1,6 +1,7 @@
 #ifndef AURORA_G5_CANVAS_BOOTSTRAP_H
 #define AURORA_G5_CANVAS_BOOTSTRAP_H
 #include <stdint.h>
+#include <stddef.h>
 /* Dedicated Canvas protocol: no Shell or graphics capabilities implied. */
 #define G5_CANVAS_BOOTSTRAP_VERSION 1u
 #define G5_CANVAS_BOOTSTRAP_READY 1u
@@ -14,6 +15,18 @@ struct g5_canvas_bootstrap {
     uint64_t session_generation;
     uint64_t request_id;
 };
+/* Wire ABI is fixed-width. IPC must still serialize fields explicitly
+ * when crossing architectures; never trust padding from a sender. */
+_Static_assert(sizeof(struct g5_canvas_bootstrap) == 24u,
+               "Canvas bootstrap frame must remain 24 bytes");
+_Static_assert(offsetof(struct g5_canvas_bootstrap, version) == 0u,
+               "Canvas bootstrap version offset changed");
+_Static_assert(offsetof(struct g5_canvas_bootstrap, type) == 4u,
+               "Canvas bootstrap type offset changed");
+_Static_assert(offsetof(struct g5_canvas_bootstrap, session_generation) == 8u,
+               "Canvas bootstrap generation offset changed");
+_Static_assert(offsetof(struct g5_canvas_bootstrap, request_id) == 16u,
+               "Canvas bootstrap request offset changed");
 /* A frame must never validate against an unknown or reserved opcode. */
 static inline int g5_canvas_bootstrap_known_type(uint32_t type) {
     return type >= G5_CANVAS_BOOTSTRAP_READY &&
