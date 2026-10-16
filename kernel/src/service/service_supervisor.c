@@ -79,6 +79,11 @@ static bool reap_terminal_instance(
 
     if (!process_release(process)) return false;
 
+    ipc_channel_close(&supervisor->service.ipc_channel);
+    if (!ipc_channel_quiescent(&supervisor->service.ipc_channel))
+        return false;
+    cap_table_destroy(&supervisor->service.supervisor_caps);
+
     clear_bytes(&supervisor->service, sizeof(supervisor->service));
     supervisor->last_result = result;
     supervisor->has_last_result = true;
