@@ -60,35 +60,28 @@ def expect_rejection(source: str, description: str) -> None:
 check(SOURCE)
 
 # Self-test the guard against representative security regressions.
+def mutated(original: str, replacement: str) -> str:
+    if SOURCE.count(original) != 1:
+        raise AssertionError(f"Mutation anchor missing or ambiguous: {original}")
+    return SOURCE.replace(original, replacement, 1)
+
+
+for original, description in (
+    ("secure_zero_bytes(payload, sizeof(payload));", "removed payload wipe"),
+    ("secure_zero_bytes(user_transfer_buffer, sizeof(user_transfer_buffer));",
+     "removed user capability staging wipe"),
+    ("secure_zero_bytes(transfers, sizeof(transfers));", "removed transfer wipe"),
+    ("secure_zero_bytes(&received, sizeof(received));", "removed received wipe"),
+    ("secure_zero_bytes(&output, sizeof(output));", "removed output wipe"),
+    ("ipc_received_revoke_capabilities(&process->capabilities, &received);",
+     "removed capability rollback"),
+):
+    expect_rejection(mutated(original, "/* intentionally removed */"), description)
+
 expect_rejection(
-    SOURCE.replace(
-        "secure_zero_bytes(transfers, sizeof(transfers));",
-        "/* transfer wipe removed */",
-        1,
-    ),
-    "removed transfer wipe",
-)
-expect_rejection(
-    SOURCE.replace(
-        "secure_zero_bytes(&received, sizeof(received));",
-        "/* received wipe removed */",
-        1,
-    ),
-    "removed received wipe",
-)
-expect_rejection(
-    SOURCE.replace(
-        "ipc_received_revoke_capabilities(&process->capabilities, &received);",
-        "/* rollback removed */",
-        1,
-    ),
-    "removed capability rollback",
-)
-expect_rejection(
-    SOURCE.replace(
+    mutated(
         "if (endpoint == NULL) goto cleanup;",
         "if (endpoint == NULL) return AURORA_SYS_RESULT_ERROR;",
-        1,
     ),
     "early return bypass",
 )
