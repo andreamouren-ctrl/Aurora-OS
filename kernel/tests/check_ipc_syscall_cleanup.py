@@ -93,4 +93,17 @@ expect_rejection(
     + SOURCE[receive_start:],
     "early return bypass",
 )
+# Exercise the receive-side early-return guard independently.
+receive_end = SOURCE.index("static uint64_t dispatch_entropy_seed(")
+receive_region = SOURCE[receive_start:receive_end]
+if receive_region.count(guard) != 1:
+    raise AssertionError("Receive endpoint guard missing or ambiguous")
+expect_rejection(
+    SOURCE[:receive_start]
+    + receive_region.replace(
+        guard, "if (endpoint == NULL) return AURORA_SYS_RESULT_ERROR;", 1
+    )
+    + SOURCE[receive_end:],
+    "receive early return bypass",
+)
 print("IPC syscall cleanup invariants and mutation checks: PASS")
