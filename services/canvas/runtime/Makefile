@@ -13,11 +13,11 @@ all: $(BIN)
 $(BUILD):
 	mkdir -p $(BUILD)
 $(BUILD)/main.o: main.c | $(BUILD)
-	$(CC) -I../include $(CFLAGS) -c $< -o $@
+	$(CC) -I../include -I../../../kernel/include $(CFLAGS) -c $< -o $@
 $(BUILD)/camera.o: ../src/g5_canvas_camera.c | $(BUILD)
-	$(CC) -I../include $(CFLAGS) -c $< -o $@
+	$(CC) -I../include -I../../../kernel/include $(CFLAGS) -c $< -o $@
 $(BUILD)/session.o: ../src/g5_canvas_session_camera.c | $(BUILD)
-	$(CC) -I../include $(CFLAGS) -c $< -o $@
+	$(CC) -I../include -I../../../kernel/include $(CFLAGS) -c $< -o $@
 $(BUILD)/entry.o: entry.S | $(BUILD)
 	$(CC) $(ASFLAGS) -c $< -o $@
 $(ELF): $(BUILD)/entry.o $(BUILD)/main.o $(BUILD)/camera.o $(BUILD)/session.o linker.ld
