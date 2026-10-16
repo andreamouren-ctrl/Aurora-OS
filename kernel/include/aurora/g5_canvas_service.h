@@ -27,6 +27,12 @@ bool g5_canvas_service_health_probe(struct g5_canvas_service *service,
 bool g5_canvas_service_receive_health_ack(
     struct g5_canvas_service *service,
     struct aurora_cap_table *kernel_caps,uint64_t request_id);
+bool g5_canvas_service_shutdown_request(struct g5_canvas_service *service,
+                                        struct aurora_cap_table *kernel_caps,
+                                        uint64_t request_id);
+bool g5_canvas_service_receive_shutdown_ack(
+    struct g5_canvas_service *service,
+    struct aurora_cap_table *kernel_caps,uint64_t request_id);
 bool g5_canvas_service_start(struct g5_canvas_service *service);
 /* Abort only a prepared process that never acquired a scheduler thread. */
 bool g5_canvas_service_abort_unstarted(struct g5_canvas_service *service);
