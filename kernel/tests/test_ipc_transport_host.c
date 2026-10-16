@@ -55,6 +55,22 @@ static void test_wait_registration_and_delivery(void) {
     }
     assert(channel.inbound[1].count == 0u);
     assert(!ipc_receive(reader, &receiver, &message));
+
+    /* Wrapping the ring indices must not change FIFO ordering. */
+    for (uint32_t round = 0u; round < 3u; ++round) {
+        for (uint32_t i = 0u; i < AURORA_IPC_QUEUE_DEPTH; ++i) {
+            const uint8_t value = (uint8_t)(round * AURORA_IPC_QUEUE_DEPTH + i);
+            assert(ipc_send(writer, NULL, &value, 1u, NULL, 0u));
+        }
+        for (uint32_t i = 0u; i < AURORA_IPC_QUEUE_DEPTH; ++i) {
+            assert(ipc_receive(reader, &receiver, &message));
+            assert(message.length == 1u);
+            assert(message.data[0] ==
+                   (uint8_t)(round * AURORA_IPC_QUEUE_DEPTH + i));
+        }
+    }
+    assert(channel.inbound[1].head == channel.inbound[1].tail);
+    assert(channel.inbound[1].count == 0u);
 }
 
 int main(void) {
