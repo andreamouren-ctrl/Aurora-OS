@@ -45,6 +45,8 @@ void ipc_channel_init(
         &channel->lock
     );
 
+    channel->closed = false;
+
     cap_table_init(
         &channel->escrow
     );
@@ -66,6 +68,37 @@ void ipc_channel_init(
         channel->endpoints[side].side =
             (uint8_t)side;
     }
+}
+
+void ipc_channel_close(struct aurora_ipc_channel *channel) {
+    if (channel == NULL) return;
+    spinlock_lock(&channel->lock);
+    if (channel->closed) {
+        spinlock_unlock(&channel->lock);
+        return;
+    }
+    channel->closed = true;
+    for (uint32_t side = 0u; side < 2u; ++side) {
+        struct aurora_ipc_queue *queue = &channel->inbound[side];
+        channel->waiter_thread[side] = 0u;
+        for (uint32_t i = 0u; i < AURORA_IPC_QUEUE_DEPTH; ++i) {
+            struct aurora_ipc_message_slot *slot = &queue->slots[i];
+            volatile uint8_t *bytes = (volatile uint8_t *)slot->data;
+            for (uint32_t j = 0u; j < AURORA_IPC_PAYLOAD_MAX; ++j)
+                bytes[j] = 0u;
+            for (uint32_t j = 0u; j < AURORA_IPC_CAPS_MAX; ++j) {
+                if (slot->escrow_handles[j] != AURORA_CAP_INVALID)
+                    (void)cap_revoke(&channel->escrow, slot->escrow_handles[j]);
+                slot->escrow_handles[j] = AURORA_CAP_INVALID;
+                slot->final_rights[j] = 0u;
+            }
+            slot->length = 0u;
+            slot->capability_count = 0u;
+        }
+        queue->head = queue->tail = queue->count = 0u;
+    }
+    spinlock_unlock(&channel->lock);
+    cap_table_destroy(&channel->escrow);
 }
 
 struct aurora_ipc_endpoint *ipc_channel_endpoint(
@@ -125,6 +158,11 @@ bool ipc_send(
     spinlock_lock(
         &channel->lock
     );
+
+    if (channel->closed) {
+        spinlock_unlock(&channel->lock);
+        return false;
+    }
 
     struct aurora_ipc_queue *queue =
         &channel->inbound[
@@ -248,6 +286,11 @@ bool ipc_receive(
     spinlock_lock(
         &channel->lock
     );
+
+    if (channel->closed) {
+        spinlock_unlock(&channel->lock);
+        return false;
+    }
 
     struct aurora_ipc_queue *queue =
         &channel->inbound[
@@ -376,6 +419,10 @@ enum aurora_ipc_wait_result ipc_wait_register(
     struct aurora_ipc_channel *channel = endpoint->channel;
     spinlock_lock(&channel->lock);
 
+    if (channel->closed) {
+        spinlock_unlock(&channel->lock);
+        return AURORA_IPC_WAIT_ERROR;
+    }
     struct aurora_ipc_queue *queue = &channel->inbound[endpoint->side];
     if (queue->count != 0u) {
         spinlock_unlock(&channel->lock);
