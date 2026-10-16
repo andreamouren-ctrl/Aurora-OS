@@ -522,6 +522,26 @@ bool ipc_self_test(void) {
             &receiver, unrelated, AURORA_CAP_DEVICE,
             AURORA_RIGHT_CONTROL, &view)) return false;
 
+    /* Failed delegation must erase the rejected payload and leave the
+     * queue usable. A handle without TRANSFER rights forces rollback. */
+    aurora_cap_handle nontransfer = cap_grant(
+        &sender, &dummy_object, AURORA_CAP_DEVICE, AURORA_RIGHT_READ
+    );
+    if (nontransfer == AURORA_CAP_INVALID) return false;
+    const struct aurora_ipc_transfer rejected_transfer = {
+        .handle = nontransfer, .rights = AURORA_RIGHT_READ
+    };
+    const uint32_t rejected_slot = channel.inbound[1].tail;
+    if (ipc_send(ipc_channel_endpoint(&channel, 0), &sender,
+                 payload, (uint32_t)sizeof(payload),
+                 &rejected_transfer, 1u)) return false;
+    if (channel.inbound[1].count != 0u) return false;
+    if (channel.inbound[1].slots[rejected_slot].length != 0u) return false;
+    for (size_t i = 0u; i < sizeof(payload); ++i) {
+        if (channel.inbound[1].slots[rejected_slot].data[i] != 0u)
+            return false;
+    }
+
     /* A subsequent message must remain deliverable after cleanup. */
     if (!ipc_send(ipc_channel_endpoint(&channel, 0), NULL,
                   payload, (uint32_t)sizeof(payload), NULL, 0u)) return false;
