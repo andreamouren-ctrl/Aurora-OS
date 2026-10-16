@@ -66,9 +66,9 @@ bool g5_canvas_service_abort_unstarted(struct g5_canvas_service *service) {
     /* No thread was ever scheduled: this is cancellation, not a
      * fabricated successful Ring3 execution. */
     process_mark_exited(service->process,1);
+    revoke_control(service);
     if (!process_reap(service->process,NULL) ||
         !process_release(service->process)) return false;
-    revoke_control(service);
     service->process=NULL;
     service->session_generation=0u;
     return true;
