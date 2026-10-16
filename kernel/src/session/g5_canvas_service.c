@@ -3,6 +3,8 @@
 #include <aurora/process.h>
 #include <aurora/scheduler.h>
 #include <aurora/capability.h>
+#include <aurora/g5_canvas_bootstrap.h>
+#include <aurora/usercopy.h>
 
 bool g5_canvas_service_prepare(struct g5_canvas_service *service,
                                uint64_t generation) {
@@ -81,7 +83,6 @@ bool g5_canvas_service_abort_unstarted(struct g5_canvas_service *service) {
      * fabricated successful Ring3 execution. */
     process_mark_exited(service->process,1);
     revoke_control(service);
-    revoke_control(service);
     if (!process_reap(service->process,NULL) ||
         !process_release(service->process)) return false;
     service->process=NULL;
@@ -100,6 +101,7 @@ bool g5_canvas_service_reap(struct g5_canvas_service *service) {
     if (process_state(service->process)!=AURORA_PROCESS_EXITED ||
         service->process->exit_code!=0)
         return false; /* Faulted or nonzero exit cannot pass the smoke gate. */
+    revoke_control(service);
     if (!process_reap(service->process,NULL) ||
         !process_release(service->process)) return false;
     service->process=NULL;
@@ -118,6 +120,7 @@ bool g5_canvas_service_reap_failed(struct g5_canvas_service *service) {
         process_state(service->process)==AURORA_PROCESS_RUNNING)
         return false;
     /* This is cleanup of a terminal process, not proof of a clean exit. */
+    revoke_control(service);
     if (!process_reap(service->process,NULL) ||
         !process_release(service->process)) return false;
     service->process=NULL;
