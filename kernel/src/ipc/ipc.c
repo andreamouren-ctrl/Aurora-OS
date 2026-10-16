@@ -134,10 +134,10 @@ void ipc_channel_close(struct aurora_ipc_channel *channel) {
         }
         queue->head = queue->tail = queue->count = 0u;
     }
-    /* Keep the escrow table teardown serialized with channel operations:
-     * no new send/receive can enter after closed is published. */
-    cap_table_destroy(&channel->escrow);
+    /* The closed flag rejects subsequent IPC operations. Release the
+     * channel lock before lifecycle callbacks from escrow destruction. */
     spinlock_unlock(&channel->lock);
+    cap_table_destroy(&channel->escrow);
     for (uint32_t side = 0u; side < 2u; ++side) {
         if (waiters[side] != 0u)
             (void)scheduler_wake_thread(waiters[side]);
