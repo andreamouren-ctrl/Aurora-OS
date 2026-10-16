@@ -200,6 +200,8 @@ static uint64_t dispatch_ipc_send(
 
     if (length != 0u &&
         !copy_from_user(process, payload, user_data, (size_t)length)) {
+        volatile uint8_t *sensitive = (volatile uint8_t *)payload;
+        for (size_t i = 0u; i < sizeof(payload); ++i) sensitive[i] = 0u;
         return AURORA_SYS_RESULT_ERROR;
     }
 
