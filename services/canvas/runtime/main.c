@@ -40,6 +40,28 @@ static int canvas_send_ready(uint64_t endpoint,uint64_t generation) {
         (uint64_t)(uintptr_t)&ready,sizeof(ready),0u,0u)==0u;
 }
 
+static int canvas_health_roundtrip(uint64_t endpoint,uint64_t generation) {
+    struct aurora_sys_ipc_received received={0};
+    if (canvas_syscall3(AURORA_SYS_IPC_WAIT,endpoint,0u,0u)!=0u)
+        return 0;
+    if (canvas_syscall3(AURORA_SYS_IPC_RECEIVE,endpoint,
+        (uint64_t)(uintptr_t)&received,0u)!=0u ||
+        received.capability_count!=0u ||
+        received.length!=sizeof(struct g5_canvas_bootstrap))
+        return 0;
+    struct g5_canvas_bootstrap request={0};
+    for (unsigned i=0u;i<sizeof(request);++i)
+        ((uint8_t *)&request)[i]=received.data[i];
+    if (request.type!=G5_CANVAS_BOOTSTRAP_HEALTH ||
+        !g5_canvas_bootstrap_valid(&request,G5_CANVAS_BOOTSTRAP_HEALTH,
+                                   generation,request.request_id) ||
+        request.request_id==G5_CANVAS_BOOTSTRAP_READY_REQUEST_ID)
+        return 0;
+    request.type=G5_CANVAS_BOOTSTRAP_HEALTH_ACK;
+    return canvas_syscall5(AURORA_SYS_IPC_SEND,endpoint,
+        (uint64_t)(uintptr_t)&request,sizeof(request),0u,0u)==0u;
+}
+
 int64_t g5_canvas_runtime_main(uint64_t initial_rsp) {
     if (initial_rsp<G5_CANVAS_STARTUP_STACK_OFFSET) return 11;
     const struct g5_canvas_startup *stack_startup=
@@ -56,6 +78,8 @@ int64_t g5_canvas_runtime_main(uint64_t initial_rsp) {
         return 13;
     if (!canvas_send_ready(startup.control_endpoint,
                            startup.session_generation)) return 14;
+    if (!canvas_health_roundtrip(startup.control_endpoint,
+                                 startup.session_generation)) return 15;
     struct g5_canvas_session_camera camera={0};
     g5_canvas_session_camera_revoke(&camera);
     return 0;
