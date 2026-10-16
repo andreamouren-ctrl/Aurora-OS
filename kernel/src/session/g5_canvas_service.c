@@ -36,6 +36,19 @@ bool g5_canvas_service_provision_control(struct g5_canvas_service *service) {
         &service->process->capabilities,user_peer,
         AURORA_CAP_IPC_ENDPOINT,AURORA_RIGHT_READ|AURORA_RIGHT_WRITE);
     if (handle==AURORA_CAP_INVALID) return false;
+    const struct g5_canvas_startup startup={
+        .abi_version=G5_CANVAS_STARTUP_ABI_VERSION,
+        .reserved=0u,
+        .control_endpoint=handle,
+        .session_generation=service->session_generation
+    };
+    if (service->process->user_stack_top < G5_CANVAS_STARTUP_STACK_OFFSET ||
+        !copy_to_user(service->process,
+            service->process->user_stack_top-G5_CANVAS_STARTUP_STACK_OFFSET,
+            &startup,sizeof(startup))) {
+        (void)cap_revoke(&service->process->capabilities,handle);
+        return false;
+    }
     service->control_handle=handle;
     service->kernel_endpoint=kernel_peer;
     return true;
