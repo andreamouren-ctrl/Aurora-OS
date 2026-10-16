@@ -14,6 +14,11 @@ struct g5_canvas_bootstrap {
     uint64_t session_generation;
     uint64_t request_id;
 };
+/* A frame must never validate against an unknown or reserved opcode. */
+static inline int g5_canvas_bootstrap_known_type(uint32_t type) {
+    return type >= G5_CANVAS_BOOTSTRAP_READY &&
+           type <= G5_CANVAS_BOOTSTRAP_SHUTDOWN_ACK;
+}
 /* Validation is transport-independent: receiving a well-formed message
  * does not confer any capability. The endpoint owner must still be checked
  * by the IPC dispatcher before these predicates are used. */
@@ -25,6 +30,7 @@ static inline int g5_canvas_bootstrap_valid(
 ) {
     return message != 0 &&
         message->version == G5_CANVAS_BOOTSTRAP_VERSION &&
+        g5_canvas_bootstrap_known_type(expected_type) &&
         message->type == expected_type &&
         expected_generation != 0u &&
         message->session_generation == expected_generation &&
