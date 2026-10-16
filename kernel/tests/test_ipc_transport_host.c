@@ -16,7 +16,32 @@ bool scheduler_wake_thread(aurora_thread_id id) {
     return true;
 }
 
+static void test_wait_registration_and_delivery(void) {
+    static struct aurora_ipc_channel channel;
+    static struct aurora_cap_table receiver;
+    struct aurora_ipc_received message = {0};
+    static const uint8_t payload[] = {0x41u, 0x42u, 0x43u};
+
+    cap_table_init(&receiver);
+    ipc_channel_init(&channel);
+    struct aurora_ipc_endpoint *reader = ipc_channel_endpoint(&channel, 1u);
+    struct aurora_ipc_endpoint *writer = ipc_channel_endpoint(&channel, 0u);
+    assert(reader != NULL && writer != NULL);
+    assert(ipc_wait_register(reader, 17u) == AURORA_IPC_WAIT_REGISTERED);
+    assert(!ipc_wait_cancel(reader, 18u));
+    assert(ipc_send(writer, NULL, payload, sizeof(payload), NULL, 0u));
+    assert(channel.waiter_thread[1] == 0u);
+    assert(ipc_wait_register(reader, 19u) == AURORA_IPC_WAIT_READY);
+    assert(ipc_receive(reader, &receiver, &message));
+    assert(message.length == sizeof(payload));
+    assert(message.data[0] == payload[0] && message.data[2] == payload[2]);
+    assert(ipc_wait_register(reader, 20u) == AURORA_IPC_WAIT_REGISTERED);
+    assert(ipc_wait_cancel(reader, 20u));
+    assert(!ipc_wait_cancel(reader, 20u));
+}
+
 int main(void) {
     assert(ipc_self_test());
+    test_wait_registration_and_delivery();
     return 0;
 }
