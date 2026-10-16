@@ -52,7 +52,8 @@ static void revoke_control(struct g5_canvas_service *service) {
 
 bool g5_canvas_service_start(struct g5_canvas_service *service) {
     if (!service || !service->process || !service->session_generation ||
-        service->thread_id) return false;
+        service->thread_id || !service->kernel_endpoint ||
+        service->control_handle==AURORA_CAP_INVALID) return false;
     service->thread_id=scheduler_create_user_thread(
         "g5-canvas-engine",service->process);
     return service->thread_id!=0u;
@@ -66,6 +67,7 @@ bool g5_canvas_service_abort_unstarted(struct g5_canvas_service *service) {
     /* No thread was ever scheduled: this is cancellation, not a
      * fabricated successful Ring3 execution. */
     process_mark_exited(service->process,1);
+    revoke_control(service);
     revoke_control(service);
     if (!process_reap(service->process,NULL) ||
         !process_release(service->process)) return false;
