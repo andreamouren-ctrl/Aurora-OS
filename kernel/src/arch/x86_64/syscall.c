@@ -184,6 +184,7 @@ static uint64_t dispatch_ipc_send(
     uint64_t user_transfers,
     uint64_t transfer_count
 ) {
+    struct aurora_ipc_endpoint *endpoint = NULL;
     uint8_t payload[AURORA_SYS_IPC_PAYLOAD_MAX] = {0};
     struct aurora_sys_ipc_transfer user_transfer_buffer[AURORA_SYS_IPC_CAPS_MAX] = {0};
     struct aurora_ipc_transfer transfers[AURORA_SYS_IPC_CAPS_MAX] = {0};
@@ -193,8 +194,7 @@ static uint64_t dispatch_ipc_send(
         length > AURORA_SYS_IPC_PAYLOAD_MAX ||
         transfer_count > AURORA_SYS_IPC_CAPS_MAX) goto cleanup;
 
-    struct aurora_ipc_endpoint *endpoint =
-        lookup_ipc_endpoint(process, endpoint_handle, AURORA_RIGHT_WRITE);
+    endpoint = lookup_ipc_endpoint(process, endpoint_handle, AURORA_RIGHT_WRITE);
     if (endpoint == NULL) goto cleanup;
 
     if (length != 0u &&
@@ -239,14 +239,14 @@ static uint64_t dispatch_ipc_receive(
     uint64_t endpoint_handle,
     uint64_t user_output
 ) {
+    struct aurora_ipc_endpoint *endpoint = NULL;
     struct aurora_sys_ipc_received output = {0};
     struct aurora_ipc_received received = {0};
     uint64_t result = AURORA_SYS_RESULT_ERROR;
 
     if (process == NULL || user_output == 0u) goto cleanup;
 
-    struct aurora_ipc_endpoint *endpoint =
-        lookup_ipc_endpoint(process, endpoint_handle, AURORA_RIGHT_READ);
+    endpoint = lookup_ipc_endpoint(process, endpoint_handle, AURORA_RIGHT_READ);
     if (endpoint == NULL) goto cleanup;
 
     if (!copy_to_user(process, user_output, &output, sizeof(output)))
