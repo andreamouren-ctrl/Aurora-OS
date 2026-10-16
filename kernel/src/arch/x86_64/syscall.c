@@ -657,12 +657,23 @@ struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
                 lookup_ipc_endpoint(process, frame->rdi, AURORA_RIGHT_READ);
             aurora_thread_id thread_id = scheduler_current_thread_id();
             if (endpoint == NULL || thread_id == 0u) {
+                if (endpoint != NULL) {
+                    const struct aurora_capability_view view = {
+                        .object = endpoint, .type = AURORA_CAP_IPC_ENDPOINT
+                    };
+                    cap_view_release(&view);
+                }
                 frame->rax = AURORA_SYS_RESULT_ERROR;
                 break;
             }
 
             enum aurora_ipc_wait_result wait =
                 ipc_wait_register(endpoint, thread_id);
+            const struct aurora_capability_view endpoint_view = {
+                .object = endpoint, .type = AURORA_CAP_IPC_ENDPOINT
+            };
+            cap_view_release(&endpoint_view);
+            endpoint = NULL;
             if (wait == AURORA_IPC_WAIT_READY) {
                 frame->rax = 0u;
                 break;
@@ -674,7 +685,15 @@ struct interrupt_frame *syscall_dispatch(struct syscall_frame *frame) {
 
             struct interrupt_frame *next = NULL;
             if (!scheduler_block_current_syscall(frame, 0u, &next)) {
-                (void)ipc_wait_cancel(endpoint, thread_id);
+                struct aurora_ipc_endpoint *retry =
+                    lookup_ipc_endpoint(process, frame->rdi, AURORA_RIGHT_READ);
+                if (retry != NULL) {
+                    (void)ipc_wait_cancel(retry, thread_id);
+                    const struct aurora_capability_view view = {
+                        .object = retry, .type = AURORA_CAP_IPC_ENDPOINT
+                    };
+                    cap_view_release(&view);
+                }
                 frame->rax = AURORA_SYS_RESULT_ERROR;
                 break;
             }
