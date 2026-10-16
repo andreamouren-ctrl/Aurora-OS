@@ -38,6 +38,23 @@ static void test_wait_registration_and_delivery(void) {
     assert(ipc_wait_register(reader, 20u) == AURORA_IPC_WAIT_REGISTERED);
     assert(ipc_wait_cancel(reader, 20u));
     assert(!ipc_wait_cancel(reader, 20u));
+
+    /* A full bounded queue must reject an additional message without
+     * corrupting the FIFO or losing the payload already enqueued. */
+    for (uint32_t i = 0u; i < AURORA_IPC_QUEUE_DEPTH; ++i) {
+        const uint8_t value = (uint8_t)i;
+        assert(ipc_send(writer, NULL, &value, 1u, NULL, 0u));
+    }
+    assert(channel.inbound[1].count == AURORA_IPC_QUEUE_DEPTH);
+    assert(!ipc_send(writer, NULL, payload, sizeof(payload), NULL, 0u));
+    for (uint32_t i = 0u; i < AURORA_IPC_QUEUE_DEPTH; ++i) {
+        assert(ipc_receive(reader, &receiver, &message));
+        assert(message.length == 1u);
+        assert(message.capability_count == 0u);
+        assert(message.data[0] == (uint8_t)i);
+    }
+    assert(channel.inbound[1].count == 0u);
+    assert(!ipc_receive(reader, &receiver, &message));
 }
 
 int main(void) {
