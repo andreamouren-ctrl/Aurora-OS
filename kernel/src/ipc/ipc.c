@@ -560,6 +560,33 @@ bool ipc_self_test(void) {
             return false;
     }
 
+    /* Roll back a partially staged message: the first delegation
+     * succeeds, then the second fails due to missing TRANSFER rights. */
+    const struct aurora_ipc_transfer partial_transfers[2] = {
+        { .handle = source, .rights = AURORA_RIGHT_READ },
+        { .handle = nontransfer, .rights = AURORA_RIGHT_READ }
+    };
+    const uint32_t partial_slot = channel.inbound[1].tail;
+    if (ipc_send(ipc_channel_endpoint(&channel, 0), &sender,
+                 payload, (uint32_t)sizeof(payload),
+                 partial_transfers, 2u)) return false;
+    if (channel.inbound[1].count != 0u ||
+        channel.inbound[1].tail != partial_slot) return false;
+    const struct aurora_ipc_message_slot *partial =
+        &channel.inbound[1].slots[partial_slot];
+    if (partial->length != 0u || partial->capability_count != 0u)
+        return false;
+    for (uint32_t i = 0u; i < AURORA_IPC_CAPS_MAX; ++i) {
+        if (partial->escrow_handles[i] != AURORA_CAP_INVALID ||
+            partial->final_rights[i] != 0u) return false;
+    }
+    for (size_t i = 0u; i < sizeof(payload); ++i) {
+        if (partial->data[i] != 0u) return false;
+    }
+    if (!cap_lookup(&sender, source, AURORA_CAP_DEVICE,
+                    AURORA_RIGHT_READ | AURORA_RIGHT_TRANSFER, &view))
+        return false;
+
     /* A subsequent message must remain deliverable after cleanup. */
     if (!ipc_send(ipc_channel_endpoint(&channel, 0), NULL,
                   payload, (uint32_t)sizeof(payload), NULL, 0u)) return false;
