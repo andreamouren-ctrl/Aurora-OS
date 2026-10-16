@@ -28,6 +28,7 @@ static void test_wait_registration_and_delivery(void) {
 
     cap_table_init(&receiver);
     ipc_channel_init(&channel);
+    assert(ipc_endpoint_lifecycle_register());
     struct aurora_ipc_endpoint *reader = ipc_channel_endpoint(&channel, 1u);
     struct aurora_ipc_endpoint *writer = ipc_channel_endpoint(&channel, 0u);
     assert(reader != NULL && writer != NULL);
@@ -112,6 +113,7 @@ static void test_wait_registration_and_delivery(void) {
     assert(ipc_wait_register(reader, 77u) == AURORA_IPC_WAIT_REGISTERED);
     const uint32_t wake_before_close = wake_count;
     ipc_channel_close(&channel);
+    assert(ipc_channel_quiescent(&channel));
     assert(wake_count == wake_before_close + 1u);
     assert(last_woken_thread == 77u);
     assert(channel.closed);
@@ -138,8 +140,32 @@ static void test_wait_registration_and_delivery(void) {
     ipc_channel_close(&channel);
 }
 
+static void test_endpoint_lifetime(void) {
+    static struct aurora_ipc_channel channel;
+    static struct aurora_cap_table owner;
+    ipc_channel_init(&channel);
+    cap_table_init(&owner);
+    assert(ipc_endpoint_lifecycle_register());
+    struct aurora_ipc_endpoint *endpoint = ipc_channel_endpoint(&channel, 0u);
+    aurora_cap_handle handle = cap_grant(
+        &owner, endpoint, AURORA_CAP_IPC_ENDPOINT, AURORA_RIGHT_READ);
+    assert(handle != AURORA_CAP_INVALID);
+    struct aurora_capability_view view = {0};
+    assert(cap_lookup_retain(&owner, handle, AURORA_CAP_IPC_ENDPOINT,
+                             AURORA_RIGHT_READ, &view));
+    assert(channel.active_refs == 2u);
+    ipc_channel_close(&channel);
+    assert(!ipc_channel_quiescent(&channel));
+    assert(!cap_lookup_retain(&owner, handle, AURORA_CAP_IPC_ENDPOINT,
+                              AURORA_RIGHT_READ, &view));
+    cap_view_release(&view);
+    assert(cap_revoke(&owner, handle));
+    assert(ipc_channel_quiescent(&channel));
+}
+
 int main(void) {
     assert(ipc_self_test());
     test_wait_registration_and_delivery();
+    test_endpoint_lifetime();
     return 0;
 }
