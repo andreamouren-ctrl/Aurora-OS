@@ -698,6 +698,31 @@ static bool start_with_context(
             return false;
         }
         log_line("[g5-wp05] Canvas private IPC READY verified");
+        const uint64_t canvas_health_id=host.next_request_id++;
+        if (canvas_health_id<=G5_CANVAS_BOOTSTRAP_READY_REQUEST_ID ||
+            !g5_canvas_service_health_probe(&host.canvas,&host.kernel_caps,
+                                            canvas_health_id)) {
+            log_line("[g5-wp05] Canvas HEALTH request failed");
+            cleanup_unstarted_host();
+            return false;
+        }
+        const uint64_t health_deadline=clock_now_ns()+USER_SESSION_HOST_TIMEOUT_NS;
+        bool canvas_healthy=false;
+        while (clock_now_ns()<health_deadline) {
+            if (g5_canvas_service_receive_health_ack(
+                    &host.canvas,&host.kernel_caps,canvas_health_id)) {
+                canvas_healthy=true;
+                break;
+            }
+            if (scheduler_thread_finished(host.canvas.thread_id)) break;
+            arch_idle();
+        }
+        if (!canvas_healthy) {
+            log_line("[g5-wp05] Canvas HEALTH_ACK timeout or rejected");
+            cleanup_unstarted_host();
+            return false;
+        }
+        log_line("[g5-wp05] Canvas HEALTH_ACK verified");
         /* The first Canvas binary is an intentionally terminating smoke
          * process, not yet a long-lived camera service. Verify actual
          * scheduler exit and reclaim its address space before READY. */
