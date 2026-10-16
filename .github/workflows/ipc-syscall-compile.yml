@@ -6,6 +6,8 @@ on:
     paths:
       - 'kernel/src/arch/x86_64/syscall.c'
       - 'kernel/src/ipc/ipc.c'
+      - 'kernel/src/security/capability.c'
+      - 'kernel/tests/test_ipc_transport_host.c'
       - 'kernel/include/aurora/**'
       - 'kernel/Makefile'
       - 'kernel/tests/check_ipc_syscall_cleanup.py'
@@ -14,6 +16,8 @@ on:
     paths:
       - 'kernel/src/arch/x86_64/syscall.c'
       - 'kernel/src/ipc/ipc.c'
+      - 'kernel/src/security/capability.c'
+      - 'kernel/tests/test_ipc_transport_host.c'
       - 'kernel/include/aurora/**'
       - 'kernel/Makefile'
       - 'kernel/tests/check_ipc_syscall_cleanup.py'
@@ -53,3 +57,8 @@ jobs:
             -mno-sse2 -mcmodel=kernel -Ikernel/include \
             -Ithird_party/limine-protocol/include \
             -c kernel/src/ipc/ipc.c -o /tmp/aurora-ipc-transport.o
+      - name: Run production IPC transport host self-test
+        run: |
+          cc -std=c11 -O1 -Wall -Wextra -Werror -Ikernel/include \
+            kernel/tests/test_ipc_transport_host.c -o /tmp/aurora-ipc-host
+          /tmp/aurora-ipc-host
