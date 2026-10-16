@@ -176,11 +176,6 @@ static struct aurora_ipc_endpoint *lookup_ipc_endpoint(
     return (struct aurora_ipc_endpoint *)view.object;
 }
 
-static void ipc_wipe_bytes(void *buffer, size_t length) {
-    volatile uint8_t *bytes = (volatile uint8_t *)buffer;
-    for (size_t i = 0u; i < length; ++i) bytes[i] = 0u;
-}
-
 static uint64_t dispatch_ipc_send(
     struct aurora_process *process,
     uint64_t endpoint_handle,
@@ -227,9 +222,9 @@ static uint64_t dispatch_ipc_send(
         result = 0ull;
 
 cleanup:
-    ipc_wipe_bytes(payload, sizeof(payload));
-    ipc_wipe_bytes(user_transfer_buffer, sizeof(user_transfer_buffer));
-    ipc_wipe_bytes(transfers, sizeof(transfers));
+    secure_zero_bytes(payload, sizeof(payload));
+    secure_zero_bytes(user_transfer_buffer, sizeof(user_transfer_buffer));
+    secure_zero_bytes(transfers, sizeof(transfers));
     return result;
 }
 
@@ -269,8 +264,8 @@ static uint64_t dispatch_ipc_receive(
     }
 
 cleanup:
-    ipc_wipe_bytes(&received, sizeof(received));
-    ipc_wipe_bytes(&output, sizeof(output));
+    secure_zero_bytes(&received, sizeof(received));
+    secure_zero_bytes(&output, sizeof(output));
     return result;
 }
 
