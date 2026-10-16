@@ -333,6 +333,19 @@ bool ipc_receive(
     return true;
 }
 
+/* Undo only the handles created by a successful receive. */
+void ipc_received_revoke_capabilities(
+    struct aurora_cap_table *receiver_caps,
+    const struct aurora_ipc_received *received
+) {
+    if (receiver_caps == NULL || received == NULL) return;
+    uint32_t count = received->capability_count;
+    if (count > AURORA_IPC_CAPS_MAX) count = AURORA_IPC_CAPS_MAX;
+    for (uint32_t i = 0u; i < count; ++i) {
+        (void)cap_revoke(receiver_caps, received->capabilities[i]);
+    }
+}
+
 enum aurora_ipc_wait_result ipc_wait_register(
     struct aurora_ipc_endpoint *endpoint,
     aurora_thread_id thread_id
