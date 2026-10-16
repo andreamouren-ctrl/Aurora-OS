@@ -177,6 +177,10 @@ bool ipc_send(
                 slot->capability_count
             );
 
+            /* Rollback must not retain a rejected message's payload. */
+            volatile uint8_t *rejected = (volatile uint8_t *)slot->data;
+            for (uint32_t j = 0u; j < slot->length; ++j) rejected[j] = 0u;
+            slot->length = 0;
             slot->capability_count = 0;
 
             spinlock_unlock(
