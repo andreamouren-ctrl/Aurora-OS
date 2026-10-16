@@ -1,5 +1,6 @@
 ARCH ?= x86_64
 CC := clang
+LD := ld.lld
 OBJCOPY ?= objcopy
 ROOT := ../../..
 BUILD := $(ROOT)/build/$(ARCH)/canvas-runtime
@@ -21,7 +22,7 @@ $(BUILD)/session.o: ../src/g5_canvas_session_camera.c | $(BUILD)
 $(BUILD)/entry.o: entry.S | $(BUILD)
 	$(CC) $(ASFLAGS) -c $< -o $@
 $(ELF): $(BUILD)/entry.o $(BUILD)/main.o $(BUILD)/camera.o $(BUILD)/session.o linker.ld
-	$(CC) $(LDFLAGS) $(BUILD)/entry.o $(BUILD)/main.o $(BUILD)/camera.o $(BUILD)/session.o -o $@
+	$(LD) -static --build-id=none --gc-sections -z max-page-size=0x1000 -T linker.ld $(BUILD)/entry.o $(BUILD)/main.o $(BUILD)/camera.o $(BUILD)/session.o -o $@
 	@if nm -u $@ | grep .; then echo 'ERROR: unresolved Canvas runtime symbols'; exit 1; fi
 $(BIN): $(ELF)
 	$(OBJCOPY) -O binary $< $@
