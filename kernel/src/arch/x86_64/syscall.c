@@ -272,17 +272,20 @@ static uint64_t dispatch_ipc_receive(
         output.capabilities[i] = received.capabilities[i];
     }
 
-    if (copy_to_user(process, user_output, &output, sizeof(output))) {
-        return 0ull;
+    bool delivered = copy_to_user(process, user_output, &output, sizeof(output));
+    if (!delivered) {
+        /*
+         * The queue entry was consumed: revoke delegated handles if
+         * delivery to Ring 3 failed.
+         */
+        ipc_received_revoke_capabilities(&process->capabilities, &received);
     }
 
-    /*
-     * ipc_receive() has already consumed the queue entry and delegated
-     * its capabilities. If the final usercopy fails, do not strand those
-     * newly delegated handles in the receiver's capability table.
-     */
-    ipc_received_revoke_capabilities(&process->capabilities, &received);
-    return AURORA_SYS_RESULT_ERROR;
+    volatile uint8_t *received_bytes = (volatile uint8_t *)received.data;
+    volatile uint8_t *output_bytes = (volatile uint8_t *)output.data;
+    for (size_t i = 0u; i < sizeof(received.data); ++i) received_bytes[i] = 0u;
+    for (size_t i = 0u; i < sizeof(output.data); ++i) output_bytes[i] = 0u;
+    return delivered ? 0ull : AURORA_SYS_RESULT_ERROR;
 }
 
 static uint64_t dispatch_entropy_seed(
