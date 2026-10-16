@@ -65,39 +65,6 @@ static void revoke_control(struct g5_canvas_service *service) {
     service->kernel_endpoint=NULL;
 }
 
-bool g5_canvas_service_health_probe(struct g5_canvas_service *service,
-                                    struct aurora_cap_table *kernel_caps,
-                                    uint64_t request_id) {
-    if (!service || !service->kernel_endpoint || !kernel_caps ||
-        !service->session_generation || !request_id ||
-        request_id==G5_CANVAS_BOOTSTRAP_READY_REQUEST_ID)
-        return false;
-    const struct g5_canvas_bootstrap request={
-        .version=G5_CANVAS_BOOTSTRAP_VERSION,
-        .type=G5_CANVAS_BOOTSTRAP_HEALTH,
-        .session_generation=service->session_generation,
-        .request_id=request_id
-    };
-    return ipc_send(service->kernel_endpoint,kernel_caps,
-                    &request,(uint32_t)sizeof(request),NULL,0u);
-}
-
-bool g5_canvas_service_receive_health_ack(
-    struct g5_canvas_service *service,
-    struct aurora_cap_table *kernel_caps,uint64_t request_id) {
-    if (!service || !service->kernel_endpoint || !kernel_caps ||
-        !request_id || !service->session_generation) return false;
-    struct aurora_ipc_received received={0};
-    if (!ipc_receive(service->kernel_endpoint,kernel_caps,&received) ||
-        received.capability_count!=0u ||
-        received.length!=sizeof(struct g5_canvas_bootstrap)) return false;
-    struct g5_canvas_bootstrap ack={0};
-    for (size_t i=0;i<sizeof(ack);++i)
-        ((uint8_t *)&ack)[i]=received.data[i];
-    return g5_canvas_bootstrap_valid(&ack,G5_CANVAS_BOOTSTRAP_HEALTH_ACK,
-                                      service->session_generation,request_id)!=0;
-}
-
 bool g5_canvas_service_receive_ready(struct g5_canvas_service *service) {
     if (!service || !service->kernel_endpoint || !service->process ||
         !service->session_generation || !service->thread_id) return false;
