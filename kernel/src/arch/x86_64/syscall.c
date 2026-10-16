@@ -221,14 +221,17 @@ static uint64_t dispatch_ipc_send(
         }
     }
 
-    return ipc_send(
+    bool sent = ipc_send(
         endpoint,
         &process->capabilities,
         length == 0u ? NULL : payload,
         (uint32_t)length,
         transfer_count == 0u ? NULL : transfers,
         (uint32_t)transfer_count
-    ) ? 0ull : AURORA_SYS_RESULT_ERROR;
+    );
+    volatile uint8_t *sensitive = (volatile uint8_t *)payload;
+    for (size_t i = 0u; i < sizeof(payload); ++i) sensitive[i] = 0u;
+    return sent ? 0ull : AURORA_SYS_RESULT_ERROR;
 }
 
 static uint64_t dispatch_ipc_receive(
