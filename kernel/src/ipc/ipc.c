@@ -323,6 +323,7 @@ bool ipc_receive(
 
         slot->escrow_handles[i] =
             AURORA_CAP_INVALID;
+        slot->final_rights[i] = 0u;
     }
 
     /* Erase delivered payload before making the slot reusable. */
