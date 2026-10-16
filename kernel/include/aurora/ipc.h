@@ -70,6 +70,7 @@ struct aurora_ipc_endpoint {
 struct aurora_ipc_channel {
     aurora_spinlock lock;
     bool closed;
+    uint32_t active_refs;
 
     struct aurora_ipc_queue inbound[2];
     struct aurora_cap_table escrow;
@@ -84,6 +85,8 @@ void ipc_channel_init(
 
 /* Requires external exclusion of concurrent users and outstanding endpoint views. */
 void ipc_channel_close(struct aurora_ipc_channel *channel);
+bool ipc_channel_quiescent(struct aurora_ipc_channel *channel);
+bool ipc_endpoint_lifecycle_register(void);
 
 struct aurora_ipc_endpoint *ipc_channel_endpoint(
     struct aurora_ipc_channel *channel,
