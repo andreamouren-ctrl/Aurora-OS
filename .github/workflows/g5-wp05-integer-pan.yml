@@ -1,0 +1,20 @@
+name: G5 WP-05 Integer Pan Probe
+on:
+  pull_request:
+    paths:
+      - 'services/canvas/include/aurora/g5_canvas_integer_pan.h'
+      - 'tests/g5/canvas_integer_pan_test.c'
+      - '.github/workflows/g5-wp05-integer-pan.yml'
+  workflow_dispatch:
+jobs:
+  integer-pan:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and test with sanitizers
+        run: |
+          ${{ matrix.compiler }} -std=c11 -Wall -Wextra -Werror -pedantic -O1 -g -fsanitize=undefined -fno-sanitize-recover=all -Iservices/canvas/include tests/g5/canvas_integer_pan_test.c -o /tmp/g5-integer-pan
+          /tmp/g5-integer-pan

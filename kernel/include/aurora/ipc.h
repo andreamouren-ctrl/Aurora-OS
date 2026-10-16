@@ -116,6 +116,11 @@ bool ipc_wait_cancel(
     aurora_thread_id thread_id
 );
 
+void ipc_received_revoke_capabilities(
+    struct aurora_cap_table *receiver_caps,
+    const struct aurora_ipc_received *received
+);
+
 bool ipc_self_test(void);
 
 #endif

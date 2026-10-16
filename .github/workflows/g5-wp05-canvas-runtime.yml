@@ -1,0 +1,50 @@
+name: G5 WP-05 Canvas Ring3 Binary
+on:
+  push:
+    branches:
+      - feat/g5-wp05-integer-translation-probe
+    paths:
+      - 'services/canvas/**'
+      - 'kernel/Makefile'
+      - 'kernel/src/session/g5_canvas_service.c'
+      - 'kernel/src/user/g5_canvas_runtime_image.c'
+      - 'kernel/src/session/user_session_host.c'
+      - 'kernel/include/aurora/g5_canvas_*.h'
+      - '.github/workflows/g5-wp05-canvas-runtime.yml'
+  pull_request:
+    paths:
+      - 'services/canvas/**'
+      - 'kernel/Makefile'
+      - 'kernel/src/session/g5_canvas_service.c'
+      - 'kernel/src/user/g5_canvas_runtime_image.c'
+      - 'kernel/src/session/user_session_host.c'
+      - 'kernel/include/aurora/g5_canvas_*.h'
+      - '.github/workflows/g5-wp05-canvas-runtime.yml'
+jobs:
+  canvas-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ELF linker
+        run: sudo apt-get update && sudo apt-get install -y lld
+      - name: Build isolated freestanding Ring3 binary
+        run: make -C services/canvas/runtime
+      - name: Test Canvas bootstrap protocol rejection paths
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -Ikernel/include \
+            services/canvas/runtime/bootstrap_contract_test.c \
+            -o /tmp/g5-canvas-bootstrap-contract-test
+          /tmp/g5-canvas-bootstrap-contract-test
+      - name: Verify ELF entry and executable
+        run: |
+          test -s build/x86_64/canvas-runtime/canvas-engine.bin
+          readelf -h build/x86_64/canvas-runtime/canvas-engine.elf
+          nm build/x86_64/canvas-runtime/canvas-engine.elf | grep -q ' _start$'
+          nm build/x86_64/canvas-runtime/canvas-engine.elf | grep -q ' g5_canvas_runtime_main$'
+          test -z "$(nm -u build/x86_64/canvas-runtime/canvas-engine.elf)"
+          readelf -h build/x86_64/canvas-runtime/canvas-engine.elf | grep -q 'Machine:.*Advanced Micro Devices X86-64'
+      - name: Inspect Canvas Ring3 fault instruction
+        run: |
+          objdump -d -M intel --start-address=0x400030 --stop-address=0x400090 build/x86_64/canvas-runtime/canvas-engine.elf
+          objdump -d -M intel --start-address=0x4003c0 --stop-address=0x400430 build/x86_64/canvas-runtime/canvas-engine.elf
+          objdump -d -M intel build/x86_64/canvas-runtime/canvas-engine.elf | grep -n -C 5 'ud2' || true

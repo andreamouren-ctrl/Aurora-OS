@@ -1,0 +1,30 @@
+name: G5 WP-05 Ring3 Camera Session
+on:
+  push:
+    branches:
+      - feat/g5-wp05-integer-translation-probe
+    paths:
+      - 'services/canvas/**'
+      - 'tests/g5/canvas_session_camera_test.c'
+      - '.github/workflows/g5-wp05-session-camera.yml'
+  pull_request:
+    paths:
+      - 'services/canvas/include/aurora/g5_canvas_camera.h'
+      - 'services/canvas/include/aurora/g5_canvas_session_camera.h'
+      - 'services/canvas/src/g5_canvas_camera.c'
+      - 'services/canvas/src/g5_canvas_session_camera.c'
+      - 'tests/g5/canvas_session_camera_test.c'
+      - '.github/workflows/g5-wp05-session-camera.yml'
+  workflow_dispatch:
+jobs:
+  ring3-camera:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and exercise Ring3 camera module
+        run: |
+          ${{ matrix.compiler }} -std=c11 -Wall -Wextra -Werror -pedantic -O1 -g -fsanitize=undefined -fno-sanitize-recover=all -Iservices/canvas/include services/canvas/src/g5_canvas_camera.c services/canvas/src/g5_canvas_session_camera.c services/canvas/src/g5_canvas_scene_bridge.c tests/g5/canvas_session_camera_test.c -lm -o /tmp/g5-session-camera
+          /tmp/g5-session-camera

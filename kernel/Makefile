@@ -66,6 +66,10 @@ USER_SESSION_RUNTIME_DIR := $(ROOT)/services/user_session/runtime
 USER_SESSION_RUNTIME_BIN := $(ROOT)/build/$(ARCH)/user-session-runtime/user-session-host.bin
 USER_SESSION_RUNTIME_OBJ := $(BUILD_DIR)/user-session-host.bin.o
 
+CANVAS_RUNTIME_DIR := $(ROOT)/services/canvas/runtime
+CANVAS_RUNTIME_BIN := $(ROOT)/build/$(ARCH)/canvas-runtime/canvas-engine.bin
+CANVAS_RUNTIME_OBJ := $(BUILD_DIR)/canvas-engine.bin.o
+
 IDENTITY_PRESENTATION_RUNTIME_DIR := $(ROOT)/services/identity_presentation/runtime
 IDENTITY_PRESENTATION_RUNTIME_BIN := $(ROOT)/build/$(ARCH)/identity-presentation-runtime/identity-ring3.bin
 IDENTITY_PRESENTATION_RUNTIME_OBJ := $(BUILD_DIR)/identity-ring3.bin.o
@@ -78,6 +82,7 @@ OBJ := $(patsubst %.c,$(BUILD_DIR)/%.o,$(C_SRC)) \
        $(IDENTITY_RUNTIME_OBJ) \
        $(SESSION_RUNTIME_OBJ) \
        $(USER_SESSION_RUNTIME_OBJ) \
+       $(CANVAS_RUNTIME_OBJ) \
        $(IDENTITY_PRESENTATION_RUNTIME_OBJ)
 
 DEP := $(patsubst %.c,$(BUILD_DIR)/%.d,$(C_SRC))
@@ -193,6 +198,14 @@ $(USER_SESSION_RUNTIME_OBJ): $(USER_SESSION_RUNTIME_BIN)
 	cd "$(dir $(USER_SESSION_RUNTIME_BIN))" && \
 		$(LD) -r -b binary "$(notdir $(USER_SESSION_RUNTIME_BIN))" -o "$(abspath $@)"
 
+$(CANVAS_RUNTIME_BIN):
+	$(MAKE) -C "$(CANVAS_RUNTIME_DIR)" ARCH=$(ARCH)
+
+$(CANVAS_RUNTIME_OBJ): $(CANVAS_RUNTIME_BIN)
+	@mkdir -p "$(dir $@)"
+	cd "$(dir $(CANVAS_RUNTIME_BIN))" && \
+		$(LD) -r -b binary "$(notdir $(CANVAS_RUNTIME_BIN))" -o "$(abspath $@)"
+
 $(IDENTITY_PRESENTATION_RUNTIME_BIN):
 	$(MAKE) -C "$(IDENTITY_PRESENTATION_RUNTIME_DIR)" ARCH=$(ARCH)
 
@@ -219,6 +232,7 @@ clean:
 	$(MAKE) -C "$(IDENTITY_RUNTIME_DIR)" ARCH=$(ARCH) clean
 	$(MAKE) -C "$(SESSION_RUNTIME_DIR)" ARCH=$(ARCH) clean
 	$(MAKE) -C "$(USER_SESSION_RUNTIME_DIR)" ARCH=$(ARCH) clean
+	$(MAKE) -C "$(CANVAS_RUNTIME_DIR)" ARCH=$(ARCH) clean
 	$(MAKE) -C "$(IDENTITY_PRESENTATION_RUNTIME_DIR)" ARCH=$(ARCH) clean
 	rm -rf "$(ROOT)/build/$(ARCH)/kernel" "$(OUTPUT)" "$(BOOT_ASSET)" \
 		"$(IDENTITY_BACKGROUND)" "$(IDENTITY_MARK)" "$(COLOR_LUT_HEADER)" \

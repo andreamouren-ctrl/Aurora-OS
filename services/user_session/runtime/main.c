@@ -425,6 +425,10 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
         return 32;
 
     uint64_t last_resize_serial=0u;
+    /* The bootstrap G5 handshake reserves request IDs 1..4. Keep this
+     * high-water mark for the lifetime of this Shell process, including
+     * host ACK failures after a successful G5 IPC send. */
+    uint64_t last_canvas_pan_request_id=4u;
     uint64_t current_graphics_buffer=startup->graphics_buffer;
     for (;;) {
         if (!wait_message(startup->control_endpoint)) return 1;
@@ -445,15 +449,25 @@ int64_t user_session_host_main(uint64_t initial_rsp) {
             if (pan.header.type == AURORA_USER_SESSION_HOST_CANVAS_PAN_REQUEST) {
                 clear_bytes(&received,sizeof(received));
                 if (pan.header.version != AURORA_USER_SESSION_HOST_PROTOCOL_VERSION ||
-                    pan.header.request_id<=4u ||
+                    pan.header.request_id<=last_canvas_pan_request_id ||
+                    pan.expected_camera_revision==0u ||
+                    pan.expected_scene_revision==0u ||
+                    (pan.delta_x_px==0 && pan.delta_y_px==0) ||
+                    pan.delta_x_px>32 || pan.delta_x_px< -32 ||
+                    pan.delta_y_px>32 || pan.delta_y_px< -32 ||
                     !send_g5_canvas_pan(startup->g5_endpoint,
                                         startup->session_generation,
                                         startup->graphics_object_generation,
                                         pan.header.request_id,
                                         pan.delta_x_px,pan.delta_y_px,
                                         pan.expected_camera_revision,
-                                        pan.expected_scene_revision) ||
-                    !send_message(startup->control_endpoint,
+                                        pan.expected_scene_revision))
+                    return 1;
+                /* Once IPC_SEND succeeds, the request is consumed even if
+                 * the host ACK subsequently fails. Never permit a replay
+                 * of a movement already handed to the compositor path. */
+                last_canvas_pan_request_id=pan.header.request_id;
+                if (!send_message(startup->control_endpoint,
                                   AURORA_USER_SESSION_HOST_CANVAS_PAN_ACK,
                                   pan.header.request_id))
                     return 1;

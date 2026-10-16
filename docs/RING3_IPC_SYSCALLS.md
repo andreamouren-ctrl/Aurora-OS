@@ -23,6 +23,22 @@ Payloads remain bounded to 256 bytes and capability transfers remain bounded to 
 
 All Ring 3 buffers are copied with the checked usercopy layer; kernel pointers are never accepted from user space.
 
+## Receive completion and failure semantics
+
+`IPC_RECEIVE` first validates the user result span with checked usercopy, then
+consumes the queued message and delegates any escrowed capabilities. It finally
+copies the completed result to the Ring 3 caller. If this final copy fails, the
+syscall returns an error and revokes the newly delegated receiver handles.
+**The message is not requeued**: this is a destructive receive, not an atomic
+transaction spanning user memory and the IPC queue.
+
+The usercopy layer preflights each complete span before writing, but a second
+preflight/copy after IPC dequeue is not a guarantee against concurrent changes
+to user mappings. Callers must provide stable writable result memory and must
+not interpret an error as proof that the queued message is still available.
+A dedicated fault-injection regression for the final-copy failure path remains
+required before this edge case is considered fully validated.
+
 ## Blocking wait
 
 `IPC_WAIT` does not consume a message. It waits until the endpoint is readable and returns `0`; the caller then uses the ordinary `IPC_RECEIVE` syscall.

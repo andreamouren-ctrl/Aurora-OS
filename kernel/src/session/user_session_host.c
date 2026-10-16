@@ -17,6 +17,8 @@
 #include <aurora/g5_ipc_endpoint.h>
 #include <aurora/g5_shell_session.h>
 #include <aurora/g5_shell_scene.h>
+#include <aurora/g5_canvas_service.h>
+#include <aurora/g5_canvas_bootstrap.h>
 #include <aurora/usercopy.h>
 
 #define USER_SESSION_HOST_TIMEOUT_NS UINT64_C(2000000000)
@@ -24,6 +26,7 @@
 struct user_session_host_runtime {
     struct aurora_process *process;
     aurora_thread_id thread;
+    struct g5_canvas_service canvas;
     /* Second Ring3 process, exclusive control endpoint and graphics owner. */
     struct aurora_process *second_process;
     aurora_thread_id second_thread;
@@ -277,6 +280,12 @@ static void cleanup_finished_host(void) {
     /* Scene teardown uses extra.owner->capabilities. Revoke graphics
      * while the second process object still exists; then reap it. */
     g5_shell_session_end(&shell_session);
+    /* Canvas owns no graphics authority; reap its exited process before
+     * clearing host bookkeeping. Never fake termination. */
+    if (host.canvas.process != NULL &&
+        !g5_canvas_service_reap(&host.canvas) &&
+        !g5_canvas_service_reap_failed(&host.canvas))
+        log_line("[g5-wp05] Canvas cleanup deferred: process still live or unreapable");
     revoke_g5_receiver();
     (void)shutdown_second_client();
     if (session_g5_dispatcher != NULL)
@@ -309,6 +318,9 @@ static void cleanup_finished_host(void) {
 }
 
 static void cleanup_unstarted_host(void) {
+    /* A failed Canvas spawn can leave a prepared image with no thread. */
+    if (host.canvas.process != NULL && host.canvas.thread_id == 0u)
+        (void)g5_canvas_service_abort_unstarted(&host.canvas);
     if (host.process != NULL) {
         (void)session_profile_lease_revoke_process(host.process);
         if (process_state(host.process) == AURORA_PROCESS_RUNNING &&
@@ -412,6 +424,8 @@ static bool start_with_context(
         cleanup_finished_host();
     /* Never discard a live or unreaped process by clearing host state. */
     if (host.active || host.process != NULL || host.thread != 0u ||
+        host.canvas.process != NULL || host.canvas.thread_id != 0u ||
+        host.canvas.session_generation != 0u ||
         user_id == NULL ||
         generation == 0u ||
         !session_profile_lease_active()) {
@@ -655,6 +669,151 @@ static bool start_with_context(
         cleanup_unstarted_host();
         return false;
     }
+    /* WP-05 bootstrap: distinct image and address space, no Shell grants.
+     * Its current fail-closed entry exits without becoming scene READY. */
+    if (session_g5_dispatcher != NULL &&
+        (!g5_canvas_service_prepare(&host.canvas,generation) ||
+         !g5_canvas_service_provision_control(&host.canvas) ||
+         !g5_canvas_service_start(&host.canvas))) {
+        log_line("[g5-wp05] Canvas Ring3 process bootstrap failed");
+        cleanup_unstarted_host();
+        return false;
+    }
+    if (session_g5_dispatcher != NULL) {
+        /* READY must arrive from the exclusive Canvas endpoint, never from
+         * the Shell control channel or an untrusted process. */
+        const uint64_t ready_deadline=clock_now_ns()+USER_SESSION_HOST_TIMEOUT_NS;
+        bool canvas_ready=false;
+        while (clock_now_ns()<ready_deadline) {
+            if (g5_canvas_service_receive_ready(&host.canvas)) {
+                canvas_ready=true;
+                break;
+            }
+            if (scheduler_thread_finished(host.canvas.thread_id)) break;
+            arch_idle();
+        }
+        if (!canvas_ready) {
+            if (scheduler_thread_finished(host.canvas.thread_id)) {
+                if (host.canvas.process &&
+                    process_state(host.canvas.process)==AURORA_PROCESS_EXITED) {
+                    switch (host.canvas.process->exit_code) {
+                    case 11: log_line("[g5-wp05] Canvas failed: startup stack pointer"); break;
+                    case 12: log_line("[g5-wp05] Canvas failed: startup ABI validation"); break;
+                    case 13: log_line("[g5-wp05] Canvas failed: endpoint capability rights"); break;
+                    case 14: log_line("[g5-wp05] Canvas failed: READY IPC send"); break;
+                    case 15: log_line("[g5-wp05] Canvas failed: HEALTH IPC roundtrip"); break;
+                    case 16: log_line("[g5-wp05] Canvas failed: SHUTDOWN IPC roundtrip"); break;
+                    default: log_line("[g5-wp05] Canvas exited before READY with unexpected status"); break;
+                    }
+                } else {
+                    log_line("[g5-wp05] Canvas thread terminated without clean process exit");
+                }
+            } else {
+                log_line("[g5-wp05] Canvas READY timed out while thread was active");
+            }
+            log_line("[g5-wp05] Canvas private IPC READY missing or rejected");
+            cleanup_unstarted_host();
+            return false;
+        }
+        log_line("[g5-wp05] Canvas private IPC READY verified");
+        const uint64_t canvas_health_id=host.next_request_id++;
+        if (canvas_health_id<=G5_CANVAS_BOOTSTRAP_READY_REQUEST_ID ||
+            !g5_canvas_service_health_probe(&host.canvas,&host.kernel_caps,
+                                            canvas_health_id)) {
+            log_line("[g5-wp05] Canvas HEALTH request failed");
+            cleanup_unstarted_host();
+            return false;
+        }
+        const uint64_t health_deadline=clock_now_ns()+USER_SESSION_HOST_TIMEOUT_NS;
+        bool canvas_healthy=false;
+        while (clock_now_ns()<health_deadline) {
+            if (g5_canvas_service_receive_health_ack(
+                    &host.canvas,&host.kernel_caps,canvas_health_id)) {
+                canvas_healthy=true;
+                break;
+            }
+            if (scheduler_thread_finished(host.canvas.thread_id)) break;
+            arch_idle();
+        }
+        if (!canvas_healthy) {
+            if (scheduler_thread_finished(host.canvas.thread_id)) {
+                if (host.canvas.process &&
+                    process_state(host.canvas.process)==AURORA_PROCESS_EXITED) {
+                    switch (host.canvas.process->exit_code) {
+                    case 13: log_line("[g5-wp05] Canvas HEALTH stage: capability check failed"); break;
+                    case 14: log_line("[g5-wp05] Canvas HEALTH stage: READY send failed"); break;
+                    case 15: log_line("[g5-wp05] Canvas HEALTH stage: IPC wait/receive/ack failed"); break;
+                    case 16: log_line("[g5-wp05] Canvas HEALTH stage: shutdown exchange failed"); break;
+                    default: log_line("[g5-wp05] Canvas HEALTH stage: process exited unexpectedly"); break;
+                    }
+                } else if (host.canvas.process &&
+                           process_state(host.canvas.process)==AURORA_PROCESS_FAULTED) {
+                    switch (host.canvas.process->fault_vector) {
+                    case 6u: log_line("[g5-wp05] Canvas HEALTH stage: Ring3 invalid opcode fault (#UD)"); break;
+                    case 13u: log_line("[g5-wp05] Canvas HEALTH stage: Ring3 general protection fault (#GP)"); break;
+                    case 14u: log_line("[g5-wp05] Canvas HEALTH stage: Ring3 page fault (#PF)"); break;
+                    default: log_line("[g5-wp05] Canvas HEALTH stage: unexpected Ring3 exception vector"); break;
+                    }
+                } else {
+                    log_line("[g5-wp05] Canvas HEALTH stage: thread ended without clean exit");
+                }
+            } else {
+                log_line("[g5-wp05] Canvas HEALTH stage: process still running or blocked");
+            }
+            log_line("[g5-wp05] Canvas HEALTH_ACK timeout or rejected");
+            cleanup_unstarted_host();
+            return false;
+        }
+        log_line("[g5-wp05] Canvas HEALTH_ACK verified");
+        const uint64_t canvas_shutdown_id=host.next_request_id++;
+        if (canvas_shutdown_id<=G5_CANVAS_BOOTSTRAP_READY_REQUEST_ID ||
+            !g5_canvas_service_shutdown_request(
+                &host.canvas,&host.kernel_caps,canvas_shutdown_id)) {
+            log_line("[g5-wp05] Canvas SHUTDOWN send failed");
+            cleanup_unstarted_host();
+            return false;
+        }
+        const uint64_t shutdown_deadline=clock_now_ns()+USER_SESSION_HOST_TIMEOUT_NS;
+        bool canvas_shutdown_ack=false;
+        while (clock_now_ns()<shutdown_deadline) {
+            if (g5_canvas_service_receive_shutdown_ack(
+                    &host.canvas,&host.kernel_caps,canvas_shutdown_id)) {
+                canvas_shutdown_ack=true;
+                break;
+            }
+            if (scheduler_thread_finished(host.canvas.thread_id)) break;
+            arch_idle();
+        }
+        if (!canvas_shutdown_ack) {
+            log_line("[g5-wp05] Canvas SHUTDOWN_ACK missing");
+            cleanup_unstarted_host();
+            return false;
+        }
+        log_line("[g5-wp05] Canvas SHUTDOWN_ACK verified");
+        /* The first Canvas binary is an intentionally terminating smoke
+         * process, not yet a long-lived camera service. Verify actual
+         * scheduler exit and reclaim its address space before READY. */
+        const uint64_t canvas_deadline=clock_now_ns()+USER_SESSION_HOST_TIMEOUT_NS;
+        while (!scheduler_thread_finished(host.canvas.thread_id) &&
+               clock_now_ns()<canvas_deadline) arch_idle();
+        if (!scheduler_thread_finished(host.canvas.thread_id)) {
+            log_line("[g5-wp05] Canvas Ring3 exit timeout; refusing session READY");
+            cleanup_unstarted_host();
+            return false;
+        }
+        if (process_state(host.canvas.process)!=AURORA_PROCESS_EXITED ||
+            host.canvas.process->exit_code!=0) {
+            log_line("[g5-wp05] Canvas Ring3 fault or nonzero exit; refusing session READY");
+            cleanup_unstarted_host();
+            return false;
+        }
+        if (!g5_canvas_service_reap(&host.canvas)) {
+            log_line("[g5-wp05] Canvas Ring3 resource reap failed; refusing session READY");
+            cleanup_unstarted_host();
+            return false;
+        }
+        log_line("[g5-wp05] isolated Canvas Ring3 image executed and reaped");
+    }
     if (!g5_shell_session_ready(&shell_session,generation)) {
         cleanup_unstarted_host();
         return false;
@@ -665,7 +824,9 @@ static bool start_with_context(
 
 bool user_session_host_health_check(void) {
     if (!user_session_host_active() || !host.g5_ready ||
-        session_g5_dispatcher == NULL || host.kernel_endpoint == NULL)
+        session_g5_dispatcher == NULL || host.kernel_endpoint == NULL ||
+        host.canvas.process != NULL || host.canvas.thread_id != 0u ||
+        host.canvas.session_generation != 0u)
         return false;
     /* IDs 1 and 2 are reserved by Ring3 startup. All subsequent requests
      * consume a strictly increasing G5 and control ID in the same session. */
@@ -716,6 +877,10 @@ bool user_session_host_stop(void) {
     revoke_g5_sender();
     revoke_g5_receiver();
     bool second_stopped=shutdown_second_client();
+    /* Canvas smoke probe must have exited and been reaped at bootstrap.
+     * A retained Canvas process is a lifecycle failure, not success. */
+    const bool canvas_stopped=host.canvas.process==NULL &&
+        host.canvas.thread_id==0u && host.canvas.session_generation==0u;
     if (!host.active ||
         host.process == NULL ||
         host.thread == 0u ||
@@ -765,7 +930,7 @@ bool user_session_host_stop(void) {
         host.process->exit_code == 0;
 
     cleanup_finished_host();
-    return acknowledged && clean_exit && second_stopped;
+    return acknowledged && clean_exit && second_stopped && canvas_stopped;
 }
 
 /* Production G5 receiver policy. The self-test registers its own dispatcher,

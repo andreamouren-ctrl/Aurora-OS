@@ -1059,6 +1059,50 @@ bool software_compositor_remove_surface(
     return cap_revoke(&compositor->surface_caps, handle);
 }
 
+bool software_compositor_set_positions(
+    struct aurora_software_compositor *compositor,
+    const struct aurora_compositor_position *positions,
+    size_t count
+) {
+    /* The caller serializes scene writers, buffer retirement and output mode
+     * changes. Retain every buffer and validate every node before mutation.
+     * The commit phase only writes positions and accumulates damage: it has
+     * no fallible lookups and cannot leave a partially moved batch. */
+    if (!compositor || !compositor->initialized ||
+        count>AURORA_COMPOSITOR_MAX_NODES ||
+        (count && !positions)) return false;
+    const struct aurora_display_mode *mode=
+        display_mode_at(compositor->output_index,0u);
+    if (!mode) return false;
+    struct aurora_compositor_node *nodes[AURORA_COMPOSITOR_MAX_NODES]={0};
+    uint64_t widths[AURORA_COMPOSITOR_MAX_NODES]={0};
+    uint64_t heights[AURORA_COMPOSITOR_MAX_NODES]={0};
+    for (size_t i=0;i<count;++i) {
+        nodes[i]=find_node(compositor,positions[i].node_id);
+        if (!nodes[i]) return false;
+        for (size_t j=0;j<i;++j)
+            if (nodes[i]==nodes[j]) return false;
+        struct aurora_graphics_surface_snapshot snapshot={0};
+        if (!graphics_surface_read_committed(&compositor->surface_caps,
+                nodes[i]->surface_handle,&snapshot)) return false;
+        const bool valid=transformed_extent(nodes[i],
+            snapshot.buffer->width,snapshot.buffer->height,
+            &widths[i],&heights[i]);
+        graphics_surface_snapshot_release(&snapshot);
+        if (!valid) return false;
+    }
+    for (size_t i=0;i<count;++i) {
+        struct aurora_compositor_node *node=nodes[i];
+        (void)damage_union(&compositor->pending_damage,node->x,node->y,
+            widths[i],heights[i],mode->width,mode->height);
+        node->x=positions[i].x;
+        node->y=positions[i].y;
+        (void)damage_union(&compositor->pending_damage,node->x,node->y,
+            widths[i],heights[i],mode->width,mode->height);
+    }
+    return true;
+}
+
 bool software_compositor_set_node(
     struct aurora_software_compositor *compositor,
     uint64_t node_id,
@@ -2118,6 +2162,32 @@ static bool software_compositor_basic_selftest(void) {
         callback.presentation_serial != first_present) {
         return false;
     }
+
+    /* G5 WP-05: two-node commit is all-or-none, including stale IDs. */
+    const struct aurora_compositor_position rejected[2]={
+        {red_node,4,4},{UINT64_MAX,9,9}
+    };
+    if (software_compositor_set_positions(&compositor,rejected,2u) ||
+        find_node(&compositor,red_node)->x!=-2 ||
+        find_node(&compositor,red_node)->y!=-2)
+        return false;
+    const struct aurora_compositor_position duplicate[2]={
+        {red_node,4,4},{red_node,9,9}
+    };
+    if (software_compositor_set_positions(&compositor,duplicate,2u))
+        return false;
+    const struct aurora_compositor_position moved[2]={
+        {red_node,0,0},{green_node,1,1}
+    };
+    if (!software_compositor_set_positions(&compositor,moved,2u) ||
+        find_node(&compositor,red_node)->x!=0 ||
+        find_node(&compositor,green_node)->x!=1)
+        return false;
+    const struct aurora_compositor_position restored[1]={
+        {red_node,-2,-2}
+    };
+    if (!software_compositor_set_positions(&compositor,restored,1u))
+        return false;
 
     if (!software_compositor_set_node(
             &compositor,

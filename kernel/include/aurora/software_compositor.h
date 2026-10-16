@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 
 #include <aurora/capability.h>
 #include <aurora/display_backbuffer.h>
@@ -113,6 +114,20 @@ bool software_compositor_add_privileged_surface(
 bool software_compositor_remove_surface(
     struct aurora_software_compositor *compositor,
     uint64_t node_id
+);
+
+/* Validate an entire node-position batch before changing any node.
+ * This is a compositor-local primitive; the IPC receiver must still enforce
+ * session generation, surface ownership and scene revision. */
+struct aurora_compositor_position {
+    uint64_t node_id;
+    int32_t x;
+    int32_t y;
+};
+bool software_compositor_set_positions(
+    struct aurora_software_compositor *compositor,
+    const struct aurora_compositor_position *positions,
+    size_t count
 );
 
 bool software_compositor_set_node(

@@ -163,7 +163,14 @@ bool boot_get_framebuffer(struct aurora_framebuffer *out) {
     if (source == NULL ||
         source->address == NULL ||
         source->memory_model != LIMINE_FRAMEBUFFER_RGB ||
-        source->bpp != 32) {
+        source->bpp != 32 ||
+        source->width == 0u || source->height == 0u ||
+        source->pitch == 0u ||
+        source->width > UINT64_MAX / 4u ||
+        source->pitch < source->width * 4u ||
+        source->height > UINT64_MAX / source->pitch ||
+        (uintptr_t)source->address >
+            UINTPTR_MAX - source->height * source->pitch) {
         return false;
     }
 

@@ -160,6 +160,14 @@ struct interrupt_frame *interrupt_dispatch(
         struct aurora_process *process =
             scheduler_current_process();
 
+        if (vector == 6u) {
+            log_write("[ring3-fault] #UD RIP=");
+            log_hex64(frame->rip);
+            log_write(" RSP=");
+            log_hex64(frame->rsp);
+            log_putc('\n');
+        }
+
         process_mark_faulted(
             process,
             vector
