@@ -211,6 +211,8 @@ static uint64_t dispatch_ipc_send(
                 user_transfer_buffer,
                 user_transfers,
                 transfer_bytes)) {
+            volatile uint8_t *sensitive = (volatile uint8_t *)payload;
+            for (size_t i = 0u; i < sizeof(payload); ++i) sensitive[i] = 0u;
             return AURORA_SYS_RESULT_ERROR;
         }
 
