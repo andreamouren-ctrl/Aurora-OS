@@ -7,12 +7,14 @@ on:
       - 'kernel/src/arch/x86_64/syscall.c'
       - 'kernel/include/aurora/**'
       - 'kernel/Makefile'
+      - 'kernel/tests/check_ipc_syscall_cleanup.py'
       - '.github/workflows/ipc-syscall-compile.yml'
   push:
     paths:
       - 'kernel/src/arch/x86_64/syscall.c'
       - 'kernel/include/aurora/**'
       - 'kernel/Makefile'
+      - 'kernel/tests/check_ipc_syscall_cleanup.py'
       - '.github/workflows/ipc-syscall-compile.yml'
 
 permissions:
@@ -24,6 +26,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - name: Check IPC syscall cleanup invariants
+        run: |
+          python3 kernel/tests/check_ipc_syscall_cleanup.py
       - name: Compile production kernel syscall translation unit
         run: |
           clang -target x86_64-unknown-none-elf -std=c11 \
