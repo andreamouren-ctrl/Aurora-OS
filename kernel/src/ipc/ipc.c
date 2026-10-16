@@ -181,6 +181,10 @@ bool ipc_send(
             volatile uint8_t *rejected = (volatile uint8_t *)slot->data;
             for (uint32_t j = 0u; j < slot->length; ++j) rejected[j] = 0u;
             slot->length = 0;
+            for (uint32_t j = 0u; j < slot->capability_count; ++j) {
+                slot->escrow_handles[j] = AURORA_CAP_INVALID;
+                slot->final_rights[j] = 0u;
+            }
             slot->capability_count = 0;
 
             spinlock_unlock(
