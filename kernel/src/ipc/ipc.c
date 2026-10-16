@@ -484,5 +484,30 @@ bool ipc_self_test(void) {
         return false;
     }
 
+    /* Model failed final Ring 3 delivery: revoke the newly delegated
+     * handle while retaining an unrelated receiver-owned capability. */
+    aurora_cap_handle unrelated = cap_grant(
+        &receiver, &dummy_object, AURORA_CAP_DEVICE, AURORA_RIGHT_CONTROL
+    );
+    if (unrelated == AURORA_CAP_INVALID ||
+        unrelated == message.capabilities[0]) return false;
+
+    ipc_received_revoke_capabilities(&receiver, &message);
+    if (cap_lookup(
+            &receiver, message.capabilities[0], AURORA_CAP_DEVICE,
+            AURORA_RIGHT_READ, &view)) return false;
+    if (!cap_lookup(
+            &receiver, unrelated, AURORA_CAP_DEVICE,
+            AURORA_RIGHT_CONTROL, &view)) return false;
+    if (channel.inbound[1].count != 0u) return false;
+
+    /* A subsequent message must remain deliverable after cleanup. */
+    if (!ipc_send(ipc_channel_endpoint(&channel, 0), NULL,
+                  payload, (uint32_t)sizeof(payload), NULL, 0u)) return false;
+    if (!ipc_receive(ipc_channel_endpoint(&channel, 1), &receiver, &message) ||
+        message.length != sizeof(payload) ||
+        message.capability_count != 0u ||
+        !bytes_equal(message.data, payload, sizeof(payload))) return false;
+
     return true;
 }
