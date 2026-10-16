@@ -265,9 +265,19 @@ static uint64_t dispatch_ipc_receive(
         output.capabilities[i] = received.capabilities[i];
     }
 
-    return copy_to_user(process, user_output, &output, sizeof(output))
-        ? 0ull
-        : AURORA_SYS_RESULT_ERROR;
+    if (copy_to_user(process, user_output, &output, sizeof(output))) {
+        return 0ull;
+    }
+
+    /*
+     * ipc_receive() has already consumed the queue entry and delegated
+     * its capabilities. If the final usercopy fails, do not strand those
+     * newly delegated handles in the receiver's capability table.
+     */
+    for (uint32_t i = 0u; i < received.capability_count; ++i) {
+        (void)cap_revoke(&process->capabilities, received.capabilities[i]);
+    }
+    return AURORA_SYS_RESULT_ERROR;
 }
 
 static uint64_t dispatch_entropy_seed(
