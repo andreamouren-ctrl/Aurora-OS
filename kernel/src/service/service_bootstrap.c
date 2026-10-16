@@ -88,6 +88,7 @@ bool service_bootstrap_start_trusted(
     }
 
     ipc_channel_init(&service->ipc_channel);
+    if (!ipc_endpoint_lifecycle_register()) return false;
     cap_table_init(&service->supervisor_caps);
 
     service->service_endpoint =
