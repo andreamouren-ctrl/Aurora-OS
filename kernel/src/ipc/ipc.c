@@ -145,6 +145,12 @@ bool ipc_send(
 
     slot->length = length;
     slot->capability_count = 0;
+    /* A reused slot must not expose metadata from an older message,
+     * including when the first new delegation fails. */
+    for (uint32_t i = 0u; i < AURORA_IPC_CAPS_MAX; ++i) {
+        slot->escrow_handles[i] = AURORA_CAP_INVALID;
+        slot->final_rights[i] = 0u;
+    }
 
     if (length != 0) {
         copy_bytes(
