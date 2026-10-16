@@ -6,6 +6,7 @@ _start:
     /* A kernel-created Ring3 stack need not contain a return address.
      * Align the call site to the x86-64 SysV ABI before invoking C.
      * The runtime is freestanding and must not return to a caller. */
+    movq %rsp, %rdi
     andq $-16, %rsp
     call g5_canvas_runtime_main
     movq %rax, %rdi
