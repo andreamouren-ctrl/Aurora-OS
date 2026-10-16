@@ -71,6 +71,39 @@ void ipc_channel_init(
     }
 }
 
+static bool endpoint_retain(void *object) {
+    struct aurora_ipc_endpoint *endpoint = object;
+    if (!endpoint || !endpoint->channel) return false;
+    struct aurora_ipc_channel *channel = endpoint->channel;
+    spinlock_lock(&channel->lock);
+    bool ok = !channel->closed && channel->active_refs < UINT32_MAX;
+    if (ok) ++channel->active_refs;
+    spinlock_unlock(&channel->lock);
+    return ok;
+}
+
+static void endpoint_release(void *object) {
+    struct aurora_ipc_endpoint *endpoint = object;
+    if (!endpoint || !endpoint->channel) return;
+    struct aurora_ipc_channel *channel = endpoint->channel;
+    spinlock_lock(&channel->lock);
+    if (channel->active_refs) --channel->active_refs;
+    spinlock_unlock(&channel->lock);
+}
+
+bool ipc_endpoint_lifecycle_register(void) {
+    return cap_lifecycle_register(AURORA_CAP_IPC_ENDPOINT,
+                                  endpoint_retain, endpoint_release);
+}
+
+bool ipc_channel_quiescent(struct aurora_ipc_channel *channel) {
+    if (!channel) return false;
+    spinlock_lock(&channel->lock);
+    bool ready = channel->closed && channel->active_refs == 0u;
+    spinlock_unlock(&channel->lock);
+    return ready;
+}
+
 void ipc_channel_close(struct aurora_ipc_channel *channel) {
     if (channel == NULL) return;
     spinlock_lock(&channel->lock);
