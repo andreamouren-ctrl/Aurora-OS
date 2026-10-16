@@ -78,11 +78,19 @@ for original, description in (
 ):
     expect_rejection(mutated(original, "/* intentionally removed */"), description)
 
+# Both send and receive contain this guard: mutate only the send region.
+send_start = SOURCE.index("static uint64_t dispatch_ipc_send(")
+receive_start = SOURCE.index("static uint64_t dispatch_ipc_receive(")
+send_region = SOURCE[send_start:receive_start]
+guard = "if (endpoint == NULL) goto cleanup;"
+if send_region.count(guard) != 1:
+    raise AssertionError("Send endpoint guard missing or ambiguous")
 expect_rejection(
-    mutated(
-        "if (endpoint == NULL) goto cleanup;",
-        "if (endpoint == NULL) return AURORA_SYS_RESULT_ERROR;",
-    ),
+    SOURCE[:send_start]
+    + send_region.replace(
+        guard, "if (endpoint == NULL) return AURORA_SYS_RESULT_ERROR;", 1
+    )
+    + SOURCE[receive_start:],
     "early return bypass",
 )
 print("IPC syscall cleanup invariants and mutation checks: PASS")
