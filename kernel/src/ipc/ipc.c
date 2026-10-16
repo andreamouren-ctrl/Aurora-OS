@@ -500,6 +500,16 @@ bool ipc_self_test(void) {
             &receiver, unrelated, AURORA_CAP_DEVICE,
             AURORA_RIGHT_CONTROL, &view)) return false;
     if (channel.inbound[1].count != 0u) return false;
+    if (!cap_lookup(
+            &sender, source, AURORA_CAP_DEVICE,
+            AURORA_RIGHT_READ | AURORA_RIGHT_TRANSFER, &view)) return false;
+
+    /* Cleanup must be idempotent for already-revoked handles and must
+     * not disturb capabilities allocated in unrelated table slots. */
+    ipc_received_revoke_capabilities(&receiver, &message);
+    if (!cap_lookup(
+            &receiver, unrelated, AURORA_CAP_DEVICE,
+            AURORA_RIGHT_CONTROL, &view)) return false;
 
     /* A subsequent message must remain deliverable after cleanup. */
     if (!ipc_send(ipc_channel_endpoint(&channel, 0), NULL,
