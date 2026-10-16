@@ -77,11 +77,11 @@ static bool reap_terminal_instance(
     struct aurora_process_result result;
     if (!process_reap(process, &result)) return false;
 
-    if (!process_release(process)) return false;
-
     ipc_channel_close(&supervisor->service.ipc_channel);
     if (!ipc_channel_quiescent(&supervisor->service.ipc_channel))
         return false;
+
+    if (!process_release(process)) return false;
     cap_table_destroy(&supervisor->service.supervisor_caps);
 
     clear_bytes(&supervisor->service, sizeof(supervisor->service));
