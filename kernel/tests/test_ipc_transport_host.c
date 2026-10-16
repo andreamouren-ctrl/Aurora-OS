@@ -116,6 +116,22 @@ static void test_wait_registration_and_delivery(void) {
     assert(last_woken_thread == 77u);
     assert(channel.closed);
     assert(channel.inbound[1].count == 0u);
+    assert(channel.waiter_thread[0] == 0u);
+    assert(channel.waiter_thread[1] == 0u);
+    for (uint32_t side = 0u; side < 2u; ++side) {
+        for (uint32_t i = 0u; i < AURORA_IPC_QUEUE_DEPTH; ++i) {
+            const struct aurora_ipc_message_slot *slot =
+                &channel.inbound[side].slots[i];
+            assert(slot->length == 0u);
+            assert(slot->capability_count == 0u);
+            for (uint32_t j = 0u; j < AURORA_IPC_PAYLOAD_MAX; ++j)
+                assert(slot->data[j] == 0u);
+            for (uint32_t j = 0u; j < AURORA_IPC_CAPS_MAX; ++j) {
+                assert(slot->escrow_handles[j] == AURORA_CAP_INVALID);
+                assert(slot->final_rights[j] == 0u);
+            }
+        }
+    }
     assert(!ipc_send(writer, NULL, payload, sizeof(payload), NULL, 0u));
     assert(!ipc_receive(reader, &receiver, &message));
     assert(ipc_wait_register(reader, 21u) == AURORA_IPC_WAIT_ERROR);
