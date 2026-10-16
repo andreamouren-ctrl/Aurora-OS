@@ -20,6 +20,13 @@ bool g5_canvas_service_prepare(struct g5_canvas_service *service,
 /* Provision a non-transferable bidirectional endpoint in the Canvas process.
  * The kernel peer is held exclusively by the session host. */
 bool g5_canvas_service_provision_control(struct g5_canvas_service *service);
+bool g5_canvas_service_receive_ready(struct g5_canvas_service *service);
+bool g5_canvas_service_health_probe(struct g5_canvas_service *service,
+                                    struct aurora_cap_table *kernel_caps,
+                                    uint64_t request_id);
+bool g5_canvas_service_receive_health_ack(
+    struct g5_canvas_service *service,
+    struct aurora_cap_table *kernel_caps,uint64_t request_id);
 bool g5_canvas_service_start(struct g5_canvas_service *service);
 /* Abort only a prepared process that never acquired a scheduler thread. */
 bool g5_canvas_service_abort_unstarted(struct g5_canvas_service *service);
