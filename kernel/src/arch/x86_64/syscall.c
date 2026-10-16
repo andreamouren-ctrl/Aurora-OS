@@ -240,47 +240,38 @@ static uint64_t dispatch_ipc_receive(
 ) {
     struct aurora_sys_ipc_received output = {0};
     struct aurora_ipc_received received = {0};
+    uint64_t result = AURORA_SYS_RESULT_ERROR;
 
-    if (process == NULL || user_output == 0u) {
-        return AURORA_SYS_RESULT_ERROR;
-    }
+    if (process == NULL || user_output == 0u) goto cleanup;
 
     struct aurora_ipc_endpoint *endpoint =
         lookup_ipc_endpoint(process, endpoint_handle, AURORA_RIGHT_READ);
-    if (endpoint == NULL) return AURORA_SYS_RESULT_ERROR;
+    if (endpoint == NULL) goto cleanup;
 
-    if (!copy_to_user(process, user_output, &output, sizeof(output))) {
-        return AURORA_SYS_RESULT_ERROR;
-    }
+    if (!copy_to_user(process, user_output, &output, sizeof(output)))
+        goto cleanup;
 
-    if (!ipc_receive(endpoint, &process->capabilities, &received)) {
-        return AURORA_SYS_RESULT_ERROR;
-    }
+    if (!ipc_receive(endpoint, &process->capabilities, &received))
+        goto cleanup;
 
     output.length = received.length;
     output.capability_count = received.capability_count;
-
-    for (uint32_t i = 0u; i < received.length; ++i) {
+    for (uint32_t i = 0u; i < received.length; ++i)
         output.data[i] = received.data[i];
-    }
-    for (uint32_t i = 0u; i < received.capability_count; ++i) {
+    for (uint32_t i = 0u; i < received.capability_count; ++i)
         output.capabilities[i] = received.capabilities[i];
-    }
 
-    bool delivered = copy_to_user(process, user_output, &output, sizeof(output));
-    if (!delivered) {
-        /*
-         * The queue entry was consumed: revoke delegated handles if
-         * delivery to Ring 3 failed.
-         */
+    if (copy_to_user(process, user_output, &output, sizeof(output))) {
+        result = 0ull;
+    } else {
+        /* A consumed message must not strand delegated capabilities. */
         ipc_received_revoke_capabilities(&process->capabilities, &received);
     }
 
-    volatile uint8_t *received_bytes = (volatile uint8_t *)received.data;
-    volatile uint8_t *output_bytes = (volatile uint8_t *)output.data;
-    for (size_t i = 0u; i < sizeof(received.data); ++i) received_bytes[i] = 0u;
-    for (size_t i = 0u; i < sizeof(output.data); ++i) output_bytes[i] = 0u;
-    return delivered ? 0ull : AURORA_SYS_RESULT_ERROR;
+cleanup:
+    ipc_wipe_bytes(&received, sizeof(received));
+    ipc_wipe_bytes(&output, sizeof(output));
+    return result;
 }
 
 static uint64_t dispatch_entropy_seed(
