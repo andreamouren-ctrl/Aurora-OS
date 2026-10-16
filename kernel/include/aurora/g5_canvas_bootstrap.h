@@ -15,6 +15,23 @@ struct g5_canvas_bootstrap {
     uint64_t session_generation;
     uint64_t request_id;
 };
+/* Passed on the initial Ring3 stack by the trusted kernel launcher.
+ * The handle names only the private Canvas control endpoint. */
+#define G5_CANVAS_STARTUP_ABI_VERSION 1u
+#define G5_CANVAS_STARTUP_STACK_OFFSET 24u
+struct g5_canvas_startup {
+    uint32_t abi_version;
+    uint32_t reserved;
+    uint64_t control_endpoint;
+    uint64_t session_generation;
+};
+_Static_assert(sizeof(struct g5_canvas_startup) ==
+               G5_CANVAS_STARTUP_STACK_OFFSET,
+               "Canvas startup stack ABI size changed");
+_Static_assert(offsetof(struct g5_canvas_startup, control_endpoint)==8u,
+               "Canvas startup endpoint offset changed");
+_Static_assert(offsetof(struct g5_canvas_startup, session_generation)==16u,
+               "Canvas startup generation offset changed");
 /* Wire ABI is fixed-width. IPC must still serialize fields explicitly
  * when crossing architectures; never trust padding from a sender. */
 _Static_assert(sizeof(struct g5_canvas_bootstrap) == 24u,
