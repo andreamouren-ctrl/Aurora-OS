@@ -60,8 +60,10 @@ static uint64_t current_input_generation;
 
 
 static void clear_credential(void) {
+    /* Volatile writes prevent dead-store elimination of credential erasure. */
+    volatile char *secret = credential_buffer;
     for (size_t i = 0u; i < sizeof(credential_buffer); ++i) {
-        credential_buffer[i] = '\0';
+        secret[i] = '\0';
     }
 
     credential_length = 0u;
