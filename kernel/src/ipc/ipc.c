@@ -512,6 +512,8 @@ bool ipc_self_test(void) {
             &receiver, unrelated, AURORA_CAP_DEVICE,
             AURORA_RIGHT_CONTROL, &view)) return false;
     if (channel.inbound[1].count != 0u) return false;
+    if (channel.inbound[1].slots[0].escrow_handles[0] != AURORA_CAP_INVALID ||
+        channel.inbound[1].slots[0].final_rights[0] != 0u) return false;
     /* The consumed queue slot must no longer retain its former payload. */
     for (size_t i = 0u; i < sizeof(payload); ++i) {
         if (channel.inbound[1].slots[0].data[i] != 0u) return false;
