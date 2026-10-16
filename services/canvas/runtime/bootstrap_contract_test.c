@@ -43,5 +43,17 @@ int main(void) {
     message.session_generation = 0u;
     if (g5_canvas_bootstrap_valid(&message,
             G5_CANVAS_BOOTSTRAP_HEALTH_ACK, generation, 17u)) return 9;
+    message.session_generation = generation;
+    message.type = 0u;
+    if (g5_canvas_bootstrap_valid(&message, 0u, generation, 17u))
+        return 15;
+    message.type = UINT32_MAX;
+    if (g5_canvas_bootstrap_valid(&message, UINT32_MAX, generation, 17u))
+        return 16;
+    if (g5_canvas_bootstrap_known_type(0u) ||
+        g5_canvas_bootstrap_known_type(UINT32_MAX) ||
+        !g5_canvas_bootstrap_known_type(G5_CANVAS_BOOTSTRAP_READY) ||
+        !g5_canvas_bootstrap_known_type(G5_CANVAS_BOOTSTRAP_SHUTDOWN_ACK))
+        return 17;
     return 0;
 }
