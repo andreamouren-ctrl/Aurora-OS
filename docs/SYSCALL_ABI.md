@@ -42,6 +42,7 @@ On normal return:
 - `3` — process exit
 - `4` — bounded IPC send
 - `5` — bounded IPC receive
+- `8` — blocking IPC wait (does not consume a queued message)
 
 The bootstrap signal exists only to verify the first Ring 3 path and is not intended as a permanent public ABI.
 
@@ -67,6 +68,10 @@ The kernel copies the bounded received message into a fixed user result structur
 
 Capability transfers retain the kernel IPC escrow/delegation rules. A sender must possess `AURORA_RIGHT_TRANSFER` on any capability it attempts to transfer. Protected System State capabilities are intentionally issued without that right.
 
+### IPC wait
+
+`AURORA_SYS_IPC_WAIT` resolves an `AURORA_CAP_IPC_ENDPOINT` from the caller's capability table and requires `AURORA_RIGHT_READ`. It returns when the endpoint becomes readable without consuming the message. The first implementation supports one waiter per endpoint and protects against the register/park lost-wakeup race. See [`RING3_IPC_SYSCALLS.md`](RING3_IPC_SYSCALLS.md) for the authoritative blocking-wait contract.
+
 ## Process exit
 
 `EXIT` does not return through `SYSRET`. The scheduler terminates the current user thread, selects another runnable context, switches address space when necessary, and returns through the common interrupt-frame `IRETQ` path.
@@ -79,4 +84,4 @@ See [`RING3_IPC_SYSCALLS.md`](RING3_IPC_SYSCALLS.md).
 
 ## Future direction
 
-The syscall surface should remain intentionally small. Higher-level OS services should normally use IPC and capabilities rather than continually expanding privileged kernel APIs. Service discovery, blocking waits and service bootstrap policy should be layered on this IPC foundation instead of exposing ordinary filesystem or Protected System State path operations directly to applications.
+The syscall surface should remain intentionally small. Higher-level OS services should normally use IPC and capabilities rather than continually expanding privileged kernel APIs. Service discovery and service bootstrap policy should be layered on this IPC foundation instead of exposing ordinary filesystem or Protected System State path operations directly to applications.
