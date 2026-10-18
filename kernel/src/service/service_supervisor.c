@@ -78,11 +78,13 @@ static bool reap_terminal_instance(
     if (!process_reap(process, &result)) return false;
 
     ipc_channel_close(&supervisor->service.ipc_channel);
+    cap_table_destroy(&supervisor->service.supervisor_caps);
+
+    /* Process teardown revokes its endpoint capabilities. Do not reuse
+     * the embedded channel until every capability and syscall view drains. */
+    if (!process_release(process)) return false;
     if (!ipc_channel_quiescent(&supervisor->service.ipc_channel))
         return false;
-
-    if (!process_release(process)) return false;
-    cap_table_destroy(&supervisor->service.supervisor_caps);
 
     clear_bytes(&supervisor->service, sizeof(supervisor->service));
     supervisor->last_result = result;
