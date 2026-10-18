@@ -82,9 +82,9 @@ static bool reap_terminal_instance(
 
     /* Process teardown revokes its endpoint capabilities. Do not reuse
      * the embedded channel until every capability and syscall view drains. */
-    if (!process_release(process)) return false;
     if (!ipc_channel_quiescent(&supervisor->service.ipc_channel))
         return false;
+    if (!process_release(process)) return false;
 
     clear_bytes(&supervisor->service, sizeof(supervisor->service));
     supervisor->last_result = result;
