@@ -62,3 +62,14 @@ jobs:
           cc -std=c11 -O1 -Wall -Wextra -Werror -Ikernel/include \
             kernel/tests/test_ipc_transport_host.c -o /tmp/aurora-ipc-host
           /tmp/aurora-ipc-host
+
+      - name: Run IPC host test with AddressSanitizer and UndefinedBehaviorSanitizer
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          clang -std=c11 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -Ikernel/include kernel/tests/test_ipc_transport_host.c \
+            -o /tmp/aurora-ipc-host-sanitized
+          /tmp/aurora-ipc-host-sanitized
