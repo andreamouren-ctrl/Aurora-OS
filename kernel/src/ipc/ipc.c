@@ -124,8 +124,8 @@ void ipc_channel_close(struct aurora_ipc_channel *channel) {
             for (uint32_t j = 0u; j < AURORA_IPC_PAYLOAD_MAX; ++j)
                 bytes[j] = 0u;
             for (uint32_t j = 0u; j < AURORA_IPC_CAPS_MAX; ++j) {
-                if (slot->escrow_handles[j] != AURORA_CAP_INVALID)
-                    (void)cap_revoke(&channel->escrow, slot->escrow_handles[j]);
+                /* Escrow is destroyed after dropping the channel lock.
+                 * Revoke there to avoid recursive endpoint release locking. */
                 slot->escrow_handles[j] = AURORA_CAP_INVALID;
                 slot->final_rights[j] = 0u;
             }
