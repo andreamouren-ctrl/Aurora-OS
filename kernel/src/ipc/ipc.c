@@ -46,6 +46,7 @@ void ipc_channel_init(
     );
 
     channel->closed = false;
+    channel->teardown_complete = false;
     channel->active_refs = 0u;
 
     cap_table_init(
@@ -99,7 +100,7 @@ bool ipc_endpoint_lifecycle_register(void) {
 bool ipc_channel_quiescent(struct aurora_ipc_channel *channel) {
     if (!channel) return false;
     spinlock_lock(&channel->lock);
-    bool ready = channel->closed && channel->active_refs == 0u;
+    bool ready = channel->teardown_complete && channel->active_refs == 0u;
     spinlock_unlock(&channel->lock);
     return ready;
 }
@@ -138,6 +139,9 @@ void ipc_channel_close(struct aurora_ipc_channel *channel) {
      * channel lock before lifecycle callbacks from escrow destruction. */
     spinlock_unlock(&channel->lock);
     cap_table_destroy(&channel->escrow);
+    spinlock_lock(&channel->lock);
+    channel->teardown_complete = true;
+    spinlock_unlock(&channel->lock);
     for (uint32_t side = 0u; side < 2u; ++side) {
         if (waiters[side] != 0u)
             (void)scheduler_wake_thread(waiters[side]);
