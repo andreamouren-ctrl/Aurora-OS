@@ -80,12 +80,23 @@ static bool reap_terminal_instance(
     ipc_channel_close(&supervisor->service.ipc_channel);
     cap_table_destroy(&supervisor->service.supervisor_caps);
 
-    /* Process teardown revokes its endpoint capabilities. Do not reuse
-     * the embedded channel until every capability and syscall view drains. */
-    if (!ipc_channel_quiescent(&supervisor->service.ipc_channel))
-        return false;
-    if (!process_release(process)) return false;
+    /* A terminated process has relinquished its capabilities, but
+     * delegated endpoint views may remain alive in other processes. */
+    supervisor->draining_result = result;
+    supervisor->state = AURORA_SERVICE_SUPERVISOR_DRAINING;
+    return true;
+}
 
+static bool finish_draining_instance(struct aurora_service_supervisor *supervisor) {
+    if (supervisor == NULL ||
+        supervisor->state != AURORA_SERVICE_SUPERVISOR_DRAINING)
+        return false;
+    if (!ipc_channel_quiescent(&supervisor->service.ipc_channel))
+        return true;
+
+    struct aurora_process *process = supervisor->service.process;
+    if (process == NULL || !process_release(process)) return false;
+    struct aurora_process_result result = supervisor->draining_result;
     clear_bytes(&supervisor->service, sizeof(supervisor->service));
     supervisor->last_result = result;
     supervisor->has_last_result = true;
