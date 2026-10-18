@@ -74,22 +74,27 @@ void ipc_channel_init(
 
 static bool endpoint_retain(void *object) {
     struct aurora_ipc_endpoint *endpoint = object;
-    if (!endpoint || !endpoint->channel) return false;
+    if (endpoint == NULL || endpoint->channel == NULL) return false;
     struct aurora_ipc_channel *channel = endpoint->channel;
-    spinlock_lock(&channel->lock);
-    bool ok = !channel->closed && channel->active_refs < UINT32_MAX;
-    if (ok) ++channel->active_refs;
-    spinlock_unlock(&channel->lock);
-    return ok;
+    uint32_t refs = __atomic_load_n(&channel->active_refs, __ATOMIC_ACQUIRE);
+    for (;;) {
+        if (__atomic_load_n(&channel->closed, __ATOMIC_ACQUIRE) ||
+            refs == UINT32_MAX) return false;
+        if (__atomic_compare_exchange_n(&channel->active_refs, &refs,
+                                        refs + 1u, false,
+                                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            if (!__atomic_load_n(&channel->closed, __ATOMIC_ACQUIRE))
+                return true;
+            __atomic_sub_fetch(&channel->active_refs, 1u, __ATOMIC_RELEASE);
+            return false;
+        }
+    }
 }
 
 static void endpoint_release(void *object) {
     struct aurora_ipc_endpoint *endpoint = object;
-    if (!endpoint || !endpoint->channel) return;
-    struct aurora_ipc_channel *channel = endpoint->channel;
-    spinlock_lock(&channel->lock);
-    if (channel->active_refs) --channel->active_refs;
-    spinlock_unlock(&channel->lock);
+    if (endpoint == NULL || endpoint->channel == NULL) return;
+    __atomic_sub_fetch(&endpoint->channel->active_refs, 1u, __ATOMIC_RELEASE);
 }
 
 bool ipc_endpoint_lifecycle_register(void) {
@@ -100,7 +105,8 @@ bool ipc_endpoint_lifecycle_register(void) {
 bool ipc_channel_quiescent(struct aurora_ipc_channel *channel) {
     if (!channel) return false;
     spinlock_lock(&channel->lock);
-    bool ready = channel->teardown_complete && channel->active_refs == 0u;
+    bool ready = channel->teardown_complete &&
+        __atomic_load_n(&channel->active_refs, __ATOMIC_ACQUIRE) == 0u;
     spinlock_unlock(&channel->lock);
     return ready;
 }
@@ -112,7 +118,7 @@ void ipc_channel_close(struct aurora_ipc_channel *channel) {
         spinlock_unlock(&channel->lock);
         return;
     }
-    channel->closed = true;
+    __atomic_store_n(&channel->closed, true, __ATOMIC_RELEASE);
     aurora_thread_id waiters[2] = {
         channel->waiter_thread[0], channel->waiter_thread[1]
     };
