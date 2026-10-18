@@ -8,6 +8,7 @@ on:
       - 'kernel/src/ipc/ipc.c'
       - 'kernel/src/security/capability.c'
       - 'kernel/tests/test_ipc_transport_host.c'
+      - 'kernel/tests/test_ipc_concurrent_host.c'
       - 'kernel/include/aurora/**'
       - 'kernel/Makefile'
       - 'kernel/tests/check_ipc_syscall_cleanup.py'
@@ -73,3 +74,13 @@ jobs:
             -Ikernel/include kernel/tests/test_ipc_transport_host.c \
             -o /tmp/aurora-ipc-host-sanitized
           /tmp/aurora-ipc-host-sanitized
+      - name: Run concurrent IPC lifecycle regression under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          clang -std=c11 -O1 -g -Wall -Wextra -Werror -pthread \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -Ikernel/include kernel/tests/test_ipc_concurrent_host.c \
+            -o /tmp/aurora-ipc-concurrent-sanitized
+          /tmp/aurora-ipc-concurrent-sanitized
