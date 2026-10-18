@@ -70,6 +70,7 @@ struct aurora_ipc_endpoint {
 struct aurora_ipc_channel {
     aurora_spinlock lock;
     bool closed;
+    bool teardown_complete;
     uint32_t active_refs;
 
     struct aurora_ipc_queue inbound[2];
