@@ -36,9 +36,12 @@ def check(source: str) -> None:
     ):
         if "cleanup:" not in body or body.count("return ") != 1:
             raise AssertionError(f"{label}: cleanup may be bypassed")
-        if not re.search(
-            r"cleanup:\s*(?:secure_zero_bytes\([^;]+;\s*)+return ", body
-        ):
+        cleanup = body.split("cleanup:", 1)[1]
+        if "cap_view_release(&view);" not in cleanup:
+            raise AssertionError(f"{label}: retained endpoint is not released")
+        if not re.search(r"cap_view_release\(&view\);", cleanup):
+            raise AssertionError(f"{label}: missing endpoint release")
+        if not re.search(r"secure_zero_bytes\([^;]+;\s*return ", cleanup):
             raise AssertionError(f"{label}: cleanup does not precede return")
         for buffer in buffers:
             pattern = rf"secure_zero_bytes\(\s*{re.escape(buffer)}\s*,\s*sizeof\("
