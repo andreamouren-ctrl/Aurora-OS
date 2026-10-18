@@ -140,6 +140,27 @@ static void test_wait_registration_and_delivery(void) {
     ipc_channel_close(&channel);
 }
 
+static void test_endpoint_delegation(void) {
+    static struct aurora_ipc_channel channel;
+    static struct aurora_cap_table source, target;
+    ipc_channel_init(&channel);
+    cap_table_init(&source);
+    cap_table_init(&target);
+    assert(ipc_endpoint_lifecycle_register());
+    aurora_cap_handle original = cap_grant(
+        &source, ipc_channel_endpoint(&channel, 0u),
+        AURORA_CAP_IPC_ENDPOINT, AURORA_RIGHT_READ | AURORA_RIGHT_TRANSFER);
+    assert(original != AURORA_CAP_INVALID);
+    aurora_cap_handle copy = cap_delegate(
+        &source, original, &target, AURORA_RIGHT_READ);
+    assert(copy != AURORA_CAP_INVALID);
+    assert(channel.active_refs == 2u);
+    assert(cap_revoke(&target, copy));
+    assert(cap_revoke(&source, original));
+    ipc_channel_close(&channel);
+    assert(ipc_channel_quiescent(&channel));
+}
+
 static void test_endpoint_lifetime(void) {
     static struct aurora_ipc_channel channel;
     static struct aurora_cap_table owner;
@@ -170,5 +191,6 @@ int main(void) {
     assert(ipc_self_test());
     test_wait_registration_and_delivery();
     test_endpoint_lifetime();
+    test_endpoint_delegation();
     return 0;
 }
