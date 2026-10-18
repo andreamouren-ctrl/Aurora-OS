@@ -149,17 +149,31 @@ bool service_supervisor_start(struct aurora_service_supervisor *supervisor) {
 bool service_supervisor_step(struct aurora_service_supervisor *supervisor) {
     if (supervisor == NULL) return false;
 
-    if (supervisor->state != AURORA_SERVICE_SUPERVISOR_RUNNING) return true;
-    if (supervisor->service.thread == 0u || supervisor->service.process == NULL) {
+    if (supervisor->state == AURORA_SERVICE_SUPERVISOR_DRAINING) {
+        if (!finish_draining_instance(supervisor)) {
+            supervisor->state = AURORA_SERVICE_SUPERVISOR_FAILED;
+            return false;
+        }
+        if (supervisor->state == AURORA_SERVICE_SUPERVISOR_DRAINING)
+            return true;
+    } else if (supervisor->state != AURORA_SERVICE_SUPERVISOR_RUNNING) {
+        return true;
+    }
+    if (supervisor->state == AURORA_SERVICE_SUPERVISOR_RUNNING &&
+        (supervisor->service.thread == 0u || supervisor->service.process == NULL)) {
         supervisor->state = AURORA_SERVICE_SUPERVISOR_FAILED;
         return false;
     }
 
-    if (!scheduler_thread_finished(supervisor->service.thread)) return true;
-
-    if (!reap_terminal_instance(supervisor)) {
-        supervisor->state = AURORA_SERVICE_SUPERVISOR_FAILED;
-        return false;
+    if (supervisor->state == AURORA_SERVICE_SUPERVISOR_RUNNING) {
+        if (!scheduler_thread_finished(supervisor->service.thread)) return true;
+        if (!reap_terminal_instance(supervisor) ||
+            !finish_draining_instance(supervisor)) {
+            supervisor->state = AURORA_SERVICE_SUPERVISOR_FAILED;
+            return false;
+        }
+        if (supervisor->state == AURORA_SERVICE_SUPERVISOR_DRAINING)
+            return true;
     }
 
     if (!restart_allowed(supervisor)) return true;
