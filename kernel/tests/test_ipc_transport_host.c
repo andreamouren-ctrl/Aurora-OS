@@ -155,6 +155,7 @@ static void test_endpoint_lifetime(void) {
                              AURORA_RIGHT_READ, &view));
     assert(channel.active_refs == 2u);
     ipc_channel_close(&channel);
+    assert(channel.teardown_complete);
     assert(!ipc_channel_quiescent(&channel));
     struct aurora_capability_view rejected_view = {0};
     assert(!cap_lookup_retain(&owner, handle, AURORA_CAP_IPC_ENDPOINT,
