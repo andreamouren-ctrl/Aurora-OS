@@ -17,6 +17,7 @@ enum aurora_service_supervisor_state {
     AURORA_SERVICE_SUPERVISOR_UNINITIALIZED = 0,
     AURORA_SERVICE_SUPERVISOR_STOPPED,
     AURORA_SERVICE_SUPERVISOR_RUNNING,
+    AURORA_SERVICE_SUPERVISOR_DRAINING,
     AURORA_SERVICE_SUPERVISOR_EXITED,
     AURORA_SERVICE_SUPERVISOR_FAULTED,
     AURORA_SERVICE_SUPERVISOR_FAILED
@@ -35,6 +36,7 @@ struct aurora_service_supervisor {
 
     struct aurora_process_result last_result;
     bool has_last_result;
+    struct aurora_process_result draining_result;
 };
 
 bool service_supervisor_init(
