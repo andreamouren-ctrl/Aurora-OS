@@ -23,3 +23,9 @@ Remove demonstrably unnecessary tracked files while preserving build inputs, run
 
 ## Initial disposition
 **No file deletions in this pass.** Available connector exposes targeted file fetch and indexed search but has not yielded a complete recursive Git tree; deleting source or assets now would be speculative. This report is a scoped, auditable starting point, not a claim of a complete repository audit.
+
+## Reproducible local inventory tool
+- Added `scripts/audit-tracked-files.py` on this audit branch. Run from a **complete checkout** with `python3 scripts/audit-tracked-files.py --output tracked-inventory.json` (do not commit the output unless reviewed).
+- The script reads NUL-delimited `git ls-files --cached`, checks tracked paths, hashes present regular files, and reports byte-identical groups and generated/cache-pattern candidates as **review-only**, never deletes files.
+- It reports missing worktree paths separately; do not interpret sparse checkout omissions as safe deletions. Identical content does not establish equivalent runtime roles.
+- Tool added but **not yet executed against a full checkout** because this session cannot resolve `github.com` for cloning. No deletion approval or build verification follows from adding the script.
