@@ -1,0 +1,44 @@
+name: CI Runner Isolation
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ci-runner-isolation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runner-without-checkout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Runner reached a shell
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo "AURORA_CI_RUNNER_STARTED"
+          uname -a
+          printf 'UTC timestamp: '; date -u
+          command -v bash
+          command -v git
+          command -v python3
+          echo "AURORA_CI_RUNNER_FINISHED"
+  runner-with-checkout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Runner reached pre-checkout shell
+        run: echo "AURORA_CI_PRE_CHECKOUT"
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify checked-out project
+        run: |
+          set -eu
+          test -f Makefile
+          test -f kernel/Makefile
+          git rev-parse HEAD
+          echo "AURORA_CI_CHECKOUT_OK"
