@@ -1,0 +1,33 @@
+name: Repository Hygiene Inventory
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Generate read-only tracked inventory
+        run: |
+          python3 scripts/audit-tracked-files.py --output "$RUNNER_TEMP/aurora-tracked-inventory.json"
+          python3 - "$RUNNER_TEMP/aurora-tracked-inventory.json" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          print("Tracked files:", data["tracked_count"])
+          print("Tracked bytes present:", data["present_bytes"])
+          print("Pattern candidates:", len(data["candidate_patterns_review_only"]))
+          print("Identical-content groups:", len(data["byte_identical_groups_review_only"]))
+          print("Missing paths:", len(data["missing_from_worktree"]))
+          PY
+      - name: Upload inventory for manual review
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurora-tracked-inventory
+          path: ${{ runner.temp }}/aurora-tracked-inventory.json
+          retention-days: 14
