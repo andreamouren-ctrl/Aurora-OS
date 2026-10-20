@@ -23,3 +23,20 @@ Scope: read-only inspection of current `main` source files `kernel/src/mm/userco
 
 ## Environment limitation
 Direct git clone failed due unavailable DNS/network access in the execution container. GitHub connector was used for source inspection; no build or runtime validation is claimed.
+
+## Second pass — VMM/capability lifetime (2026-10-20)
+Reviewed `kernel/src/mm/vmm.c`, `kernel/src/process/process_memory.c`, `kernel/src/security/capability.c`, `kernel/src/graphics/graphics_surface.c`, `docs/RING3_USER_MEMORY.md`, and `docs/RING3_IPC_SYSCALLS.md`.
+
+### Confirmed contract: do not misreport as a new defect
+- `vmm_query_in` acquires `vmm_lock` for each lookup, **not across** both usercopy passes. The documented usercopy guarantee is invalid-range failure atomicity **under stable mappings**, explicitly not concurrent mutation atomicity. The documented current process model has one main Ring 3 user thread. Future multithreading requires a stable mapping lease/pin. Do not silently add a heavyweight lock or claim a present exploit.
+- IPC final-copy failure is explicitly a **destructive receive**: the message is not requeued; the ABI documents this and calls for fault-injection regression. Do not change queue semantics without an ADR/ABI update.
+- `cap_delegate` explicitly locks source and target tables in deterministic address order to avoid source-revoke TOCTOU. `cap_lookup_retain` and `cap_view_release` exist for lifetime-aware consumers; inspect individual call sites for correct ownership, rather than treating all lookups as unsafe.
+- `process_user_memory_free` uses anonymous-range state transitions and VMM unmap/free. Need to check the exact intermediate state and its interaction with other address-space users before any concurrency change.
+
+### Narrow next tests
+1. Inspect `cap_lookup_retain` callers, lifetime registrations, and any bare `cap_lookup` call that uses a potentially reclaimable object after dropping the table lock.
+2. Add a deterministic host or QEMU fault-injection probe for the already-documented IPC post-dequeue usercopy failure, asserting new handles revoked, unrelated handles untouched, and no replay.
+3. Verify graphics callback delivery contract and add an analogous failure-path probe only if its semantics differ from the documented at-most-once behavior.
+4. Add future multi-threading gate to usercopy documentation: no concurrent unmap/free until mapping pin/lease exists; retain existing single-thread QEMU regression.
+
+**Disposition:** documentation-aligned review, not a confirmed vulnerability or a completed code fix. No build/QEMU run performed.
