@@ -29,3 +29,8 @@ Remove demonstrably unnecessary tracked files while preserving build inputs, run
 - The script reads NUL-delimited `git ls-files --cached`, checks tracked paths, hashes present regular files, and reports byte-identical groups and generated/cache-pattern candidates as **review-only**, never deletes files.
 - It reports missing worktree paths separately; do not interpret sparse checkout omissions as safe deletions. Identical content does not establish equivalent runtime roles.
 - Tool added but **not yet executed against a full checkout** because this session cannot resolve `github.com` for cloning. No deletion approval or build verification follows from adding the script.
+
+## CI inventory workflow (prepared, not executed)
+- Added `.github/workflows/repository-hygiene-inventory.yml`, a manually dispatched, read-only inventory job with `contents: read`. It runs the script and uploads a JSON artifact for human review; no delete or commit action is present.
+- This workflow is **branch-only**. GitHub's `workflow_dispatch` generally requires the workflow to exist on the default branch before it can be dispatched from the Actions UI. Do not claim a run has occurred or merge solely to enable it; use a local full checkout first if CI cannot dispatch it safely.
+- The repository clone was retried on 2026-10-20 and still failed with DNS resolution for `github.com`; a complete tree inventory is still unavailable.
