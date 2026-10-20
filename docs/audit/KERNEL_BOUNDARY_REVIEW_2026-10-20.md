@@ -40,3 +40,11 @@ Reviewed `kernel/src/mm/vmm.c`, `kernel/src/process/process_memory.c`, `kernel/s
 4. Add future multi-threading gate to usercopy documentation: no concurrent unmap/free until mapping pin/lease exists; retain existing single-thread QEMU regression.
 
 **Disposition:** documentation-aligned review, not a confirmed vulnerability or a completed code fix. No build/QEMU run performed.
+
+## CI triage — PR #221 (2026-10-20)
+- Tested head: `c212187f88d377f3004ab8298a169f7f42989b01`; base `main`: `b3575500d94eca59d55d45a492ba292ff53f069f`.
+- PR-triggered workflow query on head returned seven completed failures, including Bootstrap Build run `39371131214`. The equivalent query for the base commit returned no runs; this is **not** proof that base is green.
+- Re-ran failed Bootstrap Build jobs via GitHub Actions; the new job `118459509764` also completed with `failure`.
+- For the new job, the steps endpoint returned an empty list; fetching its logs failed with GitHub storage `BlobNotFound` (HTTP 404). Root cause **unknown**: do not assert compiler failure, test regression, or confirmed GitHub outage.
+- Workflow source `.github/workflows/build.yml` uses `actions/checkout@v4` and notes prior pre-step failures with checkout v6/v7. This is background only, not current causal evidence.
+- Gate: leave PR #221 draft; collect runner diagnostics and a reproducible baseline comparison before merge. No QEMU acceptance can be claimed.
