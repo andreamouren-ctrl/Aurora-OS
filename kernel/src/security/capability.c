@@ -736,5 +736,31 @@ bool capability_self_test(void) {
         return false;
     }
 
+    /* Revocation invalidates the original generation, not a replacement
+     * occupying the same slot. A stale handle must not revoke or reduce
+     * the new owner's rights. */
+    if (cap_revoke(&source, source_handle) ||
+        cap_reduce_rights(&source, source_handle, 0u) ||
+        !cap_lookup(&source, replacement, AURORA_CAP_DEVICE,
+                    AURORA_RIGHT_READ, &view)) {
+        return false;
+    }
+
+    /* Delegation creates an independent receiver handle: revoking the
+     * sender does not silently revoke an already delegated capability. */
+    if (!cap_lookup(&target, delegated, AURORA_CAP_DEVICE,
+                    AURORA_RIGHT_READ, &view) ||
+        cap_lookup(&target, delegated, AURORA_CAP_DEVICE,
+                   AURORA_RIGHT_CONTROL, &view)) {
+        return false;
+    }
+
+    if (!cap_revoke(&target, delegated) ||
+        cap_lookup(&target, delegated, AURORA_CAP_DEVICE, 0u, &view) ||
+        !cap_lookup(&source, replacement, AURORA_CAP_DEVICE,
+                    AURORA_RIGHT_READ, &view)) {
+        return false;
+    }
+
     return true;
 }
